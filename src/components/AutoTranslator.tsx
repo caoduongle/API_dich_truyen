@@ -3,7 +3,7 @@ import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter } from '../typ
 import {
   Play, Pause, Sliders, Database, Cpu, Layers, Download,
   Check, RefreshCw, Sparkles, ChevronRight, FileText, ListOrdered,
-  Square, Clock, Zap, BookOpen
+  Square, Clock, Zap, BookOpen, Eye, X
 } from 'lucide-react';
 
 // Nhập khẩu các kiến trúc thành phần giao diện đã được phân rã để giảm tải dung lượng file
@@ -48,6 +48,10 @@ export default function AutoTranslator({
   const [applyGlossaryRangeEnabled, setApplyGlossaryRangeEnabled] = useState<boolean>(false);
   const [applyGlossaryRangeStart, setApplyGlossaryRangeStart] = useState<number>(1);
   const [applyGlossaryRangeEnd, setApplyGlossaryRangeEnd] = useState<number>(() => activeProject.chapters.length || 1);
+
+  // Modal xem chi tiết diff
+  const [isDiffModalOpen, setIsDiffModalOpen] = useState<boolean>(false);
+  const [diffModalChapterIndex, setDiffModalChapterIndex] = useState<number>(0);
 
   // Phạm vi rà soát thuật ngữ
   const [scanRangeEnabled, setScanRangeEnabled] = useState<boolean>(false);
@@ -1081,10 +1085,30 @@ export default function AutoTranslator({
               </div>
 
               {applyGlossaryResult && !isApplyingGlossary && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-900 flex items-center gap-2">
-                  <Check className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span>Đã thay <strong>{applyGlossaryResult.replaced}</strong> thuật ngữ trên <strong>{applyGlossaryResult.chapters}</strong> chương.</span>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-900 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Đã thay <strong>{applyGlossaryResult.replaced}</strong> thuật ngữ trên <strong>{applyGlossaryResult.chapters}</strong> chương.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setDiffModalChapterIndex(0); setIsDiffModalOpen(true); }}
+                    className="flex items-center gap-1 text-amber-700 hover:text-amber-900 font-bold shrink-0 border border-amber-300 bg-white px-2 py-0.5 rounded cursor-pointer hover:bg-amber-50 transition-colors"
+                  >
+                    <Eye className="w-3 h-3" /> Xem chi tiết
+                  </button>
                 </div>
+              )}
+
+              {/* Nút xem chi tiết khi chưa có kết quả mới nhưng đã có chương được xử lý */}
+              {!applyGlossaryResult && projectRef.current.chapters.some(c => c.processedSourceText) && (
+                <button
+                  type="button"
+                  onClick={() => { setDiffModalChapterIndex(0); setIsDiffModalOpen(true); }}
+                  className="w-full flex items-center justify-center gap-1.5 border border-amber-200 text-amber-700 hover:bg-amber-50 font-bold px-3 py-1.5 rounded text-xs cursor-pointer transition-colors"
+                >
+                  <Eye className="w-3.5 h-3.5" /> Xem chi tiết các chương đã xử lý
+                </button>
               )}
 
               <button
@@ -1294,6 +1318,128 @@ export default function AutoTranslator({
             )}
           </div>
         </div>
+
+        {/* Modal xem chi tiết diff sourceText vs processedSourceText */}
+        {isDiffModalOpen && (() => {
+          const processedChapters = projectRef.current.chapters.filter(c => c.processedSourceText);
+          if (processedChapters.length === 0) return null;
+          const safeIdx = Math.min(diffModalChapterIndex, processedChapters.length - 1);
+          const chap = processedChapters[safeIdx];
+          const glossary = projectRef.current.glossary;
+
+          // Tìm các từ đã được thay trong chương này
+          const replacedTerms = glossary.filter(item => {
+            if (!item.chinese || !item.vietnamese) return false;
+            return chap.sourceText.includes(item.chinese);
+          });
+
+          // Highlight processedSourceText: bọc các từ đã thay bằng span màu
+          const buildHighlightedHtml = (text: string) => {
+            let result = text;
+            const sorted = [...glossary]
+              .filter(i => i.vietnamese)
+              .sort((a, b) => b.vietnamese.length - a.vietnamese.length);
+            const placeholder: Record<string, string> = {};
+            sorted.forEach((item, idx) => {
+              if (!item.vietnamese) return;
+              const escaped = item.vietnamese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const key = `««TERM_${idx}»»`;
+              result = result.replace(new RegExp(escaped, 'g'), key);
+              placeholder[key] = `<mark class="bg-amber-200 text-amber-900 rounded px-0.5 font-bold">${item.vietnamese}</mark>`;
+            });
+            Object.entries(placeholder).forEach(([k, v]) => {
+              result = result.replace(new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), v);
+            });
+            return result;
+          };
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-amber-600" />
+                    <h2 className="text-sm font-bold text-slate-900">Kiểm tra thay thế từ điển vào văn bản gốc</h2>
+                    <span className="text-[10px] bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full font-bold">{processedChapters.length} chương đã xử lý</span>
+                  </div>
+                  <button onClick={() => setIsDiffModalOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer">
+                    <X className="w-4 h-4 text-slate-500" />
+                  </button>
+                </div>
+
+                {/* Chapter selector */}
+                <div className="px-5 py-2.5 border-b border-slate-100 shrink-0 flex items-center gap-3">
+                  <span className="text-xs font-bold text-slate-600 shrink-0">Chương:</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-1">
+                    {processedChapters.map((c, idx) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setDiffModalChapterIndex(idx)}
+                        className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
+                          idx === safeIdx
+                            ? 'bg-amber-500 border-amber-500 text-white'
+                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {c.title.length > 20 ? c.title.slice(0, 20) + '…' : c.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Từ đã thay */}
+                {replacedTerms.length > 0 && (
+                  <div className="px-5 py-2.5 border-b border-slate-100 shrink-0 bg-amber-50/50">
+                    <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider mb-1.5">Thuật ngữ được thay trong chương này ({replacedTerms.length}):</p>
+                    <div className="flex flex-wrap gap-1.5 max-h-16 overflow-y-auto">
+                      {replacedTerms.map(item => (
+                        <span key={item.id} className="inline-flex items-center gap-1 bg-white border border-amber-200 rounded px-2 py-0.5 text-[11px] font-semibold">
+                          <code className="text-rose-600 font-bold font-mono text-[10px]">{item.chinese}</code>
+                          <ChevronRight className="w-2.5 h-2.5 text-amber-400" />
+                          <span className="text-amber-900 font-bold">{item.vietnamese}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Diff view */}
+                <div className="grid grid-cols-2 flex-1 overflow-hidden">
+                  {/* Cột trái: sourceText gốc */}
+                  <div className="flex flex-col border-r border-slate-200 overflow-hidden">
+                    <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 shrink-0">
+                      <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">● Văn bản gốc (sourceText)</span>
+                    </div>
+                    <pre className="flex-1 overflow-y-auto p-4 text-xs text-slate-700 font-mono leading-relaxed whitespace-pre-wrap break-words">{chap.sourceText}</pre>
+                  </div>
+
+                  {/* Cột phải: processedSourceText có highlight */}
+                  <div className="flex flex-col overflow-hidden">
+                    <div className="px-4 py-2 bg-amber-50 border-b border-amber-100 shrink-0">
+                      <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">● Đã áp dụng từ điển (processedSourceText)</span>
+                    </div>
+                    <div
+                      className="flex-1 overflow-y-auto p-4 text-xs text-slate-700 font-mono leading-relaxed whitespace-pre-wrap break-words"
+                      dangerouslySetInnerHTML={{ __html: buildHighlightedHtml(chap.processedSourceText || '') }}
+                    />
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 py-3 border-t border-slate-200 shrink-0 flex justify-end">
+                  <button
+                    onClick={() => setIsDiffModalOpen(false)}
+                    className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Khối Floating Drive Progress Monitor Widget (Sub-component đã bóc tách độc lập) */}
         <DriveProgressWidget
