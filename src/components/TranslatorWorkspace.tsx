@@ -33,6 +33,8 @@ export default function TranslatorWorkspace({
   const [copiedPolished, setCopiedPolished] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [autoDiscoveredTerms, setAutoDiscoveredTerms] = useState<GlossaryItem[]>([]);
+  const [isApplyingGlossary, setIsApplyingGlossary] = useState(false);
+  const [applyGlossaryCount, setApplyGlossaryCount] = useState<number | null>(null);
 
   // Suggested Glossary items state (from analysis)
   const [suggestions, setSuggestions] = useState<Omit<GlossaryItem, 'id'>[]>([]);
@@ -338,6 +340,43 @@ export default function TranslatorWorkspace({
     alert(`Đã lưu trữ thành công chương: "${finalTitle}" vào bộ nhớ lưu trữ lịch sử dịch.`);
   };
 
+  const handleApplyGlossaryToRaw = () => {
+    if (!rawTranslation.trim()) {
+      alert('Chưa có bản dịch thô để áp dụng!');
+      return;
+    }
+    if (activeProject.glossary.length === 0) {
+      alert('Từ điển dự án đang trống!');
+      return;
+    }
+
+    setIsApplyingGlossary(true);
+    setApplyGlossaryCount(null);
+
+    setTimeout(() => {
+      // Sắp xếp từ dài trước để tránh thay nhầm substring
+      const sortedGlossary = [...activeProject.glossary].sort(
+        (a, b) => b.chinese.length - a.chinese.length
+      );
+
+      let result = rawTranslation;
+      let replacedCount = 0;
+
+      sortedGlossary.forEach((item) => {
+        if (!item.chinese || !item.vietnamese) return;
+        const escaped = item.chinese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'g');
+        const before = result;
+        result = result.replace(regex, item.vietnamese);
+        if (result !== before) replacedCount++;
+      });
+
+      setRawTranslation(result);
+      setApplyGlossaryCount(replacedCount);
+      setIsApplyingGlossary(false);
+    }, 300);
+  };
+
   const handleCopyText = (text: string, type: 'raw' | 'polished') => {
     if (!text) return;
     navigator.clipboard.writeText(text);
@@ -578,6 +617,40 @@ export default function TranslatorWorkspace({
                     onChange={(e) => setRawTranslation(e.target.value)}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 font-sans leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-600/20 focus:bg-white focus:border-indigo-600 transition-all resize-y"
                   />
+
+                  <button
+                    type="button"
+                    disabled={!rawTranslation || activeProject.glossary.length === 0 || isApplyingGlossary}
+                    onClick={handleApplyGlossaryToRaw}
+                    className="w-full flex items-center justify-center gap-1.5 border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold px-3 py-2 rounded transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-xs"
+                    title={activeProject.glossary.length === 0 ? 'Từ điển dự án đang trống' : 'Thay thế các từ tiếng Trung trong bản dịch thô bằng bản dịch từ từ điển'}
+                  >
+                    {isApplyingGlossary ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                        Đang áp dụng từ điển...
+                      </>
+                    ) : (
+                      <>
+                        <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                        Áp dụng từ điển vào raw
+                        {activeProject.glossary.length > 0 && (
+                          <span className="ml-1 bg-indigo-200 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                            {activeProject.glossary.length} từ
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </button>
+
+                  {applyGlossaryCount !== null && !isApplyingGlossary && (
+                    <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-3 py-2 text-xs flex items-center gap-2">
+                      <BookOpen className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span>
+                        Đã thay thế thành công <strong>{applyGlossaryCount}</strong> thuật ngữ từ từ điển vào bản dịch thô.
+                      </span>
+                    </div>
+                  )}
 
                   {rawTranslation && (
                     <div className="space-y-2">
