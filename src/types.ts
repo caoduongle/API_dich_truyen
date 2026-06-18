@@ -40,9 +40,10 @@ export interface Chapter {
     id: string;
     title: string;
     // --- Full-chapter 2-phase translation (primary workflow) ---
-    sourceText: string;         // Original Chinese text block
-    rawTranslation: string;     // Phase 1: raw translation
-    polishedTranslation: string;// Phase 2: polished literary output
+    sourceText: string;           // Original Chinese text block
+    processedSourceText?: string; // sourceText after glossary pre-replacement (used by auto-translator if set)
+    rawTranslation: string;       // Phase 1: raw translation
+    polishedTranslation: string;  // Phase 2: polished literary output
     // --- Parallel line-by-line view (secondary/export helper) ---
     paragraphs: string[];       // sourceText split into paragraphs
     translatedLines: string[];  // Matching Vietnamese for each paragraph

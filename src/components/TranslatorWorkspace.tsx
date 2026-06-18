@@ -33,8 +33,8 @@ export default function TranslatorWorkspace({
   const [copiedPolished, setCopiedPolished] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [autoDiscoveredTerms, setAutoDiscoveredTerms] = useState<GlossaryItem[]>([]);
-  const [isApplyingGlossary, setIsApplyingGlossary] = useState(false);
-  const [applyGlossaryCount, setApplyGlossaryCount] = useState<number | null>(null);
+  const [isApplyingGlossaryToSource, setIsApplyingGlossaryToSource] = useState(false);
+  const [applyGlossarySourceCount, setApplyGlossarySourceCount] = useState<number | null>(null);
 
   // Suggested Glossary items state (from analysis)
   const [suggestions, setSuggestions] = useState<Omit<GlossaryItem, 'id'>[]>([]);
@@ -340,9 +340,9 @@ export default function TranslatorWorkspace({
     alert(`Đã lưu trữ thành công chương: "${finalTitle}" vào bộ nhớ lưu trữ lịch sử dịch.`);
   };
 
-  const handleApplyGlossaryToRaw = () => {
-    if (!rawTranslation.trim()) {
-      alert('Chưa có bản dịch thô để áp dụng!');
+  const handleApplyGlossaryToSource = () => {
+    if (!sourceText.trim()) {
+      alert('Chưa có văn bản tiếng Trung gốc để áp dụng!');
       return;
     }
     if (activeProject.glossary.length === 0) {
@@ -350,8 +350,8 @@ export default function TranslatorWorkspace({
       return;
     }
 
-    setIsApplyingGlossary(true);
-    setApplyGlossaryCount(null);
+    setIsApplyingGlossaryToSource(true);
+    setApplyGlossarySourceCount(null);
 
     setTimeout(() => {
       // Sắp xếp từ dài trước để tránh thay nhầm substring
@@ -359,7 +359,7 @@ export default function TranslatorWorkspace({
         (a, b) => b.chinese.length - a.chinese.length
       );
 
-      let result = rawTranslation;
+      let result = sourceText;
       let replacedCount = 0;
 
       sortedGlossary.forEach((item) => {
@@ -371,9 +371,9 @@ export default function TranslatorWorkspace({
         if (result !== before) replacedCount++;
       });
 
-      setRawTranslation(result);
-      setApplyGlossaryCount(replacedCount);
-      setIsApplyingGlossary(false);
+      setSourceText(result);
+      setApplyGlossarySourceCount(replacedCount);
+      setIsApplyingGlossaryToSource(false);
     }, 300);
   };
 
@@ -496,7 +496,16 @@ export default function TranslatorWorkspace({
             )}
           </div>
 
-          {/* Quick instructions mobile view placeholder */}
+          {applyGlossarySourceCount !== null && !isApplyingGlossaryToSource && (
+            <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-3 py-2 text-xs flex items-center gap-2">
+              <BookOpen className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span>
+                Đã thay thế thành công <strong>{applyGlossarySourceCount}</strong> thuật ngữ từ từ điển vào văn bản gốc.
+              </span>
+            </div>
+          )}
+
+          {/* Quick instructions mobile view placeholder */
           <div className="sm:hidden flex items-center gap-1 text-[11px] text-slate-500 overflow-x-auto pb-1">
             <span className="shrink-0 font-medium">Quick load:</span>
             {CHINESE_EXAMPLES.map((ex, idx) => (
@@ -512,7 +521,32 @@ export default function TranslatorWorkspace({
 
           {/* Core Action buttons */}
           <div className="flex flex-col sm:flex-row gap-2 pt-1">
-            
+
+            <button
+              type="button"
+              disabled={!sourceText || activeProject.glossary.length === 0 || isApplyingGlossaryToSource}
+              onClick={handleApplyGlossaryToSource}
+              className="w-full flex items-center justify-center gap-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold px-3 py-2 rounded transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-xs"
+              title={activeProject.glossary.length === 0 ? 'Từ điển dự án đang trống' : 'Thay thế các từ tiếng Trung trong văn bản gốc bằng bản dịch từ từ điển'}
+            >
+              {isApplyingGlossaryToSource ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-700" />
+                  Đang áp dụng từ điển...
+                </>
+              ) : (
+                <>
+                  <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                  Áp dụng từ điển vào raw
+                  {activeProject.glossary.length > 0 && (
+                    <span className="ml-1 bg-amber-200 text-amber-900 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                      {activeProject.glossary.length} từ
+                    </span>
+                  )}
+                </>
+              )}
+            </button>
+
             <button
               id="btn-analyze-names"
               disabled={isAnalyzing || !sourceText}
