@@ -505,7 +505,7 @@ export default function TranslatorWorkspace({
             </div>
           )}
 
-          {/* Quick instructions mobile view placeholder */
+          {/* Quick instructions mobile view placeholder */}
           <div className="sm:hidden flex items-center gap-1 text-[11px] text-slate-500 overflow-x-auto pb-1">
             <span className="shrink-0 font-medium">Quick load:</span>
             {CHINESE_EXAMPLES.map((ex, idx) => (
