@@ -51,3 +51,12 @@ html {
   background: #64748b;
   cursor: grabbing;
 }
+
+/* LỚP ẨN THANH CUỘN NHƯNG VẪN CHO PHÉP TRƯỢT */
+.scrollbar-none {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* Chrome, Safari và Opera */
+}

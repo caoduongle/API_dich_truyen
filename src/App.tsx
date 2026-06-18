@@ -1,4 +1,5 @@
 import React, { useState, startTransition, useCallback, memo } from 'react';
+import { Chapter } from './types';
 import ProjectList from './components/ProjectList';
 import GlossaryManager from './components/GlossaryManager';
 import TranslatorWorkspace from './components/TranslatorWorkspace';
@@ -16,6 +17,7 @@ import {
 const MemoTranslatorWorkspace = memo(TranslatorWorkspace);
 const MemoAutoTranslator      = memo(AutoTranslator);
 const MemoProjectList         = memo(ProjectList);
+const MemoChapterHistoryPanel = memo(ChapterHistoryPanel);
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'translate' | 'glossary' | 'projects' | 'history' | 'auto-translate'>('translate');
@@ -52,6 +54,8 @@ export default function App() {
     handleImportClipboardKeys
   } = useAIConfig();
 
+  const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
+
   // Dùng startTransition: React ưu tiên giữ UI responsive, render tab mới như "background work"
   const switchTab = useCallback((tab: typeof activeTab) => {
     startTransition(() => setActiveTab(tab));
@@ -59,20 +63,33 @@ export default function App() {
 
   // Các handler tổ hợp bọc useCallback — tránh tạo function mới mỗi render,
   // đảm bảo React.memo trên ProjectList hoạt động đúng.
-  const handleGoToTranslate = useCallback(() => switchTab('translate'), [switchTab]);
+  const handleGoToTranslate = useCallback((chapter?: Chapter) => {
+    if (chapter) {
+      setLoadedChapter(chapter);
+    } else {
+      setLoadedChapter(null);
+    }
+    switchTab('translate');
+  }, [switchTab]);
 
   const handleSelectProjectAndSwitch = useCallback((id: string) => {
+    setLoadedChapter(null);
     handleSelectProject(id);
     switchTab('translate');
   }, [handleSelectProject, switchTab]);
 
   const handleCreateProjectAndSwitch = useCallback(
     (data: Parameters<typeof handleCreateProject>[0]) => {
+      setLoadedChapter(null);
       handleCreateProject(data);
       switchTab('translate');
     },
     [handleCreateProject, switchTab]
   );
+
+  const handleClearLoadedChapter = useCallback(() => {
+    setLoadedChapter(null);
+  }, []);
 
   if (isLoading) {
     return (
@@ -211,6 +228,8 @@ export default function App() {
                 onUpdateProject={handleUpdateProject}
                 apiKeys={apiKeys}
                 selectedModel={selectedModel}
+                loadedChapter={loadedChapter}
+                onClearLoadedChapter={handleClearLoadedChapter}
               />
             </div>
 
@@ -249,15 +268,16 @@ export default function App() {
                 onSelectProject={handleSelectProjectAndSwitch}
                 onDeleteProject={handleDeleteProject}
                 onCreateProject={handleCreateProjectAndSwitch}
+                onUpdateProject={handleUpdateProject}
                 apiKeys={apiKeys}
                 selectedModel={selectedModel}
               />
             </div>
 
             <div className={activeTab !== 'history' ? 'hidden' : ''}>
-              <ChapterHistoryPanel
-                chapters={activeProject.chapters}
-                projectTitle={activeProject.title}
+              <MemoChapterHistoryPanel
+                activeProject={activeProject}
+                onUpdateProject={handleUpdateProject}
                 onDeleteChapterHistory={handleDeleteChapterHistory}
                 onGoToTranslate={handleGoToTranslate}
               />
@@ -270,6 +290,7 @@ export default function App() {
             onSelectProject={handleSelectProjectAndSwitch}
             onDeleteProject={handleDeleteProject}
             onCreateProject={handleCreateProjectAndSwitch}
+            onUpdateProject={handleUpdateProject}
             apiKeys={apiKeys}
             selectedModel={selectedModel}
           />

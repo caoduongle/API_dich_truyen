@@ -1,16 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
 import { StoryProject, GlossaryItem, GlossaryType, Chapter } from '../types';
+import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
+import { Edit3, AlertCircle } from 'lucide-react';
+
+// Sub-components
+import { ProjectMetadataModal } from './translator-workspace/ProjectMetadataModal';
+import { ImportChaptersModal } from './translator-workspace/ImportChaptersModal';
+import { BilingualEditor } from './translator-workspace/BilingualEditor';
+import { GlossarySidebar } from './translator-workspace/GlossarySidebar';
+import { SuggestionsDrawer } from './translator-workspace/SuggestionsDrawer';
+
 import { CHINESE_EXAMPLES } from '../data/examples';
-import { 
-  Sparkles, Languages, ChevronRight, Copy, Check, Save, Play, 
-  RefreshCw, AlertCircle, HelpCircle, BookOpen, FileText, Plus, Info, Edit3 
-} from 'lucide-react';
 
 interface TranslatorWorkspaceProps {
   activeProject: StoryProject;
   onUpdateProject: (updated: StoryProject) => void;
   apiKeys: string[];
   selectedModel: string;
+  loadedChapter?: Chapter | null;
+  onClearLoadedChapter?: () => void;
 }
 
 export default function TranslatorWorkspace({
@@ -18,12 +26,38 @@ export default function TranslatorWorkspace({
   onUpdateProject,
   apiKeys,
   selectedModel,
+  loadedChapter,
+  onClearLoadedChapter,
 }: TranslatorWorkspaceProps) {
   const [sourceText, setSourceText] = useState('');
+  const [originalSourceText, setOriginalSourceText] = useState('');
+  const [isGlossaryApplied, setIsGlossaryApplied] = useState(false);
+  const [isExtractionEnabled, setIsExtractionEnabled] = useState(true);
   const [rawTranslation, setRawTranslation] = useState('');
   const [polishedTranslation, setPolishedTranslation] = useState('');
   const [additionalInstructions, setAdditionalInstructions] = useState('');
   const [chapterTitle, setChapterTitle] = useState('');
+
+  // Local states for optimized glossary helper filtering
+  const [glossarySearch, setGlossarySearch] = useState('');
+  const [onlyShowMatching, setOnlyShowMatching] = useState(false);
+  const deferredSourceText = useDeferredValue(sourceText);
+
+  // States for Editing Project Metadata Modal
+  const [isEditingMetadata, setIsEditingMetadata] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editAuthor, setEditAuthor] = useState('');
+  const [editGenre, setEditGenre] = useState('');
+  const [editTone, setEditTone] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+
+  // States for importing chapters from a new file inside workspace
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importedFileName, setImportedFileName] = useState('');
+  const [parsedImportChapters, setParsedImportChapters] = useState<{ title: string; sourceText: string }[]>([]);
+  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const [importSplitMethod, setImportSplitMethod] = useState<'regex' | 'chunk'>('regex');
+  const [isParsingImportFile, setIsParsingImportFile] = useState(false);
 
   // Loading states
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -43,10 +77,11 @@ export default function TranslatorWorkspace({
   // Active viewing stage tab
   const [activeStage, setActiveStage] = useState<'raw' | 'polished'>('raw');
 
-  // Triggering alerts
+  // Triggering alerts/sync on project id change
   useEffect(() => {
-    // Clear outputs if active project changes to prevent mixing chapters
     setSourceText('');
+    setOriginalSourceText('');
+    setIsGlossaryApplied(false);
     setRawTranslation('');
     setPolishedTranslation('');
     setSuggestions([]);
@@ -54,13 +89,158 @@ export default function TranslatorWorkspace({
     setErrorMessage(null);
     setAutoDiscoveredTerms([]);
     setChapterTitle(`Chương ${activeProject.chapters.length + 1}: `);
+
+    setEditTitle(activeProject.title);
+    setEditAuthor(activeProject.author || '');
+    setEditGenre(activeProject.genre);
+    setEditTone(activeProject.tone);
+    setEditDescription(activeProject.description || '');
+
+    setImportedFileName('');
+    setParsedImportChapters([]);
+    setImportMode('append');
+    setImportSplitMethod('regex');
+    setIsParsingImportFile(false);
+    if (importFileRef.current) importFileRef.current.value = '';
   }, [activeProject.id]);
 
-  // Load a preset example helper
-  const handleLoadExample = (index: number) => {
+  // Load a chapter from history when loadedChapter changes
+  useEffect(() => {
+    if (loadedChapter) {
+      setChapterTitle(loadedChapter.title);
+      setSourceText(loadedChapter.sourceText);
+      setOriginalSourceText(loadedChapter.sourceText);
+      setIsGlossaryApplied(false);
+      setRawTranslation(loadedChapter.rawTranslation || '');
+      setPolishedTranslation(loadedChapter.polishedTranslation || '');
+      setSuggestions([]);
+      setSelectedSuggestions({});
+      setErrorMessage(null);
+      setAutoDiscoveredTerms([]);
+      onClearLoadedChapter?.();
+    }
+  }, [loadedChapter]);
+
+  const handleOpenEditModal = useCallback(() => {
+    setEditTitle(activeProject.title);
+    setEditAuthor(activeProject.author || '');
+    setEditGenre(activeProject.genre);
+    setEditTone(activeProject.tone);
+    setEditDescription(activeProject.description || '');
+    
+    setImportedFileName('');
+    setParsedImportChapters([]);
+    setImportMode('append');
+    setImportSplitMethod('regex');
+    setIsParsingImportFile(false);
+    if (importFileRef.current) importFileRef.current.value = '';
+    
+    setIsEditingMetadata(true);
+  }, [activeProject]);
+
+  const handleImportRawFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportedFileName(file.name);
+    setParsedImportChapters([]);
+    setIsParsingImportFile(true);
+
+    try {
+      if (file.name.endsWith('.txt')) {
+        const fullText = await file.text();
+        const chaps = parseTxtContent(fullText, importSplitMethod);
+        setParsedImportChapters(chaps);
+      } else if (file.name.endsWith('.epub')) {
+        const chaps = await parseEpubFile(file);
+        setParsedImportChapters(chaps);
+      } else {
+        alert("Chỉ hỗ trợ định dạng tệp .txt hoặc .epub.");
+        setImportedFileName('');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Lỗi khi đọc file raw gốc: " + err.message);
+      setImportedFileName('');
+    } {
+      setIsParsingImportFile(false);
+    }
+  };
+
+  const handleToggleImportSplitMethod = async (method: 'regex' | 'chunk') => {
+    setImportSplitMethod(method);
+    if (importFileRef.current?.files?.[0] && importFileRef.current.files[0].name.endsWith('.txt')) {
+      setIsParsingImportFile(true);
+      try {
+        const fullText = await importFileRef.current.files[0].text();
+        const chaps = parseTxtContent(fullText, method);
+        setParsedImportChapters(chaps);
+      } catch (err: any) {
+        alert(err.message);
+      } finally {
+        setIsParsingImportFile(false);
+      }
+    }
+  };
+
+  const handleSaveMetadata = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTitle.trim()) {
+      alert("Vui lòng điền tên tiểu thuyết.");
+      return;
+    }
+
+    let updatedChapters = [...activeProject.chapters];
+    if (parsedImportChapters.length > 0) {
+      const newChapters: Chapter[] = parsedImportChapters.map((pc, idx) => ({
+        id: 'chap_file_import_' + Date.now() + '_' + idx,
+        title: pc.title,
+        sourceText: pc.sourceText,
+        rawTranslation: '',
+        polishedTranslation: '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }));
+
+      if (importMode === 'replace') {
+        if (confirm("Hành động này sẽ XÓA TOÀN BỘ lịch sử và bản dịch của các chương cũ trong dự án này để thay thế bằng file mới. Bạn có chắc chắn không?")) {
+          updatedChapters = newChapters;
+        } else {
+          return;
+        }
+      } else {
+        updatedChapters = [...activeProject.chapters, ...newChapters];
+      }
+    }
+
+    const updated = {
+      ...activeProject,
+      title: editTitle.trim(),
+      author: editAuthor.trim() || "Khuyết Danh",
+      genre: editGenre,
+      tone: editTone,
+      description: editDescription.trim(),
+      chapters: updatedChapters
+    };
+    onUpdateProject(updated);
+    setIsEditingMetadata(false);
+
+    setImportedFileName('');
+    setParsedImportChapters([]);
+    if (importFileRef.current) importFileRef.current.value = '';
+
+    if (parsedImportChapters.length > 0) {
+      alert(`Đã cập nhật dự án và ${importMode === 'replace' ? 'thay thế' : 'nhập thêm'} thành công ${parsedImportChapters.length} chương mới!`);
+    } else {
+      alert("Đã cập nhật thông tin dự án thành công!");
+    }
+  };
+
+  const handleLoadExample = useCallback((index: number) => {
     const ex = CHINESE_EXAMPLES[index];
     setSourceText(ex.sourceText);
-    // Suggest updating project settings dynamically to suit the example
+    setOriginalSourceText(ex.sourceText);
+    setIsGlossaryApplied(false);
     const updated = {
       ...activeProject,
       genre: ex.genre,
@@ -68,9 +248,8 @@ export default function TranslatorWorkspace({
     };
     onUpdateProject(updated);
     setErrorMessage(null);
-  };
+  }, [activeProject, onUpdateProject]);
 
-  // 1. Magical Analyze Glossary function
   const handleAnalyzeGlossary = async () => {
     if (!sourceText.trim()) {
       setErrorMessage("Vui lòng điền nội dung chữ Trung Quốc để phân tích.");
@@ -100,7 +279,6 @@ export default function TranslatorWorkspace({
       const data = await response.json();
       if (data.suggestions && Array.isArray(data.suggestions)) {
         setSuggestions(data.suggestions);
-        // Autocheck all suggested items by default
         const checks: Record<number, boolean> = {};
         data.suggestions.forEach((_: any, idx: number) => {
           checks[idx] = true;
@@ -117,12 +295,10 @@ export default function TranslatorWorkspace({
     }
   };
 
-  // Save selected suggestions into project glossary
-  const handleImportSuggestions = () => {
+  const handleImportSuggestions = useCallback(() => {
     const itemsToAdd: GlossaryItem[] = [];
     suggestions.forEach((s, idx) => {
       if (selectedSuggestions[idx]) {
-        // Prevent adding duplicate identical Chinese entries
         const isDuplicate = activeProject.glossary.some(
           (item) => item.chinese === s.chinese
         );
@@ -130,7 +306,7 @@ export default function TranslatorWorkspace({
           itemsToAdd.push({
             ...s,
             id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-            createdAt: new Date().toISOString() // <-- THÊM DÒNG NÀY
+            createdAt: new Date().toISOString()
           });
         }
       }
@@ -146,12 +322,11 @@ export default function TranslatorWorkspace({
       glossary: [...activeProject.glossary, ...itemsToAdd],
     };
     onUpdateProject(updated);
-    setSuggestions([]); // Clear analysis after import
+    setSuggestions([]);
     setSelectedSuggestions({});
     alert(`Đã thêm thành công ${itemsToAdd.length} nhân vật/thuật ngữ vào Từ điển của dự án!`);
-  };
+  }, [suggestions, selectedSuggestions, activeProject, onUpdateProject]);
 
-  // 2. Dịch thô Giai đoạn 1 (Raw Translation)
   const handleTranslateRaw = async () => {
     if (!sourceText.trim()) {
       setErrorMessage("Chưa nhập tiếng Trung gốc.");
@@ -170,6 +345,7 @@ export default function TranslatorWorkspace({
           text: sourceText,
           genre: activeProject.genre,
           tone: activeProject.tone,
+          description: activeProject.description,
           glossary: activeProject.glossary,
           apiKeys,
           model: selectedModel
@@ -184,7 +360,6 @@ export default function TranslatorWorkspace({
       const data = await response.json();
       setRawTranslation(data.rawTranslation || "");
 
-      // Auto-detect and add new terms to project's glossary
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
         data.discoveredEntities.forEach((ent: any) => {
@@ -226,7 +401,6 @@ export default function TranslatorWorkspace({
     }
   };
 
-  // 3. Chuốt văn phong thuần Việt Giai đoạn 2 (Polish Translation)
   const handlePolishTranslation = async () => {
     if (!rawTranslation.trim()) {
       setErrorMessage("Vui lòng thực hiện dịch thô lần 1 trước khi chuốt văn phong.");
@@ -238,9 +412,6 @@ export default function TranslatorWorkspace({
 
     try {
       const response = await fetch('/api/polish-translation', {
-        // Wait, what's our server's endpoint for polish?
-        // In server.ts, we defined: app.post("/api/polish-translation", ...)
-        // Let's call /api/polish-translation instead of /api/polished-translation!
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -248,10 +419,12 @@ export default function TranslatorWorkspace({
           rawTranslation: rawTranslation,
           genre: activeProject.genre,
           tone: activeProject.tone,
+          description: activeProject.description,
           glossary: activeProject.glossary,
           additionalInstructions: additionalInstructions,
           apiKeys,
-          model: selectedModel
+          model: selectedModel,
+          isExtractionEnabled
         }),
       });
 
@@ -263,7 +436,6 @@ export default function TranslatorWorkspace({
       const data = await response.json();
       setPolishedTranslation(data.polishedTranslation || "");
 
-      // Xử lý nạp các từ vựng mới được phát hiện trong lượt rà soát bổ sung của bước biên tập
       if (data.newlyDiscoveredDuringPolish && Array.isArray(data.newlyDiscoveredDuringPolish) && data.newlyDiscoveredDuringPolish.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
         const updatedGlossary = [...activeProject.glossary];
@@ -304,15 +476,12 @@ export default function TranslatorWorkspace({
     }
   };
 
-  // Save current translated chapter to historical archives
   const handleSaveChapter = () => {
     if (!sourceText.trim()) {
       alert("Không có nội dung để lưu.");
       return;
     }
     const finalTitle = chapterTitle.trim() || `Chương ${activeProject.chapters.length + 1}: Chưa đặt tên`;
-    
-    // Build paragraphs array from sourceText for parallel view
     const paragraphs = sourceText.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
     const translatedLines = polishedTranslation
       ? polishedTranslation.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0)
@@ -350,34 +519,56 @@ export default function TranslatorWorkspace({
       return;
     }
 
+    let baseText = sourceText;
+    if (isGlossaryApplied) {
+      baseText = originalSourceText;
+    } else {
+      setOriginalSourceText(sourceText);
+    }
+
     setIsApplyingGlossaryToSource(true);
     setApplyGlossarySourceCount(null);
 
     setTimeout(() => {
-      // Sắp xếp từ dài trước để tránh thay nhầm substring
       const sortedGlossary = [...activeProject.glossary].sort(
         (a, b) => b.chinese.length - a.chinese.length
       );
 
-      let result = sourceText;
-      let replacedCount = 0;
+      const glossaryMap = new Map<string, string>();
+      const terms: string[] = [];
 
       sortedGlossary.forEach((item) => {
-        if (!item.chinese || !item.vietnamese) return;
-        const escaped = item.chinese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(escaped, 'g');
-        const before = result;
-        result = result.replace(regex, item.vietnamese);
-        if (result !== before) replacedCount++;
+        if (item.chinese && item.vietnamese) {
+          const cleanChinese = item.chinese.trim();
+          glossaryMap.set(cleanChinese, item.vietnamese.trim());
+          terms.push(cleanChinese);
+        }
       });
+
+      let result = baseText;
+      let replacedCount = 0;
+
+      if (terms.length > 0) {
+        const escapedTerms = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const pattern = new RegExp(escapedTerms.join('|'), 'g');
+        const matchedTerms = new Set<string>();
+
+        result = baseText.replace(pattern, (match) => {
+          matchedTerms.add(match);
+          return glossaryMap.get(match) || match;
+        });
+
+        replacedCount = matchedTerms.size;
+      }
 
       setSourceText(result);
       setApplyGlossarySourceCount(replacedCount);
       setIsApplyingGlossaryToSource(false);
+      setIsGlossaryApplied(true);
     }, 300);
   };
 
-  const handleCopyText = (text: string, type: 'raw' | 'polished') => {
+  const handleCopyText = useCallback((text: string, type: 'raw' | 'polished') => {
     if (!text) return;
     navigator.clipboard.writeText(text);
     if (type === 'raw') {
@@ -387,23 +578,71 @@ export default function TranslatorWorkspace({
       setCopiedPolished(true);
       setTimeout(() => setCopiedPolished(false), 2000);
     }
-  };
+  }, []);
 
-  const toggleCheck = (idx: number) => {
+  const toggleCheck = useCallback((idx: number) => {
     setSelectedSuggestions((prev) => ({
       ...prev,
       [idx]: !prev[idx],
     }));
-  };
+  }, []);
+
+  const handleLoadChapterById = useCallback((id: string) => {
+    const selectedChap = activeProject.chapters.find(c => c.id === id);
+    if (selectedChap) {
+      setChapterTitle(selectedChap.title);
+      setSourceText(selectedChap.sourceText);
+      setOriginalSourceText(selectedChap.sourceText);
+      setIsGlossaryApplied(false);
+      setRawTranslation(selectedChap.rawTranslation || '');
+      setPolishedTranslation(selectedChap.polishedTranslation || '');
+      setSuggestions([]);
+      setSelectedSuggestions({});
+      setErrorMessage(null);
+      setAutoDiscoveredTerms([]);
+    }
+  }, [activeProject]);
+
+  const visibleGlossary = useMemo(() => {
+    let list = activeProject.glossary;
+    if (onlyShowMatching && deferredSourceText.trim()) {
+      list = list.filter(item => 
+        item.chinese && deferredSourceText.includes(item.chinese)
+      );
+    }
+    if (glossarySearch.trim()) {
+      const q = glossarySearch.toLowerCase();
+      list = list.filter(item => 
+        item.chinese.toLowerCase().includes(q) || 
+        item.vietnamese.toLowerCase().includes(q) ||
+        (item.pinyin && item.pinyin.toLowerCase().includes(q))
+      );
+    }
+    return list.slice(0, 100);
+  }, [activeProject.glossary, onlyShowMatching, deferredSourceText, glossarySearch]);
+
+  const untranslatedChapters = useMemo(() => {
+    return activeProject.chapters.filter(c => 
+      !c.polishedTranslation || c.polishedTranslation.trim().length === 0
+    );
+  }, [activeProject.chapters]);
 
   return (
     <div id="translator-workspace" className="space-y-4">
       {/* Active Project Card info */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-        <div id="project-workspace-info" className="space-y-1">
-          <span className="bg-indigo-500/20 text-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-500/35 uppercase tracking-wider">
-            Dự án: {activeProject.title}
-          </span>
+        <div 
+          id="project-workspace-info" 
+          onClick={handleOpenEditModal}
+          className="space-y-1 cursor-pointer group/header hover:bg-white/5 p-2 rounded-lg transition-colors duration-200 flex-1"
+          title="Nhấp để chỉnh sửa thông tin truyện"
+        >
+          <div className="flex items-center gap-2">
+            <span className="bg-indigo-500/20 text-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-500/35 uppercase tracking-wider">
+              Dự án: {activeProject.title}
+            </span>
+            <Edit3 className="w-3 h-3 text-indigo-400 opacity-0 group-hover/header:opacity-100 transition-opacity" />
+          </div>
           <h2 className="text-base font-bold tracking-tight mt-1">
             Không Gian Dịch Thuật Công Nghệ Cao
           </h2>
@@ -412,7 +651,11 @@ export default function TranslatorWorkspace({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 bg-white/5 border border-white/10 p-2.5 rounded-lg max-w-md">
+        <div 
+          onClick={handleOpenEditModal}
+          className="flex flex-wrap items-center gap-4 bg-white/5 border border-white/10 p-2.5 rounded-lg max-w-md cursor-pointer hover:bg-white/10 transition-colors group/meta"
+          title="Nhấp để chỉnh sửa thông tin truyện"
+        >
           <div className="text-xs">
             <span className="text-slate-400 block font-medium">Thể loại:</span>
             <span className="font-bold text-indigo-300">{activeProject.genre}</span>
@@ -427,6 +670,10 @@ export default function TranslatorWorkspace({
             <span className="text-slate-400 block font-medium">Tông giọng chủ đạo:</span>
             <span className="font-bold text-indigo-300 line-clamp-1">{activeProject.tone}</span>
           </div>
+          <div className="h-6 w-[1px] bg-white/10"></div>
+          <div className="flex items-center justify-center text-indigo-400 group-hover/meta:text-indigo-300 transition-colors">
+            <Edit3 className="w-3.5 h-3.5" />
+          </div>
         </div>
       </div>
 
@@ -440,446 +687,92 @@ export default function TranslatorWorkspace({
         </div>
       )}
 
-      {/* Grid workspace input vs processes */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        
-        {/* Left column - Source space */}
-        <div className="space-y-4 bg-white border border-slate-200 p-4 rounded-xl shadow-xs">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-              <span className="flex items-center justify-center w-4 h-4 rounded bg-slate-900 text-white text-[10px] font-bold">1</span>
-              Nội Dung Tiếng Trung Gốc
-            </h3>
-            
-            {/* Presets selectors */}
-            <div className="hidden sm:flex items-center gap-1 text-[11px]">
-              <span className="text-slate-400 font-medium">Bản mẫu:</span>
-              {CHINESE_EXAMPLES.map((ex, idx) => (
-                <button
-                  id={`btn-load-sample-${idx}`}
-                  key={idx}
-                  onClick={() => handleLoadExample(idx)}
-                  className="bg-slate-50 hover:bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200 transition-colors pointer cursor-pointer font-semibold"
-                  title={ex.description}
-                >
-                  Mẫu {idx + 1}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Visual Workspace Editor */}
+      <BilingualEditor
+        sourceText={sourceText}
+        setSourceText={setSourceText}
+        originalSourceText={originalSourceText}
+        setOriginalSourceText={setOriginalSourceText}
+        isGlossaryApplied={isGlossaryApplied}
+        setIsGlossaryApplied={setIsGlossaryApplied}
+        isExtractionEnabled={isExtractionEnabled}
+        setIsExtractionEnabled={setIsExtractionEnabled}
+        rawTranslation={rawTranslation}
+        setRawTranslation={setRawTranslation}
+        polishedTranslation={polishedTranslation}
+        setPolishedTranslation={setPolishedTranslation}
+        additionalInstructions={additionalInstructions}
+        setAdditionalInstructions={setAdditionalInstructions}
+        chapterTitle={chapterTitle}
+        setChapterTitle={setChapterTitle}
+        untranslatedChapters={untranslatedChapters}
+        handleLoadChapterById={handleLoadChapterById}
+        handleLoadExample={handleLoadExample}
+        handleAnalyzeGlossary={handleAnalyzeGlossary}
+        isAnalyzing={isAnalyzing}
+        handleTranslateRaw={handleTranslateRaw}
+        isTranslating={isTranslating}
+        handlePolishTranslation={handlePolishTranslation}
+        isPolishing={isPolishing}
+        handleSaveChapter={handleSaveChapter}
+        handleApplyGlossaryToSource={handleApplyGlossaryToSource}
+        copiedRaw={copiedRaw}
+        copiedPolished={copiedPolished}
+        handleCopyText={handleCopyText}
+        activeStage={activeStage}
+        setActiveStage={setActiveStage}
+        autoDiscoveredTerms={autoDiscoveredTerms}
+        isApplyingGlossaryToSource={isApplyingGlossaryToSource}
+        applyGlossarySourceCount={applyGlossarySourceCount}
+        glossaryLength={activeProject.glossary.length}
+      />
 
-          <div className="space-y-1">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Tiêu đề chương / Tiêu đề truyện dịch:</label>
-            <input
-              id="input-chapter-title"
-              type="text"
-              placeholder="Ví dụ: Chương 1: Diễn biến kịch tính dồn dập..."
-              value={chapterTitle}
-              onChange={(e) => setChapterTitle(e.target.value)}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-slate-800 font-semibold focus:outline-none focus:border-indigo-600 focus:bg-white"
-            />
-          </div>
+      <SuggestionsDrawer
+        suggestions={suggestions}
+        selectedSuggestions={selectedSuggestions}
+        toggleCheck={toggleCheck}
+        handleImportSuggestions={handleImportSuggestions}
+        setSelectedSuggestions={setSelectedSuggestions}
+      />
 
-          <div className="relative">
-            <textarea
-              id="textarea-chinese-source"
-              rows={12}
-              placeholder="Dán hoặc gõ truyện chữ Trung Quốc (Giản thể/Phồn thể) vào đây..."
-              value={sourceText}
-              onChange={(e) => setSourceText(e.target.value)}
-              className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 font-sans leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-600/20 focus:border-indigo-600 focus:bg-white transition-all resize-y"
-            />
-            {sourceText && (
-              <span className="absolute bottom-2 right-2 text-[10px] text-slate-400 bg-white/90 px-1.5 py-0.5 rounded border border-slate-200 font-mono">
-                {sourceText.length} kí tự
-              </span>
-            )}
-          </div>
+      <GlossarySidebar
+        glossaryLength={activeProject.glossary.length}
+        visibleGlossary={visibleGlossary}
+        onlyShowMatching={onlyShowMatching}
+        setOnlyShowMatching={setOnlyShowMatching}
+        glossarySearch={glossarySearch}
+        setGlossarySearch={setGlossarySearch}
+      />
 
-          {applyGlossarySourceCount !== null && !isApplyingGlossaryToSource && (
-            <div className="bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-3 py-2 text-xs flex items-center gap-2">
-              <BookOpen className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-              <span>
-                Đã thay thế thành công <strong>{applyGlossarySourceCount}</strong> thuật ngữ từ từ điển vào văn bản gốc.
-              </span>
-            </div>
-          )}
-
-          {/* Quick instructions mobile view placeholder */}
-          <div className="sm:hidden flex items-center gap-1 text-[11px] text-slate-500 overflow-x-auto pb-1">
-            <span className="shrink-0 font-medium">Quick load:</span>
-            {CHINESE_EXAMPLES.map((ex, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleLoadExample(idx)}
-                className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-[10px] shrink-0 pointer font-semibold"
-              >
-                Mẫu {idx + 1}
-              </button>
-            ))}
-          </div>
-
-          {/* Core Action buttons */}
-          <div className="flex flex-col sm:flex-row gap-2 pt-1">
-
-            <button
-              type="button"
-              disabled={!sourceText || activeProject.glossary.length === 0 || isApplyingGlossaryToSource}
-              onClick={handleApplyGlossaryToSource}
-              className="w-full flex items-center justify-center gap-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold px-3 py-2 rounded transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-xs"
-              title={activeProject.glossary.length === 0 ? 'Từ điển dự án đang trống' : 'Thay thế các từ tiếng Trung trong văn bản gốc bằng bản dịch từ từ điển'}
-            >
-              {isApplyingGlossaryToSource ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-700" />
-                  Đang áp dụng từ điển...
-                </>
-              ) : (
-                <>
-                  <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-                  Áp dụng từ điển vào raw
-                  {activeProject.glossary.length > 0 && (
-                    <span className="ml-1 bg-amber-200 text-amber-900 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
-                      {activeProject.glossary.length} từ
-                    </span>
-                  )}
-                </>
-              )}
-            </button>
-
-            <button
-              id="btn-analyze-names"
-              disabled={isAnalyzing || !sourceText}
-              onClick={handleAnalyzeGlossary}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-slate-900 border border-slate-800 text-white font-semibold hover:bg-slate-800 px-3 py-2 rounded transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-              title="Phân tích đoạn văn để đề xuất từ vựng, tên nhân vật thích hợp"
-            >
-              {isAnalyzing ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                  Đang tìm kiếm nhân vật...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                  Phân tích gợi ý nhân vật
-                </>
-              )}
-            </button>
-
-            <button
-              id="btn-translate-draft1"
-              disabled={isTranslating || !sourceText}
-              onClick={handleTranslateRaw}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-600 text-white font-semibold hover:bg-indigo-700 px-3 py-2 rounded transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs text-xs"
-            >
-              {isTranslating ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-                  Đang dịch thô lần 1...
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5 text-white fill-current" />
-                  Dịch thô (Giai đoạn 1)
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Right column - Dual Action Translation Panels */}
-        <div className="space-y-4 bg-white border border-slate-200 p-4 rounded-xl shadow-xs flex flex-col justify-between">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-150 pb-2">
-              <h3 className="text-xs font-bold text-slate-950 uppercase tracking-wider flex items-center gap-1.5">
-                <span className="flex items-center justify-center w-4 h-4 rounded bg-indigo-650 text-white text-[10px] font-bold">2</span>
-                <span className="text-slate-900">Kết Quả AI Biên Tập</span>
-              </h3>
-              
-              {/* Stages toggles */}
-              <div className="flex bg-slate-100 p-0.5 rounded">
-                <button
-                  id="tab-toggle-raw"
-                  onClick={() => setActiveStage('raw')}
-                  className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all pointer cursor-pointer ${
-                    activeStage === 'raw'
-                      ? 'bg-white text-slate-900 border border-slate-200/50 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  Dịch thô (1)
-                </button>
-                <button
-                  id="tab-toggle-polished"
-                  onClick={() => setActiveStage('polished')}
-                  className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all pointer cursor-pointer ${
-                    activeStage === 'polished'
-                      ? 'bg-white text-slate-900 border border-slate-200/50 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  Biên tập (2)
-                </button>
-              </div>
-            </div>
-
-            {/* Display panel */}
-            <div className="space-y-3">
-              {activeStage === 'raw' ? (
-                // RAW TRANSLATION WORKING SPACE
-                <div className="space-y-2 animate-fade-in">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-50 p-1.5 rounded border border-slate-200">
-                    <span className="font-semibold text-slate-500 flex items-center gap-1">
-                      <FileText className="w-3 h-3 text-slate-400" />
-                      Bản dịch thô GĐ1 (Sửa trực tiếp được)
-                    </span>
-                    <button
-                      onClick={() => handleCopyText(rawTranslation, 'raw')}
-                      className="flex items-center gap-1 hover:text-indigo-700 transition-colors shrink-0 pointer cursor-pointer bg-white px-1.5 py-0.5 rounded shadow-xs border border-slate-200"
-                    >
-                      {copiedRaw ? <Check className="w-3 h-3 text-indigo-600" /> : <Copy className="w-3 h-3" />}
-                      {copiedRaw ? 'Đã chép' : 'Sao chép thô'}
-                    </button>
-                  </div>
-
-                  <textarea
-                    id="textarea-raw-translation"
-                    rows={11}
-                    placeholder="Bản dịch thô sẽ hiển thị tại đây sau khi hệ thống chạy xong giai đoạn 1. Bạn hoàn toàn có thể tự sửa đổi câu từ ở đây để làm tiền đề chuốt văn phong."
-                    value={rawTranslation}
-                    onChange={(e) => setRawTranslation(e.target.value)}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-800 font-sans leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-600/20 focus:bg-white focus:border-indigo-600 transition-all resize-y"
-                  />
-
-                  {rawTranslation && (
-                    <div className="space-y-2">
-                      <div className="bg-indigo-50/50 text-indigo-900 rounded-lg p-2.5 border border-indigo-100 flex items-start gap-2">
-                        <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
-                        <div className="text-xs space-y-0.5">
-                          <p className="font-bold text-indigo-950">Dịch thô giai đoạn 1 hoàn chỉnh!</p>
-                          <p>Nhấn tab <strong>Biên tập (2)</strong> và bấm chuốt văn phong để nâng cấp mượt mà.</p>
-                        </div>
-                      </div>
-
-                      {autoDiscoveredTerms.length > 0 && (
-                        <div className="bg-emerald-50/60 border border-emerald-205 text-emerald-950 p-2.5 rounded-lg space-y-1.5 animate-slide-up">
-                          <div className="flex items-center gap-1 text-xs font-bold text-emerald-800">
-                            <Sparkles className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-                            <span>Tự Động Bổ Sung Từ Điển Mới ({autoDiscoveredTerms.length})</span>
-                          </div>
-                          <p className="text-[10px] text-emerald-700 leading-tight">
-                            AI đã tự động trích xuất các tên riêng nhân vật, địa danh bí ẩn hoặc chiêu thức vừa xuất hiện chưa có trong bộ gốc, nạp thẳng vào từ điển dự án:
-                          </p>
-                          <div className="flex flex-wrap gap-1 max-h-40 overflow-y-auto pt-1 pr-1">
-                            {autoDiscoveredTerms.map((item) => (
-                              <span
-                                key={item.id}
-                                className="inline-flex items-center gap-1 bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-[11px] shadow-3xs font-semibold text-emerald-950"
-                                title={`${item.chinese} (${item.pinyin}) -> Ghi chú: ${item.note}`}
-                              >
-                                <code className="text-red-650 font-bold font-mono text-[10px]">{item.chinese}</code>
-                                <ChevronRight className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
-                                <span className="text-emerald-900 font-bold">{item.vietnamese}</span>
-                                <span className="text-[8px] bg-emerald-100 text-emerald-700 px-1 rounded ml-0.5 shrink-0 font-normal">
-                                  {item.type === 'character' ? 'Nhân vật' : item.type === 'location' ? 'Địa danh' : item.type === 'term' ? 'Chiêu thức' : 'Khác'}
-                                </span>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                // POLISHED TRANSLATION WORKING SPACE
-                <div className="space-y-2 animate-fade-in">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-50 p-1.5 rounded border border-slate-200">
-                    <span className="font-semibold text-slate-500 flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-indigo-600" />
-                      Bản biên tập GĐ2 (Thuần vần điệu bản ngữ)
-                    </span>
-                    <button
-                      onClick={() => handleCopyText(polishedTranslation, 'polished')}
-                      className="flex items-center gap-1 hover:text-indigo-700 transition-colors shrink-0 pointer cursor-pointer bg-white px-1.5 py-0.5 rounded shadow-xs border border-slate-200"
-                    >
-                      {copiedPolished ? <Check className="w-3 h-3 text-indigo-600" /> : <Copy className="w-3 h-3" />}
-                      {copiedPolished ? 'Đã chép' : 'Sao chép bản chuốt'}
-                    </button>
-                  </div>
-
-                  <textarea
-                    id="textarea-polished-translation"
-                    rows={11}
-                    placeholder="Bản dịch sau khi được chuốt mịn và tinh chỉnh ngữ nghĩa tinh tế, đạt văn phong thuần Việt sẽ xuất hiện tại đây..."
-                    value={polishedTranslation}
-                    onChange={(e) => setPolishedTranslation(e.target.value)}
-                    className="w-full text-sm bg-indigo-50/5 border border-indigo-150 rounded-lg p-3 text-indigo-950 font-sans leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-600/20 focus:bg-white focus:border-indigo-600 transition-all resize-y"
-                  />
-
-                  {/* Additional Instructions for Polish */}
-                  <div className="space-y-1">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                      <Edit3 className="w-3 h-3 text-slate-400" />
-                      Yêu cầu biên tập đặc biệt (Ví dụ: &quot;Chuyển xưng hô nam chính thành đại ca&quot;...):
-                    </label>
-                    <input
-                      id="input-polish-instructions"
-                      type="text"
-                      placeholder="Không bắt buộc - ví dụ: truyện tiên hiệp hãy làm cho câu từ bay bổng hơn..."
-                      value={additionalInstructions}
-                      onChange={(e) => setAdditionalInstructions(e.target.value)}
-                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-slate-800 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-slate-150">
-            <button
-              id="btn-polish"
-              disabled={isPolishing || !rawTranslation}
-              onClick={handlePolishTranslation}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-bold hover:from-indigo-700 hover:to-indigo-800 px-3.5 py-2 rounded transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs text-xs"
-              title="Phục vụ chuốt văn phong thuần Việt trôi chảy (Dựa trên dịch thô)"
-            >
-              {isPolishing ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-                  Đang chuốt thuần Việt...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-white fill-current animate-pulse" />
-                  Chuốt văn phong thuần Việt
-                </>
-              )}
-            </button>
-
-            <button
-              id="btn-save"
-              disabled={!sourceText || (!rawTranslation && !polishedTranslation)}
-              onClick={handleSaveChapter}
-              className="flex items-center justify-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-200 font-bold px-3 py-2 rounded transition-colors cursor-pointer text-xs"
-              title="Lưu trữ chương đã biên dịch hoàn thiện này vào lịch sử truyện"
-            >
-              <Save className="w-3.5 h-3.5 text-slate-500" />
-              Lưu Chương Dịch
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Suggested entities container drawer-like/panel */}
-      {suggestions.length > 0 && (
-        <div id="entities-analysis-drawer" className="bg-slate-900 border border-slate-800 text-white rounded-xl p-4 space-y-3 shadow-md animate-slide-up">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 fill-current text-indigo-400" />
-                Kết Quả Gợi Ý Từ Điển Âm Hán Việt & Nhân Vật
-              </h4>
-              <p className="text-[11px] text-slate-400">
-                AI đã tự động phát hiện được {suggestions.length} danh từ riêng quan trọng. Hãy lọc và thêm vào bộ Quy định.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  const checkAll: Record<number, boolean> = {};
-                  suggestions.forEach((_, idx) => { checkAll[idx] = true; });
-                  setSelectedSuggestions(checkAll);
-                }}
-                className="text-[10px] font-bold text-slate-300 hover:text-white pointer cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-slate-300"
-              >
-                Chọn tất cả
-              </button>
-              <span className="text-slate-600">|</span>
-              <button
-                onClick={() => setSelectedSuggestions({})}
-                className="text-[10px] font-bold text-slate-300 hover:text-white pointer cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-slate-300"
-              >
-                Bỏ chọn
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
-            {suggestions.map((item, idx) => (
-              <div
-                key={idx}
-                onClick={() => toggleCheck(idx)}
-                className={`p-2 rounded border transition-all cursor-pointer flex items-start gap-2 ${
-                  selectedSuggestions[idx]
-                    ? 'bg-slate-850 border-indigo-500 text-white shadow-xs'
-                    : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!selectedSuggestions[idx]}
-                  onChange={() => {}} // handled by div click
-                  className="mt-0.5 rounded accent-indigo-600 shrink-0 cursor-pointer pointer-events-none"
-                />
-                <div className="text-[11px] space-y-0.5">
-                  <div className="flex items-center gap-1">
-                    <strong className="font-mono text-white tracking-wide">{item.chinese}</strong>
-                    <span className="text-slate-500 text-[9px]">({item.pinyin})</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Dịch: </span>
-                    <strong className="text-indigo-300">{item.vietnamese}</strong>
-                  </div>
-                  <div className="text-[9px] text-slate-500 line-clamp-1 italic">
-                    {item.note || `Thể loại: ${item.type}`}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-end pt-1">
-            <button
-              id="btn-import-suggestions"
-              onClick={handleImportSuggestions}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded transition-colors pointer"
-            >
-              Lưu các từ đã chọn vào Từ Điển Dự Án
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Matching Glossary items helper highlights */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
-        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-          <BookOpen className="w-3.5 h-3.5 text-slate-400" />
-          Từ điển đang kích hoạt có trong Dự án ({activeProject.glossary.length} từ)
-        </h3>
-        {activeProject.glossary.length === 0 ? (
-          <div className="text-xs text-slate-500 italic">
-            Bạn chưa khai báo từ điển nào cho chương truyện này. Thử nhấp nút &quot;Phân tích gợi ý nhân vật&quot; bên trên để tạo từ điển tự động!
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-            {activeProject.glossary.map((item) => (
-              <span
-                key={item.id}
-                className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-xs shadow-xs text-slate-600 font-sans"
-                title={`${item.chinese} -> ${item.vietnamese} (${item.note})`}
-              >
-                <code className="font-mono bg-slate-100 px-1 rounded text-red-600 font-bold text-[11px]">{item.chinese}</code>
-                <ChevronRight className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                <span className="font-bold text-indigo-950 bg-indigo-50/40 border border-indigo-100 px-1 py-0.2 rounded text-[11px]">{item.vietnamese}</span>
-                {item.type === 'character' && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Editing metadata modal */}
+      <ProjectMetadataModal
+        isOpen={isEditingMetadata}
+        onClose={() => setIsEditingMetadata(false)}
+        editTitle={editTitle}
+        setEditTitle={setEditTitle}
+        editAuthor={editAuthor}
+        setEditAuthor={setEditAuthor}
+        editGenre={editGenre}
+        setEditGenre={setEditGenre}
+        editTone={editTone}
+        setEditTone={setEditTone}
+        editDescription={editDescription}
+        setEditDescription={setEditDescription}
+        handleSaveMetadata={handleSaveMetadata}
+        importSection={
+          <ImportChaptersModal
+            importedFileName={importedFileName}
+            importFileRef={importFileRef}
+            handleImportRawFileChange={handleImportRawFileChange}
+            importMode={importMode}
+            setImportMode={setImportMode}
+            importSplitMethod={importSplitMethod}
+            handleToggleImportSplitMethod={handleToggleImportSplitMethod}
+            isParsingImportFile={isParsingImportFile}
+            parsedChaptersLength={parsedImportChapters.length}
+          />
+        }
+      />
     </div>
   );
 }

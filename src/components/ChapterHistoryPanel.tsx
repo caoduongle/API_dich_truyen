@@ -1,22 +1,100 @@
 import React, { useState } from 'react';
-import { Chapter } from '../types';
-import { History, BookOpen, Clock, Trash2 } from 'lucide-react';
+import { StoryProject, Chapter } from '../types';
+import { History, BookOpen, Clock, Trash2, RotateCcw } from 'lucide-react';
 
 interface ChapterHistoryPanelProps {
-  chapters: Chapter[];
-  projectTitle: string;
+  activeProject: StoryProject;
+  onUpdateProject: (updated: StoryProject) => void;
   onDeleteChapterHistory: (chapId: string) => void;
-  onGoToTranslate: () => void;
+  onGoToTranslate: (chapter?: Chapter) => void;
 }
 
 export default function ChapterHistoryPanel({
-  chapters,
-  projectTitle,
+  activeProject,
+  onUpdateProject,
   onDeleteChapterHistory,
   onGoToTranslate,
 }: ChapterHistoryPanelProps) {
+  const { chapters, title: projectTitle } = activeProject;
   const [selectedHistoryChapterId, setSelectedHistoryChapterId] = useState<string | null>(null);
   const [historyViewTab, setHistoryViewTab] = useState<'source' | 'raw' | 'polished'>('polished');
+  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedChapterIds(chapters.map((c) => c.id));
+    } else {
+      setSelectedChapterIds([]);
+    }
+  };
+
+  const handleResetSelectedToSource = () => {
+    if (selectedChapterIds.length === 0) return;
+    if (
+      confirm(
+        `Bạn có chắc chắn muốn reset ${selectedChapterIds.length} chương đã chọn về bản gốc tiếng Trung (xóa toàn bộ bản dịch thô và bản dịch biên tập)?`
+      )
+    ) {
+      const updatedChapters = activeProject.chapters.map((chap) => {
+        if (selectedChapterIds.includes(chap.id)) {
+          return {
+            ...chap,
+            rawTranslation: '',
+            polishedTranslation: '',
+            translatedLines: [],
+            status: 'not_started' as const,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return chap;
+      });
+
+      onUpdateProject({
+        ...activeProject,
+        chapters: updatedChapters,
+      });
+
+      if (selectedHistoryChapterId && selectedChapterIds.includes(selectedHistoryChapterId)) {
+        setHistoryViewTab('source');
+      }
+
+      setSelectedChapterIds([]);
+      alert(`Đã reset thành công ${selectedChapterIds.length} chương về bản gốc tiếng Trung!`);
+    }
+  };
+
+  const handleResetSingleToSource = (chapId: string) => {
+    if (
+      confirm(
+        'Bạn có chắc chắn muốn reset chương này về bản gốc tiếng Trung (xóa toàn bộ bản dịch thô và bản dịch biên tập)?'
+      )
+    ) {
+      const updatedChapters = activeProject.chapters.map((chap) => {
+        if (chap.id === chapId) {
+          return {
+            ...chap,
+            rawTranslation: '',
+            polishedTranslation: '',
+            translatedLines: [],
+            status: 'not_started' as const,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return chap;
+      });
+
+      onUpdateProject({
+        ...activeProject,
+        chapters: updatedChapters,
+      });
+
+      if (selectedHistoryChapterId === chapId) {
+        setHistoryViewTab('source');
+      }
+
+      alert('Đã reset chương về bản gốc tiếng Trung thành công!');
+    }
+  };
 
   return (
     <div id="history-chapters-section" className="space-y-6">
@@ -46,39 +124,99 @@ export default function ChapterHistoryPanel({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
           {/* Chapter list */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden p-2 space-y-1.5 max-h-[500px] overflow-y-auto shadow-sm">
+            {/* Batch Action Header */}
+            <div className="flex items-center justify-between px-2.5 py-2 border-b border-slate-100 mb-2">
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedChapterIds.length === chapters.length && chapters.length > 0}
+                  onChange={handleSelectAll}
+                  className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                />
+                Chọn tất cả ({chapters.length})
+              </label>
+              
+              {selectedChapterIds.length > 0 && (
+                <button
+                  onClick={handleResetSelectedToSource}
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold px-2 py-1 rounded shadow-xs cursor-pointer transition-colors flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset ({selectedChapterIds.length})
+                </button>
+              )}
+            </div>
+
             <span className="text-[10px] font-bold text-slate-400 px-2.5 py-1 block tracking-wider uppercase">
               Chương đã biên soạn
             </span>
+            
             {chapters.map((chap) => {
               const isSelected = selectedHistoryChapterId === chap.id;
+              const isChecked = selectedChapterIds.includes(chap.id);
               return (
                 <div
                   key={chap.id}
-                  onClick={() => setSelectedHistoryChapterId(chap.id)}
+                  onClick={() => {
+                    setSelectedHistoryChapterId(chap.id);
+                    // Switch tab to source if translation is not available
+                    if (!chap.polishedTranslation && !chap.rawTranslation) {
+                      setHistoryViewTab('source');
+                    } else if (!chap.polishedTranslation) {
+                      setHistoryViewTab('raw');
+                    } else {
+                      setHistoryViewTab('polished');
+                    }
+                  }}
                   className={`p-2.5 rounded-lg transition-all cursor-pointer relative group flex justify-between items-start border ${
                     isSelected
                       ? 'bg-indigo-50 border-indigo-200 shadow-xs'
                       : 'bg-slate-50/50 border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="flex-1 pr-6">
-                    <h4 className={`text-xs font-bold ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>
-                      {chap.title}
-                    </h4>
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-1 flex-wrap">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      <span>
-                        {new Date(chap.createdAt).toLocaleDateString('vi-VN')}{' '}
-                        {new Date(chap.createdAt).toLocaleTimeString('vi-VN', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                      {chap.status === 'completed' && (
-                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] font-bold px-1 py-0.5 rounded">
-                          ✓ Hoàn tất
+                  <div className="flex items-start gap-2.5 flex-1 pr-6">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        setSelectedChapterIds(prev => 
+                          e.target.checked 
+                            ? [...prev, chap.id] 
+                            : prev.filter(id => id !== chap.id)
+                        );
+                      }}
+                      className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <h4 className={`text-xs font-bold ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>
+                        {chap.title}
+                      </h4>
+                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-1 flex-wrap">
+                        <Clock className="w-3 h-3 text-slate-400" />
+                        <span>
+                          {new Date(chap.createdAt).toLocaleDateString('vi-VN')}{' '}
+                          {new Date(chap.createdAt).toLocaleTimeString('vi-VN', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
                         </span>
-                      )}
+                        {chap.status === 'completed' && (
+                          <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] font-bold px-1 py-0.5 rounded">
+                            ✓ Hoàn tất
+                          </span>
+                        )}
+                        {chap.status === 'in_progress' && (
+                          <span className="bg-amber-50 text-amber-700 border border-amber-100 text-[9px] font-bold px-1 py-0.5 rounded">
+                            📝 Bản thô
+                          </span>
+                        )}
+                        {chap.status === 'not_started' && (
+                          <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[9px] font-bold px-1 py-0.5 rounded">
+                            🈷 Bản gốc
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <button
@@ -87,6 +225,7 @@ export default function ChapterHistoryPanel({
                       if (confirm('Bạn có chắc muốn xóa lịch sử dịch của chương này khỏi hệ thống?')) {
                         onDeleteChapterHistory(chap.id);
                         if (selectedHistoryChapterId === chap.id) setSelectedHistoryChapterId(null);
+                        setSelectedChapterIds(prev => prev.filter(id => id !== chap.id));
                       }
                     }}
                     className="text-slate-400 hover:text-rose-600 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-2 cursor-pointer"
@@ -115,12 +254,23 @@ export default function ChapterHistoryPanel({
                           Lưu trữ lúc: {new Date(chap.createdAt).toLocaleString('vi-VN')}
                         </p>
                       </div>
-                      <button
-                        onClick={onGoToTranslate}
-                        className="text-xs font-semibold border border-indigo-600 hover:bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
-                      >
-                        Mở chỉnh sửa lại
-                      </button>
+                      <div className="flex gap-2">
+                        {chap.status !== 'not_started' && (
+                          <button
+                            onClick={() => handleResetSingleToSource(chap.id)}
+                            className="text-xs font-semibold border border-amber-600 hover:bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg cursor-pointer transition-colors flex items-center gap-1"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Reset về bản gốc
+                          </button>
+                        )}
+                        <button
+                          onClick={() => onGoToTranslate(chap)}
+                          className="text-xs font-semibold border border-indigo-600 hover:bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+                        >
+                          Mở chỉnh sửa lại
+                        </button>
+                      </div>
                     </div>
 
                     {/* Tab switcher */}

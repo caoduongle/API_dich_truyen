@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { StoryProject, GlossaryItem, Chapter } from '../types';
-import JSZip from 'jszip';
+import { parseTxtContent, parseEpubFile } from '../utils/fileParser.ts';
 import { 
   Plus, Trash2, Folder, BookOpen, Clock, Tag, FileText, Upload, Download, 
-  Sparkles, Loader2, Check, AlertCircle, ChevronRight, Info, Calendar, ArrowUpRight
+  Sparkles, Loader2, Check, AlertCircle, ChevronRight, Info, Calendar, ArrowUpRight, Edit3
 } from 'lucide-react';
 
 interface ProjectListProps {
@@ -12,6 +12,7 @@ interface ProjectListProps {
   onSelectProject: (id: string) => void;
   onDeleteProject: (id: string) => void;
   onCreateProject: (project: Omit<StoryProject, 'id' | 'createdAt'>) => void;
+  onUpdateProject?: (project: StoryProject) => void;
   apiKeys: string[];
   selectedModel: string;
 }
@@ -22,10 +23,12 @@ export default function ProjectList({
   onSelectProject,
   onDeleteProject,
   onCreateProject,
+  onUpdateProject,
   apiKeys,
   selectedModel,
 }: ProjectListProps) {
   const [isCreating, setIsCreating] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [genre, setGenre] = useState('Tiên Hiệp');
@@ -61,9 +64,11 @@ export default function ProjectList({
     try {
       if (file.name.endsWith('.txt')) {
         const fullText = await file.text();
-        parseTxtContent(fullText, splitMethod);
+        const chaps = parseTxtContent(fullText, splitMethod);
+        setParsedChapters(chaps);
       } else if (file.name.endsWith('.epub')) {
-        await parseEpubFile(file);
+        const chaps = await parseEpubFile(file);
+        setParsedChapters(chaps);
       } else {
         alert("Chỉ hỗ trợ định dạng tệp .txt hoặc .epub.");
         setRawFileName('');
@@ -84,221 +89,14 @@ export default function ProjectList({
       setIsParsingRaw(true);
       try {
         const fullText = await rawInputRef.current.files[0].text();
-        parseTxtContent(fullText, method);
+        const chaps = parseTxtContent(fullText, method);
+        setParsedChapters(chaps);
       } catch (err: any) {
         alert(err.message);
       } finally {
         setIsParsingRaw(false);
       }
     }
-  };
-
-  // Parse TXT
-  const parseTxtContent = (fullText: string, method: 'regex' | 'chunk') => {
-    const chapters: { title: string; sourceText: string }[] = [];
-
-    if (method === 'regex') {
-      const lines = fullText.split(/\r?\n/);
-      let currentChapterTitle = "Khởi đầu / Phần mở đầu";
-      let currentLines: string[] = [];
-      const chapRegex = /^\s*(Chương\s+\d+|Chương\s+[I|V|X|L|C|D|M]+|第[零一二三四五六七八九十百千万\d]+[章节])/i;
-
-      for (const line of lines) {
-        if (chapRegex.test(line)) {
-          if (currentLines.length > 0) {
-            chapters.push({
-              title: currentChapterTitle,
-              sourceText: currentLines.join("\n").trim()
-            });
-          }
-          currentChapterTitle = line.trim();
-          currentLines = [];
-        } else {
-          currentLines.push(line);
-        }
-      }
-
-      if (currentLines.length > 0 || String(currentChapterTitle).trim() !== "") {
-        chapters.push({
-          title: currentChapterTitle,
-          sourceText: currentLines.join("\n").trim() || "Không có nội dung"
-        });
-      }
-    } else {
-      // Chunking by size (e.g. 8000 characters)
-      const chunkSize = 8000;
-      for (let i = 0; i < fullText.length; i += chunkSize) {
-        const textChunk = fullText.substring(i, i + chunkSize);
-        chapters.push({
-          title: `Phần ${Math.floor(i / chunkSize) + 1}`,
-          sourceText: textChunk.trim()
-        });
-      }
-    }
-
-    setParsedChapters(chapters.filter(c => c.sourceText.length > 10));
-  };
-
-  // Parse EPUB (Zip extraction with Spine analysis)
-  const parseEpubFile = async (file: File) => {
-    const zip = await JSZip.loadAsync(file);
-    
-    // Find metadata container to find content OPF path
-    let opfPath = 'content.opf';
-    const containerFile = zip.file('META-INF/container.xml');
-    if (containerFile) {
-      const containerContent = await containerFile.async('text');
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(containerContent, 'text/xml');
-      const rootfilePath = doc.querySelector('rootfile')?.getAttribute('full-path');
-      if (rootfilePath) {
-        opfPath = rootfilePath;
-      }
-    }
-
-    const opfFile = zip.file(opfPath);
-    if (!opfFile) {
-      // Fallback: fuzzy search for .opf file in ZIP
-      const foundOpf = Object.keys(zip.files).find(name => name.endsWith('.opf'));
-      if (foundOpf) {
-        const opfContent = await zip.files[foundOpf].async('text');
-        await parseEpubOpf(zip, foundOpf, opfContent);
-      } else {
-        // Ultimate fallback: select all .html/.xhtml files
-        const fallbackHtmlFiles = Object.keys(zip.files).filter(name => 
-          name.endsWith('.html') || name.endsWith('.xhtml') || name.endsWith('.htm')
-        );
-        fallbackHtmlFiles.sort();
-        await parseEpubFallback(zip, fallbackHtmlFiles);
-      }
-      return;
-    }
-
-    const opfContent = await opfFile.async('text');
-    await parseEpubOpf(zip, opfPath, opfContent);
-  };
-
-  const parseEpubOpf = async (zip: JSZip, opfPath: string, opfContent: string) => {
-    const parser = new DOMParser();
-    const opfDoc = parser.parseFromString(opfContent, 'text/xml');
-    
-    // Read manifest item paths and types
-    const items: Record<string, { href: string; mediaType: string }> = {};
-    const itemElements = opfDoc.querySelectorAll('manifest > item');
-    itemElements.forEach(el => {
-      const id = el.getAttribute('id');
-      const href = el.getAttribute('href');
-      const mediaType = el.getAttribute('media-type');
-      if (id && href) {
-        items[id] = { href, mediaType: mediaType || '' };
-      }
-    });
-
-    // Read logical chapter order spin
-    const spineIds: string[] = [];
-    const spineElements = opfDoc.querySelectorAll('spine > itemref');
-    spineElements.forEach(el => {
-      const idref = el.getAttribute('idref');
-      if (idref) {
-        spineIds.push(idref);
-      }
-    });
-
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
-    const chapters: { title: string; sourceText: string }[] = [];
-
-    for (const idref of spineIds) {
-      const item = items[idref];
-      if (!item) continue;
-
-      if (!item.mediaType.includes('xml') && !item.mediaType.includes('html') && !item.href.endsWith('.html') && !item.href.endsWith('.xhtml')) {
-        continue;
-      }
-
-      let relativePath = item.href;
-      try {
-        relativePath = decodeURIComponent(relativePath);
-      } catch (_) {}
-
-      let fullPath = opfDir + relativePath;
-
-      if (fullPath.includes('../')) {
-        const parts = fullPath.split('/');
-        const resolvedParts: string[] = [];
-        for (const p of parts) {
-          if (p === '..') {
-            resolvedParts.pop();
-          } else if (p !== '.') {
-            resolvedParts.push(p);
-          }
-        }
-        fullPath = resolvedParts.join('/');
-      }
-
-      let zipFile = zip.file(fullPath);
-      if (!zipFile) {
-        const lowerPath = fullPath.toLowerCase();
-        const fuzzyKey = Object.keys(zip.files).find(k => k.toLowerCase() === lowerPath || k.toLowerCase().endsWith('/' + relativePath.toLowerCase()));
-        if (fuzzyKey) {
-          zipFile = zip.file(fuzzyKey);
-        }
-      }
-
-      if (zipFile) {
-        const textContent = await zipFile.async('text');
-        const htmlDoc = parser.parseFromString(textContent, 'text/html');
-        
-        htmlDoc.querySelectorAll('script, style, iframe').forEach(el => el.remove());
-        const pageText = htmlDoc.body?.textContent || htmlDoc.documentElement?.textContent || '';
-        
-        let headerTitle = htmlDoc.querySelector('title')?.textContent || htmlDoc.querySelector('h1, h2, h3, h4')?.textContent || '';
-        headerTitle = headerTitle.replace(/\s+/g, ' ').trim();
-        if (!headerTitle) {
-          headerTitle = relativePath.split('/').pop()?.replace(/\.(xhtml|html|xml|htm)$/i, '') || 'Chương không tên';
-        }
-
-        if (pageText.trim().length > 50) {
-          chapters.push({
-            title: headerTitle,
-            sourceText: pageText.trim()
-          });
-        }
-      }
-    }
-
-    if (chapters.length > 0) {
-      setParsedChapters(chapters);
-    } else {
-      // Ultimate fallback
-      const fallbackHtmlFiles = Object.keys(zip.files).filter(name => 
-        name.endsWith('.html') || name.endsWith('.xhtml') || name.endsWith('.htm')
-      );
-      fallbackHtmlFiles.sort();
-      await parseEpubFallback(zip, fallbackHtmlFiles);
-    }
-  };
-
-  const parseEpubFallback = async (zip: JSZip, filePaths: string[]) => {
-    const parser = new DOMParser();
-    const chapters: { title: string; sourceText: string }[] = [];
-    
-    for (const filePath of filePaths) {
-      const fileContent = await zip.files[filePath].async('text');
-      const doc = parser.parseFromString(fileContent, 'text/html');
-      doc.querySelectorAll('script, style, iframe').forEach(el => el.remove());
-      const pageText = doc.body?.textContent || doc.documentElement?.textContent || '';
-      
-      let headerTitle = doc.querySelector('title')?.textContent || doc.querySelector('h1, h2, h3')?.textContent || filePath.split('/').pop()?.replace(/\.(xhtml|html|htm)$/i, '') || 'Chương';
-      headerTitle = headerTitle.trim();
-      
-      if (pageText.trim().length > 50) {
-        chapters.push({
-          title: headerTitle,
-          sourceText: pageText.trim()
-        });
-      }
-    }
-    setParsedChapters(chapters);
   };
 
 
@@ -353,6 +151,9 @@ export default function ProjectList({
       setGuidelineFileName('');
     } finally {
       setIsAnalyzingGuidelines(false);
+      if (e.target) {
+        e.target.value = '';
+      }
     }
   };
 
@@ -452,7 +253,7 @@ export default function ProjectList({
   };
 
 
-  // --- 5. CREATE SUBMIT HANDLER ---
+  // --- 5. CREATE OR UPDATE SUBMIT HANDLER ---
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -479,16 +280,34 @@ export default function ProjectList({
       createdAt: new Date().toISOString()
     }));
 
-    onCreateProject({
-      title: title.trim(),
-      author: author.trim() || "Khuyết Danh",
-      genre,
-      tone,
-      description: description.trim(),
-      chapters: finalChapters,
-      glossary: finalGlossary,
-      pendingGlossary: []
-    });
+    if (editingProjectId && onUpdateProject) {
+      const existingProj = projects.find(p => p.id === editingProjectId);
+      if (existingProj) {
+        const updatedProj: StoryProject = {
+          ...existingProj,
+          title: title.trim(),
+          author: author.trim() || "Khuyết Danh",
+          genre,
+          tone,
+          description: description.trim(),
+          chapters: [...existingProj.chapters, ...finalChapters],
+          glossary: [...existingProj.glossary, ...finalGlossary]
+        };
+        onUpdateProject(updatedProj);
+        alert(`Đã cập nhật thông tin truyện "${title.trim()}" thành công!`);
+      }
+    } else {
+      onCreateProject({
+        title: title.trim(),
+        author: author.trim() || "Khuyết Danh",
+        genre,
+        tone,
+        description: description.trim(),
+        chapters: finalChapters,
+        glossary: finalGlossary,
+        pendingGlossary: []
+      });
+    }
 
     // Reset Form
     setTitle('');
@@ -501,7 +320,50 @@ export default function ProjectList({
     setGuidelineFileName('');
     setAnalyzedGlossary([]);
     setAnalyzedInfo(null);
+    if (rawInputRef.current) rawInputRef.current.value = '';
+    if (mdInputRef.current) mdInputRef.current.value = '';
+    setEditingProjectId(null);
     setIsCreating(false);
+  };
+
+  const handleCancelCreate = () => {
+    setIsCreating(false);
+    setEditingProjectId(null);
+    setTitle('');
+    setAuthor('');
+    setGenre('Tiên Hiệp');
+    setTone('Dịch thuần Việt mượt mà');
+    setDescription('');
+    setRawFileName('');
+    setGuidelineFileName('');
+    setParsedChapters([]);
+    setAnalyzedGlossary([]);
+    setAnalyzedInfo(null);
+    if (rawInputRef.current) rawInputRef.current.value = '';
+    if (mdInputRef.current) mdInputRef.current.value = '';
+  };
+
+  const handleStartEditProject = (e: React.MouseEvent, proj: StoryProject) => {
+    e.stopPropagation();
+    setEditingProjectId(proj.id);
+    setTitle(proj.title);
+    setAuthor(proj.author);
+    setGenre(proj.genre);
+    setTone(proj.tone);
+    setDescription(proj.description || '');
+    setRawFileName('');
+    setGuidelineFileName('');
+    setParsedChapters([]);
+    setAnalyzedGlossary([]);
+    setAnalyzedInfo(null);
+    setIsCreating(true);
+
+    setTimeout(() => {
+      const formElement = document.getElementById('form-create-project');
+      if (formElement) {
+        formElement.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 100);
   };
 
   const getGenreEmoji = (g: string) => {
@@ -513,6 +375,10 @@ export default function ProjectList({
       case 'Huyền Huyễn': return '🐉';
       case 'Huyền Huyễn Phương Tây': return '🏰';
       case 'Vô Hạn Lưu': return '🌀';
+      case 'Lịch Sử / Quân Sự': return '🛡️';
+      case 'Khoa Huyễn / Võng Du': return '🤖';
+      case 'Linh Dị / Thần Quái': return '👻';
+      case 'Hệ Thống / Điền Văn': return '🌾';
       default: return '📖';
     }
   };
@@ -553,7 +419,13 @@ export default function ProjectList({
 
           <button
             id="btn-trigger-add-project"
-            onClick={() => setIsCreating(!isCreating)}
+            onClick={() => {
+              if (isCreating) {
+                handleCancelCreate();
+              } else {
+                setIsCreating(true);
+              }
+            }}
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-1.5 text-xs rounded-lg shadow-sm transition-colors cursor-pointer"
           >
             {isCreating ? 'Hủy' : 'Tạo truyện mới'}
@@ -566,11 +438,14 @@ export default function ProjectList({
         <form id="form-create-project" onSubmit={handleSubmit} className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-6 space-y-5 shadow-xs animate-slide-up">
           <div className="border-b border-slate-200 pb-3">
             <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-              <Plus className="w-4 h-4 text-indigo-600" />
-              Thiết kế Môi trường & Bộ Truyện mới
+              {editingProjectId ? <Edit3 className="w-4 h-4 text-indigo-600" /> : <Plus className="w-4 h-4 text-indigo-600" />}
+              {editingProjectId ? 'Chỉnh sửa Môi trường & Bộ truyện' : 'Thiết kế Môi trường & Bộ Truyện mới'}
             </h3>
             <p className="text-xs text-slate-400">
-              Hãy nhập các trường liên quan. Bạn có thể sử dụng tính năng tải file bên dưới để tự động điền nhanh.
+              {editingProjectId
+                ? 'Cập nhật các trường liên quan bên dưới để chỉnh sửa thông tin bộ truyện. Bạn cũng có thể tải file raw hoặc file cẩm nang để nhập thêm chương/từ mới.'
+                : 'Hãy nhập các trường liên quan. Bạn có thể sử dụng tính năng tải file bên dưới để tự động điền nhanh.'
+              }
             </p>
           </div>
 
@@ -615,6 +490,10 @@ export default function ProjectList({
                 <option value="Huyền Huyễn">Huyền Huyễn (Lịch sử giả tưởng kỳ ảo)</option>
                 <option value="Huyền Huyễn Phương Tây">Huyền Huyễn Phương Tây (Hiệp sĩ, ma pháp, rồng, ma quỷ phương Tây)</option>
                 <option value="Vô Hạn Lưu">Vô Hạn Lưu (Sinh tồn, luân hồi, nhiệm vụ phó bản nghẹt thở)</option>
+                <option value="Lịch Sử / Quân Sự">Lịch Sử / Quân Sự (Dã sử, quân triều, binh pháp chiến tranh)</option>
+                <option value="Khoa Huyễn / Võng Du">Khoa Huyễn / Võng Du (Khoa học viễn tưởng, thế giới game ảo, cơ giáp)</option>
+                <option value="Linh Dị / Thần Quái">Linh Dị / Thần Quái (Kinh dị tâm linh, ma quỷ kỳ bí, trinh thám u ám)</option>
+                <option value="Hệ Thống / Điền Văn">Hệ Thống / Điền Văn (Sinh hoạt gia đình, làm ruộng điền viên nhẹ nhàng)</option>
                 <option value="Khác">Thể loại khác</option>
               </select>
             </div>
@@ -631,6 +510,10 @@ export default function ProjectList({
                 <option value="Trang nghiêm cổ phong">Cổ phong trang nghiêm (Từ ngữ đậm chất Hán Việt, sang quý)</option>
                 <option value="Bình dị dân dã">Bình dị đời thường (Từ ngữ đơn giản mộc mạc phong vị đời thật)</option>
                 <option value="Hùng tráng dồn dập">Hùng tráng dập dồn (Thích hợp truyện võ đấu, kịch tính nhiệt huyết)</option>
+                <option value="Trầm hùng dã sử">Trầm hùng dã sử (Trang nghiêm sử thi, thích hợp quân sự lịch sử)</option>
+                <option value="Hiện đại công nghệ">Hiện đại công nghệ (Thuật ngữ viễn tưởng số hóa, hiện đại)</option>
+                <option value="Kịch tính ly kỳ">Kịch tính ly kỳ (Gợi cảm giác hồi hộp, u ám tâm linh)</option>
+                <option value="Nhẹ nhàng điền văn">Nhẹ nhàng điền văn (Lối kể mộc mạc ấm áp, đời thường chậm rãi)</option>
               </select>
             </div>
           </div>
@@ -795,14 +678,7 @@ export default function ProjectList({
             <button
               id="btn-cancel-project"
               type="button"
-              onClick={() => {
-                setIsCreating(false);
-                setRawFileName('');
-                setParsedChapters([]);
-                setGuidelineFileName('');
-                setAnalyzedGlossary([]);
-                setAnalyzedInfo(null);
-              }}
+              onClick={handleCancelCreate}
               className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
             >
               Hủy
@@ -813,7 +689,7 @@ export default function ProjectList({
               className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5" />
-              Lưu & Tạo truyện mới
+              {editingProjectId ? 'Lưu & Cập nhật truyện' : 'Lưu & Tạo truyện mới'}
             </button>
           </div>
         </form>
@@ -856,6 +732,15 @@ export default function ProjectList({
                         title="Sao lưu lưu trữ truyện về ổ cứng máy tính (.json)"
                       >
                         <Download className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Edit Button */}
+                      <button
+                        onClick={(e) => handleStartEditProject(e, proj)}
+                        className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors pointer"
+                        title="Chỉnh sửa thông tin môi trường và bộ truyện"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
                       </button>
 
                       {projects.length > 1 && (

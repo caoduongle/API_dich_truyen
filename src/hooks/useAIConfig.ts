@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 
 export function useAIConfig() {
     const [apiKeys, setApiKeys] = useState<string[]>(() => {
@@ -18,31 +18,37 @@ export function useAIConfig() {
 
     const [showApiSettings, setShowApiSettings] = useState(false);
 
-    const handleSaveModel = (model: string) => {
+    const handleSaveModel = useCallback((model: string) => {
         setSelectedModel(model);
         localStorage.setItem('gemini_selected_model', model);
-    };
+    }, []);
 
-    const handleAddApiKey = () => {
-        const updated = [...apiKeys, ''];
-        setApiKeys(updated);
-        localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-    };
+    const handleAddApiKey = useCallback(() => {
+        setApiKeys(prev => {
+            const updated = [...prev, ''];
+            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
+            return updated;
+        });
+    }, []);
 
-    const handleUpdateKeyIndex = (index: number, val: string) => {
-        const updated = [...apiKeys];
-        updated[index] = val;
-        setApiKeys(updated);
-        localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-    };
+    const handleUpdateKeyIndex = useCallback((index: number, val: string) => {
+        setApiKeys(prev => {
+            const updated = [...prev];
+            updated[index] = val;
+            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
+            return updated;
+        });
+    }, []);
 
-    const handleDeleteKeyIndex = (index: number) => {
-        const updated = apiKeys.filter((_, idx) => idx !== index);
-        setApiKeys(updated);
-        localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-    };
+    const handleDeleteKeyIndex = useCallback((index: number) => {
+        setApiKeys(prev => {
+            const updated = prev.filter((_, idx) => idx !== index);
+            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
+            return updated;
+        });
+    }, []);
 
-    const handleImportClipboardKeys = async () => {
+    const handleImportClipboardKeys = useCallback(async () => {
         try {
             const text = await navigator.clipboard.readText();
             if (!text) return;
@@ -51,10 +57,12 @@ export function useAIConfig() {
                 .map(k => k.trim())
                 .filter(k => k.length > 5);
             if (keys.length > 0) {
-                const updated = [...apiKeys, ...keys];
-                const uniqueKeys = Array.from(new Set(updated));
-                setApiKeys(uniqueKeys);
-                localStorage.setItem('gemini_api_keys', JSON.stringify(uniqueKeys));
+                setApiKeys(prev => {
+                    const updated = [...prev, ...keys];
+                    const uniqueKeys = Array.from(new Set(updated));
+                    localStorage.setItem('gemini_api_keys', JSON.stringify(uniqueKeys));
+                    return uniqueKeys;
+                });
                 alert(`Đã nhận diện thành công và nhập sỉ ${keys.length} API Keys!`);
             } else {
                 alert("Không tìm thấy dòng khóa hợp lệ trong clipboard.");
@@ -62,7 +70,7 @@ export function useAIConfig() {
         } catch (_) {
             alert("Lỗi truy xuất bộ nhớ Clipboard của trình duyệt. Bạn có thể tự dán thủ công.");
         }
-    };
+    }, []);
 
     return {
         apiKeys,
