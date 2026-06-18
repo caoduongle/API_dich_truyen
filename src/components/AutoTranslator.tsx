@@ -3,7 +3,7 @@ import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter } from '../typ
 import {
   Play, Pause, Sliders, Database, Cpu, Layers, Download,
   Check, RefreshCw, Sparkles, ChevronRight, FileText, ListOrdered,
-  Square, Clock, Zap
+  Square, Clock, Zap, BookOpen
 } from 'lucide-react';
 
 // Nhập khẩu các kiến trúc thành phần giao diện đã được phân rã để giảm tải dung lượng file
@@ -41,6 +41,10 @@ export default function AutoTranslator({
   const [extractionLoops, setExtractionLoops] = useState<number>(1);
   const [currentExtractionLoop, setCurrentExtractionLoop] = useState<number>(1);
   const isStopScanRequestedRef = useRef<boolean>(false);
+
+  // Áp dụng từ điển vào sourceText gốc
+  const [isApplyingGlossary, setIsApplyingGlossary] = useState<boolean>(false);
+  const [applyGlossaryResult, setApplyGlossaryResult] = useState<{ replaced: number; chapters: number } | null>(null);
 
   // Floating scan widget states
   const [isScanWidgetVisible, setIsScanWidgetVisible] = useState<boolean>(false);
@@ -222,7 +226,7 @@ export default function AutoTranslator({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              text: chapter.sourceText,
+              text: chapter.processedSourceText || chapter.sourceText,
               genre: currentProjState.genre,
               tone: currentProjState.tone,
               glossary: currentProjState.glossary,
@@ -603,6 +607,57 @@ export default function AutoTranslator({
     }
   };
 
+  const handleApplyGlossaryToAllChapters = () => {
+    const glossary = projectRef.current.glossary;
+    const chapters = projectRef.current.chapters;
+
+    if (glossary.length === 0) {
+      alert('Từ điển dự án đang trống!');
+      return;
+    }
+    if (chapters.length === 0) {
+      alert('Bộ truyện chưa có chương nào!');
+      return;
+    }
+
+    setIsApplyingGlossary(true);
+    setApplyGlossaryResult(null);
+
+    setTimeout(() => {
+      // Sắp xếp từ dài trước để tránh thay nhầm substring
+      const sortedGlossary = [...glossary].sort((a, b) => b.chinese.length - a.chinese.length);
+
+      let totalReplaced = 0;
+      let chaptersAffected = 0;
+
+      const updatedChapters = chapters.map(chap => {
+        let result = chap.sourceText;
+        let chapReplaced = 0;
+
+        sortedGlossary.forEach(item => {
+          if (!item.chinese || !item.vietnamese) return;
+          const escaped = item.chinese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(escaped, 'g');
+          const before = result;
+          result = result.replace(regex, item.vietnamese);
+          if (result !== before) chapReplaced++;
+        });
+
+        if (chapReplaced > 0) {
+          totalReplaced += chapReplaced;
+          chaptersAffected++;
+          return { ...chap, processedSourceText: result };
+        }
+        return chap;
+      });
+
+      onUpdateProject({ ...projectRef.current, chapters: updatedChapters });
+      setApplyGlossaryResult({ replaced: totalReplaced, chapters: chaptersAffected });
+      setIsApplyingGlossary(false);
+      addLog(`Áp dụng từ điển hoàn tất: thay thế ${totalReplaced} thuật ngữ trên ${chaptersAffected}/${chapters.length} chương. processedSourceText đã được lưu.`, 'success');
+    }, 400);
+  };
+
   const handleResetQueue = () => {
     setIsProcessing(false);
     isPauseRequestedRef.current = false;
@@ -943,6 +998,38 @@ export default function AutoTranslator({
                   <button type="button" onClick={triggerExportDownload} className="flex-1 py-1.5 rounded-lg border border-slate-205 text-slate-600 hover:bg-slate-50 cursor-pointer text-xs font-bold flex items-center justify-center gap-1"><Download className="w-3.5 h-3.5" /> Lưu cấu trúc truyện</button>
                 </div>
               </div>
+            </div>
+
+            {/* Áp dụng từ điển vào sourceText gốc */}
+            <div id="apply-glossary-card" className="space-y-4 bg-white border border-slate-200 p-5 rounded-xl shadow-xs">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2">
+                <BookOpen className="w-4 h-4 text-amber-600" /> Áp dụng từ điển vào raw
+              </h3>
+              <p className="text-[11px] text-slate-500">Thay thế trước các từ tiếng Trung trong <strong>văn bản gốc</strong> của toàn bộ chương bằng bản dịch từ từ điển. Khi dịch tự động sẽ ưu tiên dùng văn bản đã xử lý này.</p>
+
+              {applyGlossaryResult && !isApplyingGlossary && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-900 flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Đã thay <strong>{applyGlossaryResult.replaced}</strong> thuật ngữ trên <strong>{applyGlossaryResult.chapters}</strong> chương.</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={isApplyingGlossary || isProcessing || projectRef.current.glossary.length === 0 || projectRef.current.chapters.length === 0}
+                onClick={handleApplyGlossaryToAllChapters}
+                className={`w-full py-2.5 rounded-lg text-xs font-extrabold shadow-sm flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                  isApplyingGlossary
+                    ? 'bg-amber-400 text-white cursor-wait'
+                    : 'bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-40 disabled:cursor-not-allowed'
+                }`}
+              >
+                {isApplyingGlossary ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin fill-white" /> Đang xử lý toàn bộ chương...</>
+                ) : (
+                  <><BookOpen className="w-3.5 h-3.5" /> Áp dụng từ điển vào raw ({projectRef.current.glossary.length} từ / {projectRef.current.chapters.length} chương)</>
+                )}
+              </button>
             </div>
 
             {/* Quét lọc thuật ngữ sỉ */}

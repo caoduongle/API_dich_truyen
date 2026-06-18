@@ -440,6 +440,7 @@ export interface Chapter {
     title: string;
     // --- Full-chapter 2-phase translation (primary workflow) ---
     sourceText: string;         // Original Chinese text block
+    processedSourceText?: string; // sourceText after glossary terms have been pre-replaced (optional)
     rawTranslation: string;     // Phase 1: raw translation
     polishedTranslation: string;// Phase 2: polished literary output
     // --- Parallel line-by-line view (secondary/export helper) ---
