@@ -1,0 +1,6 @@
+{
+  "name": "AI Dịch Truyện Trung-Việt (Full)",
+  "description": "Hệ thống AI toàn diện dịch truyện chữ Trung → Việt: dịch 2 giai đoạn (thô + biên tập), xoay vòng đa API key, từ điển thuật ngữ song ngữ với hàng chờ kiểm duyệt trùng lặp, tìm vị trí xuất hiện, import Markdown, dịch song song, export JSONL fine-tuning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
