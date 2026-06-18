@@ -45,6 +45,14 @@ export default function AutoTranslator({
   // Áp dụng từ điển vào sourceText gốc
   const [isApplyingGlossary, setIsApplyingGlossary] = useState<boolean>(false);
   const [applyGlossaryResult, setApplyGlossaryResult] = useState<{ replaced: number; chapters: number } | null>(null);
+  const [applyGlossaryRangeEnabled, setApplyGlossaryRangeEnabled] = useState<boolean>(false);
+  const [applyGlossaryRangeStart, setApplyGlossaryRangeStart] = useState<number>(1);
+  const [applyGlossaryRangeEnd, setApplyGlossaryRangeEnd] = useState<number>(() => activeProject.chapters.length || 1);
+
+  // Phạm vi rà soát thuật ngữ
+  const [scanRangeEnabled, setScanRangeEnabled] = useState<boolean>(false);
+  const [scanRangeStart, setScanRangeStart] = useState<number>(1);
+  const [scanRangeEnd, setScanRangeEnd] = useState<number>(() => activeProject.chapters.length || 1);
 
   // Floating scan widget states
   const [isScanWidgetVisible, setIsScanWidgetVisible] = useState<boolean>(false);
@@ -624,13 +632,22 @@ export default function AutoTranslator({
     setApplyGlossaryResult(null);
 
     setTimeout(() => {
-      // Sắp xếp từ dài trước để tránh thay nhầm substring
       const sortedGlossary = [...glossary].sort((a, b) => b.chinese.length - a.chinese.length);
+
+      // Lọc phạm vi chương
+      let scopedChapters = chapters;
+      if (applyGlossaryRangeEnabled) {
+        const startIdx = Math.max(0, applyGlossaryRangeStart - 1);
+        const endIdx = Math.min(chapters.length, applyGlossaryRangeEnd);
+        scopedChapters = chapters.slice(startIdx, endIdx);
+      }
 
       let totalReplaced = 0;
       let chaptersAffected = 0;
 
       const updatedChapters = chapters.map(chap => {
+        if (!scopedChapters.includes(chap)) return chap;
+
         let result = chap.sourceText;
         let chapReplaced = 0;
 
@@ -654,7 +671,7 @@ export default function AutoTranslator({
       onUpdateProject({ ...projectRef.current, chapters: updatedChapters });
       setApplyGlossaryResult({ replaced: totalReplaced, chapters: chaptersAffected });
       setIsApplyingGlossary(false);
-      addLog(`Áp dụng từ điển hoàn tất: thay thế ${totalReplaced} thuật ngữ trên ${chaptersAffected}/${chapters.length} chương. processedSourceText đã được lưu.`, 'success');
+      addLog(`Áp dụng từ điển hoàn tất: thay thế ${totalReplaced} thuật ngữ trên ${chaptersAffected}/${scopedChapters.length} chương được chọn.`, 'success');
     }, 400);
   };
 
@@ -684,17 +701,25 @@ export default function AutoTranslator({
       return;
     }
 
+    // Lọc phạm vi chương rà soát
+    let scopedChaps = chaps;
+    if (scanRangeEnabled) {
+      const startIdx = Math.max(0, scanRangeStart - 1);
+      const endIdx = Math.min(chaps.length, scanRangeEnd);
+      scopedChaps = chaps.slice(startIdx, endIdx);
+    }
+
     setIsScanningGlossary(true);
     isStopScanRequestedRef.current = false;
     setScanningProgress(0);
     setScanFoundCount(0);
     setCurrentScanningChapterIndex(0);
-    setTotalScanChapters(chaps.length);
+    setTotalScanChapters(scopedChaps.length);
     setCurrentScanningChapterTitle('');
     setIsScanWidgetVisible(true);
     setIsScanWidgetMinimized(false);
     setLogs([]);
-    addLog(`=== KHỞI CHẠY QUÉT LỌC THUẬT NGỮ SỈ TRÊN TOÀN BỘ TRUYỆN ===`, 'success');
+    addLog(`=== KHỞI CHẠY QUÉT LỌC THUẬT NGỮ SỈ${scanRangeEnabled ? ` (Chương ${scanRangeStart}→${scanRangeEnd})` : ' TOÀN BỘ TRUYỆN'} ===`, 'success');
 
     try {
       let updatedGlossary = [...projectRef.current.glossary];
@@ -704,14 +729,14 @@ export default function AutoTranslator({
         if (isStopScanRequestedRef.current) break;
         setCurrentExtractionLoop(loop);
 
-        for (let i = 0; i < chaps.length; i++) {
+        for (let i = 0; i < scopedChaps.length; i++) {
           if (isStopScanRequestedRef.current) break;
 
-          const chap = chaps[i];
+          const chap = scopedChaps[i];
           setCurrentScanningChapterIndex(i + 1);
           setCurrentScanningChapterTitle(chap.title);
-          setScanningProgress(Math.round(((i + 1) / chaps.length) * 100));
-          addLog(`[Vòng ${loop}] Quét lọc Chương ${i + 1}/${chaps.length}: ${chap.title}`, 'gemini');
+          setScanningProgress(Math.round(((i + 1) / scopedChaps.length) * 100));
+          addLog(`[Vòng ${loop}] Quét lọc Chương ${i + 1}/${scopedChaps.length}: ${chap.title}`, 'gemini');
 
           try {
             const response = await fetch('/api/analyze-glossary', {
@@ -1005,7 +1030,55 @@ export default function AutoTranslator({
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2 border-b border-slate-100 pb-2">
                 <BookOpen className="w-4 h-4 text-amber-600" /> Áp dụng từ điển vào raw
               </h3>
-              <p className="text-[11px] text-slate-500">Thay thế trước các từ tiếng Trung trong <strong>văn bản gốc</strong> của toàn bộ chương bằng bản dịch từ từ điển. Khi dịch tự động sẽ ưu tiên dùng văn bản đã xử lý này.</p>
+              <p className="text-[11px] text-slate-500">Thay thế trước các từ tiếng Trung trong <strong>văn bản gốc</strong> của chương được chọn bằng bản dịch từ từ điển. Khi dịch tự động sẽ ưu tiên dùng văn bản đã xử lý này.</p>
+
+              {/* Phạm vi chương */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5"><ListOrdered className="w-3.5 h-3.5 text-amber-500" /> Giới hạn phạm vi chương</span>
+                  <button
+                    type="button"
+                    onClick={() => setApplyGlossaryRangeEnabled(!applyGlossaryRangeEnabled)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${applyGlossaryRangeEnabled ? 'bg-amber-500' : 'bg-slate-200'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${applyGlossaryRangeEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                {applyGlossaryRangeEnabled && (() => {
+                  const total = projectRef.current.chapters.length;
+                  return (
+                    <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-1 duration-200">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block">Từ chương</label>
+                        <input
+                          type="number" min={1} max={total}
+                          value={applyGlossaryRangeStart}
+                          onChange={e => {
+                            const v = Math.max(1, Math.min(total, Number(e.target.value)));
+                            setApplyGlossaryRangeStart(v);
+                            if (v > applyGlossaryRangeEnd) setApplyGlossaryRangeEnd(v);
+                          }}
+                          className="w-full text-center text-sm font-extrabold border border-slate-200 rounded-lg bg-slate-50 py-1.5 text-amber-900 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block">Đến chương</label>
+                        <input
+                          type="number" min={applyGlossaryRangeStart} max={total}
+                          value={applyGlossaryRangeEnd}
+                          onChange={e => setApplyGlossaryRangeEnd(Math.max(applyGlossaryRangeStart, Math.min(total, Number(e.target.value))))}
+                          className="w-full text-center text-sm font-extrabold border border-slate-200 rounded-lg bg-slate-50 py-1.5 text-amber-900 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div className="col-span-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 text-[11px] text-amber-900 flex items-center justify-between">
+                        <span>Phạm vi áp dụng:</span>
+                        <strong className="text-amber-700 font-extrabold">{applyGlossaryRangeEnd - applyGlossaryRangeStart + 1} chương</strong>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
 
               {applyGlossaryResult && !isApplyingGlossary && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-900 flex items-center gap-2">
@@ -1025,9 +1098,9 @@ export default function AutoTranslator({
                 }`}
               >
                 {isApplyingGlossary ? (
-                  <><RefreshCw className="w-3.5 h-3.5 animate-spin fill-white" /> Đang xử lý toàn bộ chương...</>
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Đang xử lý chương...</>
                 ) : (
-                  <><BookOpen className="w-3.5 h-3.5" /> Áp dụng từ điển vào raw ({projectRef.current.glossary.length} từ / {projectRef.current.chapters.length} chương)</>
+                  <><BookOpen className="w-3.5 h-3.5" /> Áp dụng từ điển ({projectRef.current.glossary.length} từ / {applyGlossaryRangeEnabled ? `${applyGlossaryRangeEnd - applyGlossaryRangeStart + 1}` : projectRef.current.chapters.length} chương)</>
                 )}
               </button>
             </div>
@@ -1038,6 +1111,57 @@ export default function AutoTranslator({
                 <Database className="w-4 h-4 text-amber-600" /> Rà soát &amp; Lọc thuật ngữ sỉ
               </h3>
               <p className="text-[11px] text-slate-500">Quét sỉ toàn tập truyện để tự động bóc tách, chuẩn hóa danh xưng danh riêng phương Tây/Trung Hoa cổ phong đưa thẳng vào bộ quy tắc.</p>
+
+              {/* Phạm vi chương rà soát */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5"><ListOrdered className="w-3.5 h-3.5 text-amber-500" /> Giới hạn phạm vi chương</span>
+                  <button
+                    type="button"
+                    disabled={isScanningGlossary}
+                    onClick={() => setScanRangeEnabled(!scanRangeEnabled)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${scanRangeEnabled ? 'bg-amber-500' : 'bg-slate-200'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${scanRangeEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                {scanRangeEnabled && (() => {
+                  const total = projectRef.current.chapters.length;
+                  return (
+                    <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-1 duration-200">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block">Từ chương</label>
+                        <input
+                          type="number" min={1} max={total}
+                          value={scanRangeStart}
+                          disabled={isScanningGlossary}
+                          onChange={e => {
+                            const v = Math.max(1, Math.min(total, Number(e.target.value)));
+                            setScanRangeStart(v);
+                            if (v > scanRangeEnd) setScanRangeEnd(v);
+                          }}
+                          className="w-full text-center text-sm font-extrabold border border-slate-200 rounded-lg bg-slate-50 py-1.5 text-amber-900 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block">Đến chương</label>
+                        <input
+                          type="number" min={scanRangeStart} max={total}
+                          value={scanRangeEnd}
+                          disabled={isScanningGlossary}
+                          onChange={e => setScanRangeEnd(Math.max(scanRangeStart, Math.min(total, Number(e.target.value))))}
+                          className="w-full text-center text-sm font-extrabold border border-slate-200 rounded-lg bg-slate-50 py-1.5 text-amber-900 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                        />
+                      </div>
+                      <div className="col-span-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-1.5 text-[11px] text-amber-900 flex items-center justify-between">
+                        <span>Phạm vi quét:</span>
+                        <strong className="text-amber-700 font-extrabold">{scanRangeEnd - scanRangeStart + 1} chương</strong>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
 
               <div className="space-y-1.5 pt-1">
                 <div className="flex justify-between items-center text-xs">
