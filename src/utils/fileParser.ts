@@ -7,7 +7,7 @@ export function parseTxtContent(fullText: string, method: 'regex' | 'chunk'): { 
     const lines = fullText.split(/\r?\n/);
     let currentChapterTitle = "Khởi đầu / Phần mở đầu";
     let currentLines: string[] = [];
-    const chapRegex = /^\s*(Chương\s+\d+|Chương\s+[I|V|X|L|C|D|M]+|第[零一二三四五六七八九十百千万\d]+[章节])/i;
+    const chapRegex = /^\s*(Chương\s+\d+|Chương\s+[IVXLCDM]+|第[零一二三四五六七八九十百千万\d]+[章节])/i;
 
     for (const line of lines) {
       if (chapRegex.test(line)) {

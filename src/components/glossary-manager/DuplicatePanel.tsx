@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Link2, X, Check, Search, Trash2 } from 'lucide-react';
 import { GlossaryItem } from '../../types';
+import { useNotifications } from '../NotificationSystem';
 
 export interface DuplicateGroupEdit {
   groupId: string;
@@ -198,6 +199,7 @@ export const DuplicatePanel = React.memo(function DuplicatePanel({
   findLiveContext,
   getOriginBadge,
 }: DuplicatePanelProps) {
+  const { showConfirm } = useNotifications();
   if (!showDuplicatePanel || duplicateGroups.length === 0) return null;
 
   return (
@@ -243,8 +245,15 @@ export const DuplicatePanel = React.memo(function DuplicatePanel({
 
       <div className="flex justify-end pt-1 border-t border-violet-100">
         <button
-          onClick={() => {
-            if (window.confirm(`Bạn có muốn đóng toàn bộ ${duplicateGroups.length} nhóm trùng lặp mà không lưu thay đổi?`)) {
+          onClick={async () => {
+            const confirmed = await showConfirm({
+              title: 'Hủy bỏ lọc trùng lặp',
+              message: `Bạn có muốn đóng toàn bộ ${duplicateGroups.length} nhóm trùng lặp mà không lưu thay đổi?`,
+              confirmText: 'Đồng ý đóng',
+              cancelText: 'Hủy',
+              type: 'warning'
+            });
+            if (confirmed) {
               setShowDuplicatePanel(false);
               setDuplicateGroups([]);
             }

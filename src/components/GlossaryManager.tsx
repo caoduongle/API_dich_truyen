@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, startTransition } from 'react';
-import { GlossaryItem, GlossaryType, PendingGlossaryItem, Chapter } from '../types';
+import { GlossaryItem, GlossaryType, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
 import { Search, Calendar, Info } from 'lucide-react';
+import { useNotifications } from './NotificationSystem';
+import { getChaptersByProjectFromDB } from '../services/db';
+import { triggerDownload } from '../utils/download';
+import { isHanEquivalent } from '../utils/sinoNormalize';
 
 // Sub-components
 import { GlossaryHeader } from './glossary-manager/GlossaryHeader';
@@ -14,8 +18,8 @@ import { GlossaryDetailSidebar } from './glossary-manager/GlossaryDetailSidebar'
 interface GlossaryManagerProps {
   projectId: string;
   glossary: GlossaryItem[];
-  pendingGlossary?: PendingGlossaryItem[];
-  chapters?: Chapter[];
+  pendingGlossary: PendingGlossaryItem[];
+  chapters?: ChapterMetadata[];
   apiKeys?: string[];
   selectedModel?: string;
   onAddGlossaryItem: (item: Omit<GlossaryItem, 'id'>) => void;
@@ -113,6 +117,19 @@ function GlossaryManager({
   onConfirmPending,
   onDiscardPending,
 }: GlossaryManagerProps) {
+  const { showToast, showConfirm } = useNotifications();
+  const [fullChapters, setFullChapters] = useState<Chapter[]>([]);
+
+  useEffect(() => {
+    async function loadFullChapters() {
+      if (projectId) {
+        const full = await getChaptersByProjectFromDB(projectId);
+        setFullChapters(full);
+      }
+    }
+    loadFullChapters();
+  }, [projectId, chapters]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -159,7 +176,7 @@ function GlossaryManager({
       const groups = computeDuplicateGroups(glossary, projId);
       setDuplicateGroups(groups);
       if (groups.length === 0) {
-        alert('Tuyệt vời! Không tìm thấy từ ngữ nào bị trùng lặp trong từ điển của bạn.');
+        showToast({ message: 'Tuyệt vời! Không tìm thấy từ ngữ nào bị trùng lặp trong từ điển của bạn.', type: 'success' });
         setShowDuplicatePanel(false);
       }
     });
@@ -185,10 +202,10 @@ function GlossaryManager({
     const clean = chineseTerm.replace(/\s+/g, '').trim();
     const results: Array<{ chapterTitle: string; sourceLine: string; translationLine: string }> = [];
 
-    for (const chap of chapters) {
+    for (const chap of fullChapters) {
       const srcLines = chap.sourceText.split('\n');
       const transLines = (chap.polishedTranslation || chap.rawTranslation || '').split('\n');
-
+ 
       for (let i = 0; i < srcLines.length; i++) {
         const line = srcLines[i].trim();
         if (!line) continue;
@@ -203,7 +220,7 @@ function GlossaryManager({
       }
     }
     return results;
-  }, [chapters]);
+  }, [fullChapters]);
 
   const handleConfirmDupGroup = useCallback((groupId: string) => {
     const group = duplicateGroupsRef.current.find(g => g.groupId === groupId);
@@ -244,18 +261,25 @@ function GlossaryManager({
     setDuplicateGroups(prev => prev.filter(g => g.groupId !== groupId));
   }, [projectId]);
 
-  const handleDeleteDupItem = useCallback((groupId: string, itemId: string) => {
-    if (!confirm('Bạn có chắc muốn xóa từ điển này khỏi hệ thống?')) return;
+  const handleDeleteDupItem = useCallback(async (groupId: string, itemId: string) => {
+    const confirmed = await showConfirm({
+      title: 'Xóa mục từ điển',
+      message: 'Bạn có chắc muốn xóa từ điển này khỏi hệ thống?',
+      confirmText: 'Xác nhận xóa',
+      cancelText: 'Hủy',
+      type: 'danger'
+    });
+    if (!confirmed) return;
     onDeleteGlossaryItem(itemId);
     setDuplicateGroups(prev => prev.map(group => {
       if (group.groupId !== groupId) return group;
       const remaining = group.items.filter(i => i.id !== itemId);
       return { ...group, items: remaining };
     }).filter(group => group.items.length > 1));
-  }, [onDeleteGlossaryItem]);
+  }, [onDeleteGlossaryItem, showConfirm]);
 
   const scanOccurrences = (item: GlossaryItem) => {
-    if (!chapters || chapters.length === 0) {
+    if (!fullChapters || fullChapters.length === 0) {
       setSearchContextMatches([]);
       return;
     }
@@ -271,7 +295,7 @@ function GlossaryManager({
     const zhTerm = item.chinese.trim();
     const viTerm = item.vietnamese.trim();
 
-    chapters.forEach((chap) => {
+    fullChapters.forEach((chap) => {
       if (zhTerm && chap.sourceText) {
         const paragraphs = chap.sourceText.split('\n');
         paragraphs.forEach((pText, idx) => {
@@ -323,7 +347,7 @@ function GlossaryManager({
     } else {
       setSelectedItem(null);
     }
-  }, [selectedItem, chapters, glossary]);
+  }, [selectedItem, fullChapters, glossary]);
 
   const handleAddFormSave = useCallback((fields: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }) => {
     onAddGlossaryItem({
@@ -357,7 +381,7 @@ function GlossaryManager({
       const data = await response.json();
       const extractedList: Omit<GlossaryItem, 'id'>[] = data.extractedGlossary || [];
       if (extractedList.length === 0) {
-        alert("Không tìm thấy thuật ngữ nào có thể trích xuất từ tệp chỉ dẫn này.");
+        showToast({ message: "Không tìm thấy thuật ngữ nào có thể trích xuất từ tệp chỉ dẫn này.", type: 'warning' });
         return;
       }
 
@@ -375,8 +399,9 @@ function GlossaryManager({
         let hasConflict = false;
         let reason = '';
 
-        const systemCnMatch = glossary.find(g => g.chinese.replace(/\s+/g, '').trim().toLowerCase() === cleanChKey);
+        const systemCnMatch = glossary.find(g => isHanEquivalent(g.chinese, item.chinese));
         const systemViMatch = glossary.find(g => g.vietnamese.trim().toLowerCase() === cleanViKey);
+        const fileChMatch = Array.from(fileCh.values()).find(fItem => isHanEquivalent(fItem.chinese, item.chinese));
 
         if (systemCnMatch) {
           hasConflict = true;
@@ -384,7 +409,7 @@ function GlossaryManager({
         } else if (systemViMatch) {
           hasConflict = true;
           reason = `Trùng định nghĩa: Nghĩa Việt '${item.vietnamese}' đã được gán cho từ gốc '${systemViMatch.chinese}'.`;
-        } else if (fileCh.has(cleanChKey)) {
+        } else if (fileChMatch) {
           hasConflict = true;
           reason = `Lặp nội bộ tệp: Chữ Trung '${item.chinese}' xuất hiện nhiều lần trong file .MD.`;
         } else if (fileVi.has(cleanViKey)) {
@@ -419,9 +444,12 @@ function GlossaryManager({
 
       if (duplicateReviewList.length > 0) {
         setReviewQueue(prev => [...prev, ...duplicateReviewList]);
-        alert(`Phân tích xong! \n- Thêm trực tiếp thành công ${directsSavedCount} từ không có trùng lặp. \n- Phát hiện ${duplicateReviewList.length} từ bị trùng/lặp đã được chuyển vào mục 'Rà soát trùng lặp' riêng biệt để bạn tùy tiện quyết định.`);
+        showToast({
+          message: `Phân tích xong! Thêm thành công ${directsSavedCount} từ. Phát hiện ${duplicateReviewList.length} từ trùng lặp đã chuyển vào mục 'Rà soát trùng lặp'.`,
+          type: 'info'
+        });
       } else {
-        alert(`Thành công mỹ mãn! Đã tải toàn bộ ${directsSavedCount} từ mượt mà từ tệp .MD vào từ điển.`);
+        showToast({ message: `Thành công mỹ mãn! Đã tải toàn bộ ${directsSavedCount} từ mượt mà từ tệp .MD vào từ điển.`, type: 'success' });
       }
 
       setIsImporting(false);
@@ -429,7 +457,7 @@ function GlossaryManager({
 
     } catch (err: any) {
       console.error(err);
-      alert("Đã xảy ra lỗi khi phân tích: " + err.message);
+      showToast({ message: "Đã xảy ra lỗi khi phân tích: " + err.message, type: 'error' });
     } finally {
       setIsAnalyzingMd(false);
       if (e.target) {
@@ -442,7 +470,7 @@ function GlossaryManager({
     const item = reviewQueue.find(r => r.id === reviewId);
     if (!item) return;
     if (!item.chinese.trim() || !item.vietnamese.trim()) {
-      alert("Vui lòng không để trống từ gốc hoặc nghĩa tiếng Việt.");
+      showToast({ message: "Vui lòng không để trống từ gốc hoặc nghĩa tiếng Việt.", type: 'warning' });
       return;
     }
 
@@ -473,7 +501,7 @@ function GlossaryManager({
 
   const exportGlossaryToMd = useCallback(() => {
     if (glossary.length === 0) {
-      alert('Từ điển đang trống, không có gì để xuất!');
+      showToast({ message: 'Từ điển đang trống, không có gì để xuất!', type: 'warning' });
       return;
     }
 
@@ -517,12 +545,7 @@ function GlossaryManager({
     const mdContent = lines.join('\n');
     const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `tu-dien-du-an-${Date.now()}.md`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
+    triggerDownload(url, `tu-dien-du-an-${Date.now()}.md`);
     URL.revokeObjectURL(url);
   }, [glossary]);
 

@@ -29,7 +29,7 @@ export interface PendingGlossaryItem {
     vietnamese: string;
     type: GlossaryType;
     note: string;
-    reason: string;         // "Duplicate Chinese" | "Duplicate Vietnamese" | "Duplicate Both"
+    reason: 'Duplicate Chinese' | 'Duplicate Vietnamese' | 'Duplicate Both';
     originalValue?: string; // value of the duplicate already in the main glossary
     importedAt: string;
 }
@@ -47,8 +47,10 @@ export interface ChapterMetadata {
 export interface Chapter {
     id: string;
     title: string;
+    projectId?: string;           // Parent project ID for indexing
     // --- Full-chapter 2-phase translation (primary workflow) ---
     sourceText: string;           // Original Chinese text block
+
     processedSourceText?: string; // sourceText after glossary pre-replacement (used by auto-translator if set)
     rawTranslation: string;       // Phase 1: raw translation
     polishedTranslation: string;  // Phase 2: polished literary output
@@ -71,6 +73,13 @@ export interface StoryProject {
     pendingGlossary: PendingGlossaryItem[];  // Deduplication verification queue
     chapters: ChapterMetadata[];
     createdAt: string;
+    translationQueueState?: {
+        queueIds: string[];
+        currentIndex: number;
+        mode: string;
+        skipFailedChapters?: boolean;
+        failedIds?: string[];
+    };
 }
 
 // ---- API Request/Response types ----

@@ -40,7 +40,7 @@ export default function ApiSettings({
     });
   };
 
-  const validKeyCount = apiKeys.filter(k => k.trim().length > 5).length;
+  const validKeyCount = apiKeys.filter(k => k.trim().length > 5 && k.trim().startsWith('AIza')).length;
 
   return (
     /* Backdrop */
@@ -118,7 +118,7 @@ export default function ApiSettings({
               <div className="space-y-2">
                 {apiKeys.map((key, idx) => {
                   const isRevealed = revealedKeys.has(idx);
-                  const isValid = key.trim().length > 5;
+                  const isValid = key.trim().length > 5 && key.trim().startsWith('AIza');
                   return (
                     <div key={idx} className="flex items-center gap-2">
                       <div className={`flex-1 flex items-center gap-1 border rounded-lg px-2.5 py-1.5 bg-white transition-colors ${

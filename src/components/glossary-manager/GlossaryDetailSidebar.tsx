@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BookOpen, X, Edit2, Save, Hash } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
+import { useNotifications } from '../NotificationSystem';
 
 interface DetailEditPanelProps {
   item: GlossaryItem;
@@ -8,6 +9,7 @@ interface DetailEditPanelProps {
 }
 
 const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: DetailEditPanelProps) {
+  const { showToast } = useNotifications();
   const [chinese, setChinese]       = useState(item.chinese);
   const [pinyin, setPinyin]         = useState(item.pinyin);
   const [vietnamese, setVietnamese] = useState(item.vietnamese);
@@ -16,7 +18,7 @@ const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: De
 
   const handleSave = () => {
     if (!chinese.trim() || !vietnamese.trim()) {
-      alert("Vui lòng nhập đầy đủ tiếng Trung gốc và dịch tiếng Việt.");
+      showToast({ message: "Vui lòng nhập đầy đủ tiếng Trung gốc và dịch tiếng Việt.", type: 'warning' });
       return;
     }
     onSave({

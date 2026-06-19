@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { StoryProject, GlossaryItem, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
+import { useNotifications } from './NotificationSystem';
+import { triggerDownload } from '../utils/download';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser.ts';
 import { 
   Plus, Trash2, Folder, BookOpen, Clock, Tag, FileText, Upload, Download, 
@@ -28,6 +30,7 @@ export default function ProjectList({
   apiKeys,
   selectedModel,
 }: ProjectListProps) {
+  const { showToast, showConfirm } = useNotifications();
   const [isCreating, setIsCreating] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -71,12 +74,12 @@ export default function ProjectList({
         const chaps = await parseEpubFile(file);
         setParsedChapters(chaps);
       } else {
-        alert("Chỉ hỗ trợ định dạng tệp .txt hoặc .epub.");
+        showToast({ message: "Chỉ hỗ trợ định dạng tệp .txt hoặc .epub.", type: 'warning' });
         setRawFileName('');
       }
     } catch (err: any) {
       console.error(err);
-      alert("Lỗi khi đọc file raw gốc: " + err.message);
+      showToast({ message: "Lỗi khi đọc file raw gốc: " + err.message, type: 'error' });
       setRawFileName('');
     } finally {
       setIsParsingRaw(false);
@@ -93,7 +96,7 @@ export default function ProjectList({
         const chaps = parseTxtContent(fullText, method);
         setParsedChapters(chaps);
       } catch (err: any) {
-        alert(err.message);
+        showToast({ message: err.message, type: 'error' });
       } finally {
         setIsParsingRaw(false);
       }
@@ -148,7 +151,7 @@ export default function ProjectList({
 
     } catch (err: any) {
       console.error(err);
-      alert("Không thể phân tích cẩm nang dịch thuật: " + err.message);
+      showToast({ message: "Không thể phân tích cẩm nang dịch thuật: " + err.message, type: 'error' });
       setGuidelineFileName('');
     } finally {
       setIsAnalyzingGuidelines(false);
@@ -180,12 +183,7 @@ export default function ProjectList({
     const blob = new Blob([jsonString], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.href = url;
-    downloadAnchor.download = `${proj.title.replace(/[\s\/:*?"<>|]+/g, '_')}_from_disk.json`;
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    document.body.removeChild(downloadAnchor);
+    triggerDownload(url, `${proj.title.replace(/[\s\/:*?"<>|]+/g, '_')}_from_disk.json`);
     URL.revokeObjectURL(url);
   };
 
@@ -212,10 +210,7 @@ export default function ProjectList({
 
     const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${proj.title.replace(/[\s\/:*?"<>|]+/g, '_')}_${mode}.txt`;
-    link.click();
+    triggerDownload(url, `${proj.title.replace(/[\s\/:*?"<>|]+/g, '_')}_${mode}.txt`);
     URL.revokeObjectURL(url);
   };
 
@@ -240,7 +235,7 @@ export default function ProjectList({
         const imported = JSON.parse(raw);
 
         if (!imported.title) {
-          alert("Tệp JSON không hợp lệ, không tìm thấy tên tiểu thuyết (title).");
+          showToast({ message: "Tệp JSON không hợp lệ, không tìm thấy tên tiểu thuyết (title).", type: 'error' });
           return;
         }
 
@@ -254,9 +249,9 @@ export default function ProjectList({
         };
 
         onCreateProject(projectPayload);
-        alert(`Nhập khẩu dự án thành công! Thêm bộ truyện "${projectPayload.title}" với ${projectPayload.chapters.length} chương và ${projectPayload.glossary.length} từ điển.`);
+        showToast({ message: `Nhập khẩu dự án thành công! Thêm bộ truyện "${projectPayload.title}" với ${projectPayload.chapters.length} chương và ${projectPayload.glossary.length} từ điển.`, type: 'success' });
       } catch (err: any) {
-        alert("Lỗi giải mã cấu trúc dữ liệu tệp JSON: " + err.message);
+        showToast({ message: "Lỗi giải mã cấu trúc dữ liệu tệp JSON: " + err.message, type: 'error' });
       }
     };
     reader.readAsText(file);
@@ -272,7 +267,7 @@ export default function ProjectList({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
-      alert("Vui lòng điền tên tiểu thuyết.");
+      showToast({ message: "Vui lòng điền tên tiểu thuyết.", type: 'warning' });
       return;
     }
 
@@ -283,6 +278,9 @@ export default function ProjectList({
       sourceText: pc.sourceText,
       rawTranslation: '',
       polishedTranslation: '',
+      paragraphs: [],
+      translatedLines: [],
+      status: 'not_started',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }));
@@ -309,7 +307,7 @@ export default function ProjectList({
           glossary: [...existingProj.glossary, ...finalGlossary]
         };
         onUpdateProject(updatedProj);
-        alert(`Đã cập nhật thông tin truyện "${title.trim()}" thành công!`);
+        showToast({ message: `Đã cập nhật thông tin truyện "${title.trim()}" thành công!`, type: 'success' });
       }
     } else {
       onCreateProject({
@@ -761,9 +759,16 @@ export default function ProjectList({
                       {projects.length > 1 && (
                         <button
                           id={`btn-delete-project-${proj.id}`}
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            if (confirm(`Bạn chắc chắn muốn xóa vĩnh viễn dự án '${proj.title}'? Hành động này sẽ xóa tất cả từ điển và chương đã luỹ tích.`)) {
+                            const confirmed = await showConfirm({
+                              title: 'Xóa vĩnh viễn dự án',
+                              message: `Bạn chắc chắn muốn xóa vĩnh viễn dự án '${proj.title}'? Hành động này sẽ xóa tất cả từ điển và chương đã luỹ tích.`,
+                              confirmText: 'Xác nhận xóa',
+                              cancelText: 'Hủy',
+                              type: 'danger'
+                            });
+                            if (confirmed) {
                               onDeleteProject(proj.id);
                             }
                           }}

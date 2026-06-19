@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
 import { History, BookOpen, Clock, Trash2, RotateCcw } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
+import { useNotifications } from './NotificationSystem';
+
 interface ChapterHistoryPanelProps {
   activeProject: StoryProject;
   onUpdateProject: (updated: StoryProject) => void;
   onDeleteChapterHistory: (chapId: string) => void;
   onGoToTranslate: (chapter?: Chapter) => void;
-  onResetChapters: (chapIds: string[]) => Promise<void>;
+  onResetChapters: (projectId: string, chapIds: string[]) => Promise<void>;
 }
 
 export default function ChapterHistoryPanel({
@@ -17,6 +19,7 @@ export default function ChapterHistoryPanel({
   onGoToTranslate,
   onResetChapters,
 }: ChapterHistoryPanelProps) {
+  const { showToast, showConfirm } = useNotifications();
   const { chapters, title: projectTitle } = activeProject;
   const [selectedHistoryChapterId, setSelectedHistoryChapterId] = useState<string | null>(null);
   const [selectedChapterDetails, setSelectedChapterDetails] = useState<Chapter | null>(null);
@@ -33,33 +36,37 @@ export default function ChapterHistoryPanel({
 
   const handleResetSelectedToSource = async () => {
     if (selectedChapterIds.length === 0) return;
-    if (
-      confirm(
-        `Bạn có chắc chắn muốn reset ${selectedChapterIds.length} chương đã chọn về bản gốc tiếng Trung (xóa toàn bộ bản dịch thô và bản dịch biên tập)?`
-      )
-    ) {
-      await onResetChapters(selectedChapterIds);
+    const confirmed = await showConfirm({
+      title: 'Reset các chương đã chọn',
+      message: `Bạn có chắc chắn muốn reset ${selectedChapterIds.length} chương đã chọn về bản gốc tiếng Trung? Thao tác này sẽ xóa toàn bộ bản dịch thô và bản dịch biên tập.`,
+      confirmText: 'Xác nhận reset',
+      cancelText: 'Hủy',
+      type: 'warning'
+    });
+    if (confirmed) {
+      await onResetChapters(activeProject.id, selectedChapterIds);
       if (selectedHistoryChapterId && selectedChapterIds.includes(selectedHistoryChapterId)) {
         const updated = await getChapterFromDB(selectedHistoryChapterId);
         setSelectedChapterDetails(updated);
         setHistoryViewTab('source');
       }
       setSelectedChapterIds([]);
-      alert(`Đã reset thành công ${selectedChapterIds.length} chương về bản gốc tiếng Trung!`);
     }
   };
 
   const handleResetSingleToSource = async (chapId: string) => {
-    if (
-      confirm(
-        'Bạn có chắc chắn muốn reset chương này về bản gốc tiếng Trung (xóa toàn bộ bản dịch thô và bản dịch biên tập)?'
-      )
-    ) {
-      await onResetChapters([chapId]);
+    const confirmed = await showConfirm({
+      title: 'Reset chương về bản gốc',
+      message: 'Bạn có chắc chắn muốn reset chương này về bản gốc tiếng Trung? Thao tác này sẽ xóa toàn bộ bản dịch thô và bản dịch biên tập.',
+      confirmText: 'Xác nhận reset',
+      cancelText: 'Hủy',
+      type: 'warning'
+    });
+    if (confirmed) {
+      await onResetChapters(activeProject.id, [chapId]);
       const updated = await getChapterFromDB(chapId);
       setSelectedChapterDetails(updated);
       setHistoryViewTab('source');
-      alert('Đã reset chương về bản gốc tiếng Trung thành công!');
     }
   };
   return (
@@ -80,7 +87,7 @@ export default function ChapterHistoryPanel({
           <BookOpen className="w-12 h-12 text-slate-300 mx-auto" />
           <p className="text-sm">Chưa có chương nào được lưu trữ riêng biệt tại đây.</p>
           <button
-            onClick={onGoToTranslate}
+            onClick={() => onGoToTranslate()}
             className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer shadow-sm transition-colors"
           >
             Bắt đầu dịch ngay
@@ -190,9 +197,16 @@ export default function ChapterHistoryPanel({
                     </div>
                   </div>
                   <button
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      if (confirm('Bạn có chắc muốn xóa lịch sử dịch của chương này khỏi hệ thống?')) {
+                      const confirmed = await showConfirm({
+                        title: 'Xóa lịch sử dịch chương',
+                        message: `Bạn có chắc muốn xóa lịch sử dịch của chương "${chap.title}" khỏi hệ thống?`,
+                        confirmText: 'Xác nhận xóa',
+                        cancelText: 'Hủy',
+                        type: 'danger'
+                      });
+                      if (confirmed) {
                         onDeleteChapterHistory(chap.id);
                         if (selectedHistoryChapterId === chap.id) setSelectedHistoryChapterId(null);
                         setSelectedChapterIds(prev => prev.filter(id => id !== chap.id));
@@ -240,7 +254,7 @@ export default function ChapterHistoryPanel({
                             if (fullChap) {
                               onGoToTranslate(fullChap);
                             } else {
-                              alert("Không tìm thấy dữ liệu chương!");
+                              showToast({ message: "Không tìm thấy dữ liệu chương!", type: 'error' });
                             }
                           }}
                           className="text-xs font-semibold border border-indigo-600 hover:bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"

@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
+import { useNotifications } from '../components/NotificationSystem';
 
 export function useAIConfig() {
+    const { showToast } = useNotifications();
     const [apiKeys, setApiKeys] = useState<string[]>(() => {
         const stored = localStorage.getItem('gemini_api_keys');
         if (stored) {
@@ -55,7 +57,7 @@ export function useAIConfig() {
             const keys = text
                 .split(/[\n,;]+/)
                 .map(k => k.trim())
-                .filter(k => k.length > 5);
+                .filter(k => k.length > 5 && k.startsWith('AIza'));
             if (keys.length > 0) {
                 setApiKeys(prev => {
                     const updated = [...prev, ...keys];
@@ -63,12 +65,12 @@ export function useAIConfig() {
                     localStorage.setItem('gemini_api_keys', JSON.stringify(uniqueKeys));
                     return uniqueKeys;
                 });
-                alert(`Đã nhận diện thành công và nhập sỉ ${keys.length} API Keys!`);
+                showToast({ message: `Đã nhận diện thành công và nhập sỉ ${keys.length} API Keys!`, type: 'success' });
             } else {
-                alert("Không tìm thấy dòng khóa hợp lệ trong clipboard.");
+                showToast({ message: "Không tìm thấy dòng khóa hợp lệ (phải bắt đầu bằng AIza) trong clipboard.", type: 'warning' });
             }
         } catch (_) {
-            alert("Lỗi truy xuất bộ nhớ Clipboard của trình duyệt. Bạn có thể tự dán thủ công.");
+            showToast({ message: "Lỗi truy xuất bộ nhớ Clipboard của trình duyệt. Bạn có thể tự dán thủ công.", type: 'error' });
         }
     }, []);
 

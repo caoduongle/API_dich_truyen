@@ -33,6 +33,7 @@ extraction_tasks = {
     "backend_source.txt": {
         "targets": [
             os.path.join(project_root, "server.ts"),
+            os.path.join(project_root, "server"),
         ],
         "extensions": (".ts",)
     },

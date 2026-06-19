@@ -25,6 +25,10 @@ export interface TranslationConfigPanelProps {
   handleStopTranslation: () => void;
   handleResetQueue: () => void;
   triggerExportDownload: () => void;
+
+  // New props for smart retry
+  skipFailedChapters: boolean;
+  setSkipFailedChapters: (b: boolean) => void;
 }
 
 export const TranslationConfigPanel = React.memo(function TranslationConfigPanel({
@@ -49,6 +53,8 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
   handleStopTranslation,
   handleResetQueue,
   triggerExportDownload,
+  skipFailedChapters,
+  setSkipFailedChapters,
 }: TranslationConfigPanelProps) {
   const safeStart = Math.max(1, Math.min(rangeStart, totalChapters));
   const safeEnd = Math.max(safeStart, Math.min(rangeEnd, totalChapters));
@@ -166,6 +172,20 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
       </div>
 
       <div className="pt-3 pb-1 flex items-center justify-between border-t border-slate-100 mt-2">
+        <div className="flex flex-col pr-2">
+          <span className="text-xs font-bold text-slate-700">Tự động bỏ qua chương lỗi</span>
+          <span className="text-[10px] text-slate-400 font-normal">Bỏ qua chương lỗi và tiếp tục dịch chương sau</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSkipFailedChapters(!skipFailedChapters)}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${skipFailedChapters ? 'bg-indigo-600' : 'bg-slate-200'}`}
+        >
+          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${skipFailedChapters ? 'translate-x-4' : 'translate-x-0'}`} />
+        </button>
+      </div>
+
+      <div className="pt-3 pb-1 flex items-center justify-between border-t border-slate-100 mt-1">
         <div className="flex flex-col pr-2">
           <span className="text-xs font-bold text-slate-700">Rà soát từ mới khi dịch</span>
           <span className="text-[10px] text-slate-400 font-normal">Tự động đẩy vào kho từ vựng gối đầu</span>

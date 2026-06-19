@@ -1,5 +1,6 @@
 import React, { useState, startTransition, useCallback, memo } from 'react';
 import { Chapter } from './types';
+import { NotificationProvider } from './components/NotificationSystem';
 import ProjectList from './components/ProjectList';
 import GlossaryManager from './components/GlossaryManager';
 import TranslatorWorkspace from './components/TranslatorWorkspace';
@@ -11,6 +12,7 @@ import { useAIConfig } from './hooks/useAIConfig';
 import {
   Languages, BookOpenText, Folder, Settings, Cpu, History, Sparkles
 } from 'lucide-react';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Bọc các tab nặng trong React.memo để tránh re-render khi chỉ activeTab thay đổi.
 // GlossaryManager tự bọc memo ở export, ChapterHistoryPanel nhẹ nên không cần.
@@ -19,8 +21,9 @@ const MemoAutoTranslator      = memo(AutoTranslator);
 const MemoProjectList         = memo(ProjectList);
 const MemoChapterHistoryPanel = memo(ChapterHistoryPanel);
 
-export default function App() {
+export function AppContent() {
   const [activeTab, setActiveTab] = useState<'translate' | 'glossary' | 'projects' | 'history' | 'auto-translate'>('translate');
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(new Set(['translate']));
 
   // Kế thừa kiến trúc từ Custom Hooks
   const {
@@ -56,10 +59,19 @@ export default function App() {
   } = useAIConfig();
 
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
+  const [isAutoTranslating, setIsAutoTranslating] = useState<boolean>(false);
 
   // Dùng startTransition: React ưu tiên giữ UI responsive, render tab mới như "background work"
   const switchTab = useCallback((tab: typeof activeTab) => {
-    startTransition(() => setActiveTab(tab));
+    startTransition(() => {
+      setActiveTab(tab);
+      setVisitedTabs(prev => {
+        if (prev.has(tab)) return prev;
+        const next = new Set(prev);
+        next.add(tab);
+        return next;
+      });
+    });
   }, []);
 
   // Các handler tổ hợp bọc useCallback — tránh tạo function mới mỗi render,
@@ -157,7 +169,7 @@ export default function App() {
                   activeTab === 'auto-translate' ? 'border-indigo-600 text-slate-950 font-extrabold' : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
-                <Cpu className="w-3.5 h-3.5 shrink-0 text-indigo-600 animate-pulse" />
+                <Cpu className={`w-3.5 h-3.5 shrink-0 text-indigo-600 ${isAutoTranslating ? 'animate-pulse' : ''}`} />
                 Dịch Tự Động Toàn Bộ
               </button>
 
@@ -224,78 +236,101 @@ export default function App() {
         {activeProject ? (
           <>
             <div className={activeTab !== 'translate' ? 'hidden' : ''}>
-              <MemoTranslatorWorkspace
-                activeProject={activeProject}
-                onUpdateProject={handleUpdateProject}
-                apiKeys={apiKeys}
-                selectedModel={selectedModel}
-                loadedChapter={loadedChapter}
-                onClearLoadedChapter={handleClearLoadedChapter}
-              />
+              {visitedTabs.has('translate') && (
+                <ErrorBoundary fallbackTitle="Lỗi phân vùng: Mặt Trận Dịch Thuật">
+                  <MemoTranslatorWorkspace
+                    activeProject={activeProject}
+                    onUpdateProject={handleUpdateProject}
+                    apiKeys={apiKeys}
+                    selectedModel={selectedModel}
+                    loadedChapter={loadedChapter}
+                    onClearLoadedChapter={handleClearLoadedChapter}
+                  />
+                </ErrorBoundary>
+              )}
             </div>
 
             <div className={activeTab !== 'auto-translate' ? 'hidden' : ''}>
-              <MemoAutoTranslator
-                activeProject={activeProject}
-                onUpdateProject={handleUpdateProject}
-                apiKeys={apiKeys}
-                selectedModel={selectedModel}
-              />
+              {visitedTabs.has('auto-translate') && (
+                <ErrorBoundary fallbackTitle="Lỗi phân vùng: Dịch Tự Động Toàn Bộ">
+                  <MemoAutoTranslator
+                    activeProject={activeProject}
+                    onUpdateProject={handleUpdateProject}
+                    apiKeys={apiKeys}
+                    selectedModel={selectedModel}
+                    onProcessingChange={setIsAutoTranslating}
+                  />
+                </ErrorBoundary>
+              )}
             </div>
 
             <div className={activeTab !== 'glossary' ? 'hidden' : ''}>
               {/* GlossaryManager tự bọc React.memo ở phần export */}
-              <GlossaryManager
-                projectId={activeProject.id}
-                glossary={activeProject.glossary}
-                pendingGlossary={activeProject.pendingGlossary || []}
-                chapters={activeProject.chapters}
-                apiKeys={apiKeys}
-                selectedModel={selectedModel}
-                onAddGlossaryItem={handleAddGlossaryItem}
-                onAddGlossaryItems={handleAddGlossaryItems}
-                onUpdateGlossaryItem={handleUpdateGlossaryItem}
-                onDeleteGlossaryItem={handleDeleteGlossaryItem}
-                onAddToPending={handleAddToPendingGlossary}
-                onConfirmPending={handleConfirmPendingItem}
-                onDiscardPending={handleDiscardPendingItem}
-              />
+              {visitedTabs.has('glossary') && (
+                <ErrorBoundary fallbackTitle="Lỗi phân vùng: Từ Điển Nhân Vật">
+                  <GlossaryManager
+                    projectId={activeProject.id}
+                    glossary={activeProject.glossary}
+                    pendingGlossary={activeProject.pendingGlossary || []}
+                    chapters={activeProject.chapters}
+                    apiKeys={apiKeys}
+                    selectedModel={selectedModel}
+                    onAddGlossaryItem={handleAddGlossaryItem}
+                    onAddGlossaryItems={handleAddGlossaryItems}
+                    onUpdateGlossaryItem={handleUpdateGlossaryItem}
+                    onDeleteGlossaryItem={handleDeleteGlossaryItem}
+                    onAddToPending={handleAddToPendingGlossary}
+                    onConfirmPending={handleConfirmPendingItem}
+                    onDiscardPending={handleDiscardPendingItem}
+                  />
+                </ErrorBoundary>
+              )}
             </div>
 
             <div className={activeTab !== 'projects' ? 'hidden' : ''}>
-              <MemoProjectList
-                projects={projects}
-                activeProjectId={activeProjectId}
-                onSelectProject={handleSelectProjectAndSwitch}
-                onDeleteProject={handleDeleteProject}
-                onCreateProject={handleCreateProjectAndSwitch}
-                onUpdateProject={handleUpdateProject}
-                apiKeys={apiKeys}
-                selectedModel={selectedModel}
-              />
+              {visitedTabs.has('projects') && (
+                <ErrorBoundary fallbackTitle="Lỗi phân vùng: Quản Lý Truyện">
+                  <MemoProjectList
+                    projects={projects}
+                    activeProjectId={activeProjectId}
+                    onSelectProject={handleSelectProjectAndSwitch}
+                    onDeleteProject={handleDeleteProject}
+                    onCreateProject={handleCreateProjectAndSwitch}
+                    onUpdateProject={handleUpdateProject}
+                    apiKeys={apiKeys}
+                    selectedModel={selectedModel}
+                  />
+                </ErrorBoundary>
+              )}
             </div>
 
             <div className={activeTab !== 'history' ? 'hidden' : ''}>
-              <MemoChapterHistoryPanel
-                activeProject={activeProject}
-                onUpdateProject={handleUpdateProject}
-                onDeleteChapterHistory={handleDeleteChapterHistory}
-                onGoToTranslate={handleGoToTranslate}
-                onResetChapters={handleResetChapters}
-              />
+              {visitedTabs.has('history') && (
+                <ErrorBoundary fallbackTitle="Lỗi phân vùng: Lịch Sử Chương Dịch">
+                  <MemoChapterHistoryPanel
+                    activeProject={activeProject}
+                    onUpdateProject={handleUpdateProject}
+                    onDeleteChapterHistory={handleDeleteChapterHistory}
+                    onGoToTranslate={handleGoToTranslate}
+                    onResetChapters={handleResetChapters}
+                  />
+                </ErrorBoundary>
+              )}
             </div>
           </>
         ) : (
-          <MemoProjectList
-            projects={projects}
-            activeProjectId={activeProjectId}
-            onSelectProject={handleSelectProjectAndSwitch}
-            onDeleteProject={handleDeleteProject}
-            onCreateProject={handleCreateProjectAndSwitch}
-            onUpdateProject={handleUpdateProject}
-            apiKeys={apiKeys}
-            selectedModel={selectedModel}
-          />
+          <ErrorBoundary fallbackTitle="Lỗi phân vùng: Quản Lý Truyện (Không có Dự Án)">
+            <MemoProjectList
+              projects={projects}
+              activeProjectId={activeProjectId}
+              onSelectProject={handleSelectProjectAndSwitch}
+              onDeleteProject={handleDeleteProject}
+              onCreateProject={handleCreateProjectAndSwitch}
+              onUpdateProject={handleUpdateProject}
+              apiKeys={apiKeys}
+              selectedModel={selectedModel}
+            />
+          </ErrorBoundary>
         )}
       </main>
 
@@ -333,5 +368,13 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <NotificationProvider>
+      <AppContent />
+    </NotificationProvider>
   );
 }

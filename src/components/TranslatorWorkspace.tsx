@@ -3,6 +3,8 @@ import { StoryProject, GlossaryItem, GlossaryType, Chapter } from '../types';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { Edit3, AlertCircle } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
+import { useNotifications } from './NotificationSystem';
+import { isHanEquivalent } from '../utils/sinoNormalize';
 
 // Sub-components
 import { ProjectMetadataModal } from './translator-workspace/ProjectMetadataModal';
@@ -30,6 +32,8 @@ export default function TranslatorWorkspace({
   loadedChapter,
   onClearLoadedChapter,
 }: TranslatorWorkspaceProps) {
+  const { showToast, showConfirm } = useNotifications();
+  const [activeChapterIndex, setActiveChapterIndex] = useState<number>(0);
   const [sourceText, setSourceText] = useState('');
   const [originalSourceText, setOriginalSourceText] = useState('');
   const [isGlossaryApplied, setIsGlossaryApplied] = useState(false);
@@ -156,14 +160,14 @@ export default function TranslatorWorkspace({
         const chaps = await parseEpubFile(file);
         setParsedImportChapters(chaps);
       } else {
-        alert("Chỉ hỗ trợ định dạng tệp .txt hoặc .epub.");
+        showToast({ message: "Chỉ hỗ trợ định dạng tệp .txt hoặc .epub.", type: 'warning' });
         setImportedFileName('');
       }
     } catch (err: any) {
       console.error(err);
-      alert("Lỗi khi đọc file raw gốc: " + err.message);
+      showToast({ message: "Lỗi khi đọc file raw gốc: " + err.message, type: 'error' });
       setImportedFileName('');
-    } {
+    } finally {
       setIsParsingImportFile(false);
     }
   };
@@ -177,17 +181,17 @@ export default function TranslatorWorkspace({
         const chaps = parseTxtContent(fullText, method);
         setParsedImportChapters(chaps);
       } catch (err: any) {
-        alert(err.message);
+        showToast({ message: err.message, type: 'error' });
       } finally {
         setIsParsingImportFile(false);
       }
     }
   };
 
-  const handleSaveMetadata = (e: React.FormEvent) => {
+  const handleSaveMetadata = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editTitle.trim()) {
-      alert("Vui lòng điền tên tiểu thuyết.");
+      showToast({ message: "Vui lòng điền tên tiểu thuyết.", type: 'warning' });
       return;
     }
 
@@ -199,12 +203,22 @@ export default function TranslatorWorkspace({
         sourceText: pc.sourceText,
         rawTranslation: '',
         polishedTranslation: '',
+        paragraphs: [],
+        translatedLines: [],
+        status: 'not_started',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }));
 
       if (importMode === 'replace') {
-        if (confirm("Hành động này sẽ XÓA TOÀN BỘ lịch sử và bản dịch của các chương cũ trong dự án này để thay thế bằng file mới. Bạn có chắc chắn không?")) {
+        const confirmed = await showConfirm({
+          title: 'Thay thế chương cũ',
+          message: "Hành động này sẽ XÓA TOÀN BỘ lịch sử và bản dịch của các chương cũ trong dự án này để thay thế bằng file mới. Bạn có chắc chắn không?",
+          confirmText: 'Xác nhận thay thế',
+          cancelText: 'Hủy',
+          type: 'danger'
+        });
+        if (confirmed) {
           updatedChapters = newChapters;
         } else {
           return;
@@ -231,9 +245,9 @@ export default function TranslatorWorkspace({
     if (importFileRef.current) importFileRef.current.value = '';
 
     if (parsedImportChapters.length > 0) {
-      alert(`Đã cập nhật dự án và ${importMode === 'replace' ? 'thay thế' : 'nhập thêm'} thành công ${parsedImportChapters.length} chương mới!`);
+      showToast({ message: `Đã cập nhật dự án và ${importMode === 'replace' ? 'thay thế' : 'nhập thêm'} thành công ${parsedImportChapters.length} chương mới!`, type: 'success' });
     } else {
-      alert("Đã cập nhật thông tin dự án thành công!");
+      showToast({ message: "Đã cập nhật thông tin dự án thành công!", type: 'success' });
     }
   };
 
@@ -301,7 +315,7 @@ export default function TranslatorWorkspace({
     suggestions.forEach((s, idx) => {
       if (selectedSuggestions[idx]) {
         const isDuplicate = activeProject.glossary.some(
-          (item) => item.chinese === s.chinese
+          (item) => isHanEquivalent(item.chinese, s.chinese)
         );
         if (!isDuplicate) {
           itemsToAdd.push({
@@ -314,7 +328,7 @@ export default function TranslatorWorkspace({
     });
 
     if (itemsToAdd.length === 0) {
-      alert("Không có từ khóa mới hoặc chưa chọn từ khóa nào để lưu.");
+      showToast({ message: "Không có từ khóa mới hoặc chưa chọn từ khóa nào để lưu.", type: 'warning' });
       return;
     }
 
@@ -325,8 +339,8 @@ export default function TranslatorWorkspace({
     onUpdateProject(updated);
     setSuggestions([]);
     setSelectedSuggestions({});
-    alert(`Đã thêm thành công ${itemsToAdd.length} nhân vật/thuật ngữ vào Từ điển của dự án!`);
-  }, [suggestions, selectedSuggestions, activeProject, onUpdateProject]);
+    showToast({ message: `Đã thêm thành công ${itemsToAdd.length} nhân vật/thuật ngữ vào Từ điển của dự án!`, type: 'success' });
+  }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast]);
 
   const handleTranslateRaw = async () => {
     if (!sourceText.trim()) {
@@ -347,7 +361,7 @@ export default function TranslatorWorkspace({
           genre: activeProject.genre,
           tone: activeProject.tone,
           description: activeProject.description,
-          glossary: activeProject.glossary,
+          glossary: isGlossaryApplied ? [] : activeProject.glossary,
           apiKeys,
           model: selectedModel
         }),
@@ -365,7 +379,7 @@ export default function TranslatorWorkspace({
         const newlyDiscovered: GlossaryItem[] = [];
         data.discoveredEntities.forEach((ent: any) => {
           const exists = activeProject.glossary.some(
-            (gItem) => gItem.chinese.trim() === ent.chinese.trim()
+            (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
           );
           if (!exists) {
             newlyDiscovered.push({
@@ -421,7 +435,7 @@ export default function TranslatorWorkspace({
           genre: activeProject.genre,
           tone: activeProject.tone,
           description: activeProject.description,
-          glossary: activeProject.glossary,
+          glossary: isGlossaryApplied ? [] : activeProject.glossary,
           additionalInstructions: additionalInstructions,
           apiKeys,
           model: selectedModel,
@@ -443,7 +457,7 @@ export default function TranslatorWorkspace({
 
         data.newlyDiscoveredDuringPolish.forEach((ent: any) => {
           const exists = updatedGlossary.some(
-            (gItem) => gItem.chinese.trim() === ent.chinese.trim()
+            (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
           );
           if (!exists) {
             const itemPayload: GlossaryItem = {
@@ -479,7 +493,7 @@ export default function TranslatorWorkspace({
 
   const handleSaveChapter = () => {
     if (!sourceText.trim()) {
-      alert("Không có nội dung để lưu.");
+      showToast({ message: "Không có nội dung để lưu.", type: 'warning' });
       return;
     }
     const finalTitle = chapterTitle.trim() || `Chương ${activeProject.chapters.length + 1}: Chưa đặt tên`;
@@ -507,16 +521,16 @@ export default function TranslatorWorkspace({
     };
 
     onUpdateProject(updated);
-    alert(`Đã lưu trữ thành công chương: "${finalTitle}" vào bộ nhớ lưu trữ lịch sử dịch.`);
+    showToast({ message: `Đã lưu trữ thành công chương: "${finalTitle}" vào bộ nhớ lưu trữ lịch sử dịch.`, type: 'success' });
   };
 
   const handleApplyGlossaryToSource = () => {
     if (!sourceText.trim()) {
-      alert('Chưa có văn bản tiếng Trung gốc để áp dụng!');
+      showToast({ message: 'Chưa có văn bản tiếng Trung gốc để áp dụng!', type: 'warning' });
       return;
     }
     if (activeProject.glossary.length === 0) {
-      alert('Từ điển dự án đang trống!');
+      showToast({ message: 'Từ điển dự án đang trống!', type: 'warning' });
       return;
     }
 

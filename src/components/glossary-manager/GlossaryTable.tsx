@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Edit2, Trash2, Check, X } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
 import { useVirtualList } from '../../hooks/useVirtualList';
+import { useNotifications } from '../NotificationSystem';
 
 // Sleek single-row Inline Editor to fit inside virtualized row height
 interface InlineEditRowProps {
@@ -11,6 +12,7 @@ interface InlineEditRowProps {
 }
 
 const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel }: InlineEditRowProps) {
+  const { showToast } = useNotifications();
   const [chinese, setChinese] = useState(item.chinese);
   const [pinyin, setPinyin] = useState(item.pinyin);
   const [vietnamese, setVietnamese] = useState(item.vietnamese);
@@ -62,7 +64,7 @@ const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel
         <button 
           onClick={() => {
             if (!chinese.trim() || !vietnamese.trim()) {
-              alert("Vui lòng nhập đầy đủ tiếng Trung gốc và dịch tiếng Việt.");
+              showToast({ message: "Vui lòng nhập đầy đủ tiếng Trung gốc và dịch tiếng Việt.", type: 'warning' });
               return;
             }
             onSave(item.id, chinese.trim(), pinyin.trim() || vietnamese.trim(), vietnamese.trim(), type, item.note);
@@ -101,6 +103,7 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
   item, isSelected, isEditing, onSelect, onEdit, onDelete, onSave, onCancelEdit,
   getOriginBadge, getBadgeColor, getTypeName, style
 }: GlossaryTableRowProps) {
+  const { showConfirm } = useNotifications();
   return (
     <div
       style={style}
@@ -150,7 +153,18 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
               <button 
-                onClick={() => onDelete(item.id)}
+                onClick={async () => {
+                  const confirmed = await showConfirm({
+                    title: 'Xóa mục từ điển',
+                    message: `Bạn có chắc chắn muốn xóa thuật ngữ "${item.chinese}" khỏi từ điển?`,
+                    confirmText: 'Xác nhận xóa',
+                    cancelText: 'Hủy',
+                    type: 'danger'
+                  });
+                  if (confirmed) {
+                    onDelete(item.id);
+                  }
+                }}
                 className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer" 
                 title="Xóa từ"
               >

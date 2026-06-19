@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { GlossaryType } from '../../types';
+import { useNotifications } from '../NotificationSystem';
 
 interface AddGlossaryFormProps {
   onSave: (item: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }) => void;
@@ -7,6 +8,7 @@ interface AddGlossaryFormProps {
 }
 
 export const AddGlossaryForm = React.memo(function AddGlossaryForm({ onSave, onCancel }: AddGlossaryFormProps) {
+  const { showToast } = useNotifications();
   const [chinese,    setChinese]    = useState('');
   const [pinyin,     setPinyin]     = useState('');
   const [vietnamese, setVietnamese] = useState('');
@@ -16,7 +18,7 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({ onSave, onC
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chinese.trim() || !vietnamese.trim()) {
-      alert("Vui lòng nhập từ gốc tiếng Trung và bản dịch tiếng Việt.");
+      showToast({ message: "Vui lòng nhập từ gốc tiếng Trung và bản dịch tiếng Việt.", type: 'warning' });
       return;
     }
     onSave({ chinese, pinyin, vietnamese, type, note });

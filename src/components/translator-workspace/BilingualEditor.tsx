@@ -3,7 +3,7 @@ import {
   RefreshCw, Play, Sparkles, BookOpen, FileText, Copy, Check, Save, 
   ChevronRight, Edit3 
 } from 'lucide-react';
-import { Chapter, GlossaryItem } from '../../types';
+import { Chapter, ChapterMetadata, GlossaryItem } from '../../types';
 import { CHINESE_EXAMPLES } from '../../data/examples';
 
 export interface BilingualEditorProps {
@@ -23,7 +23,7 @@ export interface BilingualEditorProps {
   setAdditionalInstructions: (s: string) => void;
   chapterTitle: string;
   setChapterTitle: (s: string) => void;
-  untranslatedChapters: Chapter[];
+  untranslatedChapters: ChapterMetadata[];
   handleLoadChapterById: (id: string) => void;
   handleLoadExample: (index: number) => void;
   handleAnalyzeGlossary: () => void;

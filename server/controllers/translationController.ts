@@ -3,6 +3,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation, sleep } from "../services/geminiService.ts";
 import { safeParseJson, findSplitPoint, getGenreStyleGuide } from "../utils/text.ts";
 import { checkLeftoverGlossary } from "./glossaryController.ts";
+import { isHanEquivalent } from "../utils/sinoNormalize.ts";
 
 // Gọi trực tiếp tác vụ dịch thô từ Gemini API
 async function callRawTranslationDirect(
@@ -472,7 +473,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
     const activeGlossary = [...(glossary || [])];
     if (newlyDiscoveredDuringPolish.length > 0) {
       newlyDiscoveredDuringPolish.forEach((item: any) => {
-        const ext = activeGlossary.some((gItem: any) => gItem.chinese.trim() === item.chinese.trim());
+        const ext = activeGlossary.some((gItem: any) => isHanEquivalent(gItem.chinese, item.chinese));
         if (!ext) {
           activeGlossary.push({
             id: 'glo_polish_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),

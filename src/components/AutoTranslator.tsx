@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StoryProject, Chapter } from '../types';
 import { Cpu } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
+import { useRangeState } from '../hooks/useRangeState';
 
 // Hooks
 import { useAutoTranslationQueue } from '../hooks/useAutoTranslationQueue';
@@ -25,6 +26,7 @@ interface AutoTranslatorProps {
   onUpdateProject: (updated: StoryProject) => void;
   apiKeys: string[];
   selectedModel: string;
+  onProcessingChange?: (processing: boolean) => void;
 }
 
 export default function AutoTranslator({
@@ -32,6 +34,7 @@ export default function AutoTranslator({
   onUpdateProject,
   apiKeys,
   selectedModel,
+  onProcessingChange,
 }: AutoTranslatorProps) {
   const totalChapters = activeProject.chapters.length || 0;
 
@@ -40,19 +43,19 @@ export default function AutoTranslator({
   const [autoTranslateMode, setAutoTranslateMode] = useState<'resume' | 'from_scratch'>('resume');
   const [additionalInstructions, setAdditionalInstructions] = useState<string>('');
   const [isExtractionDuringTranslationEnabled, setIsExtractionDuringTranslationEnabled] = useState<boolean>(true);
+  const [skipFailedChapters, setSkipFailedChapters] = useState<boolean>(true);
 
-  // Range selections
-  const [rangeEnabled, setRangeEnabled] = useState<boolean>(false);
-  const [rangeStart, setRangeStart] = useState<number>(1);
-  const [rangeEnd, setRangeEnd] = useState<number>(() => totalChapters || 1);
+  // Sync skipFailedChapters setting from translationQueueState if available
+  useEffect(() => {
+    if (activeProject.translationQueueState?.skipFailedChapters !== undefined) {
+      setSkipFailedChapters(activeProject.translationQueueState.skipFailedChapters);
+    }
+  }, [activeProject.id, activeProject.translationQueueState?.skipFailedChapters]);
 
-  const [applyGlossaryRangeEnabled, setApplyGlossaryRangeEnabled] = useState<boolean>(false);
-  const [applyGlossaryRangeStart, setApplyGlossaryRangeStart] = useState<number>(1);
-  const [applyGlossaryRangeEnd, setApplyGlossaryRangeEnd] = useState<number>(() => totalChapters || 1);
-
-  const [scanRangeEnabled, setScanRangeEnabled] = useState<boolean>(false);
-  const [scanRangeStart, setScanRangeStart] = useState<number>(1);
-  const [scanRangeEnd, setScanRangeEnd] = useState<number>(() => totalChapters || 1);
+  // Range selections using custom useRangeState hook
+  const translationRange = useRangeState(totalChapters);
+  const applyGlossaryRange = useRangeState(totalChapters);
+  const scanRange = useRangeState(totalChapters);
   const [extractionLoops, setExtractionLoops] = useState<number>(1);
 
   // Export configs
@@ -67,15 +70,6 @@ export default function AutoTranslator({
   const [isDriveWidgetMinimized, setIsDriveWidgetMinimized] = useState<boolean>(false);
   const [isScanWidgetVisible, setIsScanWidgetVisible] = useState<boolean>(false);
   const [isScanWidgetMinimized, setIsScanWidgetMinimized] = useState<boolean>(false);
-
-  // Sync range bounds on chapter size change
-  useEffect(() => {
-    if (totalChapters > 0) {
-      setRangeEnd(prev => prev >= totalChapters - 1 ? totalChapters : prev);
-      setApplyGlossaryRangeEnd(prev => prev >= totalChapters - 1 ? totalChapters : prev);
-      setScanRangeEnd(prev => prev >= totalChapters - 1 ? totalChapters : prev);
-    }
-  }, [totalChapters]);
 
   const [fullChaptersForDiff, setFullChaptersForDiff] = useState<Chapter[]>([]);
   const [isLoadingDiffChapters, setIsLoadingDiffChapters] = useState<boolean>(false);
@@ -130,6 +124,7 @@ export default function AutoTranslator({
     handleResetQueue,
     handleAutoExtractGlossary,
     triggerExportDownload,
+    handleRetryFailedChapters,
   } = useAutoTranslationQueue({
     activeProject,
     onUpdateProject,
@@ -139,19 +134,20 @@ export default function AutoTranslator({
     autoTranslateMode,
     additionalInstructions,
     isExtractionDuringTranslationEnabled,
-    rangeEnabled,
-    rangeStart,
-    rangeEnd,
-    applyGlossaryRangeEnabled,
-    applyGlossaryRangeStart,
-    applyGlossaryRangeEnd,
-    scanRangeEnabled,
-    scanRangeStart,
-    scanRangeEnd,
+    rangeEnabled: translationRange.enabled,
+    rangeStart: translationRange.start,
+    rangeEnd: translationRange.end,
+    applyGlossaryRangeEnabled: applyGlossaryRange.enabled,
+    applyGlossaryRangeStart: applyGlossaryRange.start,
+    applyGlossaryRangeEnd: applyGlossaryRange.end,
+    scanRangeEnabled: scanRange.enabled,
+    scanRangeStart: scanRange.start,
+    scanRangeEnd: scanRange.end,
     extractionLoops,
     chaptersPerFile,
     exportScope,
     exportMode,
+    skipFailedChapters,
   });
 
   const handleExportModeChange = (mode: 'web' | 'audio' | 'align_jsonl') => {
@@ -168,6 +164,18 @@ export default function AutoTranslator({
       setIsScanWidgetMinimized(false);
     }
   }, [isScanningGlossary]);
+
+  // Clear state when project changes
+  useEffect(() => {
+    setLogs([]);
+  }, [activeProject.id]);
+
+  // Notify parent of processing state
+  useEffect(() => {
+    if (onProcessingChange) {
+      onProcessingChange(isProcessing);
+    }
+  }, [isProcessing, onProcessingChange]);
 
   // Open processing widget when queue starts
   useEffect(() => {
@@ -219,12 +227,12 @@ export default function AutoTranslator({
             setAdditionalInstructions={setAdditionalInstructions}
             isExtractionDuringTranslationEnabled={isExtractionDuringTranslationEnabled}
             setIsExtractionDuringTranslationEnabled={setIsExtractionDuringTranslationEnabled}
-            rangeEnabled={rangeEnabled}
-            setRangeEnabled={setRangeEnabled}
-            rangeStart={rangeStart}
-            setRangeStart={setRangeStart}
-            rangeEnd={rangeEnd}
-            setRangeEnd={setRangeEnd}
+            rangeEnabled={translationRange.enabled}
+            setRangeEnabled={translationRange.setEnabled}
+            rangeStart={translationRange.start}
+            setRangeStart={translationRange.setStart}
+            rangeEnd={translationRange.end}
+            setRangeEnd={translationRange.setEnd}
             totalChapters={totalChapters}
             totalUntranslatedChapters={totalUntranslatedChapters}
             isProcessing={isProcessing}
@@ -232,15 +240,46 @@ export default function AutoTranslator({
             handleStopTranslation={handleStopTranslation}
             handleResetQueue={handleResetQueue}
             triggerExportDownload={triggerExportDownload}
+            skipFailedChapters={skipFailedChapters}
+            setSkipFailedChapters={setSkipFailedChapters}
           />
 
+          {/* Failed chapters section */}
+          {activeProject.translationQueueState?.failedIds && activeProject.translationQueueState.failedIds.length > 0 && (
+            <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl space-y-2.5 animate-in slide-in-from-top-2 duration-200 shadow-xs">
+              <div className="flex items-center gap-2">
+                <span className="flex h-2 w-2 relative shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                </span>
+                <span className="text-xs font-bold text-rose-800 uppercase tracking-wider">
+                  Phát hiện {activeProject.translationQueueState.failedIds.length} chương lỗi
+                </span>
+              </div>
+              <p className="text-[11px] text-rose-600 font-normal leading-relaxed max-h-24 overflow-y-auto bg-white/45 p-2 rounded border border-rose-100/50">
+                {activeProject.translationQueueState.failedIds.map((fid) => {
+                  const chap = activeProject.chapters.find(c => c.id === fid);
+                  return chap ? chap.title : fid;
+                }).join(', ')}
+              </p>
+              <button
+                type="button"
+                onClick={handleRetryFailedChapters}
+                disabled={isProcessing}
+                className={`w-full py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-extrabold shadow-sm flex items-center justify-center gap-1.5 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}`}
+              >
+                Dịch lại các chương lỗi này
+              </button>
+            </div>
+          )}
+
           <ApplyGlossaryPanel
-            applyGlossaryRangeEnabled={applyGlossaryRangeEnabled}
-            setApplyGlossaryRangeEnabled={setApplyGlossaryRangeEnabled}
-            applyGlossaryRangeStart={applyGlossaryRangeStart}
-            setApplyGlossaryRangeStart={setApplyGlossaryRangeStart}
-            applyGlossaryRangeEnd={applyGlossaryRangeEnd}
-            setApplyGlossaryRangeEnd={setApplyGlossaryRangeEnd}
+            applyGlossaryRangeEnabled={applyGlossaryRange.enabled}
+            setApplyGlossaryRangeEnabled={applyGlossaryRange.setEnabled}
+            applyGlossaryRangeStart={applyGlossaryRange.start}
+            setApplyGlossaryRangeStart={applyGlossaryRange.setStart}
+            applyGlossaryRangeEnd={applyGlossaryRange.end}
+            setApplyGlossaryRangeEnd={applyGlossaryRange.setEnd}
             totalChapters={totalChapters}
             glossaryLength={activeProject.glossary.length}
             isApplyingGlossary={isApplyingGlossary}
@@ -252,12 +291,12 @@ export default function AutoTranslator({
           />
 
           <BulkScanConfigPanel
-            scanRangeEnabled={scanRangeEnabled}
-            setScanRangeEnabled={setScanRangeEnabled}
-            scanRangeStart={scanRangeStart}
-            setScanRangeStart={setScanRangeStart}
-            scanRangeEnd={scanRangeEnd}
-            setScanRangeEnd={setScanRangeEnd}
+            scanRangeEnabled={scanRange.enabled}
+            setScanRangeEnabled={scanRange.setEnabled}
+            scanRangeStart={scanRange.start}
+            setScanRangeStart={scanRange.setStart}
+            scanRangeEnd={scanRange.end}
+            setScanRangeEnd={scanRange.setEnd}
             totalChapters={totalChapters}
             isScanningGlossary={isScanningGlossary}
             scanningProgress={scanningProgress}

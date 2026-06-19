@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
+import { useNotifications } from '../NotificationSystem';
 
 export interface ReviewQueuePanelProps {
   reviewQueue: Array<GlossaryItem & { reason: string }>;
@@ -17,6 +18,7 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
   handleDiscardReviewItem,
   handleUpdateReviewItem,
 }: ReviewQueuePanelProps) {
+  const { showConfirm } = useNotifications();
   if (reviewQueue.length === 0) return null;
 
   return (
@@ -34,8 +36,15 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
           </div>
         </div>
         <button
-          onClick={() => {
-            if (window.confirm("Bạn có tin chắc muốn loại bỏ hoàn toàn danh sách rà soát trùng lặp này?")) {
+          onClick={async () => {
+            const confirmed = await showConfirm({
+              title: 'Loại bỏ danh sách rà soát',
+              message: "Bạn có tin chắc muốn loại bỏ hoàn toàn danh sách rà soát trùng lặp này?",
+              confirmText: 'Đồng ý bỏ qua',
+              cancelText: 'Hủy',
+              type: 'warning'
+            });
+            if (confirmed) {
               setReviewQueue([]);
             }
           }}
