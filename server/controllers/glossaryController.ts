@@ -3,6 +3,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation } from "../services/geminiService.ts";
 import { safeParseJson } from "../utils/text.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
+import { validateAndSnapBackEntities } from "../utils/sinoNormalize.ts";
 
 // Rà soát thuật ngữ sót sau giai đoạn dịch thô
 export async function checkLeftoverGlossary(
@@ -77,8 +78,10 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
     const resultText = rotationResult.text;
     if (resultText) {
       const parsed = safeParseJson(resultText);
+      const items = Array.isArray(parsed?.missingEntities) ? parsed.missingEntities : [];
+      const validatedItems = validateAndSnapBackEntities(items, sourceText);
       return {
-        items: Array.isArray(parsed?.missingEntities) ? parsed.missingEntities : [],
+        items: validatedItems,
         successKeyIndex: rotationResult.successKeyIndex
       };
     }
@@ -154,6 +157,9 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
     }
 
     const parsedResult = safeParseJson(resultText);
+    if (parsedResult && Array.isArray(parsedResult.suggestions)) {
+      parsedResult.suggestions = validateAndSnapBackEntities(parsedResult.suggestions, text);
+    }
     res.json({ ...parsedResult, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
     console.error("Lỗi phân tích Glossary:", error);
@@ -288,8 +294,9 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
       parsed = [];
     }
 
-    const glossary = Array.isArray(parsed) ? parsed : (parsed?.suggestions || []);
-    res.json({ glossary, successKeyIndex: rotationResult.successKeyIndex });
+    const parsedGlossary = Array.isArray(parsed) ? parsed : (parsed?.suggestions || []);
+    const validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text);
+    res.json({ glossary: validatedGlossary, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
     console.error("Lỗi extract-glossary:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi trích xuất thuật ngữ." });

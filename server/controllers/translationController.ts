@@ -3,7 +3,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation, sleep } from "../services/geminiService.ts";
 import { safeParseJson, findSplitPoint, getGenreStyleGuide } from "../utils/text.ts";
 import { checkLeftoverGlossary } from "./glossaryController.ts";
-import { isHanEquivalent } from "../utils/sinoNormalize.ts";
+import { isHanEquivalent, validateAndSnapBackEntities } from "../utils/sinoNormalize.ts";
 
 // Gọi trực tiếp tác vụ dịch thô từ Gemini API
 async function callRawTranslationDirect(
@@ -126,6 +126,7 @@ ${substitutedText}`;
 
   let finalRawTranslation = parsed?.rawTranslation || "";
   let finalDiscoveredEntities = Array.isArray(parsed?.discoveredEntities) ? parsed.discoveredEntities : [];
+  finalDiscoveredEntities = validateAndSnapBackEntities(finalDiscoveredEntities, text);
 
   // 💡 CƠ CHẾ KHÔI PHỤC KEY (KEY HEALING) DÀNH RIÊNG CHO GEMMA
   if (!finalRawTranslation || finalRawTranslation.trim() === "") {
