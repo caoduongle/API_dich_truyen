@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { StoryProject } from '../types';
+import { StoryProject, Chapter } from '../types';
 import { Cpu } from 'lucide-react';
+import { getChapterFromDB } from '../services/db';
 
 // Hooks
 import { useAutoTranslationQueue } from '../hooks/useAutoTranslationQueue';
@@ -76,6 +77,31 @@ export default function AutoTranslator({
     }
   }, [totalChapters]);
 
+  const [fullChaptersForDiff, setFullChaptersForDiff] = useState<Chapter[]>([]);
+  const [isLoadingDiffChapters, setIsLoadingDiffChapters] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isDiffModalOpen) {
+      setIsLoadingDiffChapters(true);
+      const loadDiffChapters = async () => {
+        const metadataList = activeProject.chapters;
+        const loaded: Chapter[] = [];
+        for (const meta of metadataList) {
+          const chap = await getChapterFromDB(meta.id);
+          if (chap && chap.processedSourceText) {
+            loaded.push(chap);
+          }
+        }
+        setFullChaptersForDiff(loaded);
+        setIsLoadingDiffChapters(false);
+      };
+      loadDiffChapters();
+    } else {
+      setFullChaptersForDiff([]);
+      setIsLoadingDiffChapters(false);
+    }
+  }, [isDiffModalOpen, activeProject.chapters]);
+
   // Hook handles translation queues, scanning loops, file exports
   const {
     isProcessing,
@@ -150,16 +176,14 @@ export default function AutoTranslator({
       setIsDriveWidgetMinimized(false);
     }
   }, [isProcessing]);
-
   const totalUntranslatedChapters = activeProject.chapters.filter(
-    c => !c.polishedTranslation.trim() && !c.rawTranslation.trim()
+    c => c.status !== 'completed'
   ).length;
 
   const remainingChapters = Math.max(0, chaptersQueue.length - processedCount);
   const requestsPerChapter = 1 + polishCycles;
   const remainingRequests = Math.max(0, remainingChapters * requestsPerChapter);
-  const hasProcessedChapters = activeProject.chapters.some(c => c.processedSourceText);
-
+  const hasProcessedChapters = activeProject.chapters.some(c => c.status !== 'not_started');
   return (
     <div id="auto-translator" className="space-y-6">
       {/* Banner tổng quan tham số */}
@@ -271,15 +295,34 @@ export default function AutoTranslator({
 
       {/* Modal xem chi tiết diff sourceText vs processedSourceText */}
       {isDiffModalOpen && (
-        <DiffModal
-          chapters={activeProject.chapters}
-          glossary={activeProject.glossary}
-          diffModalChapterIndex={diffModalChapterIndex}
-          setDiffModalChapterIndex={setDiffModalChapterIndex}
-          onClose={() => setIsDiffModalOpen(false)}
-        />
+        isLoadingDiffChapters ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl p-6 text-center shadow-2xl">
+              <p className="text-xs font-bold text-slate-700 animate-pulse">Đang tải dữ liệu so sánh từ IndexedDB...</p>
+            </div>
+          </div>
+        ) : fullChaptersForDiff.length > 0 ? (
+          <DiffModal
+            chapters={fullChaptersForDiff}
+            glossary={activeProject.glossary}
+            diffModalChapterIndex={diffModalChapterIndex}
+            setDiffModalChapterIndex={setDiffModalChapterIndex}
+            onClose={() => setIsDiffModalOpen(false)}
+          />
+        ) : (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl p-6 text-center shadow-2xl space-y-4">
+              <p className="text-xs font-bold text-slate-700">Chưa có chương nào áp dụng từ điển để so sánh!</p>
+              <button
+                onClick={() => setIsDiffModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        )
       )}
-
       {/* Khối Floating Drive Progress Monitor Widget */}
       <DriveProgressWidget
         isVisible={isDriveWidgetVisible}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useDeferredValue, useMemo, useCallb
 import { StoryProject, GlossaryItem, GlossaryType, Chapter } from '../types';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { Edit3, AlertCircle } from 'lucide-react';
+import { getChapterFromDB } from '../services/db';
 
 // Sub-components
 import { ProjectMetadataModal } from './translator-workspace/ProjectMetadataModal';
@@ -586,20 +587,22 @@ export default function TranslatorWorkspace({
       [idx]: !prev[idx],
     }));
   }, []);
-
-  const handleLoadChapterById = useCallback((id: string) => {
-    const selectedChap = activeProject.chapters.find(c => c.id === id);
-    if (selectedChap) {
-      setChapterTitle(selectedChap.title);
-      setSourceText(selectedChap.sourceText);
-      setOriginalSourceText(selectedChap.sourceText);
-      setIsGlossaryApplied(false);
-      setRawTranslation(selectedChap.rawTranslation || '');
-      setPolishedTranslation(selectedChap.polishedTranslation || '');
-      setSuggestions([]);
-      setSelectedSuggestions({});
-      setErrorMessage(null);
-      setAutoDiscoveredTerms([]);
+  const handleLoadChapterById = useCallback(async (id: string) => {
+    const selectedChapMeta = activeProject.chapters.find(c => c.id === id);
+    if (selectedChapMeta) {
+      const selectedChap = await getChapterFromDB(id);
+      if (selectedChap) {
+        setChapterTitle(selectedChap.title);
+        setSourceText(selectedChap.sourceText);
+        setOriginalSourceText(selectedChap.sourceText);
+        setIsGlossaryApplied(false);
+        setRawTranslation(selectedChap.rawTranslation || '');
+        setPolishedTranslation(selectedChap.polishedTranslation || '');
+        setSuggestions([]);
+        setSelectedSuggestions({});
+        setErrorMessage(null);
+        setAutoDiscoveredTerms([]);
+      }
     }
   }, [activeProject]);
 
@@ -623,10 +626,9 @@ export default function TranslatorWorkspace({
 
   const untranslatedChapters = useMemo(() => {
     return activeProject.chapters.filter(c => 
-      !c.polishedTranslation || c.polishedTranslation.trim().length === 0
+      c.status !== 'completed'
     );
   }, [activeProject.chapters]);
-
   return (
     <div id="translator-workspace" className="space-y-4">
       {/* Active Project Card info */}

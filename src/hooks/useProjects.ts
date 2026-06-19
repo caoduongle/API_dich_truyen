@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { StoryProject, GlossaryItem, PendingGlossaryItem } from '../types';
-import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB } from '../services/db';
+import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
+import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB, saveChapterToDB, deleteChapterFromDB, getChapterFromDB } from '../services/db';
 
-const DEFAULT_PROJECTS: StoryProject[] = [
+const DEFAULT_PROJECTS: any[] = [
     {
         id: 'proj_dau_pha',
         title: 'Đấu Phá Thương Khung (Đại Lục Đấu Khí)',
@@ -37,6 +37,24 @@ const DEFAULT_PROJECTS: StoryProject[] = [
     }
 ];
 
+function normalizeProject(project: any): StoryProject {
+    return {
+        ...project,
+        chapters: (project.chapters || []).map((c: any) => {
+            if ('sourceText' in c) {
+                return {
+                    id: c.id,
+                    title: c.title,
+                    status: c.status || 'not_started',
+                    createdAt: c.createdAt,
+                    updatedAt: c.updatedAt
+                };
+            }
+            return c;
+        })
+    };
+}
+
 export function useProjects() {
     const [projects, setProjects] = useState<StoryProject[]>([]);
     const [activeProjectId, setActiveProjectId] = useState<string>('');
@@ -52,8 +70,9 @@ export function useProjects() {
                 for (const p of DEFAULT_PROJECTS) {
                     await saveProjectToDB(p);
                 }
-                setProjects(DEFAULT_PROJECTS);
-                setActiveProjectId(DEFAULT_PROJECTS[0].id);
+                const normalized = DEFAULT_PROJECTS.map(normalizeProject);
+                setProjects(normalized);
+                setActiveProjectId(normalized[0].id);
             }
             setIsLoading(false);
         }
@@ -65,8 +84,25 @@ export function useProjects() {
     };
 
     const handleUpdateProject = useCallback(async (updatedProj: StoryProject) => {
-        setProjects(prev => prev.map(p => p.id === updatedProj.id ? updatedProj : p));
         await saveProjectToDB(updatedProj);
+
+        const normalizedProj: StoryProject = {
+            ...updatedProj,
+            chapters: updatedProj.chapters.map(c => {
+                if ('sourceText' in c) {
+                    return {
+                        id: c.id,
+                        title: c.title,
+                        status: c.status || 'not_started',
+                        createdAt: c.createdAt,
+                        updatedAt: c.updatedAt
+                    };
+                }
+                return c as ChapterMetadata;
+            })
+        };
+
+        setProjects(prev => prev.map(p => p.id === normalizedProj.id ? normalizedProj : p));
     }, []);
 
     const handleSelectProject = useCallback((id: string) => {
@@ -74,6 +110,12 @@ export function useProjects() {
     }, []);
 
     const handleDeleteProject = useCallback(async (id: string) => {
+        const project = projects.find(p => p.id === id);
+        if (project && project.chapters) {
+            for (const c of project.chapters) {
+                await deleteChapterFromDB(c.id);
+            }
+        }
         await deleteProjectFromDB(id);
         setProjects(prev => {
             const remaining = prev.filter(p => p.id !== id);
@@ -86,23 +128,42 @@ export function useProjects() {
                         await saveProjectToDB(p);
                     }
                 })();
-                setActiveProjectId(DEFAULT_PROJECTS[0].id);
-                return DEFAULT_PROJECTS;
+                const normalized = DEFAULT_PROJECTS.map(normalizeProject);
+                setActiveProjectId(normalized[0].id);
+                return normalized;
             }
         });
-    }, []);
+    }, [projects]);
 
     const handleCreateProject = useCallback(async (newProjData: Omit<StoryProject, 'id' | 'createdAt'>) => {
+        const id = 'proj_' + Date.now();
         const newProj: StoryProject = {
             ...newProjData,
-            id: 'proj_' + Date.now(),
+            id,
             glossary: newProjData.glossary || [],
             chapters: newProjData.chapters || [],
             createdAt: new Date().toISOString()
         };
-        setProjects(prev => [newProj, ...prev]);
-        setActiveProjectId(newProj.id);
         await saveProjectToDB(newProj);
+
+        const normalizedProj: StoryProject = {
+            ...newProj,
+            chapters: newProj.chapters.map(c => {
+                if ('sourceText' in c) {
+                    return {
+                        id: c.id,
+                        title: c.title,
+                        status: c.status || 'not_started',
+                        createdAt: c.createdAt,
+                        updatedAt: c.updatedAt
+                    };
+                }
+                return c as ChapterMetadata;
+            })
+        };
+
+        setProjects(prev => [normalizedProj, ...prev]);
+        setActiveProjectId(id);
     }, []);
 
     const handleAddGlossaryItem = useCallback((newItem: Omit<GlossaryItem, 'id'>) => {
@@ -188,7 +249,8 @@ export function useProjects() {
         });
     }, [activeProjectId]);
 
-    const handleDeleteChapterHistory = useCallback((chapId: string) => {
+    const handleDeleteChapterHistory = useCallback(async (chapId: string) => {
+        await deleteChapterFromDB(chapId);
         setProjects(prev => {
             const activeProj = prev.find(p => p.id === activeProjectId);
             if (!activeProj) return prev;
@@ -255,6 +317,42 @@ export function useProjects() {
         });
     }, [activeProjectId]);
 
+    const handleResetChapters = useCallback(async (projectId: string, chapIds: string[]) => {
+        for (const chapId of chapIds) {
+            const chap = await getChapterFromDB(chapId);
+            if (chap) {
+                const updatedChap: Chapter = {
+                    ...chap,
+                    rawTranslation: '',
+                    polishedTranslation: '',
+                    translatedLines: [],
+                    status: 'not_started',
+                    updatedAt: new Date().toISOString()
+                };
+                await saveChapterToDB(updatedChap);
+            }
+        }
+
+        setProjects(prev => {
+            return prev.map(p => {
+                if (p.id !== projectId) return p;
+                const updatedChapters = p.chapters.map(c => {
+                    if (chapIds.includes(c.id)) {
+                        return {
+                            ...c,
+                            status: 'not_started' as const,
+                            updatedAt: new Date().toISOString()
+                        };
+                    }
+                    return c;
+                });
+                const updatedProj = { ...p, chapters: updatedChapters };
+                saveProjectToDB(updatedProj);
+                return updatedProj;
+            });
+        });
+    }, []);
+
     return {
         projects,
         activeProjectId,
@@ -271,6 +369,7 @@ export function useProjects() {
         handleDeleteChapterHistory,
         handleAddToPendingGlossary,
         handleConfirmPendingItem,
-        handleDiscardPendingItem
+        handleDiscardPendingItem,
+        handleResetChapters
     };
 }

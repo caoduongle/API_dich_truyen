@@ -36,6 +36,14 @@ export interface PendingGlossaryItem {
 
 export type ChapterStatus = 'not_started' | 'in_progress' | 'completed';
 
+export interface ChapterMetadata {
+    id: string;
+    title: string;
+    status: ChapterStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface Chapter {
     id: string;
     title: string;
@@ -61,7 +69,7 @@ export interface StoryProject {
     description: string;
     glossary: GlossaryItem[];
     pendingGlossary: PendingGlossaryItem[];  // Deduplication verification queue
-    chapters: Chapter[];
+    chapters: ChapterMetadata[];
     createdAt: string;
 }
 

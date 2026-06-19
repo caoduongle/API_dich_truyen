@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { StoryProject, GlossaryItem, Chapter } from '../types';
+import { getChapterFromDB } from '../services/db';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser.ts';
 import { 
   Plus, Trash2, Folder, BookOpen, Clock, Tag, FileText, Upload, Download, 
@@ -159,8 +160,23 @@ export default function ProjectList({
 
 
   // --- 3. EXPORT PROJECT TO DISK (.json) ---
-  const handleExportProjectJson = (proj: StoryProject) => {
-    const jsonString = JSON.stringify(proj, null, 2);
+  const handleExportProjectJson = async (proj: StoryProject) => {
+    const fullChapters: Chapter[] = [];
+    if (proj.chapters && Array.isArray(proj.chapters)) {
+      for (const meta of proj.chapters) {
+        const chap = await getChapterFromDB(meta.id);
+        if (chap) {
+          fullChapters.push(chap);
+        }
+      }
+    }
+
+    const projectWithFullChapters = {
+      ...proj,
+      chapters: fullChapters
+    };
+
+    const jsonString = JSON.stringify(projectWithFullChapters, null, 2);
     const blob = new Blob([jsonString], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     
@@ -174,9 +190,11 @@ export default function ProjectList({
   };
 
   // Export polished Vietnamese text or bilingual side-by-side
-  const handleExportText = (proj: StoryProject, mode: 'vietnamese' | 'bilingual') => {
+  const handleExportText = async (proj: StoryProject, mode: 'vietnamese' | 'bilingual') => {
     let output = '';
-    proj.chapters.forEach((chapter) => {
+    for (const chapterMeta of proj.chapters) {
+      const chapter = await getChapterFromDB(chapterMeta.id);
+      if (!chapter) continue;
       output += `=== ${chapter.title} ===\n\n`;
       if (mode === 'bilingual') {
         if (chapter.paragraphs && chapter.paragraphs.length > 0) {
@@ -190,7 +208,7 @@ export default function ProjectList({
       } else {
         output += (chapter.polishedTranslation || chapter.rawTranslation || '') + '\n\n';
       }
-    });
+    }
 
     const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -205,10 +223,7 @@ export default function ProjectList({
   const getProjectProgress = (proj: StoryProject) => {
     const total = proj.chapters.length;
     if (total === 0) return { total: 0, done: 0, pct: 0 };
-    const done = proj.chapters.filter(c =>
-      (c.polishedTranslation && c.polishedTranslation.trim().length > 0) ||
-      (c.status === 'completed')
-    ).length;
+    const done = proj.chapters.filter(c => c.status === 'completed').length;
     return { total, done, pct: Math.round((done / total) * 100) };
   };
 

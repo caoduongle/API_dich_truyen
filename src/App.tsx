@@ -39,7 +39,8 @@ export default function App() {
     handleDeleteChapterHistory,
     handleAddToPendingGlossary,
     handleConfirmPendingItem,
-    handleDiscardPendingItem
+    handleDiscardPendingItem,
+    handleResetChapters
   } = useProjects();
 
   const {
@@ -280,6 +281,7 @@ export default function App() {
                 onUpdateProject={handleUpdateProject}
                 onDeleteChapterHistory={handleDeleteChapterHistory}
                 onGoToTranslate={handleGoToTranslate}
+                onResetChapters={handleResetChapters}
               />
             </div>
           </>

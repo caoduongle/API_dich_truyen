@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { StoryProject, Chapter, GlossaryItem, PendingGlossaryItem } from '../types';
+import { StoryProject, Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryItem } from '../types';
+import { getChapterFromDB, saveChapterToDB } from '../services/db';
 
 export interface UseAutoTranslationQueueProps {
   activeProject: StoryProject;
@@ -63,7 +64,7 @@ export function useAutoTranslationQueue({
   // Trạng thái vận hành luồng dịch
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [currentChapterIndex, setCurrentChapterIndex] = useState<number>(-1);
-  const [chaptersQueue, setChaptersQueue] = useState<Chapter[]>([]);
+  const [chaptersQueue, setChaptersQueue] = useState<ChapterMetadata[]>([]);
   const [processedCount, setProcessedCount] = useState<number>(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [autoDiscoveredBatch, setAutoDiscoveredBatch] = useState<GlossaryItem[]>([]);
@@ -120,7 +121,7 @@ export function useAutoTranslationQueue({
     }
 
     if (autoTranslateMode === 'resume') {
-      const queue = scopedChaps.filter(c => !c.polishedTranslation.trim() && !c.rawTranslation.trim());
+      const queue = scopedChaps.filter(c => c.status !== 'completed');
       addLog(`Chế độ 'Tiếp tục dịch' (Resume): Tìm thấy ${queue.length}/${scopedChaps.length} chương cần dịch.`, 'info');
       return queue;
     } else {
@@ -174,11 +175,26 @@ export function useAutoTranslationQueue({
     triggerExportDownload();
   };
 
-  const triggerExportDownload = () => {
+  const triggerExportDownload = async () => {
     addLog("ĐANG TIẾN HÀNH XUẤT SAO LƯU DỰ ÁN DẠNG CẤU TRÚC (.JSON) VỀ MÁY...", "warn");
     try {
       const proj = projectRef.current;
-      const jsonString = JSON.stringify(proj, null, 2);
+      const fullChapters: Chapter[] = [];
+      if (proj.chapters && Array.isArray(proj.chapters)) {
+        for (const meta of proj.chapters) {
+          const chap = await getChapterFromDB(meta.id);
+          if (chap) {
+            fullChapters.push(chap);
+          }
+        }
+      }
+
+      const projectWithFullChapters = {
+        ...proj,
+        chapters: fullChapters
+      };
+
+      const jsonString = JSON.stringify(projectWithFullChapters, null, 2);
       const blob = new Blob([jsonString], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const downloadAnchor = document.createElement('a');
@@ -223,7 +239,11 @@ export function useAutoTranslationQueue({
     }
 
     const processChapter = async () => {
-      const chapter = chaptersQueue[currentChapterIndex];
+      const chapterMeta = chaptersQueue[currentChapterIndex];
+      const chapter = await getChapterFromDB(chapterMeta.id);
+      if (!chapter) {
+        throw new Error(`Không tìm thấy dữ liệu của chương: ${chapterMeta.title}`);
+      }
       addLog(`--------------------------------------------------`, 'info');
       addLog(`Xử lý [${currentChapterIndex + 1}/${chaptersQueue.length}]: ${chapter.title} | Key xoay vòng: #${currentApiKeyIndexRef.current + 1}`, 'info');
 
@@ -384,12 +404,27 @@ export function useAutoTranslationQueue({
           addLog(`Hoàn tất chuốt mịn lượt thứ ${i}!`, 'success');
         }
 
+        const paragraphs = chapter.sourceText.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
+        const translatedLines = currentTextToPolish
+          ? currentTextToPolish.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0)
+          : firstDraft.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
+
+        const updatedFullChapter: Chapter = {
+          ...chapter,
+          rawTranslation: firstDraft,
+          polishedTranslation: currentTextToPolish,
+          paragraphs,
+          translatedLines,
+          status: 'completed',
+          updatedAt: new Date().toISOString()
+        };
+        await saveChapterToDB(updatedFullChapter);
+
         const updatedChaptersList = bufferedProjectRef.current!.chapters.map(c => {
           if (c.id === chapter.id) {
             return {
               ...c,
-              rawTranslation: firstDraft,
-              polishedTranslation: currentTextToPolish,
+              status: 'completed' as const,
               updatedAt: new Date().toISOString()
             };
           }
@@ -401,6 +436,7 @@ export function useAutoTranslationQueue({
           chapters: updatedChaptersList,
           glossary: updatedGlossary,
         };
+
         addLog(`Đã biên phiên dịch hoàn chỉnh chương: ${chapter.title}`, 'success');
 
         const batchSize = 10;
@@ -436,7 +472,7 @@ export function useAutoTranslationQueue({
     processChapter();
   }, [isProcessing, currentChapterIndex, chaptersQueue]);
 
-  const handleExportTxt = () => {
+  const handleExportTxt = async () => {
     setIsExportingTxt(true);
     addLog(`BẮT ĐẦU SẢN XUẤT CÁC PHÂN ĐOẠN TỆP VĂN BẢN SẠCH (.TXT)...`, "info");
     try {
@@ -450,7 +486,7 @@ export function useAutoTranslationQueue({
 
       let chaptersToExport = allChapters;
       if (exportScope === 'translated') {
-        chaptersToExport = allChapters.filter(c => c.polishedTranslation.trim() || c.rawTranslation.trim());
+        chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
       }
 
       if (chaptersToExport.length === 0) {
@@ -459,16 +495,24 @@ export function useAutoTranslationQueue({
         return;
       }
 
-      const chaptersChunks: Chapter[][] = [];
+      const chaptersChunks: ChapterMetadata[][] = [];
       const maxLimit = exportMode === 'web' ? 20 : 10;
       const cap = Math.min(maxLimit, Math.max(1, chaptersPerFile));
       for (let i = 0; i < chaptersToExport.length; i += cap) {
         chaptersChunks.push(chaptersToExport.slice(i, i + cap));
       }
 
-      chaptersChunks.forEach((chunk, chunkIdx) => {
+      for (let chunkIdx = 0; chunkIdx < chaptersChunks.length; chunkIdx++) {
+        const chunkMeta = chaptersChunks[chunkIdx];
+        const chunk = await Promise.all(chunkMeta.map(async (meta) => {
+          const full = await getChapterFromDB(meta.id);
+          return full!;
+        }));
+        const validChunk = chunk.filter(Boolean);
+        if (validChunk.length === 0) continue;
+
         let fileContent = "";
-        chunk.forEach((chap, idx) => {
+        validChunk.forEach((chap, idx) => {
           const content = (chap.polishedTranslation || chap.rawTranslation || "").trim();
           const lines = content.split('\n');
           const titleRegex = /^(?:Chương|Chapter|Quyển|Tập|Thứ)\s+(?:\d+|[IVXLCDM]+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười|trăm|ngàn|vạn|nhất|nhị|tam|tứ|ngũ|lục|thất|bát|cửu|thập)/i;
@@ -536,8 +580,8 @@ export function useAutoTranslationQueue({
           }
         });
 
-        const firstChapter = chunk[0];
-        const lastChapter = chunk[chunk.length - 1];
+        const firstChapter = validChunk[0];
+        const lastChapter = validChunk[validChunk.length - 1];
         const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
         const cleanTitle = sanitize(proj.title);
         const startName = sanitize(firstChapter.title);
@@ -554,7 +598,7 @@ export function useAutoTranslationQueue({
         anchor.click();
         document.body.removeChild(anchor);
         URL.revokeObjectURL(url);
-      });
+      }
       addLog("ĐÃ HOÀN TẤT TẢI XUỐNG TOÀN BỘ CÁC TỆP .TXT VĂN BẢN CHẤT LƯỢNG CAO!", "success");
     } catch (error: any) {
       addLog(`Lỗi khi xuất tệp: ${error.message || error}`, "error");
@@ -574,8 +618,7 @@ export function useAutoTranslationQueue({
         setIsExportingTxt(false);
         return;
       }
-
-      const chaptersToExport = allChapters.filter(c => c.polishedTranslation.trim() || c.rawTranslation.trim());
+      const chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
       if (chaptersToExport.length === 0) {
         alert("Không tìm thấy chương truyện nào đã được dịch thuật để gióng hàng!");
         setIsExportingTxt(false);
@@ -583,11 +626,13 @@ export function useAutoTranslationQueue({
       }
 
       for (let i = 0; i < chaptersToExport.length; i++) {
-        const chap = chaptersToExport[i];
+        const chapMeta = chaptersToExport[i];
+        const chap = await getChapterFromDB(chapMeta.id);
+        if (!chap) continue;
         addLog(`--------------------------------------------------`, 'info');
         addLog(`[Gióng hàng ${i + 1}/${chaptersToExport.length}] Phân tích gióng câu bằng AI: ${chap.title}...`, 'gemini');
 
-        const translatedText = chap.polishedTranslation.trim() || chap.rawTranslation.trim();
+        const translatedText = (chap.polishedTranslation || chap.rawTranslation || "").trim();
         try {
           const res = await fetch('/api/align-chapter', {
             method: 'POST',
@@ -636,8 +681,7 @@ export function useAutoTranslationQueue({
       setIsExportingTxt(false);
     }
   };
-
-  const handleApplyGlossaryToAllChapters = () => {
+  const handleApplyGlossaryToAllChapters = async () => {
     const glossary = projectRef.current.glossary;
     const chapters = projectRef.current.chapters;
 
@@ -653,60 +697,79 @@ export function useAutoTranslationQueue({
     setIsApplyingGlossary(true);
     setApplyGlossaryResult(null);
 
-    setTimeout(() => {
-      const sortedGlossary = [...glossary].sort((a, b) => b.chinese.length - a.chinese.length);
-      let scopedChapters = chapters;
-      if (applyGlossaryRangeEnabled) {
-        const startIdx = Math.max(0, applyGlossaryRangeStart - 1);
-        const endIdx = Math.min(chapters.length, applyGlossaryRangeEnd);
-        scopedChapters = chapters.slice(startIdx, endIdx);
-      }
-
-      let totalReplaced = 0;
-      let chaptersAffected = 0;
-
-      const glossaryMap = new Map<string, string>();
-      const terms: string[] = [];
-
-      sortedGlossary.forEach((item) => {
-        if (item.chinese && item.vietnamese) {
-          const cleanChinese = item.chinese.trim();
-          glossaryMap.set(cleanChinese, item.vietnamese.trim());
-          terms.push(cleanChinese);
+    setTimeout(async () => {
+      try {
+        const sortedGlossary = [...glossary].sort((a, b) => b.chinese.length - a.chinese.length);
+        let scopedChapters = chapters;
+        if (applyGlossaryRangeEnabled) {
+          const startIdx = Math.max(0, applyGlossaryRangeStart - 1);
+          const endIdx = Math.min(chapters.length, applyGlossaryRangeEnd);
+          scopedChapters = chapters.slice(startIdx, endIdx);
         }
-      });
 
-      let pattern: RegExp | null = null;
-      if (terms.length > 0) {
-        const escapedTerms = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-        pattern = new RegExp(escapedTerms.join('|'), 'g');
-      }
+        let totalReplaced = 0;
+        let chaptersAffected = 0;
 
-      const updatedChapters = chapters.map(chap => {
-        if (!scopedChapters.includes(chap)) return chap;
-        if (!pattern) return chap;
+        const glossaryMap = new Map<string, string>();
+        const terms: string[] = [];
 
-        let result = chap.sourceText;
-        const matchedTerms = new Set<string>();
-
-        result = result.replace(pattern, (match) => {
-          matchedTerms.add(match);
-          return glossaryMap.get(match) || match;
+        sortedGlossary.forEach((item) => {
+          if (item.chinese && item.vietnamese) {
+            const cleanChinese = item.chinese.trim();
+            glossaryMap.set(cleanChinese, item.vietnamese.trim());
+            terms.push(cleanChinese);
+          }
         });
 
-        const chapReplaced = matchedTerms.size;
-        if (chapReplaced > 0) {
-          totalReplaced += chapReplaced;
-          chaptersAffected++;
-          return { ...chap, processedSourceText: result };
+        let pattern: RegExp | null = null;
+        if (terms.length > 0) {
+          const escapedTerms = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+          pattern = new RegExp(escapedTerms.join('|'), 'g');
         }
-        return chap;
-      });
 
-      onUpdateProject({ ...projectRef.current, chapters: updatedChapters });
-      setApplyGlossaryResult({ replaced: totalReplaced, chapters: chaptersAffected });
-      setIsApplyingGlossary(false);
-      addLog(`Áp dụng từ điển hoàn tất: thay thế ${totalReplaced} thuật ngữ trên ${chaptersAffected}/${scopedChapters.length} chương được chọn.`, 'success');
+        const updatedChaptersMetadata = await Promise.all(chapters.map(async (chapMeta) => {
+          if (!scopedChapters.includes(chapMeta) || !pattern) {
+            return chapMeta;
+          }
+
+          const fullChap = await getChapterFromDB(chapMeta.id);
+          if (!fullChap) return chapMeta;
+
+          let result = fullChap.sourceText;
+          const matchedTerms = new Set<string>();
+
+          result = result.replace(pattern, (match) => {
+            matchedTerms.add(match);
+            return glossaryMap.get(match) || match;
+          });
+
+          const chapReplaced = matchedTerms.size;
+          if (chapReplaced > 0) {
+            totalReplaced += chapReplaced;
+            chaptersAffected++;
+            const updatedFull = {
+              ...fullChap,
+              processedSourceText: result,
+              updatedAt: new Date().toISOString()
+            };
+            await saveChapterToDB(updatedFull);
+            return {
+              ...chapMeta,
+              updatedAt: updatedFull.updatedAt
+            };
+          }
+          return chapMeta;
+        }));
+
+        onUpdateProject({ ...projectRef.current, chapters: updatedChaptersMetadata });
+        setApplyGlossaryResult({ replaced: totalReplaced, chapters: chaptersAffected });
+        setIsApplyingGlossary(false);
+        addLog(`Áp dụng từ điển hoàn tất: thay thế ${totalReplaced} thuật ngữ trên ${chaptersAffected}/${scopedChapters.length} chương được chọn.`, 'success');
+      } catch (err: any) {
+        console.error(err);
+        addLog(`Lỗi áp dụng từ điển: ${err.message}`, 'error');
+        setIsApplyingGlossary(false);
+      }
     }, 400);
   };
 
@@ -763,8 +826,9 @@ export function useAutoTranslationQueue({
 
         for (let i = 0; i < scopedChaps.length; i++) {
           if (isStopScanRequestedRef.current) break;
-
-          const chap = scopedChaps[i];
+          const chapMeta = scopedChaps[i];
+          const chap = await getChapterFromDB(chapMeta.id);
+          if (!chap) continue;
           setCurrentScanningChapterIndex(i + 1);
           setCurrentScanningChapterTitle(chap.title);
           setScanningProgress(Math.round(((i + 1) / scopedChaps.length) * 100));

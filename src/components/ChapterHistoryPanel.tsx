@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
-import { StoryProject, Chapter } from '../types';
+import React, { useState, useEffect } from 'react';
+import { StoryProject, Chapter, ChapterMetadata } from '../types';
 import { History, BookOpen, Clock, Trash2, RotateCcw } from 'lucide-react';
-
+import { getChapterFromDB } from '../services/db';
 interface ChapterHistoryPanelProps {
   activeProject: StoryProject;
   onUpdateProject: (updated: StoryProject) => void;
   onDeleteChapterHistory: (chapId: string) => void;
   onGoToTranslate: (chapter?: Chapter) => void;
+  onResetChapters: (chapIds: string[]) => Promise<void>;
 }
 
 export default function ChapterHistoryPanel({
@@ -14,9 +15,11 @@ export default function ChapterHistoryPanel({
   onUpdateProject,
   onDeleteChapterHistory,
   onGoToTranslate,
+  onResetChapters,
 }: ChapterHistoryPanelProps) {
   const { chapters, title: projectTitle } = activeProject;
   const [selectedHistoryChapterId, setSelectedHistoryChapterId] = useState<string | null>(null);
+  const [selectedChapterDetails, setSelectedChapterDetails] = useState<Chapter | null>(null);
   const [historyViewTab, setHistoryViewTab] = useState<'source' | 'raw' | 'polished'>('polished');
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
 
@@ -28,74 +31,37 @@ export default function ChapterHistoryPanel({
     }
   };
 
-  const handleResetSelectedToSource = () => {
+  const handleResetSelectedToSource = async () => {
     if (selectedChapterIds.length === 0) return;
     if (
       confirm(
         `Bạn có chắc chắn muốn reset ${selectedChapterIds.length} chương đã chọn về bản gốc tiếng Trung (xóa toàn bộ bản dịch thô và bản dịch biên tập)?`
       )
     ) {
-      const updatedChapters = activeProject.chapters.map((chap) => {
-        if (selectedChapterIds.includes(chap.id)) {
-          return {
-            ...chap,
-            rawTranslation: '',
-            polishedTranslation: '',
-            translatedLines: [],
-            status: 'not_started' as const,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-        return chap;
-      });
-
-      onUpdateProject({
-        ...activeProject,
-        chapters: updatedChapters,
-      });
-
+      await onResetChapters(selectedChapterIds);
       if (selectedHistoryChapterId && selectedChapterIds.includes(selectedHistoryChapterId)) {
+        const updated = await getChapterFromDB(selectedHistoryChapterId);
+        setSelectedChapterDetails(updated);
         setHistoryViewTab('source');
       }
-
       setSelectedChapterIds([]);
       alert(`Đã reset thành công ${selectedChapterIds.length} chương về bản gốc tiếng Trung!`);
     }
   };
 
-  const handleResetSingleToSource = (chapId: string) => {
+  const handleResetSingleToSource = async (chapId: string) => {
     if (
       confirm(
         'Bạn có chắc chắn muốn reset chương này về bản gốc tiếng Trung (xóa toàn bộ bản dịch thô và bản dịch biên tập)?'
       )
     ) {
-      const updatedChapters = activeProject.chapters.map((chap) => {
-        if (chap.id === chapId) {
-          return {
-            ...chap,
-            rawTranslation: '',
-            polishedTranslation: '',
-            translatedLines: [],
-            status: 'not_started' as const,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-        return chap;
-      });
-
-      onUpdateProject({
-        ...activeProject,
-        chapters: updatedChapters,
-      });
-
-      if (selectedHistoryChapterId === chapId) {
-        setHistoryViewTab('source');
-      }
-
+      await onResetChapters([chapId]);
+      const updated = await getChapterFromDB(chapId);
+      setSelectedChapterDetails(updated);
+      setHistoryViewTab('source');
       alert('Đã reset chương về bản gốc tiếng Trung thành công!');
     }
   };
-
   return (
     <div id="history-chapters-section" className="space-y-6">
       <div>
@@ -157,15 +123,19 @@ export default function ChapterHistoryPanel({
               return (
                 <div
                   key={chap.id}
-                  onClick={() => {
+                  onClick={async () => {
                     setSelectedHistoryChapterId(chap.id);
-                    // Switch tab to source if translation is not available
-                    if (!chap.polishedTranslation && !chap.rawTranslation) {
-                      setHistoryViewTab('source');
-                    } else if (!chap.polishedTranslation) {
-                      setHistoryViewTab('raw');
-                    } else {
-                      setHistoryViewTab('polished');
+                    setSelectedChapterDetails(null);
+                    const fullChap = await getChapterFromDB(chap.id);
+                    setSelectedChapterDetails(fullChap);
+                    if (fullChap) {
+                      if (!fullChap.polishedTranslation && !fullChap.rawTranslation) {
+                        setHistoryViewTab('source');
+                      } else if (!fullChap.polishedTranslation) {
+                        setHistoryViewTab('raw');
+                      } else {
+                        setHistoryViewTab('polished');
+                      }
                     }
                   }}
                   className={`p-2.5 rounded-lg transition-all cursor-pointer relative group flex justify-between items-start border ${
@@ -241,9 +211,9 @@ export default function ChapterHistoryPanel({
           <div className="md:col-span-2 bg-white border border-slate-200 rounded-xl p-5 shadow-sm min-h-[400px]">
             {selectedHistoryChapterId ? (
               (() => {
-                const chap = chapters.find((c) => c.id === selectedHistoryChapterId);
-                if (!chap)
-                  return <p className="text-slate-400 text-sm">Không thấy chương lựa chọn.</p>;
+                const chap = selectedChapterDetails;
+                if (!chap || chap.id !== selectedHistoryChapterId)
+                  return <p className="text-slate-400 text-xs animate-pulse py-12 text-center">Đang tải dữ liệu chương...</p>;
                 return (
                   <div className="space-y-4">
                     {/* Header */}
@@ -265,7 +235,14 @@ export default function ChapterHistoryPanel({
                           </button>
                         )}
                         <button
-                          onClick={() => onGoToTranslate(chap)}
+                          onClick={async () => {
+                            const fullChap = await getChapterFromDB(chap.id);
+                            if (fullChap) {
+                              onGoToTranslate(fullChap);
+                            } else {
+                              alert("Không tìm thấy dữ liệu chương!");
+                            }
+                          }}
                           className="text-xs font-semibold border border-indigo-600 hover:bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
                         >
                           Mở chỉnh sửa lại

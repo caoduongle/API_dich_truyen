@@ -1,9 +1,9 @@
 import React from 'react';
 import { ListOrdered, Check } from 'lucide-react';
-import { Chapter } from '../../types';
+import { ChapterMetadata } from '../../types';
 
 export interface QueueStatusPanelProps {
-  chaptersQueue: Chapter[];
+  chaptersQueue: ChapterMetadata[];
   processedCount: number;
   currentChapterIndex: number;
 }
