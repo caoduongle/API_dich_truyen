@@ -204,6 +204,31 @@ export const GlossaryTable = React.memo(function GlossaryTable({
   const totalPages = pageSize === 'all' ? 1 : Math.ceil(totalItems / pageSize);
   const safeCurrentPage = Math.min(currentPage, totalPages || 1);
 
+  const [pageInput, setPageInput] = useState(safeCurrentPage.toString());
+
+  useEffect(() => {
+    setPageInput(safeCurrentPage.toString());
+  }, [safeCurrentPage]);
+
+  const handlePageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPageInput(e.target.value);
+  };
+
+  const handlePageInputSubmit = () => {
+    const parsed = parseInt(pageInput, 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= totalPages) {
+      setCurrentPage(parsed);
+    } else {
+      setPageInput(safeCurrentPage.toString());
+    }
+  };
+
+  const handlePageInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handlePageInputSubmit();
+    }
+  };
+
   const paginatedItems = useMemo(() => {
     if (pageSize === 'all') return filteredGlossary;
     const start = (safeCurrentPage - 1) * pageSize;
@@ -299,50 +324,65 @@ export const GlossaryTable = React.memo(function GlossaryTable({
             </span>
 
             {pageSize !== 'all' && totalPages > 1 && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setCurrentPage(1)}
-                  disabled={safeCurrentPage === 1}
-                  className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
-                >
-                  Đầu
-                </button>
-                <button
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={safeCurrentPage === 1}
-                  className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
-                >
-                  Trước
-                </button>
-
-                {getPageRange().map((pageNum) => (
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                <div className="flex items-center gap-1">
                   <button
-                    key={pageNum}
-                    onClick={() => setCurrentPage(pageNum)}
-                    className={`px-2.5 py-1 rounded border text-[11px] font-semibold transition-colors cursor-pointer ${
-                      safeCurrentPage === pageNum
-                        ? 'bg-indigo-600 border-indigo-600 text-white'
-                        : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
-                    }`}
+                    onClick={() => setCurrentPage(1)}
+                    disabled={safeCurrentPage === 1}
+                    className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
-                    {pageNum}
+                    Đầu
                   </button>
-                ))}
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={safeCurrentPage === 1}
+                    className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                  >
+                    Trước
+                  </button>
 
-                <button
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={safeCurrentPage === totalPages}
-                  className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
-                >
-                  Sau
-                </button>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={safeCurrentPage === totalPages}
-                  className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
-                >
-                  Cuối
-                </button>
+                  {getPageRange().map((pageNum) => (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`px-2.5 py-1 rounded border text-[11px] font-semibold transition-colors cursor-pointer ${
+                        safeCurrentPage === pageNum
+                          ? 'bg-indigo-600 border-indigo-600 text-white'
+                          : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  ))}
+
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={safeCurrentPage === totalPages}
+                    className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                  >
+                    Sau
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={safeCurrentPage === totalPages}
+                    className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                  >
+                    Cuối
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5 border-l border-slate-200 pl-2 ml-1 text-slate-500 font-sans text-[11px]">
+                  <span>Đi đến:</span>
+                  <input
+                    type="text"
+                    value={pageInput}
+                    onChange={handlePageInputChange}
+                    onKeyDown={handlePageInputKeyDown}
+                    onBlur={handlePageInputSubmit}
+                    className="w-10 px-1 py-0.5 text-center bg-white border border-slate-250 rounded font-bold text-slate-800 text-[11px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                  />
+                  <span>/ {totalPages}</span>
+                </div>
               </div>
             )}
           </div>
