@@ -19,7 +19,7 @@ async function callRawTranslationDirect(
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
     glossaryStr = glossary
-        .map((g: any) => `- Trung: [${g.chinese}] -> Hán Việt: [${g.pinyin}] -> Việt: [${g.vietnamese}] (Loại: ${g.type}, Ghi chú: ${g.note})`)
+        .map((g: any) => `- Trung: [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> Hán Việt: [${g.pinyin}] -> Việt: [${g.vietnamese}] (Loại: ${g.type}, Ghi chú: ${g.note})`)
         .join("\n");
   } else {
     glossaryStr = "(Không có từ điển tùy chọn, dịch tự động dựa trên âm Hán-Việt phổ thông và ngữ cảnh)";
@@ -290,7 +290,7 @@ async function callPolishDirect(
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
     glossaryStr = glossary
-        .map((g: any) => `- Trung: [${g.chinese}] -> Dịch: [${g.vietnamese}] (${g.note})`)
+        .map((g: any) => `- Trung: [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> Dịch: [${g.vietnamese}] (${g.note})`)
         .join("\n");
   }
 

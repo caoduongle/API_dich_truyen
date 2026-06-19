@@ -16,7 +16,7 @@ export async function checkLeftoverGlossary(
   try {
     let glossaryStr = "";
     if (Array.isArray(glossary) && glossary.length > 0) {
-      glossaryStr = glossary.map((g: any) => `- Trung: [${g.chinese}] -> Việt: [${g.vietnamese}]`).join("\n");
+      glossaryStr = glossary.map((g: any) => `- Trung: [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> Việt: [${g.vietnamese}]`).join("\n");
     } else {
       glossaryStr = "(Trống)";
     }
