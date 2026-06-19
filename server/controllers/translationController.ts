@@ -3,7 +3,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation, sleep } from "../services/geminiService.ts";
 import { safeParseJson, findSplitPoint, getGenreStyleGuide } from "../utils/text.ts";
 import { checkLeftoverGlossary } from "./glossaryController.ts";
-import { isHanEquivalent, validateAndSnapBackEntities } from "../utils/sinoNormalize.ts";
+import { isHanEquivalent, validateAndSnapBackEntities, findCanonicalSubstring } from "../utils/sinoNormalize.ts";
 
 // Gọi trực tiếp tác vụ dịch thô từ Gemini API
 async function callRawTranslationDirect(
@@ -33,7 +33,18 @@ async function callRawTranslationDirect(
       if (!item.chinese?.trim() || !item.vietnamese?.trim()) continue;
       const esc = item.chinese.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
       const regex = new RegExp(esc, 'g');
-      substitutedText = substitutedText.replace(regex, `[${item.vietnamese}]`);
+      
+      const occurrences = (substitutedText.match(regex) || []).length;
+      if (occurrences > 0) {
+        substitutedText = substitutedText.replace(regex, `[${item.vietnamese}]`);
+      } else {
+        const canonicalSub = findCanonicalSubstring(substitutedText, item.chinese);
+        if (canonicalSub) {
+          const escCanon = canonicalSub.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const regexCanon = new RegExp(escCanon, 'g');
+          substitutedText = substitutedText.replace(regexCanon, `[${item.vietnamese}]`);
+        }
+      }
     }
   }
 
@@ -283,6 +294,18 @@ async function callPolishDirect(
         matchedTermsList.push(`- ${chineseTerm} -> [${item.vietnamese || ""}] (Khớp ${occurrences} lần)`);
         totalMatchOccurrences += occurrences;
         substitutedSourceText = substitutedSourceText.replace(regex, `[${item.vietnamese || ""}]`);
+      } else {
+        const canonicalSub = findCanonicalSubstring(substitutedSourceText, item.chinese);
+        if (canonicalSub) {
+          const escCanon = canonicalSub.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const regexCanon = new RegExp(escCanon, 'g');
+          const occurrencesCanon = (substitutedSourceText.match(regexCanon) || []).length;
+          if (occurrencesCanon > 0) {
+            matchedTermsList.push(`- ${canonicalSub} (dạng gốc của ${chineseTerm}) -> [${item.vietnamese || ""}] (Khớp ${occurrencesCanon} lần)`);
+            totalMatchOccurrences += occurrencesCanon;
+            substitutedSourceText = substitutedSourceText.replace(regexCanon, `[${item.vietnamese || ""}]`);
+          }
+        }
       }
     }
   }
