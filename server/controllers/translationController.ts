@@ -45,6 +45,26 @@ async function callRawTranslationDirect(
           substitutedText = substitutedText.replace(regexCanon, `[${item.vietnamese}]`);
         }
       }
+
+      // Replace variants if present
+      if (Array.isArray(item.variants) && item.variants.length > 0) {
+        for (const variant of item.variants) {
+          if (!variant || !variant.trim()) continue;
+          const escVar = variant.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const regexVar = new RegExp(escVar, 'g');
+          const occurrencesVar = (substitutedText.match(regexVar) || []).length;
+          if (occurrencesVar > 0) {
+            substitutedText = substitutedText.replace(regexVar, `[${item.vietnamese}]`);
+          } else {
+            const canonicalSubVar = findCanonicalSubstring(substitutedText, variant);
+            if (canonicalSubVar) {
+              const escCanonVar = canonicalSubVar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+              const regexCanonVar = new RegExp(escCanonVar, 'g');
+              substitutedText = substitutedText.replace(regexCanonVar, `[${item.vietnamese}]`);
+            }
+          }
+        }
+      }
     }
   }
 
@@ -304,6 +324,35 @@ async function callPolishDirect(
             matchedTermsList.push(`- ${canonicalSub} (dạng gốc của ${chineseTerm}) -> [${item.vietnamese || ""}] (Khớp ${occurrencesCanon} lần)`);
             totalMatchOccurrences += occurrencesCanon;
             substitutedSourceText = substitutedSourceText.replace(regexCanon, `[${item.vietnamese || ""}]`);
+          }
+        }
+      }
+
+      // Replace variants if present
+      if (Array.isArray(item.variants) && item.variants.length > 0) {
+        for (const variant of item.variants) {
+          if (!variant || !variant.trim()) continue;
+          const varTerm = variant.trim();
+          const escVar = varTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const regexVar = new RegExp(escVar, 'g');
+          
+          const occurrencesVar = (substitutedSourceText.match(regexVar) || []).length;
+          if (occurrencesVar > 0) {
+            matchedTermsList.push(`- ${varTerm} (biến thể của ${chineseTerm}) -> [${item.vietnamese || ""}] (Khớp ${occurrencesVar} lần)`);
+            totalMatchOccurrences += occurrencesVar;
+            substitutedSourceText = substitutedSourceText.replace(regexVar, `[${item.vietnamese || ""}]`);
+          } else {
+            const canonicalSubVar = findCanonicalSubstring(substitutedSourceText, varTerm);
+            if (canonicalSubVar) {
+              const escCanonVar = canonicalSubVar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+              const regexCanonVar = new RegExp(escCanonVar, 'g');
+              const occurrencesCanonVar = (substitutedSourceText.match(regexCanonVar) || []).length;
+              if (occurrencesCanonVar > 0) {
+                matchedTermsList.push(`- ${canonicalSubVar} (dạng gốc biến thể ${varTerm} của ${chineseTerm}) -> [${item.vietnamese || ""}] (Khớp ${occurrencesCanonVar} lần)`);
+                totalMatchOccurrences += occurrencesCanonVar;
+                substitutedSourceText = substitutedSourceText.replace(regexCanonVar, `[${item.vietnamese || ""}]`);
+              }
+            }
           }
         }
       }

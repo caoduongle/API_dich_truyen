@@ -16,6 +16,7 @@ export interface GlossaryItem {
     sourceChapter?: string;
     sourceParagraph?: string;
     origin?: 'guideline' | 'scanned' | 'manual';
+    variants?: string[];  // Traditional/Simplified variants under canonicalization
 }
 
 /**

@@ -259,6 +259,30 @@ export function useProjects() {
         setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
     }, [activeProjectId, projects]);
 
+    const handleMergeGlossaryItems = useCallback(async (
+        primaryId: string,
+        mergedPayload: Partial<GlossaryItem>,
+        idsToDelete: string[]
+    ) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
+
+        const updatedGlossary = activeProj.glossary.map(item => {
+            if (item.id === primaryId) {
+                return {
+                    ...item,
+                    ...mergedPayload
+                } as GlossaryItem;
+            }
+            return item;
+        }).filter(item => !idsToDelete.includes(item.id));
+
+        const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
+        await saveProjectToDB(updated);
+
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
+
     const handleDeleteChapterHistory = useCallback(async (chapId: string) => {
         const activeProj = projects.find(p => p.id === activeProjectId);
         if (!activeProj) return;
@@ -423,6 +447,7 @@ export function useProjects() {
         handleAddGlossaryItems,
         handleUpdateGlossaryItem,
         handleDeleteGlossaryItem,
+        handleMergeGlossaryItems,
         handleDeleteChapterHistory,
         handleAddToPendingGlossary,
         handleConfirmPendingItem,

@@ -14,6 +14,9 @@ import { ReviewQueuePanel } from './glossary-manager/ReviewQueuePanel';
 import { DuplicatePanel, DuplicateGroupEdit } from './glossary-manager/DuplicatePanel';
 import { GlossaryTable } from './glossary-manager/GlossaryTable';
 import { GlossaryDetailSidebar } from './glossary-manager/GlossaryDetailSidebar';
+import { MergeHanPanel, MergeHanGroup } from './glossary-manager/MergeHanPanel';
+import { canonicalizeHan } from '../utils/sinoNormalize';
+
 
 interface GlossaryManagerProps {
   projectId: string;
@@ -26,6 +29,7 @@ interface GlossaryManagerProps {
   onAddGlossaryItems?: (items: Omit<GlossaryItem, 'id'>[]) => void;
   onUpdateGlossaryItem: (id: string, item: GlossaryItem) => void;
   onDeleteGlossaryItem: (id: string) => void;
+  onMergeGlossaryItems?: (primaryId: string, mergedPayload: Partial<GlossaryItem>, idsToDelete: string[]) => void;
   onAddToPending?: (item: PendingGlossaryItem) => void;
   onConfirmPending?: (pendingId: string, override?: Partial<GlossaryItem>) => void;
   onDiscardPending?: (pendingId: string) => void;
@@ -114,6 +118,7 @@ function GlossaryManager({
   onAddGlossaryItems,
   onUpdateGlossaryItem,
   onDeleteGlossaryItem,
+  onMergeGlossaryItems,
   onConfirmPending,
   onDiscardPending,
 }: GlossaryManagerProps) {
@@ -181,6 +186,60 @@ function GlossaryManager({
       }
     });
   };
+
+  const [showMergeHanPanel, setShowMergeHanPanel] = useState(false);
+  const [mergeHanGroups, setMergeHanGroups] = useState<MergeHanGroup[]>([]);
+
+  const handleOpenMergeHanPanel = () => {
+    setShowMergeHanPanel(true);
+    setMergeHanGroups([]);
+    
+    startTransition(() => {
+      // Group glossary entries by canonicalizeHan(entry.chinese)
+      const groupsMap = new Map<string, GlossaryItem[]>();
+      glossary.forEach(item => {
+        if (!item.chinese) return;
+        const canon = canonicalizeHan(item.chinese);
+        const existing = groupsMap.get(canon) || [];
+        existing.push(item);
+        groupsMap.set(canon, existing);
+      });
+
+      const groups: MergeHanGroup[] = [];
+      let groupCounter = 0;
+      groupsMap.forEach((items, canon) => {
+        const uniqueChinese = new Set(items.map(it => it.chinese.trim()));
+        if (uniqueChinese.size > 1) {
+          groups.push({
+            groupId: `merge_${groupCounter++}_${Date.now()}`,
+            canonical: canon,
+            items
+          });
+        }
+      });
+
+      setMergeHanGroups(groups);
+      if (groups.length === 0) {
+        showToast({ message: 'Không tìm thấy các từ trùng lặp do lệch Phồn/Giản thể trong từ điển của bạn.', type: 'success' });
+        setShowMergeHanPanel(false);
+      }
+    });
+  };
+
+  const handleConfirmMergeHan = useCallback(async (
+    groupId: string,
+    primaryId: string,
+    mergedPayload: Partial<GlossaryItem>,
+    idsToDelete: string[]
+  ) => {
+    if (!onMergeGlossaryItems) return;
+
+    onMergeGlossaryItems(primaryId, mergedPayload, idsToDelete);
+
+    // Remove group from panel suggestions
+    setMergeHanGroups(prev => prev.filter(g => g.groupId !== groupId));
+    showToast({ message: 'Đã gộp thành công các biến thể và đồng bộ vào từ điển!', type: 'success' });
+  }, [onMergeGlossaryItems, showToast]);
 
   const handleUpdateDupItem = useCallback((groupId: string, itemId: string, field: keyof GlossaryItem, value: string) => {
     setDuplicateGroups(prev => prev.map(group => {
@@ -659,6 +718,9 @@ function GlossaryManager({
         showDuplicatePanel={showDuplicatePanel}
         duplicateGroupsLength={duplicateGroups.length}
         handleOpenDuplicatePanel={handleOpenDuplicatePanel}
+        showMergeHanPanel={showMergeHanPanel}
+        mergeGroupsLength={mergeHanGroups.length}
+        handleOpenMergeHanPanel={handleOpenMergeHanPanel}
         isImporting={isImporting}
         setIsImporting={setIsImporting}
         isAdding={isAdding}
@@ -700,6 +762,14 @@ function GlossaryManager({
         handleDeleteDupItem={handleDeleteDupItem}
         findLiveContext={findLiveContext}
         getOriginBadge={getOriginBadge}
+      />
+
+      <MergeHanPanel
+        show={showMergeHanPanel}
+        setShow={setShowMergeHanPanel}
+        groups={mergeHanGroups}
+        setGroups={setMergeHanGroups}
+        onConfirmMerge={handleConfirmMergeHan}
       />
 
       {/* Main Grid */}

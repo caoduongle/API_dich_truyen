@@ -39,6 +39,7 @@ export function AppContent() {
     handleAddGlossaryItems,
     handleUpdateGlossaryItem,
     handleDeleteGlossaryItem,
+    handleMergeGlossaryItems,
     handleDeleteChapterHistory,
     handleAddToPendingGlossary,
     handleConfirmPendingItem,
@@ -279,6 +280,7 @@ export function AppContent() {
                     onAddGlossaryItems={handleAddGlossaryItems}
                     onUpdateGlossaryItem={handleUpdateGlossaryItem}
                     onDeleteGlossaryItem={handleDeleteGlossaryItem}
+                    onMergeGlossaryItems={handleMergeGlossaryItems}
                     onAddToPending={handleAddToPendingGlossary}
                     onConfirmPending={handleConfirmPendingItem}
                     onDiscardPending={handleDiscardPendingItem}

@@ -7,6 +7,9 @@ export interface GlossaryHeaderProps {
   showDuplicatePanel: boolean;
   duplicateGroupsLength: number;
   handleOpenDuplicatePanel: () => void;
+  showMergeHanPanel: boolean;
+  mergeGroupsLength: number;
+  handleOpenMergeHanPanel: () => void;
   isImporting: boolean;
   setIsImporting: (b: boolean) => void;
   isAdding: boolean;
@@ -19,6 +22,9 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
   showDuplicatePanel,
   duplicateGroupsLength,
   handleOpenDuplicatePanel,
+  showMergeHanPanel,
+  mergeGroupsLength,
+  handleOpenMergeHanPanel,
   isImporting,
   setIsImporting,
   isAdding,
@@ -64,6 +70,26 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
           {showDuplicatePanel && duplicateGroupsLength > 0 && (
             <span className="bg-rose-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ml-0.5">
               {duplicateGroupsLength}
+            </span>
+          )}
+        </button>
+
+        <button
+          id="btn-merge-han-variants"
+          onClick={handleOpenMergeHanPanel}
+          disabled={glossaryLength < 2}
+          className={`flex items-center gap-1.5 font-bold px-3 py-1.5 text-xs rounded transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+            showMergeHanPanel && mergeGroupsLength > 0
+              ? 'bg-amber-100 hover:bg-amber-250 text-amber-700 border border-amber-200'
+              : 'bg-amber-50 hover:bg-amber-100 text-amber-750 border border-amber-200'
+          }`}
+          title="Quét các từ bị trùng do khác ký tự Phồn/Giản để gộp thành biến thể"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+          Gộp Phồn/Giản
+          {showMergeHanPanel && mergeGroupsLength > 0 && (
+            <span className="bg-amber-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ml-0.5">
+              {mergeGroupsLength}
             </span>
           )}
         </button>
