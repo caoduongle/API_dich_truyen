@@ -19,6 +19,7 @@ extraction_tasks = {
             os.path.join(project_root, "index.html"),
             os.path.join(project_root, ".env.example"),
             os.path.join(project_root, ".gitignore"),
+            os.path.join(project_root, "metadata.json"),
         ],
         "extensions": ()  # Không dùng cho file cụ thể, chỉ để tương thích cấu trúc
     },
@@ -40,7 +41,7 @@ extraction_tasks = {
 }
 
 # Danh sách thư mục cần bỏ qua khi quét đệ quy
-SKIP_DIRS = {"node_modules", "dist", ".vite", ".git", "Result"}
+SKIP_DIRS = {"node_modules", "dist", ".vite", ".git", "Result", ".idea"}
 
 
 def write_file_content(outfile, filepath):

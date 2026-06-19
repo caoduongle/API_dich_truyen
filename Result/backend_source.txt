@@ -144,6 +144,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation } from "../services/geminiService.ts";
 import { safeParseJson } from "../utils/text.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
+import { validateAndSnapBackEntities } from "../utils/sinoNormalize.ts";
 
 // Rà soát thuật ngữ sót sau giai đoạn dịch thô
 export async function checkLeftoverGlossary(
@@ -156,7 +157,7 @@ export async function checkLeftoverGlossary(
   try {
     let glossaryStr = "";
     if (Array.isArray(glossary) && glossary.length > 0) {
-      glossaryStr = glossary.map((g: any) => `- Trung: [${g.chinese}] -> Việt: [${g.vietnamese}]`).join("\n");
+      glossaryStr = glossary.map((g: any) => `- Trung: [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> Việt: [${g.vietnamese}]`).join("\n");
     } else {
       glossaryStr = "(Trống)";
     }
@@ -218,8 +219,10 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
     const resultText = rotationResult.text;
     if (resultText) {
       const parsed = safeParseJson(resultText);
+      const items = Array.isArray(parsed?.missingEntities) ? parsed.missingEntities : [];
+      const validatedItems = validateAndSnapBackEntities(items, sourceText);
       return {
-        items: Array.isArray(parsed?.missingEntities) ? parsed.missingEntities : [],
+        items: validatedItems,
         successKeyIndex: rotationResult.successKeyIndex
       };
     }
@@ -295,6 +298,9 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
     }
 
     const parsedResult = safeParseJson(resultText);
+    if (parsedResult && Array.isArray(parsedResult.suggestions)) {
+      parsedResult.suggestions = validateAndSnapBackEntities(parsedResult.suggestions, text);
+    }
     res.json({ ...parsedResult, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
     console.error("Lỗi phân tích Glossary:", error);
@@ -429,8 +435,9 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
       parsed = [];
     }
 
-    const glossary = Array.isArray(parsed) ? parsed : (parsed?.suggestions || []);
-    res.json({ glossary, successKeyIndex: rotationResult.successKeyIndex });
+    const parsedGlossary = Array.isArray(parsed) ? parsed : (parsed?.suggestions || []);
+    const validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text);
+    res.json({ glossary: validatedGlossary, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
     console.error("Lỗi extract-glossary:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi trích xuất thuật ngữ." });
@@ -447,6 +454,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation, sleep } from "../services/geminiService.ts";
 import { safeParseJson, findSplitPoint, getGenreStyleGuide } from "../utils/text.ts";
 import { checkLeftoverGlossary } from "./glossaryController.ts";
+import { isHanEquivalent, validateAndSnapBackEntities, findCanonicalSubstring } from "../utils/sinoNormalize.ts";
 
 // Gọi trực tiếp tác vụ dịch thô từ Gemini API
 async function callRawTranslationDirect(
@@ -462,7 +470,7 @@ async function callRawTranslationDirect(
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
     glossaryStr = glossary
-        .map((g: any) => `- Trung: [${g.chinese}] -> Hán Việt: [${g.pinyin}] -> Việt: [${g.vietnamese}] (Loại: ${g.type}, Ghi chú: ${g.note})`)
+        .map((g: any) => `- Trung: [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> Hán Việt: [${g.pinyin}] -> Việt: [${g.vietnamese}] (Loại: ${g.type}, Ghi chú: ${g.note})`)
         .join("\n");
   } else {
     glossaryStr = "(Không có từ điển tùy chọn, dịch tự động dựa trên âm Hán-Việt phổ thông và ngữ cảnh)";
@@ -476,7 +484,38 @@ async function callRawTranslationDirect(
       if (!item.chinese?.trim() || !item.vietnamese?.trim()) continue;
       const esc = item.chinese.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
       const regex = new RegExp(esc, 'g');
-      substitutedText = substitutedText.replace(regex, `[${item.vietnamese}]`);
+      
+      const occurrences = (substitutedText.match(regex) || []).length;
+      if (occurrences > 0) {
+        substitutedText = substitutedText.replace(regex, `[${item.vietnamese}]`);
+      } else {
+        const canonicalSub = findCanonicalSubstring(substitutedText, item.chinese);
+        if (canonicalSub) {
+          const escCanon = canonicalSub.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const regexCanon = new RegExp(escCanon, 'g');
+          substitutedText = substitutedText.replace(regexCanon, `[${item.vietnamese}]`);
+        }
+      }
+
+      // Replace variants if present
+      if (Array.isArray(item.variants) && item.variants.length > 0) {
+        for (const variant of item.variants) {
+          if (!variant || !variant.trim()) continue;
+          const escVar = variant.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const regexVar = new RegExp(escVar, 'g');
+          const occurrencesVar = (substitutedText.match(regexVar) || []).length;
+          if (occurrencesVar > 0) {
+            substitutedText = substitutedText.replace(regexVar, `[${item.vietnamese}]`);
+          } else {
+            const canonicalSubVar = findCanonicalSubstring(substitutedText, variant);
+            if (canonicalSubVar) {
+              const escCanonVar = canonicalSubVar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+              const regexCanonVar = new RegExp(escCanonVar, 'g');
+              substitutedText = substitutedText.replace(regexCanonVar, `[${item.vietnamese}]`);
+            }
+          }
+        }
+      }
     }
   }
 
@@ -569,6 +608,7 @@ ${substitutedText}`;
 
   let finalRawTranslation = parsed?.rawTranslation || "";
   let finalDiscoveredEntities = Array.isArray(parsed?.discoveredEntities) ? parsed.discoveredEntities : [];
+  finalDiscoveredEntities = validateAndSnapBackEntities(finalDiscoveredEntities, text);
 
   // 💡 CƠ CHẾ KHÔI PHỤC KEY (KEY HEALING) DÀNH RIÊNG CHO GEMMA
   if (!finalRawTranslation || finalRawTranslation.trim() === "") {
@@ -701,7 +741,7 @@ async function callPolishDirect(
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
     glossaryStr = glossary
-        .map((g: any) => `- Trung: [${g.chinese}] -> Dịch: [${g.vietnamese}] (${g.note})`)
+        .map((g: any) => `- Trung: [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> Dịch: [${g.vietnamese}] (${g.note})`)
         .join("\n");
   }
 
@@ -725,6 +765,47 @@ async function callPolishDirect(
         matchedTermsList.push(`- ${chineseTerm} -> [${item.vietnamese || ""}] (Khớp ${occurrences} lần)`);
         totalMatchOccurrences += occurrences;
         substitutedSourceText = substitutedSourceText.replace(regex, `[${item.vietnamese || ""}]`);
+      } else {
+        const canonicalSub = findCanonicalSubstring(substitutedSourceText, item.chinese);
+        if (canonicalSub) {
+          const escCanon = canonicalSub.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const regexCanon = new RegExp(escCanon, 'g');
+          const occurrencesCanon = (substitutedSourceText.match(regexCanon) || []).length;
+          if (occurrencesCanon > 0) {
+            matchedTermsList.push(`- ${canonicalSub} (dạng gốc của ${chineseTerm}) -> [${item.vietnamese || ""}] (Khớp ${occurrencesCanon} lần)`);
+            totalMatchOccurrences += occurrencesCanon;
+            substitutedSourceText = substitutedSourceText.replace(regexCanon, `[${item.vietnamese || ""}]`);
+          }
+        }
+      }
+
+      // Replace variants if present
+      if (Array.isArray(item.variants) && item.variants.length > 0) {
+        for (const variant of item.variants) {
+          if (!variant || !variant.trim()) continue;
+          const varTerm = variant.trim();
+          const escVar = varTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const regexVar = new RegExp(escVar, 'g');
+          
+          const occurrencesVar = (substitutedSourceText.match(regexVar) || []).length;
+          if (occurrencesVar > 0) {
+            matchedTermsList.push(`- ${varTerm} (biến thể của ${chineseTerm}) -> [${item.vietnamese || ""}] (Khớp ${occurrencesVar} lần)`);
+            totalMatchOccurrences += occurrencesVar;
+            substitutedSourceText = substitutedSourceText.replace(regexVar, `[${item.vietnamese || ""}]`);
+          } else {
+            const canonicalSubVar = findCanonicalSubstring(substitutedSourceText, varTerm);
+            if (canonicalSubVar) {
+              const escCanonVar = canonicalSubVar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+              const regexCanonVar = new RegExp(escCanonVar, 'g');
+              const occurrencesCanonVar = (substitutedSourceText.match(regexCanonVar) || []).length;
+              if (occurrencesCanonVar > 0) {
+                matchedTermsList.push(`- ${canonicalSubVar} (dạng gốc biến thể ${varTerm} của ${chineseTerm}) -> [${item.vietnamese || ""}] (Khớp ${occurrencesCanonVar} lần)`);
+                totalMatchOccurrences += occurrencesCanonVar;
+                substitutedSourceText = substitutedSourceText.replace(regexCanonVar, `[${item.vietnamese || ""}]`);
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -916,7 +997,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
     const activeGlossary = [...(glossary || [])];
     if (newlyDiscoveredDuringPolish.length > 0) {
       newlyDiscoveredDuringPolish.forEach((item: any) => {
-        const ext = activeGlossary.some((gItem: any) => gItem.chinese.trim() === item.chinese.trim());
+        const ext = activeGlossary.some((gItem: any) => isHanEquivalent(gItem.chinese, item.chinese));
         if (!ext) {
           activeGlossary.push({
             id: 'glo_polish_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
@@ -1223,6 +1304,119 @@ export function parseGlossaryFromMd(text: string): Array<{
 
   return results;
 }
+
+
+================================================================================
+/// FILE: server\utils\sinoNormalize.ts ///
+================================================================================
+
+import * as OpenCC from 'opencc-js';
+
+// Khởi tạo bộ chuyển đổi từ chữ Phồn thể sang Giản thể.
+// Chú ý: Ta dùng 't' (Traditional) -> 'cn' (Simplified) làm cấu hình chuẩn.
+// Converter được tạo một lần duy nhất ở cấp module để tối ưu hiệu năng.
+const t2sConverter = OpenCC.Converter({ from: 't', to: 'cn' });
+
+/**
+ * Chuẩn hóa chữ Hán: Chuyển đổi toàn bộ ký tự Hán Phồn thể về dạng Giản thể.
+ * 
+ * LƯU Ý QUAN TRỌNG:
+ * - Hàm này CHỈ dùng để SO SÁNH (matching, validation, deduplication).
+ * - TUYỆT ĐỐI KHÔNG dùng kết quả của hàm này để thay thế (substitute) văn bản gốc,
+ *   không dùng để lưu vào DB hay hiển thị kết quả dịch cuối cùng cho người dùng.
+ * 
+ * @param text Văn bản chữ Hán cần chuẩn hóa
+ * @returns Văn bản đã được chuyển thành Giản thể
+ */
+export function canonicalizeHan(text: string): string {
+  if (!text) return "";
+  return t2sConverter(text);
+}
+
+/**
+ * So sánh tương đương giữa hai chuỗi chữ Hán.
+ * Tự động cắt khoảng trắng ở hai đầu chuỗi và so sánh sau khi chuẩn hóa về Giản thể.
+ * 
+ * LƯU Ý QUAN TRỌNG:
+ * - Hàm này CHỈ dùng để so sánh khớp/trùng lặp (matching, validation, deduplication).
+ * - TUYỆT ĐỐI KHÔNG dùng kết quả của hàm này để thay thế text trong bản dịch.
+ * 
+ * @param a Chuỗi thứ nhất
+ * @param b Chuỗi thứ hai
+ * @returns true nếu hai chuỗi tương đương nhau sau khi đưa về Giản thể
+ */
+export function isHanEquivalent(a: string, b: string): boolean {
+  return canonicalizeHan(a.trim()) === canonicalizeHan(b.trim());
+}
+
+/**
+ * Dò tìm một phân đoạn (substring) thật trong văn bản gốc (haystack)
+ * khớp với chuỗi đích (needle) sau khi cả hai đã được chuẩn hóa Phồn -> Giản.
+ * 
+ * Sử dụng cửa sổ trượt Unicode character (code point) để tránh cắt sai ký tự Hán.
+ * 
+ * @param haystack Văn bản gốc (chứa ký tự thật cần lấy)
+ * @param needle Cụm từ đích (do AI trả về, có thể lệch Phồn/Giản)
+ * @returns Phân đoạn substring thật trong haystack, hoặc null nếu không khớp
+ */
+export function findCanonicalSubstring(haystack: string, needle: string): string | null {
+  if (!haystack || !needle) return null;
+  const needleNorm = canonicalizeHan(needle.trim());
+  if (!needleNorm) return null;
+
+  const haystackChars = Array.from(haystack);
+  const needleChars = Array.from(needle.trim());
+  const needleLen = needleChars.length;
+
+  for (let i = 0; i <= haystackChars.length - needleLen; i++) {
+    const windowStr = haystackChars.slice(i, i + needleLen).join('');
+    if (canonicalizeHan(windowStr) === needleNorm) {
+      return windowStr;
+    }
+  }
+  return null;
+}
+
+/**
+ * Rà soát và tự sửa (snap-back) cụm chữ Hán trong trường 'chinese' của từng entity.
+ * Nếu không khớp hoàn toàn cả dạng exact lẫn canonical, thêm `needsReview: true` vào entity.
+ * 
+ * @param entities Danh sách các thuật ngữ do AI trích xuất (chứa field chinese)
+ * @param rawText Văn bản gốc tiếng Trung dùng để đối chiếu
+ * @returns Danh sách thực thể đã được chuẩn hóa / sửa đổi
+ */
+export function validateAndSnapBackEntities(entities: any[], rawText: string): any[] {
+  if (!Array.isArray(entities) || !rawText) return entities || [];
+
+  return entities.map((item: any) => {
+    if (!item || typeof item.chinese !== "string") return item;
+
+    const chineseVal = item.chinese.trim();
+    // 1. Nếu rawSourceText.includes(entity.chinese.trim()) -> giữ nguyên
+    if (rawText.includes(chineseVal)) {
+      return item;
+    }
+
+    const normRaw = canonicalizeHan(rawText);
+    const normChinese = canonicalizeHan(chineseVal);
+
+    // 2. Else if canonicalizeHan(rawSourceText).includes(canonicalizeHan(entity.chinese))
+    if (normRaw.includes(normChinese)) {
+      const realSubstring = findCanonicalSubstring(rawText, chineseVal);
+      if (realSubstring) {
+        item.chinese = realSubstring;
+      } else {
+        item.needsReview = true;
+      }
+    } else {
+      // 3. Else -> needsReview: true
+      item.needsReview = true;
+    }
+
+    return item;
+  });
+}
+
 
 
 ================================================================================

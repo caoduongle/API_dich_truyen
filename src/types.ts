@@ -17,6 +17,7 @@ export interface GlossaryItem {
     sourceParagraph?: string;
     origin?: 'guideline' | 'scanned' | 'manual';
     variants?: string[];  // Traditional/Simplified variants under canonicalization
+    needsReview?: boolean;
 }
 
 /**
@@ -30,9 +31,10 @@ export interface PendingGlossaryItem {
     vietnamese: string;
     type: GlossaryType;
     note: string;
-    reason: 'Duplicate Chinese' | 'Duplicate Vietnamese' | 'Duplicate Both';
+    reason: 'Duplicate Chinese' | 'Duplicate Vietnamese' | 'Duplicate Both' | 'AI trích xuất nghi ngờ hallucinate';
     originalValue?: string; // value of the duplicate already in the main glossary
     importedAt: string;
+    needsReview?: boolean;
 }
 
 export type ChapterStatus = 'not_started' | 'in_progress' | 'completed';

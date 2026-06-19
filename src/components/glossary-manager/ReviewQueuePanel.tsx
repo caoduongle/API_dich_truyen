@@ -59,10 +59,17 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
           <div key={item.id}
                className="bg-white border border-amber-205 p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs hover:border-amber-300 transition-colors">
             <div className="flex-1 space-y-2">
-              <div className="flex items-center gap-1.5 text-[10px] text-amber-900 bg-amber-100/60 px-2.5 py-1 rounded-md font-medium">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span><strong>Lọc trùng:</strong> {item.reason}</span>
-              </div>
+              {item.needsReview ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-rose-900 bg-rose-100/60 border border-rose-200 px-2.5 py-1 rounded-md font-medium" title="Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span><strong>AI Cảnh báo:</strong> Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[10px] text-amber-900 bg-amber-100/60 px-2.5 py-1 rounded-md font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span><strong>Lọc trùng:</strong> {item.reason}</span>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 <div>
                   <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Tiếng Trung *</span>

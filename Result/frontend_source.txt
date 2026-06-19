@@ -44,6 +44,7 @@ export function AppContent() {
     handleAddGlossaryItems,
     handleUpdateGlossaryItem,
     handleDeleteGlossaryItem,
+    handleMergeGlossaryItems,
     handleDeleteChapterHistory,
     handleAddToPendingGlossary,
     handleConfirmPendingItem,
@@ -284,6 +285,7 @@ export function AppContent() {
                     onAddGlossaryItems={handleAddGlossaryItems}
                     onUpdateGlossaryItem={handleUpdateGlossaryItem}
                     onDeleteGlossaryItem={handleDeleteGlossaryItem}
+                    onMergeGlossaryItems={handleMergeGlossaryItems}
                     onAddToPending={handleAddToPendingGlossary}
                     onConfirmPending={handleConfirmPendingItem}
                     onDiscardPending={handleDiscardPendingItem}
@@ -490,6 +492,8 @@ export interface GlossaryItem {
     sourceChapter?: string;
     sourceParagraph?: string;
     origin?: 'guideline' | 'scanned' | 'manual';
+    variants?: string[];  // Traditional/Simplified variants under canonicalization
+    needsReview?: boolean;
 }
 
 /**
@@ -503,9 +507,10 @@ export interface PendingGlossaryItem {
     vietnamese: string;
     type: GlossaryType;
     note: string;
-    reason: 'Duplicate Chinese' | 'Duplicate Vietnamese' | 'Duplicate Both';
+    reason: 'Duplicate Chinese' | 'Duplicate Vietnamese' | 'Duplicate Both' | 'AI trích xuất nghi ngờ hallucinate';
     originalValue?: string; // value of the duplicate already in the main glossary
     importedAt: string;
+    needsReview?: boolean;
 }
 
 export type ChapterStatus = 'not_started' | 'in_progress' | 'completed';
@@ -1646,6 +1651,7 @@ import { Search, Calendar, Info } from 'lucide-react';
 import { useNotifications } from './NotificationSystem';
 import { getChaptersByProjectFromDB } from '../services/db';
 import { triggerDownload } from '../utils/download';
+import { isHanEquivalent } from '../utils/sinoNormalize';
 
 // Sub-components
 import { GlossaryHeader } from './glossary-manager/GlossaryHeader';
@@ -1655,6 +1661,9 @@ import { ReviewQueuePanel } from './glossary-manager/ReviewQueuePanel';
 import { DuplicatePanel, DuplicateGroupEdit } from './glossary-manager/DuplicatePanel';
 import { GlossaryTable } from './glossary-manager/GlossaryTable';
 import { GlossaryDetailSidebar } from './glossary-manager/GlossaryDetailSidebar';
+import { MergeHanPanel, MergeHanGroup } from './glossary-manager/MergeHanPanel';
+import { canonicalizeHan } from '../utils/sinoNormalize';
+
 
 interface GlossaryManagerProps {
   projectId: string;
@@ -1663,10 +1672,11 @@ interface GlossaryManagerProps {
   chapters?: ChapterMetadata[];
   apiKeys?: string[];
   selectedModel?: string;
-  onAddGlossaryItem: (item: Omit<GlossaryItem, 'id'>) => void;
+  onAddGlossaryItem: (item: Omit<GlossaryItem, 'id'>, force?: boolean) => void;
   onAddGlossaryItems?: (items: Omit<GlossaryItem, 'id'>[]) => void;
   onUpdateGlossaryItem: (id: string, item: GlossaryItem) => void;
   onDeleteGlossaryItem: (id: string) => void;
+  onMergeGlossaryItems?: (primaryId: string, mergedPayload: Partial<GlossaryItem>, idsToDelete: string[]) => void;
   onAddToPending?: (item: PendingGlossaryItem) => void;
   onConfirmPending?: (pendingId: string, override?: Partial<GlossaryItem>) => void;
   onDiscardPending?: (pendingId: string) => void;
@@ -1755,6 +1765,7 @@ function GlossaryManager({
   onAddGlossaryItems,
   onUpdateGlossaryItem,
   onDeleteGlossaryItem,
+  onMergeGlossaryItems,
   onConfirmPending,
   onDiscardPending,
 }: GlossaryManagerProps) {
@@ -1790,6 +1801,34 @@ function GlossaryManager({
   const [isAnalyzingMd, setIsAnalyzingMd] = useState(false);
 
   const [reviewQueue, setReviewQueue] = useState<Array<GlossaryItem & { reason: string }>>([]);
+
+  // Load pending glossary items that need review into the reviewQueue state dynamically
+  useEffect(() => {
+    if (pendingGlossary && pendingGlossary.length > 0) {
+      const needsReviewItems = pendingGlossary
+        .filter(item => item.needsReview === true)
+        .map(item => ({
+          id: item.id,
+          chinese: item.chinese,
+          pinyin: item.pinyin,
+          vietnamese: item.vietnamese,
+          type: item.type,
+          note: item.note,
+          reason: item.reason || 'AI trích xuất nghi ngờ hallucinate',
+          needsReview: true,
+          createdAt: item.importedAt
+        }));
+
+      setReviewQueue(prev => {
+        const existingIds = new Set(prev.map(p => p.id));
+        const newItems = needsReviewItems.filter(item => !existingIds.has(item.id));
+        if (newItems.length > 0) {
+          return [...prev, ...newItems];
+        }
+        return prev;
+      });
+    }
+  }, [pendingGlossary]);
   const [selectedItem, setSelectedItem] = useState<GlossaryItem | null>(null);
 
   const [searchContextMatches, setSearchContextMatches] = useState<Array<{
@@ -1822,6 +1861,60 @@ function GlossaryManager({
       }
     });
   };
+
+  const [showMergeHanPanel, setShowMergeHanPanel] = useState(false);
+  const [mergeHanGroups, setMergeHanGroups] = useState<MergeHanGroup[]>([]);
+
+  const handleOpenMergeHanPanel = () => {
+    setShowMergeHanPanel(true);
+    setMergeHanGroups([]);
+    
+    startTransition(() => {
+      // Group glossary entries by canonicalizeHan(entry.chinese)
+      const groupsMap = new Map<string, GlossaryItem[]>();
+      glossary.forEach(item => {
+        if (!item.chinese) return;
+        const canon = canonicalizeHan(item.chinese);
+        const existing = groupsMap.get(canon) || [];
+        existing.push(item);
+        groupsMap.set(canon, existing);
+      });
+
+      const groups: MergeHanGroup[] = [];
+      let groupCounter = 0;
+      groupsMap.forEach((items, canon) => {
+        const uniqueChinese = new Set(items.map(it => it.chinese.trim()));
+        if (uniqueChinese.size > 1) {
+          groups.push({
+            groupId: `merge_${groupCounter++}_${Date.now()}`,
+            canonical: canon,
+            items
+          });
+        }
+      });
+
+      setMergeHanGroups(groups);
+      if (groups.length === 0) {
+        showToast({ message: 'Không tìm thấy các từ trùng lặp do lệch Phồn/Giản thể trong từ điển của bạn.', type: 'success' });
+        setShowMergeHanPanel(false);
+      }
+    });
+  };
+
+  const handleConfirmMergeHan = useCallback(async (
+    groupId: string,
+    primaryId: string,
+    mergedPayload: Partial<GlossaryItem>,
+    idsToDelete: string[]
+  ) => {
+    if (!onMergeGlossaryItems) return;
+
+    onMergeGlossaryItems(primaryId, mergedPayload, idsToDelete);
+
+    // Remove group from panel suggestions
+    setMergeHanGroups(prev => prev.filter(g => g.groupId !== groupId));
+    showToast({ message: 'Đã gộp thành công các biến thể và đồng bộ vào từ điển!', type: 'success' });
+  }, [onMergeGlossaryItems, showToast]);
 
   const handleUpdateDupItem = useCallback((groupId: string, itemId: string, field: keyof GlossaryItem, value: string) => {
     setDuplicateGroups(prev => prev.map(group => {
@@ -1990,7 +2083,7 @@ function GlossaryManager({
     }
   }, [selectedItem, fullChapters, glossary]);
 
-  const handleAddFormSave = useCallback((fields: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }) => {
+  const handleAddFormSave = useCallback((fields: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }, force?: boolean) => {
     onAddGlossaryItem({
       chinese:    fields.chinese.trim(),
       pinyin:     fields.pinyin.trim() || fields.vietnamese.trim(),
@@ -1999,7 +2092,7 @@ function GlossaryManager({
       note:       fields.note.trim(),
       origin:     'manual',
       createdAt:  new Date().toISOString()
-    });
+    }, force);
     setIsAdding(false);
   }, [onAddGlossaryItem]);
 
@@ -2040,8 +2133,9 @@ function GlossaryManager({
         let hasConflict = false;
         let reason = '';
 
-        const systemCnMatch = glossary.find(g => g.chinese.replace(/\s+/g, '').trim().toLowerCase() === cleanChKey);
+        const systemCnMatch = glossary.find(g => isHanEquivalent(g.chinese, item.chinese));
         const systemViMatch = glossary.find(g => g.vietnamese.trim().toLowerCase() === cleanViKey);
+        const fileChMatch = Array.from(fileCh.values()).find(fItem => isHanEquivalent(fItem.chinese, item.chinese));
 
         if (systemCnMatch) {
           hasConflict = true;
@@ -2049,7 +2143,7 @@ function GlossaryManager({
         } else if (systemViMatch) {
           hasConflict = true;
           reason = `Trùng định nghĩa: Nghĩa Việt '${item.vietnamese}' đã được gán cho từ gốc '${systemViMatch.chinese}'.`;
-        } else if (fileCh.has(cleanChKey)) {
+        } else if (fileChMatch) {
           hasConflict = true;
           reason = `Lặp nội bộ tệp: Chữ Trung '${item.chinese}' xuất hiện nhiều lần trong file .MD.`;
         } else if (fileVi.has(cleanViKey)) {
@@ -2114,21 +2208,42 @@ function GlossaryManager({
       return;
     }
 
-    onAddGlossaryItem({
-      chinese: item.chinese.trim(),
-      pinyin: item.pinyin.trim() || item.vietnamese.trim(),
-      vietnamese: item.vietnamese.trim(),
-      type: item.type,
-      note: item.note.trim(),
-      origin: 'guideline',
-      createdAt: item.createdAt || new Date().toISOString()
-    });
+    // Check if this item is from pendingGlossary (persistent)
+    const isFromPending = pendingGlossary.some(p => p.id === reviewId);
+    if (isFromPending) {
+      if (onConfirmPending) {
+        onConfirmPending(reviewId, {
+          chinese: item.chinese.trim(),
+          pinyin: item.pinyin.trim() || item.vietnamese.trim(),
+          vietnamese: item.vietnamese.trim(),
+          type: item.type,
+          note: item.note.trim()
+        });
+      }
+    } else {
+      // Normal MD import review item
+      onAddGlossaryItem({
+        chinese: item.chinese.trim(),
+        pinyin: item.pinyin.trim() || item.vietnamese.trim(),
+        vietnamese: item.vietnamese.trim(),
+        type: item.type,
+        note: item.note.trim(),
+        origin: 'guideline',
+        createdAt: item.createdAt || new Date().toISOString()
+      });
+    }
     setReviewQueue(prev => prev.filter(r => r.id !== reviewId));
-  }, [reviewQueue, onAddGlossaryItem]);
+  }, [reviewQueue, onAddGlossaryItem, pendingGlossary, onConfirmPending]);
 
   const handleDiscardReviewItem = useCallback((reviewId: string) => {
+    const isFromPending = pendingGlossary.some(p => p.id === reviewId);
+    if (isFromPending) {
+      if (onDiscardPending) {
+        onDiscardPending(reviewId);
+      }
+    }
     setReviewQueue(prev => prev.filter(r => r.id !== reviewId));
-  }, []);
+  }, [pendingGlossary, onDiscardPending]);
 
   const handleUpdateReviewItem = useCallback((reviewId: string, updatedFields: Partial<GlossaryItem>) => {
     setReviewQueue(prev => prev.map(r => {
@@ -2299,6 +2414,9 @@ function GlossaryManager({
         showDuplicatePanel={showDuplicatePanel}
         duplicateGroupsLength={duplicateGroups.length}
         handleOpenDuplicatePanel={handleOpenDuplicatePanel}
+        showMergeHanPanel={showMergeHanPanel}
+        mergeGroupsLength={mergeHanGroups.length}
+        handleOpenMergeHanPanel={handleOpenMergeHanPanel}
         isImporting={isImporting}
         setIsImporting={setIsImporting}
         isAdding={isAdding}
@@ -2316,8 +2434,13 @@ function GlossaryManager({
 
       {isAdding && (
         <AddGlossaryForm
+          glossary={glossary}
           onSave={handleAddFormSave}
           onCancel={() => setIsAdding(false)}
+          onSelectExistingItem={(item) => {
+            handleSelectItem(item);
+            setIsAdding(false);
+          }}
         />
       )}
 
@@ -2340,6 +2463,14 @@ function GlossaryManager({
         handleDeleteDupItem={handleDeleteDupItem}
         findLiveContext={findLiveContext}
         getOriginBadge={getOriginBadge}
+      />
+
+      <MergeHanPanel
+        show={showMergeHanPanel}
+        setShow={setShowMergeHanPanel}
+        groups={mergeHanGroups}
+        setGroups={setMergeHanGroups}
+        onConfirmMerge={handleConfirmMergeHan}
       />
 
       {/* Main Grid */}
@@ -2461,14 +2592,14 @@ function GlossaryManager({
         </div>
       </div>
 
-      {pendingGlossary.length > 0 && onConfirmPending && onDiscardPending && (
+      {pendingGlossary.filter(p => !p.needsReview).length > 0 && onConfirmPending && onDiscardPending && (
         <div className="bg-white border border-amber-250 rounded-xl overflow-hidden shadow-sm">
           <div className="bg-amber-50 border-b border-amber-100 px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangleIcon className="w-4 h-4 text-amber-500" />
               <h3 className="text-sm font-bold text-amber-900">Hàng Chờ Kiểm Duyệt Trùng Lặp</h3>
               <span className="bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                {pendingGlossary.length} mục
+                {pendingGlossary.filter(p => !p.needsReview).length} mục
               </span>
             </div>
             <p className="text-[11px] text-amber-600 hidden sm:block">
@@ -2476,7 +2607,7 @@ function GlossaryManager({
             </p>
           </div>
           <div className="p-4 space-y-2 max-h-72 overflow-y-auto">
-            {pendingGlossary.map((pending) => (
+            {pendingGlossary.filter(p => !p.needsReview).map((pending) => (
               <div key={pending.id}
                    className="bg-amber-50/50 border border-amber-100 rounded-lg p-3 flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
@@ -3754,11 +3885,12 @@ export default function ProjectList({
 ================================================================================
 
 import React, { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
-import { StoryProject, GlossaryItem, GlossaryType, Chapter } from '../types';
+import { StoryProject, GlossaryItem, GlossaryType, Chapter, PendingGlossaryItem } from '../types';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { Edit3, AlertCircle } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
+import { isHanEquivalent } from '../utils/sinoNormalize';
 
 // Sub-components
 import { ProjectMetadataModal } from './translator-workspace/ProjectMetadataModal';
@@ -4066,22 +4198,39 @@ export default function TranslatorWorkspace({
 
   const handleImportSuggestions = useCallback(() => {
     const itemsToAdd: GlossaryItem[] = [];
+    const pendingToAdd: PendingGlossaryItem[] = [];
     suggestions.forEach((s, idx) => {
       if (selectedSuggestions[idx]) {
         const isDuplicate = activeProject.glossary.some(
-          (item) => item.chinese === s.chinese
+          (item) => isHanEquivalent(item.chinese, s.chinese)
         );
         if (!isDuplicate) {
-          itemsToAdd.push({
+          const itemPayload = {
             ...s,
             id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
             createdAt: new Date().toISOString()
-          });
+          };
+          if (s.needsReview) {
+            pendingToAdd.push({
+              id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+              chinese: s.chinese.trim(),
+              pinyin: s.pinyin?.trim() || '',
+              vietnamese: s.vietnamese.trim(),
+              type: s.type || 'other',
+              note: s.note?.trim() || '',
+              reason: 'AI trích xuất nghi ngờ hallucinate',
+              originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc.',
+              importedAt: new Date().toISOString(),
+              needsReview: true
+            });
+          } else {
+            itemsToAdd.push(itemPayload);
+          }
         }
       }
     });
 
-    if (itemsToAdd.length === 0) {
+    if (itemsToAdd.length === 0 && pendingToAdd.length === 0) {
       showToast({ message: "Không có từ khóa mới hoặc chưa chọn từ khóa nào để lưu.", type: 'warning' });
       return;
     }
@@ -4089,11 +4238,17 @@ export default function TranslatorWorkspace({
     const updated = {
       ...activeProject,
       glossary: [...activeProject.glossary, ...itemsToAdd],
+      pendingGlossary: [...(activeProject.pendingGlossary || []), ...pendingToAdd]
     };
     onUpdateProject(updated);
     setSuggestions([]);
     setSelectedSuggestions({});
-    showToast({ message: `Đã thêm thành công ${itemsToAdd.length} nhân vật/thuật ngữ vào Từ điển của dự án!`, type: 'success' });
+
+    let msg = `Đã thêm thành công ${itemsToAdd.length} thuật ngữ vào Từ điển.`;
+    if (pendingToAdd.length > 0) {
+      msg += ` Có ${pendingToAdd.length} từ nghi ngờ AI nhận diện sai đã được chuyển vào hàng chờ kiểm duyệt.`;
+    }
+    showToast({ message: msg, type: 'success' });
   }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast]);
 
   const handleTranslateRaw = async () => {
@@ -4131,12 +4286,13 @@ export default function TranslatorWorkspace({
 
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
+        const pendingDiscovered: PendingGlossaryItem[] = [];
         data.discoveredEntities.forEach((ent: any) => {
           const exists = activeProject.glossary.some(
-            (gItem) => gItem.chinese.trim() === ent.chinese.trim()
+            (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
           );
           if (!exists) {
-            newlyDiscovered.push({
+            const itemPayload: GlossaryItem = {
               id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
               chinese: ent.chinese.trim(),
               pinyin: ent.pinyin.trim(),
@@ -4148,18 +4304,40 @@ export default function TranslatorWorkspace({
                   p.includes(ent.chinese.trim()) || p.replace(/\s+/g, '').includes(ent.chinese.replace(/\s+/g, '').trim())
               )?.trim() || "",
               origin: 'scanned',
-              createdAt: new Date().toISOString()
-            });
+              createdAt: new Date().toISOString(),
+              needsReview: ent.needsReview
+            };
+
+            if (ent.needsReview) {
+              pendingDiscovered.push({
+                id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                chinese: ent.chinese.trim(),
+                pinyin: ent.pinyin.trim(),
+                vietnamese: ent.vietnamese.trim(),
+                type: ent.type,
+                note: ent.note.trim(),
+                reason: 'AI trích xuất nghi ngờ hallucinate',
+                originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
+                importedAt: new Date().toISOString(),
+                needsReview: true
+              });
+            } else {
+              newlyDiscovered.push(itemPayload);
+            }
           }
         });
 
-        if (newlyDiscovered.length > 0) {
+        if (newlyDiscovered.length > 0 || pendingDiscovered.length > 0) {
           const updatedGlossary = [...activeProject.glossary, ...newlyDiscovered];
+          const updatedPending = [...(activeProject.pendingGlossary || []), ...pendingDiscovered];
           onUpdateProject({
             ...activeProject,
             glossary: updatedGlossary,
+            pendingGlossary: updatedPending,
           });
-          setAutoDiscoveredTerms(newlyDiscovered);
+          if (newlyDiscovered.length > 0) {
+            setAutoDiscoveredTerms(newlyDiscovered);
+          }
         }
       }
     } catch (err: any) {
@@ -4211,7 +4389,7 @@ export default function TranslatorWorkspace({
 
         data.newlyDiscoveredDuringPolish.forEach((ent: any) => {
           const exists = updatedGlossary.some(
-            (gItem) => gItem.chinese.trim() === ent.chinese.trim()
+            (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
           );
           if (!exists) {
             const itemPayload: GlossaryItem = {
@@ -5910,22 +6088,54 @@ function RefreshCwIcon(props: React.SVGProps<SVGSVGElement>) {
 /// FILE: src\components\glossary-manager\AddGlossaryForm.tsx ///
 ================================================================================
 
-import React, { useState } from 'react';
-import { GlossaryType } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { GlossaryType, GlossaryItem } from '../../types';
 import { useNotifications } from '../NotificationSystem';
+import { isHanEquivalent } from '../../utils/sinoNormalize';
 
 interface AddGlossaryFormProps {
-  onSave: (item: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }) => void;
+  glossary: GlossaryItem[];
+  onSave: (item: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }, force?: boolean) => void;
   onCancel: () => void;
+  onSelectExistingItem: (item: GlossaryItem) => void;
 }
 
-export const AddGlossaryForm = React.memo(function AddGlossaryForm({ onSave, onCancel }: AddGlossaryFormProps) {
+export const AddGlossaryForm = React.memo(function AddGlossaryForm({ glossary, onSave, onCancel, onSelectExistingItem }: AddGlossaryFormProps) {
   const { showToast } = useNotifications();
   const [chinese,    setChinese]    = useState('');
   const [pinyin,     setPinyin]     = useState('');
   const [vietnamese, setVietnamese] = useState('');
   const [type,       setType]       = useState<GlossaryType>('character');
   const [note,       setNote]       = useState('');
+  const [warningItem, setWarningItem] = useState<GlossaryItem | null>(null);
+
+  useEffect(() => {
+    const trimmed = chinese.trim();
+    if (!trimmed) {
+      setWarningItem(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const found = glossary.find((gItem) => {
+        // 1. Check if canonical equivalent
+        const isEquiv = isHanEquivalent(gItem.chinese, trimmed) || 
+                        (gItem.variants && gItem.variants.some(v => isHanEquivalent(v, trimmed)));
+        
+        if (!isEquiv) return false;
+
+        // 2. Check if they have different display string
+        const isSameDisplay = (gItem.chinese.trim() === trimmed) ||
+                              (gItem.variants && gItem.variants.some(v => v.trim() === trimmed));
+        
+        return !isSameDisplay;
+      });
+
+      setWarningItem(found || null);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [chinese, glossary]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -5933,7 +6143,25 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({ onSave, onC
       showToast({ message: "Vui lòng nhập từ gốc tiếng Trung và bản dịch tiếng Việt.", type: 'warning' });
       return;
     }
+    if (warningItem) {
+      showToast({ message: "Thuật ngữ trùng lặp phát hiện. Vui lòng chọn 'Vẫn tạo mới' hoặc 'Dùng entry đó'.", type: 'warning' });
+      return;
+    }
     onSave({ chinese, pinyin, vietnamese, type, note });
+  };
+
+  const handleUseExisting = () => {
+    if (warningItem) {
+      onSelectExistingItem(warningItem);
+    }
+  };
+
+  const handleForceCreate = () => {
+    if (!chinese.trim() || !vietnamese.trim()) {
+      showToast({ message: "Vui lòng nhập từ gốc tiếng Trung và bản dịch tiếng Việt.", type: 'warning' });
+      return;
+    }
+    onSave({ chinese, pinyin, vietnamese, type, note }, true);
   };
 
   return (
@@ -5977,6 +6205,33 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({ onSave, onC
                value={note} onChange={(e) => setNote(e.target.value)}
                className="w-full text-xs bg-white border border-slate-200 rounded px-2.5 py-1.5 text-slate-800 focus:outline-none focus:border-indigo-600" />
       </div>
+
+      {warningItem && (
+        <div id="duplicate-warning" className="bg-amber-50 border border-amber-200 p-2.5 rounded-lg text-xs text-amber-850 flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-fadeIn">
+          <span>
+            Có thể đã tồn tại dưới dạng <strong className="font-mono text-amber-950">[{warningItem.chinese}]</strong> — bạn có chắc muốn tạo entry mới?
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              id="btn-use-existing"
+              type="button"
+              onClick={handleUseExisting}
+              className="bg-amber-100 hover:bg-amber-200 text-amber-900 px-2 py-1 rounded font-bold text-[11px] cursor-pointer transition-colors"
+            >
+              Dùng entry đó thay vì tạo mới
+            </button>
+            <button
+              id="btn-force-create"
+              type="button"
+              onClick={handleForceCreate}
+              className="bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded font-bold text-[11px] cursor-pointer transition-colors"
+            >
+              Vẫn tạo mới
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end gap-2 pt-1">
         <button id="btn-cancel-add" type="button" onClick={onCancel}
                 className="px-2.5 py-1 text-xs font-bold text-slate-650 hover:bg-slate-200 rounded transition-colors cursor-pointer">
@@ -6521,6 +6776,9 @@ export interface GlossaryHeaderProps {
   showDuplicatePanel: boolean;
   duplicateGroupsLength: number;
   handleOpenDuplicatePanel: () => void;
+  showMergeHanPanel: boolean;
+  mergeGroupsLength: number;
+  handleOpenMergeHanPanel: () => void;
   isImporting: boolean;
   setIsImporting: (b: boolean) => void;
   isAdding: boolean;
@@ -6533,6 +6791,9 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
   showDuplicatePanel,
   duplicateGroupsLength,
   handleOpenDuplicatePanel,
+  showMergeHanPanel,
+  mergeGroupsLength,
+  handleOpenMergeHanPanel,
   isImporting,
   setIsImporting,
   isAdding,
@@ -6578,6 +6839,26 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
           {showDuplicatePanel && duplicateGroupsLength > 0 && (
             <span className="bg-rose-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ml-0.5">
               {duplicateGroupsLength}
+            </span>
+          )}
+        </button>
+
+        <button
+          id="btn-merge-han-variants"
+          onClick={handleOpenMergeHanPanel}
+          disabled={glossaryLength < 2}
+          className={`flex items-center gap-1.5 font-bold px-3 py-1.5 text-xs rounded transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+            showMergeHanPanel && mergeGroupsLength > 0
+              ? 'bg-amber-100 hover:bg-amber-250 text-amber-700 border border-amber-200'
+              : 'bg-amber-50 hover:bg-amber-100 text-amber-750 border border-amber-200'
+          }`}
+          title="Quét các từ bị trùng do khác ký tự Phồn/Giản để gộp thành biến thể"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+          Gộp Phồn/Giản
+          {showMergeHanPanel && mergeGroupsLength > 0 && (
+            <span className="bg-amber-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ml-0.5">
+              {mergeGroupsLength}
             </span>
           )}
         </button>
@@ -7095,6 +7376,316 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
 
 
 ================================================================================
+/// FILE: src\components\glossary-manager\MergeHanPanel.tsx ///
+================================================================================
+
+import React, { useState, useEffect } from 'react';
+import { Sparkles, Check, X, AlertCircle } from 'lucide-react';
+import { GlossaryItem, GlossaryType } from '../../types';
+
+export interface MergeHanGroup {
+  groupId: string;
+  canonical: string;
+  items: GlossaryItem[];
+}
+
+interface MergeHanPanelProps {
+  show: boolean;
+  setShow: (b: boolean) => void;
+  groups: MergeHanGroup[];
+  setGroups: React.Dispatch<React.SetStateAction<MergeHanGroup[]>>;
+  onConfirmMerge: (groupId: string, primaryId: string, mergedPayload: Partial<GlossaryItem>, idsToDelete: string[]) => void;
+}
+
+export function MergeHanPanel({
+  show,
+  setShow,
+  groups,
+  setGroups,
+  onConfirmMerge
+}: MergeHanPanelProps) {
+  const [selectedPrimaryIds, setSelectedPrimaryIds] = useState<Record<string, string>>({});
+  const [mergePayloads, setMergePayloads] = useState<Record<string, Partial<GlossaryItem>>>({});
+
+  // Initialize selected primary item and form payloads when groups load
+  useEffect(() => {
+    const initialIds: Record<string, string> = {};
+    const initialPayloads: Record<string, Partial<GlossaryItem>> = {};
+
+    groups.forEach(group => {
+      // Pick the first item as default primary
+      const defaultPrimary = group.items[0];
+      initialIds[group.groupId] = defaultPrimary.id;
+      initialPayloads[group.groupId] = {
+        vietnamese: defaultPrimary.vietnamese || '',
+        pinyin: defaultPrimary.pinyin || '',
+        type: defaultPrimary.type || 'character',
+        note: defaultPrimary.note || ''
+      };
+    });
+
+    setSelectedPrimaryIds(initialIds);
+    setMergePayloads(initialPayloads);
+  }, [groups]);
+
+  const handleSelectPrimary = (groupId: string, item: GlossaryItem) => {
+    setSelectedPrimaryIds(prev => ({ ...prev, [groupId]: item.id }));
+    setMergePayloads(prev => ({
+      ...prev,
+      [groupId]: {
+        vietnamese: item.vietnamese || '',
+        pinyin: item.pinyin || '',
+        type: item.type || 'character',
+        note: item.note || ''
+      }
+    }));
+  };
+
+  const handleUpdateField = (groupId: string, field: keyof GlossaryItem, value: any) => {
+    setMergePayloads(prev => ({
+      ...prev,
+      [groupId]: {
+        ...prev[groupId],
+        [field]: value
+      }
+    }));
+  };
+
+  const handleIgnore = (groupId: string) => {
+    setGroups(prev => prev.filter(g => g.groupId !== groupId));
+  };
+
+  const handleMergeSubmit = (groupId: string) => {
+    const group = groups.find(g => g.groupId === groupId);
+    const primaryId = selectedPrimaryIds[groupId];
+    const payload = mergePayloads[groupId];
+
+    if (!group || !primaryId || !payload) return;
+
+    const primaryItem = group.items.find(it => it.id === primaryId);
+    if (!primaryItem) return;
+
+    // The other items in the group will be merged
+    const otherItems = group.items.filter(it => it.id !== primaryId);
+    const idsToDelete = otherItems.map(it => it.id);
+
+    // Collect all unique variants.
+    // The variants include:
+    // - The other items' chinese names
+    // - Any existing variants in all items (primary + other items)
+    const variantsSet = new Set<string>();
+    
+    otherItems.forEach(it => {
+      variantsSet.add(it.chinese);
+      if (Array.isArray(it.variants)) {
+        it.variants.forEach(v => variantsSet.add(v));
+      }
+    });
+
+    if (Array.isArray(primaryItem.variants)) {
+      primaryItem.variants.forEach(v => variantsSet.add(v));
+    }
+
+    // Ensure primary chinese is not in variants
+    variantsSet.delete(primaryItem.chinese);
+
+    const finalVariants = Array.from(variantsSet).filter(v => v.trim() !== '');
+
+    const mergedPayload: Partial<GlossaryItem> = {
+      chinese: primaryItem.chinese,
+      vietnamese: (payload.vietnamese || '').trim(),
+      pinyin: (payload.pinyin || '').trim(),
+      type: payload.type || primaryItem.type,
+      note: (payload.note || '').trim(),
+      variants: finalVariants
+    };
+
+    onConfirmMerge(groupId, primaryId, mergedPayload, idsToDelete);
+  };
+
+  if (!show || groups.length === 0) return null;
+
+  return (
+    <div className="bg-slate-50 border border-amber-200 rounded-xl p-4 space-y-4 shadow-xs">
+      <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-amber-500" />
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+            Gợi ý gộp biến thể Hán tự (Phồn / Giản thể)
+          </h3>
+          <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+            {groups.length} nhóm
+          </span>
+        </div>
+        <button
+          onClick={() => setShow(false)}
+          className="text-xs font-bold text-slate-500 hover:text-slate-700 bg-white border border-slate-200 rounded px-2.5 py-1 transition-colors cursor-pointer"
+        >
+          Đóng gợi ý
+        </button>
+      </div>
+
+      <p className="text-xs text-slate-500 leading-relaxed max-w-4xl">
+        Hệ thống phát hiện các thuật ngữ viết khác nhau giữa Phồn thể và Giản thể nhưng có cùng dạng chuẩn hóa. Bạn có thể chọn giữ lại 1 từ chính (Primary), các từ còn lại sẽ được lưu tự động thành biến thể (variants) của từ đó để hệ thống tiếp tục hỗ trợ đối chiếu dịch tự động.
+      </p>
+
+      <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+        {groups.map(group => {
+          const primaryId = selectedPrimaryIds[group.groupId];
+          const payload = mergePayloads[group.groupId] || {};
+          const primaryItem = group.items.find(it => it.id === primaryId) || group.items[0];
+          const otherItems = group.items.filter(it => it.id !== primaryId);
+
+          return (
+            <div
+              key={group.groupId}
+              className="bg-white border border-slate-200 hover:border-amber-300 rounded-xl overflow-hidden shadow-2xs transition-colors grid grid-cols-1 lg:grid-cols-12"
+            >
+              {/* Left Column: Select Primary */}
+              <div className="lg:col-span-7 p-4 border-r border-slate-100 space-y-3 bg-slate-50/20">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Chọn dạng chữ chính (Primary Form)
+                </span>
+                
+                <div className="space-y-2">
+                  {group.items.map(item => {
+                    const isPrimary = item.id === primaryId;
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleSelectPrimary(group.groupId, item)}
+                        className={`p-3 border rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                          isPrimary
+                            ? 'bg-amber-50/50 border-amber-300 shadow-2xs'
+                            : 'bg-white border-slate-200 hover:bg-slate-50/40'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-slate-800 text-sm">{item.chinese}</span>
+                            <span className="text-slate-400 text-xs">→</span>
+                            <span className="font-semibold text-indigo-950 text-xs">{item.vietnamese}</span>
+                            <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">
+                              {item.type}
+                            </span>
+                          </div>
+                          {item.note && (
+                            <p className="text-[11px] text-slate-400 italic truncate mt-0.5" title={item.note}>
+                              {item.note}
+                            </p>
+                          )}
+                          {Array.isArray(item.variants) && item.variants.length > 0 && (
+                            <div className="text-[9px] text-amber-700 mt-1 font-mono">
+                              Biến thể đã có: {item.variants.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="shrink-0">
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center border transition-all ${
+                            isPrimary
+                              ? 'bg-amber-500 border-amber-500 text-white'
+                              : 'bg-white border-slate-300'
+                          }`}>
+                            {isPrimary && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right Column: Edit Merged Details */}
+              <div className="lg:col-span-5 p-4 flex flex-col justify-between gap-3 bg-amber-50/5">
+                <div className="space-y-3">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+                    Thông tin sau khi gộp
+                  </span>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Dịch Việt</span>
+                      <input
+                        type="text"
+                        value={payload.vietnamese || ''}
+                        onChange={(e) => handleUpdateField(group.groupId, 'vietnamese', e.target.value)}
+                        className="w-full text-xs font-bold bg-white border border-slate-200 focus:border-amber-400 rounded px-2 py-1.5 text-indigo-950 outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Phiên âm</span>
+                      <input
+                        type="text"
+                        value={payload.pinyin || ''}
+                        onChange={(e) => handleUpdateField(group.groupId, 'pinyin', e.target.value)}
+                        className="w-full text-xs bg-white border border-slate-200 focus:border-amber-400 rounded px-2 py-1.5 text-slate-700 outline-none transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Phân loại</span>
+                    <select
+                      value={payload.type || 'character'}
+                      onChange={(e) => handleUpdateField(group.groupId, 'type', e.target.value)}
+                      className="w-full text-xs bg-white border border-slate-200 focus:border-amber-400 rounded px-2 py-1.5 text-slate-700 outline-none transition-colors"
+                    >
+                      <option value="character">Nhân vật</option>
+                      <option value="location">Địa danh</option>
+                      <option value="term">Bí kíp / Vật phẩm</option>
+                      <option value="phrase">Thành ngữ / Cụm từ</option>
+                      <option value="other">Thuật ngữ khác</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Ghi chú gộp</span>
+                    <textarea
+                      value={payload.note || ''}
+                      onChange={(e) => handleUpdateField(group.groupId, 'note', e.target.value)}
+                      rows={2}
+                      className="w-full text-xs bg-white border border-slate-200 focus:border-amber-400 rounded px-2 py-1 text-slate-600 outline-none transition-colors resize-none"
+                    />
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 flex items-start gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                    <div className="text-[10px] text-slate-500 leading-tight">
+                      Từ chính: <strong className="font-mono text-slate-700">{primaryItem.chinese}</strong>.
+                      <br />
+                      Biến thể sẽ lưu: <strong className="font-mono text-slate-700">{otherItems.map(it => it.chinese).join(', ')}</strong>.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 border-t border-slate-100 pt-3">
+                  <button
+                    onClick={() => handleMergeSubmit(group.groupId)}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg py-2 text-xs font-bold transition-colors cursor-pointer shadow-xs border border-amber-600/10"
+                  >
+                    <Check className="w-4 h-4" />
+                    Đồng ý gộp
+                  </button>
+                  <button
+                    onClick={() => handleIgnore(group.groupId)}
+                    className="flex items-center justify-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg px-3 py-2 text-xs font-bold transition-colors cursor-pointer border border-slate-200"
+                  >
+                    <X className="w-4 h-4" />
+                    Bỏ qua
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+================================================================================
 /// FILE: src\components\glossary-manager\ReviewQueuePanel.tsx ///
 ================================================================================
 
@@ -7159,10 +7750,17 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
           <div key={item.id}
                className="bg-white border border-amber-205 p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs hover:border-amber-300 transition-colors">
             <div className="flex-1 space-y-2">
-              <div className="flex items-center gap-1.5 text-[10px] text-amber-900 bg-amber-100/60 px-2.5 py-1 rounded-md font-medium">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span><strong>Lọc trùng:</strong> {item.reason}</span>
-              </div>
+              {item.needsReview ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-rose-900 bg-rose-100/60 border border-rose-200 px-2.5 py-1 rounded-md font-medium" title="Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span><strong>AI Cảnh báo:</strong> Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[10px] text-amber-900 bg-amber-100/60 px-2.5 py-1 rounded-md font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span><strong>Lọc trùng:</strong> {item.reason}</span>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 <div>
                   <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Tiếng Trung *</span>
@@ -8833,10 +9431,11 @@ export function useGlossaryApply({
 ================================================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { StoryProject, GlossaryItem } from '../types';
+import { StoryProject, GlossaryItem, PendingGlossaryItem } from '../types';
 import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../components/NotificationSystem';
+import { isHanEquivalent } from '../utils/sinoNormalize';
 
 export interface UseGlossaryScanProps {
   activeProject: StoryProject;
@@ -8954,11 +9553,13 @@ export function useGlossaryScan({
             const suggestions = data.suggestions || [];
             if (suggestions.length > 0) {
               const newlyDiscovered: GlossaryItem[] = [];
+              const pendingDiscovered: PendingGlossaryItem[] = [];
+
               suggestions.forEach((ent: any) => {
                 const chineseTrimmed = ent.chinese?.trim() || "";
                 if (!chineseTrimmed) return;
 
-                const exists = updatedGlossary.some((gItem) => gItem.chinese.trim() === chineseTrimmed);
+                const exists = updatedGlossary.some((gItem) => isHanEquivalent(gItem.chinese, chineseTrimmed));
                 const originParagraph = chap.sourceText.split('\n').find(p =>
                     p.includes(chineseTrimmed) || p.replace(/\s+/g, '').includes(chineseTrimmed.replace(/\s+/g, ''))
                 )?.trim() || "";
@@ -8973,17 +9574,41 @@ export function useGlossaryScan({
                     sourceChapter: chap.title,
                     sourceParagraph: originParagraph,
                     origin: 'scanned',
-                    createdAt: new Date().toISOString()
+                    createdAt: new Date().toISOString(),
+                    needsReview: ent.needsReview
                   };
-                  newlyDiscovered.push(itemPayload);
-                  updatedGlossary.push(itemPayload);
+
+                  if (ent.needsReview) {
+                    const pendingPayload: PendingGlossaryItem = {
+                      id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                      chinese: chineseTrimmed,
+                      pinyin: (ent.pinyin || "").trim(),
+                      vietnamese: (ent.vietnamese || "").trim(),
+                      type: ent.type || "other",
+                      note: (ent.note || "").trim(),
+                      reason: 'AI trích xuất nghi ngờ hallucinate',
+                      originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
+                      importedAt: new Date().toISOString(),
+                      needsReview: true
+                    };
+                    pendingDiscovered.push(pendingPayload);
+                    addLog(`[Hallucinate] Phát hiện từ nghi ngờ AI nhận diện sai "${chineseTrimmed}" - Đã chuyển vào hàng chờ kiểm duyệt.`, 'warn');
+                  } else {
+                    newlyDiscovered.push(itemPayload);
+                    updatedGlossary.push(itemPayload);
+                  }
                 }
               });
 
-              if (newlyDiscovered.length > 0) {
-                addLog(`Phát hiện ${newlyDiscovered.length} thuật ngữ mới tại chương "${chap.title}"`, 'success');
-                setAutoDiscoveredBatch((prev) => [...prev, ...newlyDiscovered]);
-                setScanFoundCount((prev) => prev + newlyDiscovered.length);
+              if (newlyDiscovered.length > 0 || pendingDiscovered.length > 0) {
+                if (newlyDiscovered.length > 0) {
+                  addLog(`Phát hiện ${newlyDiscovered.length} thuật ngữ mới tại chương "${chap.title}"`, 'success');
+                  setAutoDiscoveredBatch((prev) => [...prev, ...newlyDiscovered]);
+                  setScanFoundCount((prev) => prev + newlyDiscovered.length);
+                }
+                if (pendingDiscovered.length > 0) {
+                  projectRef.current.pendingGlossary = [...(projectRef.current.pendingGlossary || []), ...pendingDiscovered];
+                }
               }
             }
           } catch (chapErr: any) {
@@ -9038,6 +9663,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
 import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB, saveChapterToDB, deleteChapterFromDB, getChapterFromDB, getChaptersByProjectFromDB, deleteChaptersByProjectFromDB, saveChaptersToDB } from '../services/db';
 import { useNotifications } from '../components/NotificationSystem';
+import { isHanEquivalent } from '../utils/sinoNormalize';
 
 const DEFAULT_PROJECTS: any[] = [
     {
@@ -9218,16 +9844,19 @@ export function useProjects() {
         setActiveProjectId(id);
     }, []);
 
-    const handleAddGlossaryItem = useCallback(async (newItem: Omit<GlossaryItem, 'id'>) => {
+    const handleAddGlossaryItem = useCallback(async (newItem: Omit<GlossaryItem, 'id'>, force = false) => {
         const activeProj = projects.find(p => p.id === activeProjectId);
         if (!activeProj) return;
 
-        const cleanChinese = (newItem.chinese || '').replace(/\s+/g, '').trim();
         const cleanVietnamese = (newItem.vietnamese || '').trim().toLowerCase();
         const alreadyExists = activeProj.glossary.some(
-            (g) =>
-                g.chinese.replace(/\s+/g, '').trim() === cleanChinese ||
-                (cleanVietnamese && g.vietnamese.trim().toLowerCase() === cleanVietnamese)
+            (g) => {
+                if (force) {
+                    return g.chinese.trim() === newItem.chinese.trim();
+                }
+                return isHanEquivalent(g.chinese, newItem.chinese) ||
+                       (cleanVietnamese && g.vietnamese.trim().toLowerCase() === cleanVietnamese);
+            }
         );
         if (alreadyExists) return;
 
@@ -9246,17 +9875,19 @@ export function useProjects() {
         const activeProj = projects.find(p => p.id === activeProjectId);
         if (!activeProj) return;
 
-        const existingChinese = new Set(activeProj.glossary.map((g) => g.chinese.replace(/\s+/g, '').trim()));
-        const existingVietnamese = new Set(activeProj.glossary.map((g) => g.vietnamese.trim().toLowerCase()));
-
         const completeItems: GlossaryItem[] = [];
         newItems.forEach((item, idx) => {
-            const cleanChinese = (item.chinese || '').replace(/\s+/g, '').trim();
             const cleanVietnamese = (item.vietnamese || '').trim().toLowerCase();
-            if (existingChinese.has(cleanChinese)) return;
-            if (cleanVietnamese && existingVietnamese.has(cleanVietnamese)) return;
-            existingChinese.add(cleanChinese);
-            if (cleanVietnamese) existingVietnamese.add(cleanVietnamese);
+            
+            // Check if item's Chinese already exists in activeProj.glossary or completeItems
+            const chineseExists = activeProj.glossary.some(g => isHanEquivalent(g.chinese, item.chinese)) ||
+                                  completeItems.some(g => isHanEquivalent(g.chinese, item.chinese));
+            if (chineseExists) return;
+
+            // Check if item's Vietnamese already exists in activeProj.glossary or completeItems
+            const vietnameseExists = (cleanVietnamese && activeProj.glossary.some(g => g.vietnamese.trim().toLowerCase() === cleanVietnamese)) ||
+                                     (cleanVietnamese && completeItems.some(g => g.vietnamese.trim().toLowerCase() === cleanVietnamese));
+            if (vietnameseExists) return;
 
             completeItems.push({
                 ...item,
@@ -9287,6 +9918,30 @@ export function useProjects() {
         if (!activeProj) return;
 
         const updatedGlossary = activeProj.glossary.filter(item => item.id !== id);
+        const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
+        await saveProjectToDB(updated);
+
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
+
+    const handleMergeGlossaryItems = useCallback(async (
+        primaryId: string,
+        mergedPayload: Partial<GlossaryItem>,
+        idsToDelete: string[]
+    ) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
+
+        const updatedGlossary = activeProj.glossary.map(item => {
+            if (item.id === primaryId) {
+                return {
+                    ...item,
+                    ...mergedPayload
+                } as GlossaryItem;
+            }
+            return item;
+        }).filter(item => !idsToDelete.includes(item.id));
+
         const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
         await saveProjectToDB(updated);
 
@@ -9457,6 +10112,7 @@ export function useProjects() {
         handleAddGlossaryItems,
         handleUpdateGlossaryItem,
         handleDeleteGlossaryItem,
+        handleMergeGlossaryItems,
         handleDeleteChapterHistory,
         handleAddToPendingGlossary,
         handleConfirmPendingItem,
@@ -9504,6 +10160,7 @@ import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../components/NotificationSystem';
+import { isHanEquivalent } from '../utils/sinoNormalize';
 
 export interface UseTranslationProcessProps {
   activeProject: StoryProject;
@@ -9743,7 +10400,7 @@ export function useTranslationProcess({
               const cleanPinyin = (ent.pinyin || '').trim();
               const cleanNote = (ent.note || '').trim();
 
-              const matchedByCn = updatedGlossary.find((gItem) => gItem.chinese.replace(/\s+/g, '').trim() === cleanChinese);
+              const matchedByCn = updatedGlossary.find((gItem) => isHanEquivalent(gItem.chinese, ent.chinese));
               const matchedByVi = updatedGlossary.find((gItem) => gItem.vietnamese.trim().toLowerCase() === cleanVietnamese.toLowerCase());
 
               const rawChinese = ent.chinese.trim();
@@ -9751,7 +10408,7 @@ export function useTranslationProcess({
                   p.includes(rawChinese) || p.replace(/\s+/g, '').includes(cleanChinese)
               )?.trim() || "";
 
-              if (!matchedByCn && !matchedByVi) {
+              if (!matchedByCn && !matchedByVi && !ent.needsReview) {
                 const itemPayload: GlossaryItem = {
                   id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
                   chinese: cleanChinese,
@@ -9770,7 +10427,10 @@ export function useTranslationProcess({
                 let reason: PendingGlossaryItem['reason'] = 'Duplicate Chinese';
                 let originalValue = '';
 
-                if (matchedByCn && matchedByVi) {
+                if (ent.needsReview) {
+                  reason = 'AI trích xuất nghi ngờ hallucinate';
+                  originalValue = 'Không tìm thấy cụm từ này trong văn bản gốc của chương.';
+                } else if (matchedByCn && matchedByVi) {
                   reason = 'Duplicate Both';
                   originalValue = `Trùng cả cụm: Gốc "${matchedByCn.chinese}" -> Nghĩa "${matchedByCn.vietnamese}"`;
                 } else if (matchedByCn) {
@@ -9790,7 +10450,8 @@ export function useTranslationProcess({
                   note: cleanNote,
                   reason,
                   originalValue,
-                  importedAt: new Date().toISOString()
+                  importedAt: new Date().toISOString(),
+                  needsReview: !!ent.needsReview
                 });
               }
             });
@@ -10743,4 +11404,117 @@ async function parseEpubFallback(zip: JSZip, filePaths: string[]): Promise<{ tit
   }
   return chapters;
 }
+
+
+================================================================================
+/// FILE: src\utils\sinoNormalize.ts ///
+================================================================================
+
+import * as OpenCC from 'opencc-js';
+
+// Khởi tạo bộ chuyển đổi từ chữ Phồn thể sang Giản thể.
+// Chú ý: Ta dùng 't' (Traditional) -> 'cn' (Simplified) làm cấu hình chuẩn.
+// Converter được tạo một lần duy nhất ở cấp module để tối ưu hiệu năng.
+const t2sConverter = OpenCC.Converter({ from: 't', to: 'cn' });
+
+/**
+ * Chuẩn hóa chữ Hán: Chuyển đổi toàn bộ ký tự Hán Phồn thể về dạng Giản thể.
+ * 
+ * LƯU Ý QUAN TRỌNG:
+ * - Hàm này CHỈ dùng để SO SÁNH (matching, validation, deduplication).
+ * - TUYỆT ĐỐI KHÔNG dùng kết quả của hàm này để thay thế (substitute) văn bản gốc,
+ *   không dùng để lưu vào DB hay hiển thị kết quả dịch cuối cùng cho người dùng.
+ * 
+ * @param text Văn bản chữ Hán cần chuẩn hóa
+ * @returns Văn bản đã được chuyển thành Giản thể
+ */
+export function canonicalizeHan(text: string): string {
+  if (!text) return "";
+  return t2sConverter(text);
+}
+
+/**
+ * So sánh tương đương giữa hai chuỗi chữ Hán.
+ * Tự động cắt khoảng trắng ở hai đầu chuỗi và so sánh sau khi chuẩn hóa về Giản thể.
+ * 
+ * LƯU Ý QUAN TRỌNG:
+ * - Hàm này CHỈ dùng để so sánh khớp/trùng lặp (matching, validation, deduplication).
+ * - TUYỆT ĐỐI KHÔNG dùng kết quả của hàm này để thay thế text trong bản dịch.
+ * 
+ * @param a Chuỗi thứ nhất
+ * @param b Chuỗi thứ hai
+ * @returns true nếu hai chuỗi tương đương nhau sau khi đưa về Giản thể
+ */
+export function isHanEquivalent(a: string, b: string): boolean {
+  return canonicalizeHan(a.trim()) === canonicalizeHan(b.trim());
+}
+
+/**
+ * Dò tìm một phân đoạn (substring) thật trong văn bản gốc (haystack)
+ * khớp với chuỗi đích (needle) sau khi cả hai đã được chuẩn hóa Phồn -> Giản.
+ * 
+ * Sử dụng cửa sổ trượt Unicode character (code point) để tránh cắt sai ký tự Hán.
+ * 
+ * @param haystack Văn bản gốc (chứa ký tự thật cần lấy)
+ * @param needle Cụm từ đích (do AI trả về, có thể lệch Phồn/Giản)
+ * @returns Phân đoạn substring thật trong haystack, hoặc null nếu không khớp
+ */
+export function findCanonicalSubstring(haystack: string, needle: string): string | null {
+  if (!haystack || !needle) return null;
+  const needleNorm = canonicalizeHan(needle.trim());
+  if (!needleNorm) return null;
+
+  const haystackChars = Array.from(haystack);
+  const needleChars = Array.from(needle.trim());
+  const needleLen = needleChars.length;
+
+  for (let i = 0; i <= haystackChars.length - needleLen; i++) {
+    const windowStr = haystackChars.slice(i, i + needleLen).join('');
+    if (canonicalizeHan(windowStr) === needleNorm) {
+      return windowStr;
+    }
+  }
+  return null;
+}
+
+/**
+ * Rà soát và tự sửa (snap-back) cụm chữ Hán trong trường 'chinese' của từng entity.
+ * Nếu không khớp hoàn toàn cả dạng exact lẫn canonical, thêm `needsReview: true` vào entity.
+ * 
+ * @param entities Danh sách các thuật ngữ do AI trích xuất (chứa field chinese)
+ * @param rawText Văn bản gốc tiếng Trung dùng để đối chiếu
+ * @returns Danh sách thực thể đã được chuẩn hóa / sửa đổi
+ */
+export function validateAndSnapBackEntities(entities: any[], rawText: string): any[] {
+  if (!Array.isArray(entities) || !rawText) return entities || [];
+
+  return entities.map((item: any) => {
+    if (!item || typeof item.chinese !== "string") return item;
+
+    const chineseVal = item.chinese.trim();
+    // 1. Nếu rawSourceText.includes(entity.chinese.trim()) -> giữ nguyên
+    if (rawText.includes(chineseVal)) {
+      return item;
+    }
+
+    const normRaw = canonicalizeHan(rawText);
+    const normChinese = canonicalizeHan(chineseVal);
+
+    // 2. Else if canonicalizeHan(rawSourceText).includes(canonicalizeHan(entity.chinese))
+    if (normRaw.includes(normChinese)) {
+      const realSubstring = findCanonicalSubstring(rawText, chineseVal);
+      if (realSubstring) {
+        item.chinese = realSubstring;
+      } else {
+        item.needsReview = true;
+      }
+    } else {
+      // 3. Else -> needsReview: true
+      item.needsReview = true;
+    }
+
+    return item;
+  });
+}
+
 

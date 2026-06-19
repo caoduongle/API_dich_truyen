@@ -154,6 +154,34 @@ function GlossaryManager({
   const [isAnalyzingMd, setIsAnalyzingMd] = useState(false);
 
   const [reviewQueue, setReviewQueue] = useState<Array<GlossaryItem & { reason: string }>>([]);
+
+  // Load pending glossary items that need review into the reviewQueue state dynamically
+  useEffect(() => {
+    if (pendingGlossary && pendingGlossary.length > 0) {
+      const needsReviewItems = pendingGlossary
+        .filter(item => item.needsReview === true)
+        .map(item => ({
+          id: item.id,
+          chinese: item.chinese,
+          pinyin: item.pinyin,
+          vietnamese: item.vietnamese,
+          type: item.type,
+          note: item.note,
+          reason: item.reason || 'AI trích xuất nghi ngờ hallucinate',
+          needsReview: true,
+          createdAt: item.importedAt
+        }));
+
+      setReviewQueue(prev => {
+        const existingIds = new Set(prev.map(p => p.id));
+        const newItems = needsReviewItems.filter(item => !existingIds.has(item.id));
+        if (newItems.length > 0) {
+          return [...prev, ...newItems];
+        }
+        return prev;
+      });
+    }
+  }, [pendingGlossary]);
   const [selectedItem, setSelectedItem] = useState<GlossaryItem | null>(null);
 
   const [searchContextMatches, setSearchContextMatches] = useState<Array<{
@@ -533,21 +561,42 @@ function GlossaryManager({
       return;
     }
 
-    onAddGlossaryItem({
-      chinese: item.chinese.trim(),
-      pinyin: item.pinyin.trim() || item.vietnamese.trim(),
-      vietnamese: item.vietnamese.trim(),
-      type: item.type,
-      note: item.note.trim(),
-      origin: 'guideline',
-      createdAt: item.createdAt || new Date().toISOString()
-    });
+    // Check if this item is from pendingGlossary (persistent)
+    const isFromPending = pendingGlossary.some(p => p.id === reviewId);
+    if (isFromPending) {
+      if (onConfirmPending) {
+        onConfirmPending(reviewId, {
+          chinese: item.chinese.trim(),
+          pinyin: item.pinyin.trim() || item.vietnamese.trim(),
+          vietnamese: item.vietnamese.trim(),
+          type: item.type,
+          note: item.note.trim()
+        });
+      }
+    } else {
+      // Normal MD import review item
+      onAddGlossaryItem({
+        chinese: item.chinese.trim(),
+        pinyin: item.pinyin.trim() || item.vietnamese.trim(),
+        vietnamese: item.vietnamese.trim(),
+        type: item.type,
+        note: item.note.trim(),
+        origin: 'guideline',
+        createdAt: item.createdAt || new Date().toISOString()
+      });
+    }
     setReviewQueue(prev => prev.filter(r => r.id !== reviewId));
-  }, [reviewQueue, onAddGlossaryItem]);
+  }, [reviewQueue, onAddGlossaryItem, pendingGlossary, onConfirmPending]);
 
   const handleDiscardReviewItem = useCallback((reviewId: string) => {
+    const isFromPending = pendingGlossary.some(p => p.id === reviewId);
+    if (isFromPending) {
+      if (onDiscardPending) {
+        onDiscardPending(reviewId);
+      }
+    }
     setReviewQueue(prev => prev.filter(r => r.id !== reviewId));
-  }, []);
+  }, [pendingGlossary, onDiscardPending]);
 
   const handleUpdateReviewItem = useCallback((reviewId: string, updatedFields: Partial<GlossaryItem>) => {
     setReviewQueue(prev => prev.map(r => {
@@ -896,14 +945,14 @@ function GlossaryManager({
         </div>
       </div>
 
-      {pendingGlossary.length > 0 && onConfirmPending && onDiscardPending && (
+      {pendingGlossary.filter(p => !p.needsReview).length > 0 && onConfirmPending && onDiscardPending && (
         <div className="bg-white border border-amber-250 rounded-xl overflow-hidden shadow-sm">
           <div className="bg-amber-50 border-b border-amber-100 px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangleIcon className="w-4 h-4 text-amber-500" />
               <h3 className="text-sm font-bold text-amber-900">Hàng Chờ Kiểm Duyệt Trùng Lặp</h3>
               <span className="bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                {pendingGlossary.length} mục
+                {pendingGlossary.filter(p => !p.needsReview).length} mục
               </span>
             </div>
             <p className="text-[11px] text-amber-600 hidden sm:block">
@@ -911,7 +960,7 @@ function GlossaryManager({
             </p>
           </div>
           <div className="p-4 space-y-2 max-h-72 overflow-y-auto">
-            {pendingGlossary.map((pending) => (
+            {pendingGlossary.filter(p => !p.needsReview).map((pending) => (
               <div key={pending.id}
                    className="bg-amber-50/50 border border-amber-100 rounded-lg p-3 flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">

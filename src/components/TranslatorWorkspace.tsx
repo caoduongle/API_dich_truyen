@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
-import { StoryProject, GlossaryItem, GlossaryType, Chapter } from '../types';
+import { StoryProject, GlossaryItem, GlossaryType, Chapter, PendingGlossaryItem } from '../types';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { Edit3, AlertCircle } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
@@ -312,22 +312,39 @@ export default function TranslatorWorkspace({
 
   const handleImportSuggestions = useCallback(() => {
     const itemsToAdd: GlossaryItem[] = [];
+    const pendingToAdd: PendingGlossaryItem[] = [];
     suggestions.forEach((s, idx) => {
       if (selectedSuggestions[idx]) {
         const isDuplicate = activeProject.glossary.some(
           (item) => isHanEquivalent(item.chinese, s.chinese)
         );
         if (!isDuplicate) {
-          itemsToAdd.push({
+          const itemPayload = {
             ...s,
             id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
             createdAt: new Date().toISOString()
-          });
+          };
+          if (s.needsReview) {
+            pendingToAdd.push({
+              id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+              chinese: s.chinese.trim(),
+              pinyin: s.pinyin?.trim() || '',
+              vietnamese: s.vietnamese.trim(),
+              type: s.type || 'other',
+              note: s.note?.trim() || '',
+              reason: 'AI trích xuất nghi ngờ hallucinate',
+              originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc.',
+              importedAt: new Date().toISOString(),
+              needsReview: true
+            });
+          } else {
+            itemsToAdd.push(itemPayload);
+          }
         }
       }
     });
 
-    if (itemsToAdd.length === 0) {
+    if (itemsToAdd.length === 0 && pendingToAdd.length === 0) {
       showToast({ message: "Không có từ khóa mới hoặc chưa chọn từ khóa nào để lưu.", type: 'warning' });
       return;
     }
@@ -335,11 +352,17 @@ export default function TranslatorWorkspace({
     const updated = {
       ...activeProject,
       glossary: [...activeProject.glossary, ...itemsToAdd],
+      pendingGlossary: [...(activeProject.pendingGlossary || []), ...pendingToAdd]
     };
     onUpdateProject(updated);
     setSuggestions([]);
     setSelectedSuggestions({});
-    showToast({ message: `Đã thêm thành công ${itemsToAdd.length} nhân vật/thuật ngữ vào Từ điển của dự án!`, type: 'success' });
+
+    let msg = `Đã thêm thành công ${itemsToAdd.length} thuật ngữ vào Từ điển.`;
+    if (pendingToAdd.length > 0) {
+      msg += ` Có ${pendingToAdd.length} từ nghi ngờ AI nhận diện sai đã được chuyển vào hàng chờ kiểm duyệt.`;
+    }
+    showToast({ message: msg, type: 'success' });
   }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast]);
 
   const handleTranslateRaw = async () => {
@@ -377,12 +400,13 @@ export default function TranslatorWorkspace({
 
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
+        const pendingDiscovered: PendingGlossaryItem[] = [];
         data.discoveredEntities.forEach((ent: any) => {
           const exists = activeProject.glossary.some(
             (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
           );
           if (!exists) {
-            newlyDiscovered.push({
+            const itemPayload: GlossaryItem = {
               id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
               chinese: ent.chinese.trim(),
               pinyin: ent.pinyin.trim(),
@@ -394,18 +418,40 @@ export default function TranslatorWorkspace({
                   p.includes(ent.chinese.trim()) || p.replace(/\s+/g, '').includes(ent.chinese.replace(/\s+/g, '').trim())
               )?.trim() || "",
               origin: 'scanned',
-              createdAt: new Date().toISOString()
-            });
+              createdAt: new Date().toISOString(),
+              needsReview: ent.needsReview
+            };
+
+            if (ent.needsReview) {
+              pendingDiscovered.push({
+                id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                chinese: ent.chinese.trim(),
+                pinyin: ent.pinyin.trim(),
+                vietnamese: ent.vietnamese.trim(),
+                type: ent.type,
+                note: ent.note.trim(),
+                reason: 'AI trích xuất nghi ngờ hallucinate',
+                originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
+                importedAt: new Date().toISOString(),
+                needsReview: true
+              });
+            } else {
+              newlyDiscovered.push(itemPayload);
+            }
           }
         });
 
-        if (newlyDiscovered.length > 0) {
+        if (newlyDiscovered.length > 0 || pendingDiscovered.length > 0) {
           const updatedGlossary = [...activeProject.glossary, ...newlyDiscovered];
+          const updatedPending = [...(activeProject.pendingGlossary || []), ...pendingDiscovered];
           onUpdateProject({
             ...activeProject,
             glossary: updatedGlossary,
+            pendingGlossary: updatedPending,
           });
-          setAutoDiscoveredTerms(newlyDiscovered);
+          if (newlyDiscovered.length > 0) {
+            setAutoDiscoveredTerms(newlyDiscovered);
+          }
         }
       }
     } catch (err: any) {

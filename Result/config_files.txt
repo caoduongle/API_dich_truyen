@@ -24,6 +24,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "opencc-js": "^1.3.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^6.2.3"
@@ -152,4 +153,16 @@ coverage/
 *.log
 .env*
 !.env.example
+
+
+================================================================================
+/// FILE: metadata.json ///
+================================================================================
+
+{
+  "name": "AI Dịch Truyện Trung-Việt (Full)",
+  "description": "Hệ thống AI toàn diện dịch truyện chữ Trung → Việt: dịch 2 giai đoạn (thô + biên tập), xoay vòng đa API key, từ điển thuật ngữ song ngữ với hàng chờ kiểm duyệt trùng lặp, tìm vị trí xuất hiện, import Markdown, dịch song song, export JSONL fine-tuning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
 

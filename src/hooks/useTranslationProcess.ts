@@ -252,7 +252,7 @@ export function useTranslationProcess({
                   p.includes(rawChinese) || p.replace(/\s+/g, '').includes(cleanChinese)
               )?.trim() || "";
 
-              if (!matchedByCn && !matchedByVi) {
+              if (!matchedByCn && !matchedByVi && !ent.needsReview) {
                 const itemPayload: GlossaryItem = {
                   id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
                   chinese: cleanChinese,
@@ -271,7 +271,10 @@ export function useTranslationProcess({
                 let reason: PendingGlossaryItem['reason'] = 'Duplicate Chinese';
                 let originalValue = '';
 
-                if (matchedByCn && matchedByVi) {
+                if (ent.needsReview) {
+                  reason = 'AI trích xuất nghi ngờ hallucinate';
+                  originalValue = 'Không tìm thấy cụm từ này trong văn bản gốc của chương.';
+                } else if (matchedByCn && matchedByVi) {
                   reason = 'Duplicate Both';
                   originalValue = `Trùng cả cụm: Gốc "${matchedByCn.chinese}" -> Nghĩa "${matchedByCn.vietnamese}"`;
                 } else if (matchedByCn) {
@@ -291,7 +294,8 @@ export function useTranslationProcess({
                   note: cleanNote,
                   reason,
                   originalValue,
-                  importedAt: new Date().toISOString()
+                  importedAt: new Date().toISOString(),
+                  needsReview: !!ent.needsReview
                 });
               }
             });
