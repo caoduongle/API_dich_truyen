@@ -183,15 +183,19 @@ export function useProjects() {
         setActiveProjectId(id);
     }, []);
 
-    const handleAddGlossaryItem = useCallback(async (newItem: Omit<GlossaryItem, 'id'>) => {
+    const handleAddGlossaryItem = useCallback(async (newItem: Omit<GlossaryItem, 'id'>, force = false) => {
         const activeProj = projects.find(p => p.id === activeProjectId);
         if (!activeProj) return;
 
         const cleanVietnamese = (newItem.vietnamese || '').trim().toLowerCase();
         const alreadyExists = activeProj.glossary.some(
-            (g) =>
-                isHanEquivalent(g.chinese, newItem.chinese) ||
-                (cleanVietnamese && g.vietnamese.trim().toLowerCase() === cleanVietnamese)
+            (g) => {
+                if (force) {
+                    return g.chinese.trim() === newItem.chinese.trim();
+                }
+                return isHanEquivalent(g.chinese, newItem.chinese) ||
+                       (cleanVietnamese && g.vietnamese.trim().toLowerCase() === cleanVietnamese);
+            }
         );
         if (alreadyExists) return;
 

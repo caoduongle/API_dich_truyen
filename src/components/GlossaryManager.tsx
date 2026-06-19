@@ -25,7 +25,7 @@ interface GlossaryManagerProps {
   chapters?: ChapterMetadata[];
   apiKeys?: string[];
   selectedModel?: string;
-  onAddGlossaryItem: (item: Omit<GlossaryItem, 'id'>) => void;
+  onAddGlossaryItem: (item: Omit<GlossaryItem, 'id'>, force?: boolean) => void;
   onAddGlossaryItems?: (items: Omit<GlossaryItem, 'id'>[]) => void;
   onUpdateGlossaryItem: (id: string, item: GlossaryItem) => void;
   onDeleteGlossaryItem: (id: string) => void;
@@ -408,7 +408,7 @@ function GlossaryManager({
     }
   }, [selectedItem, fullChapters, glossary]);
 
-  const handleAddFormSave = useCallback((fields: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }) => {
+  const handleAddFormSave = useCallback((fields: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }, force?: boolean) => {
     onAddGlossaryItem({
       chinese:    fields.chinese.trim(),
       pinyin:     fields.pinyin.trim() || fields.vietnamese.trim(),
@@ -417,7 +417,7 @@ function GlossaryManager({
       note:       fields.note.trim(),
       origin:     'manual',
       createdAt:  new Date().toISOString()
-    });
+    }, force);
     setIsAdding(false);
   }, [onAddGlossaryItem]);
 
@@ -738,8 +738,13 @@ function GlossaryManager({
 
       {isAdding && (
         <AddGlossaryForm
+          glossary={glossary}
           onSave={handleAddFormSave}
           onCancel={() => setIsAdding(false)}
+          onSelectExistingItem={(item) => {
+            handleSelectItem(item);
+            setIsAdding(false);
+          }}
         />
       )}
 
