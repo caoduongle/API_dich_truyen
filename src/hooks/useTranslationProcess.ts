@@ -58,6 +58,8 @@ export function useTranslationProcess({
   const projectRef = useRef<StoryProject>(activeProject);
   const isPauseRequestedRef = useRef<boolean>(false);
   const bufferedProjectRef = useRef<StoryProject | null>(null);
+  const currentAbortControllerRef = useRef<AbortController | null>(null);
+  const activeAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   const paramsRef = useRef({
     apiKeys,
@@ -192,6 +194,10 @@ export function useTranslationProcess({
       addLog(`--------------------------------------------------`, 'info');
       addLog(`Xử lý [${i + 1}/${queue.length}]: ${chapter.title} | Key xoay vòng: #${currentApiKeyIndexRef.current + 1}`, 'info');
 
+      const controller = new AbortController();
+      currentAbortControllerRef.current = controller;
+      activeAbortControllersRef.current.set(chapterMeta.id, controller);
+
       try {
         const currentProjState = bufferedProjectRef.current;
         let firstDraft = "";
@@ -218,6 +224,7 @@ export function useTranslationProcess({
               model: paramsRef.current.selectedModel,
               startKeyIndex: currentApiKeyIndexRef.current
             }),
+            signal: controller.signal
           });
 
           if (!rawRes.ok) {
@@ -335,6 +342,7 @@ export function useTranslationProcess({
               startKeyIndex: currentApiKeyIndexRef.current,
               isExtractionEnabled: paramsRef.current.isExtractionDuringTranslationEnabled
             }),
+            signal: controller.signal
           });
 
           if (!polishRes.ok) {
@@ -407,6 +415,11 @@ export function useTranslationProcess({
         console.error(err);
         const errMsg: string = err.message || String(err);
 
+        if (err.name === 'AbortError' || (err instanceof DOMException && err.name === 'AbortError')) {
+          addLog("Đã hủy yêu cầu đang xử lý theo lệnh dừng của người dùng", "warn");
+          break;
+        }
+
         if (errMsg.startsWith("ALL_KEYS_EXHAUSTED")) {
           addLog("⚠️ TẤT CẢ API KEY ĐÃ CẠN KIỆT HẠN MỨC QUOTA!", 'error');
           if (bufferedProjectRef.current) {
@@ -450,6 +463,11 @@ export function useTranslationProcess({
             bufferedProjectRef.current = null;
           }
           break;
+        }
+      } finally {
+        activeAbortControllersRef.current.delete(chapterMeta.id);
+        if (currentAbortControllerRef.current === controller) {
+          currentAbortControllerRef.current = null;
         }
       }
     }
@@ -503,7 +521,17 @@ export function useTranslationProcess({
       setAutoDiscoveredBatch([]);
       setLogs([]);
       setProcessStartTime(Date.now());
-      bufferedProjectRef.current = { ...projectRef.current };
+      bufferedProjectRef.current = {
+        ...projectRef.current,
+        translationQueueState: {
+          queueIds: prepared.map(c => c.id),
+          currentIndex: 0,
+          mode: paramsRef.current.autoTranslateMode,
+          skipFailedChapters: paramsRef.current.skipFailedChapters,
+          failedIds: []
+        }
+      };
+      onUpdateProject({ ...bufferedProjectRef.current });
     } else {
       if (startIdx < 0) startIdx = 0;
       if (!processStartTime) setProcessStartTime(Date.now());
@@ -518,6 +546,12 @@ export function useTranslationProcess({
     isPauseRequestedRef.current = true;
     setIsProcessing(false);
     addLog("ĐÃ YÊU CẦU: Dừng tiến trình dịch tự động ngay lập tức!", "warn");
+
+    // Abort ongoing translation requests immediately
+    currentAbortControllerRef.current?.abort();
+    activeAbortControllersRef.current.forEach((ctrl) => ctrl.abort());
+    activeAbortControllersRef.current.clear();
+
     addLog("Hệ thống lưu trữ khẩn cấp dữ liệu từ bộ đệm vào IndexedDB...", 'info');
     if (bufferedProjectRef.current) {
       onUpdateProject({ ...bufferedProjectRef.current });
