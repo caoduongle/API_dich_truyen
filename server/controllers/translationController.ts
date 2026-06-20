@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation, sleep } from "../services/geminiService.ts";
+import { generateWithRotation, sleep, isOverloadError } from "../services/geminiService.ts";
 import { safeParseJson, findSplitPoint, getGenreStyleGuide } from "../utils/text.ts";
 import { checkLeftoverGlossary } from "./glossaryController.ts";
 import { isHanEquivalent, validateAndSnapBackEntities, findCanonicalSubstring } from "../utils/sinoNormalize.ts";
@@ -522,7 +522,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
     });
   } catch (error: any) {
     console.error("Lỗi dịch thô:", error);
-    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi thực hiện dịch thô." });
+    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi thực hiện dịch thô.", ...(isOverloadError(error) ? { errorType: 'overload' } : {}) });
   }
 }
 
@@ -589,6 +589,6 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
     });
   } catch (error: any) {
     console.error("Lỗi tối ưu văn phong:", error);
-    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi tối ưu biên tập." });
+    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi tối ưu biên tập.", ...(isOverloadError(error) ? { errorType: 'overload' } : {}) });
   }
 }

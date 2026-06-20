@@ -14,7 +14,7 @@ const MAX_OVERLOAD_RETRIES = 2;
 const OVERLOAD_BASE_DELAY_MS = 3000;
 let overloadCooldownUntil = 0;
 
-const isOverloadError = (err: any): boolean => {
+export const isOverloadError = (err: any): boolean => {
   const errStr = (err.message || String(err)).toLowerCase();
   return (
     errStr.includes('503') ||

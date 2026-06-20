@@ -6,22 +6,30 @@ export interface QueueStatusPanelProps {
   chaptersQueue: ChapterMetadata[];
   processedCount: number;
   currentChapterIndex: number;
+  concurrency?: number;
 }
 
 export const QueueStatusPanel = React.memo(function QueueStatusPanel({
   chaptersQueue,
   processedCount,
   currentChapterIndex,
+  concurrency = 1,
 }: QueueStatusPanelProps) {
   if (chaptersQueue.length === 0) return null;
 
   const progressPercent = Math.round((processedCount / chaptersQueue.length) * 100);
+  const effectiveBatchEnd = Math.min(currentChapterIndex + concurrency, chaptersQueue.length);
 
   return (
     <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-xs space-y-3">
       <div className="flex justify-between items-center">
         <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
           <ListOrdered className="w-4 h-4 text-indigo-500" /> Trạng thái vận chuyển hàng đợi ({processedCount}/{chaptersQueue.length})
+          {concurrency > 1 && currentChapterIndex >= 0 && currentChapterIndex < chaptersQueue.length && (
+            <span className="text-[10px] font-normal text-indigo-600 ml-1">
+              | Lô: chương {currentChapterIndex + 1}–{effectiveBatchEnd} ({concurrency} luồng)
+            </span>
+          )}
         </span>
         <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded font-extrabold text-slate-700">{progressPercent}% Hoàn thành</span>
       </div>
@@ -31,7 +39,9 @@ export const QueueStatusPanel = React.memo(function QueueStatusPanel({
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-24 overflow-y-auto pt-1 text-[10px]">
         {chaptersQueue.map((chap, idx) => {
-          const isCurrent = idx === currentChapterIndex;
+          const isCurrent = concurrency > 1
+            ? (idx >= currentChapterIndex && idx < effectiveBatchEnd)
+            : idx === currentChapterIndex;
           const isDone = idx < currentChapterIndex;
           return (
             <div key={chap.id} className={`p-1.5 rounded border flex items-center justify-between ${isCurrent ? 'border-indigo-600 bg-indigo-50 text-indigo-950 font-bold animate-pulse' : isDone ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-slate-100 bg-slate-50/50 text-slate-400'}`}>

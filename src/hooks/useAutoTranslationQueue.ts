@@ -36,6 +36,9 @@ export interface UseAutoTranslationQueueProps {
   
   // Retry options
   skipFailedChapters: boolean;
+
+  // Concurrency
+  concurrency: number;
 }
 
 export interface LogEntry {

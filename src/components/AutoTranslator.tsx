@@ -44,6 +44,7 @@ export default function AutoTranslator({
   const [additionalInstructions, setAdditionalInstructions] = useState<string>('');
   const [isExtractionDuringTranslationEnabled, setIsExtractionDuringTranslationEnabled] = useState<boolean>(true);
   const [skipFailedChapters, setSkipFailedChapters] = useState<boolean>(true);
+  const [concurrency, setConcurrency] = useState<number>(1);
 
   // Sync skipFailedChapters setting from translationQueueState if available
   useEffect(() => {
@@ -148,6 +149,7 @@ export default function AutoTranslator({
     exportScope,
     exportMode,
     skipFailedChapters,
+    concurrency,
   });
 
   const handleExportModeChange = (mode: 'web' | 'audio' | 'align_jsonl') => {
@@ -242,6 +244,8 @@ export default function AutoTranslator({
             triggerExportDownload={triggerExportDownload}
             skipFailedChapters={skipFailedChapters}
             setSkipFailedChapters={setSkipFailedChapters}
+            concurrency={concurrency}
+            setConcurrency={setConcurrency}
           />
 
           {/* Failed chapters section */}
@@ -375,11 +379,16 @@ export default function AutoTranslator({
         remainingRequests={remainingRequests}
         polishCycles={polishCycles}
         remainingChapters={remainingChapters}
-        currentChapterTitle={chaptersQueue[currentChapterIndex]?.title}
+        currentChapterTitle={
+          concurrency > 1 && currentChapterIndex >= 0
+            ? `Lô: Chương ${currentChapterIndex + 1}–${Math.min(currentChapterIndex + concurrency, chaptersQueue.length)}`
+            : chaptersQueue[currentChapterIndex]?.title
+        }
         selectedModel={selectedModel}
         onStop={handleStopTranslation}
         onResume={handleToggleProcessing}
         onSaveBackup={triggerExportDownload}
+        concurrency={concurrency}
       />
 
       {/* Khối Floating Glossary Scan Progress Widget */}

@@ -29,6 +29,10 @@ export interface TranslationConfigPanelProps {
   // New props for smart retry
   skipFailedChapters: boolean;
   setSkipFailedChapters: (b: boolean) => void;
+
+  // Concurrency
+  concurrency: number;
+  setConcurrency: (n: number) => void;
 }
 
 export const TranslationConfigPanel = React.memo(function TranslationConfigPanel({
@@ -55,6 +59,8 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
   triggerExportDownload,
   skipFailedChapters,
   setSkipFailedChapters,
+  concurrency,
+  setConcurrency,
 }: TranslationConfigPanelProps) {
   const safeStart = Math.max(1, Math.min(rangeStart, totalChapters));
   const safeEnd = Math.max(safeStart, Math.min(rangeEnd, totalChapters));
@@ -158,6 +164,33 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
             {n}
           </button>
         ))}
+      </div>
+
+      <div className="space-y-1.5 pt-2 border-t border-slate-100">
+        <div className="flex justify-between items-center text-xs">
+          <div className="flex flex-col">
+            <span className="font-bold text-slate-700 flex items-center gap-1">⚡ Song song đồng thời:</span>
+            <span className="text-[10px] text-slate-400 font-normal mt-0.5">Số chương dịch cùng lúc (1 = tuần tự)</span>
+          </div>
+          <span className="bg-indigo-600 text-white rounded-full px-2.5 py-0.5 text-[10px] font-extrabold">{concurrency} luồng</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {[1, 2, 3, 4, 5].map(n => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setConcurrency(n)}
+              className={`flex-1 py-1.5 rounded-md text-xs font-bold border cursor-pointer transition-colors ${concurrency === n ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-250 bg-slate-50 text-slate-700 font-semibold'}`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+        {concurrency > 1 && (
+          <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded px-2 py-1.5 leading-relaxed">
+            ⚠️ Dịch song song giúp nhanh hơn nhưng có thể giảm nhất quán glossary giữa các chương xử lý cùng lúc, khuyến nghị giữ ở mức thấp (2-3) nếu dùng nhiều API key xoay vòng.
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5 pt-2">
