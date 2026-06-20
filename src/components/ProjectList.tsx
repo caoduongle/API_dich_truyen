@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { StoryProject, GlossaryItem, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
@@ -31,6 +31,22 @@ export default function ProjectList({
   selectedModel,
 }: ProjectListProps) {
   const { showToast, showConfirm } = useNotifications();
+
+  // Memoize project completion progress calculations to avoid recalculating on every render
+  const projectProgressMap = useMemo(() => {
+    const map = new Map<string, { total: number; done: number; pct: number }>();
+    projects.forEach((proj) => {
+      const total = proj.chapters.length;
+      if (total === 0) {
+        map.set(proj.id, { total: 0, done: 0, pct: 0 });
+      } else {
+        const done = proj.chapters.filter((c) => c.status === 'completed').length;
+        map.set(proj.id, { total, done, pct: Math.round((done / total) * 100) });
+      }
+    });
+    return map;
+  }, [projects]);
+
   const [isCreating, setIsCreating] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -213,15 +229,6 @@ export default function ProjectList({
     triggerDownload(url, `${proj.title.replace(/[\s\/:*?"<>|]+/g, '_')}_${mode}.txt`);
     URL.revokeObjectURL(url);
   };
-
-  // Calculate translation completion progress for a project
-  const getProjectProgress = (proj: StoryProject) => {
-    const total = proj.chapters.length;
-    if (total === 0) return { total: 0, done: 0, pct: 0 };
-    const done = proj.chapters.filter(c => c.status === 'completed').length;
-    return { total, done, pct: Math.round((done / total) * 100) };
-  };
-
 
   // --- 4. IMPORT PROJECT FROM DISK (.json) ---
   const handleImportProjectJson = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -832,7 +839,7 @@ export default function ProjectList({
 
                   {/* Progress bar */}
                   {(() => {
-                    const prog = getProjectProgress(proj);
+                    const prog = projectProgressMap.get(proj.id) || { total: 0, done: 0, pct: 0 };
                     return prog.total > 0 ? (
                       <div className="pt-2 space-y-1">
                         <div className="flex justify-between text-[10px]">
