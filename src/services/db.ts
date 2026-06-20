@@ -13,15 +13,16 @@ export const initDB = (): Promise<IDBDatabase> => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
-            dbInstance = request.result;
-            dbInstance.onclose = () => {
+            const db = request.result;
+            dbInstance = db;
+            db.onclose = () => {
                 dbInstance = null;
             };
-            dbInstance.onversionchange = () => {
-                dbInstance.close();
+            db.onversionchange = () => {
+                db.close();
                 dbInstance = null;
             };
-            resolve(dbInstance);
+            resolve(db);
         };
         request.onupgradeneeded = () => {
             const db = request.result;

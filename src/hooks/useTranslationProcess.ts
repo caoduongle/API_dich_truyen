@@ -591,8 +591,8 @@ export function useTranslationProcess({
       currentApiKeyIndexRef.current = lastSuccessKeyIndex;
 
       // ── Cập nhật failedIds & queue state MỘT LẦN cho cả lô ──
-      const existingFailedIds = bufferedProjectRef.current?.translationQueueState?.failedIds || [];
-      const allFailedIds = [...existingFailedIds, ...batchFailedIds];
+      const existingFailedIds: string[] = bufferedProjectRef.current?.translationQueueState?.failedIds || [];
+      const allFailedIds: string[] = [...existingFailedIds, ...batchFailedIds];
       const nextIndex = i + batchSize;
       const isQueueFinished = nextIndex >= queue.length;
 
