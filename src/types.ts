@@ -15,6 +15,7 @@ export interface GlossaryItem {
     createdAt?: string;   // ISO timestamp
     sourceChapter?: string;
     sourceParagraph?: string;
+    sourceChapterId?: string;
     origin?: 'guideline' | 'scanned' | 'manual';
     variants?: string[];  // Traditional/Simplified variants under canonicalization
     needsReview?: boolean;
@@ -35,6 +36,7 @@ export interface PendingGlossaryItem {
     originalValue?: string; // value of the duplicate already in the main glossary
     importedAt: string;
     needsReview?: boolean;
+    sourceChapterId?: string;
 }
 
 export type ChapterStatus = 'not_started' | 'in_progress' | 'completed';

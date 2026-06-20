@@ -105,3 +105,93 @@ export function validateAndSnapBackEntities(entities: any[], rawText: string): a
   });
 }
 
+export interface FuzzyCandidate {
+  text: string;
+  similarity: number;
+  index: number;
+}
+
+/**
+ * Finds substring candidates in haystack that are fuzzy-similar to needle.
+ * Uses bigram (Dice coefficient) similarity on normalized characters.
+ */
+export function findFuzzyCandidates(haystack: string, needle: string, topN = 3): FuzzyCandidate[] {
+  if (!haystack || !needle) return [];
+  const needleTrim = needle.trim();
+  if (!needleTrim) return [];
+
+  const safeHaystack = haystack.length > 50000 ? haystack.substring(0, 50000) : haystack;
+  const haystackChars = Array.from(safeHaystack);
+  const needleNorm = canonicalizeHan(needleTrim);
+  const needleChars = Array.from(needleNorm);
+  const needleLen = needleChars.length;
+
+  const candidates: FuzzyCandidate[] = [];
+  const seenTexts = new Set<string>();
+
+  const minLen = Math.max(1, needleLen - 2);
+  const maxLen = needleLen + 2;
+
+  const getBigrams = (str: string): Set<string> => {
+    const bigrams = new Set<string>();
+    for (let i = 0; i < str.length - 1; i++) {
+      bigrams.add(str.substring(i, i + 2));
+    }
+    return bigrams;
+  };
+
+  const needleBigrams = getBigrams(needleNorm);
+
+  const calculateSimilarity = (wNorm: string): number => {
+    if (wNorm === needleNorm) return 1.0;
+    if (wNorm.length < 2 || needleNorm.length < 2) {
+      if (wNorm.length === 1 && needleNorm.length === 1) {
+        return wNorm === needleNorm ? 1.0 : 0.0;
+      }
+      return 0.0;
+    }
+    const wBigrams = getBigrams(wNorm);
+    let intersection = 0;
+    wBigrams.forEach((bg) => {
+      if (needleBigrams.has(bg)) {
+        intersection++;
+      }
+    });
+    return (2.0 * intersection) / (wBigrams.size + needleBigrams.size);
+  };
+
+  for (let wLen = minLen; wLen <= maxLen; wLen++) {
+    for (let i = 0; i <= haystackChars.length - wLen; i++) {
+      const windowStr = haystackChars.slice(i, i + wLen).join('');
+      if (seenTexts.has(windowStr)) continue;
+      seenTexts.add(windowStr);
+
+      const windowNorm = canonicalizeHan(windowStr);
+      const similarity = calculateSimilarity(windowNorm);
+      const pct = Math.round(similarity * 100);
+
+      if (pct >= 40) {
+        candidates.push({
+          text: windowStr,
+          similarity: pct,
+          index: i
+        });
+      }
+    }
+  }
+
+  candidates.sort((a, b) => {
+    if (b.similarity !== a.similarity) {
+      return b.similarity - a.similarity;
+    }
+    const diffA = Math.abs(Array.from(a.text).length - needleLen);
+    const diffB = Math.abs(Array.from(b.text).length - needleLen);
+    if (diffA !== diffB) {
+      return diffA - diffB;
+    }
+    return a.index - b.index;
+  });
+
+  return candidates.slice(0, topN);
+}
+

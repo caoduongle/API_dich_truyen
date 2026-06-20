@@ -222,7 +222,8 @@ export function useTranslationProcess({
               glossary: hasProcessedText ? [] : currentProjState.glossary,
               apiKeys: paramsRef.current.apiKeys,
               model: paramsRef.current.selectedModel,
-              startKeyIndex: currentApiKeyIndexRef.current
+              startKeyIndex: currentApiKeyIndexRef.current,
+              sourceChapterId: chapter.id
             }),
             signal: controller.signal
           });
@@ -269,6 +270,7 @@ export function useTranslationProcess({
                   note: cleanNote,
                   sourceChapter: chapter.title,
                   sourceParagraph: originParagraph,
+                  sourceChapterId: chapter.id,
                   origin: 'scanned',
                   createdAt: new Date().toISOString()
                 };
@@ -302,7 +304,8 @@ export function useTranslationProcess({
                   reason,
                   originalValue,
                   importedAt: new Date().toISOString(),
-                  needsReview: !!ent.needsReview
+                  needsReview: !!ent.needsReview,
+                  sourceChapterId: chapter.id
                 });
               }
             });
@@ -340,7 +343,8 @@ export function useTranslationProcess({
               apiKeys: paramsRef.current.apiKeys,
               model: paramsRef.current.selectedModel,
               startKeyIndex: currentApiKeyIndexRef.current,
-              isExtractionEnabled: paramsRef.current.isExtractionDuringTranslationEnabled
+              isExtractionEnabled: paramsRef.current.isExtractionDuringTranslationEnabled,
+              sourceChapterId: chapter.id
             }),
             signal: controller.signal
           });

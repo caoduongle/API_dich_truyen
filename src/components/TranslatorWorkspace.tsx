@@ -34,6 +34,7 @@ export default function TranslatorWorkspace({
 }: TranslatorWorkspaceProps) {
   const { showToast, showConfirm } = useNotifications();
   const [activeChapterIndex, setActiveChapterIndex] = useState<number>(0);
+  const [currentChapterId, setCurrentChapterId] = useState<string | null>(null);
   const [sourceText, setSourceText] = useState('');
   const [originalSourceText, setOriginalSourceText] = useState('');
   const [isGlossaryApplied, setIsGlossaryApplied] = useState(false);
@@ -112,6 +113,7 @@ export default function TranslatorWorkspace({
   // Load a chapter from history when loadedChapter changes
   useEffect(() => {
     if (loadedChapter) {
+      setCurrentChapterId(loadedChapter.id);
       setChapterTitle(loadedChapter.title);
       setSourceText(loadedChapter.sourceText);
       setOriginalSourceText(loadedChapter.sourceText);
@@ -282,7 +284,8 @@ export default function TranslatorWorkspace({
         body: JSON.stringify({
           text: sourceText,
           apiKeys,
-          model: selectedModel
+          model: selectedModel,
+          sourceChapterId: currentChapterId || undefined
         }),
       });
 
@@ -322,7 +325,8 @@ export default function TranslatorWorkspace({
           const itemPayload = {
             ...s,
             id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            sourceChapterId: currentChapterId || undefined
           };
           if (s.needsReview) {
             pendingToAdd.push({
@@ -335,7 +339,8 @@ export default function TranslatorWorkspace({
               reason: 'AI trích xuất nghi ngờ hallucinate',
               originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc.',
               importedAt: new Date().toISOString(),
-              needsReview: true
+              needsReview: true,
+              sourceChapterId: currentChapterId || undefined
             });
           } else {
             itemsToAdd.push(itemPayload);
@@ -363,7 +368,7 @@ export default function TranslatorWorkspace({
       msg += ` Có ${pendingToAdd.length} từ nghi ngờ AI nhận diện sai đã được chuyển vào hàng chờ kiểm duyệt.`;
     }
     showToast({ message: msg, type: 'success' });
-  }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast]);
+  }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast, currentChapterId]);
 
   const handleTranslateRaw = async () => {
     if (!sourceText.trim()) {
@@ -386,7 +391,8 @@ export default function TranslatorWorkspace({
           description: activeProject.description,
           glossary: isGlossaryApplied ? [] : activeProject.glossary,
           apiKeys,
-          model: selectedModel
+          model: selectedModel,
+          sourceChapterId: currentChapterId || undefined
         }),
       });
 
@@ -417,6 +423,7 @@ export default function TranslatorWorkspace({
               sourceParagraph: sourceText.split('\n').find(p =>
                   p.includes(ent.chinese.trim()) || p.replace(/\s+/g, '').includes(ent.chinese.replace(/\s+/g, '').trim())
               )?.trim() || "",
+              sourceChapterId: currentChapterId || undefined,
               origin: 'scanned',
               createdAt: new Date().toISOString(),
               needsReview: ent.needsReview
@@ -433,7 +440,8 @@ export default function TranslatorWorkspace({
                 reason: 'AI trích xuất nghi ngờ hallucinate',
                 originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
                 importedAt: new Date().toISOString(),
-                needsReview: true
+                needsReview: true,
+                sourceChapterId: currentChapterId || undefined
               });
             } else {
               newlyDiscovered.push(itemPayload);
@@ -485,7 +493,8 @@ export default function TranslatorWorkspace({
           additionalInstructions: additionalInstructions,
           apiKeys,
           model: selectedModel,
-          isExtractionEnabled
+          isExtractionEnabled,
+          sourceChapterId: currentChapterId || undefined
         }),
       });
 
@@ -513,6 +522,7 @@ export default function TranslatorWorkspace({
               vietnamese: ent.vietnamese.trim(),
               type: ent.type,
               note: ent.note.trim(),
+              sourceChapterId: currentChapterId || undefined,
               origin: 'scanned',
               createdAt: new Date().toISOString()
             };
@@ -652,6 +662,7 @@ export default function TranslatorWorkspace({
     if (selectedChapMeta) {
       const selectedChap = await getChapterFromDB(id);
       if (selectedChap) {
+        setCurrentChapterId(id);
         setChapterTitle(selectedChap.title);
         setSourceText(selectedChap.sourceText);
         setOriginalSourceText(selectedChap.sourceText);

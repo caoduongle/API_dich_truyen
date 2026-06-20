@@ -235,7 +235,7 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
 // 1. API: Phân tích trích xuất gợi ý thuật ngữ từ văn bản thô
 export async function analyzeGlossary(req: Request, res: Response): Promise<void> {
   try {
-    const { text, apiKeys, model, startKeyIndex = 0 } = req.body;
+    const { text, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "Văn bản tiếng Trung không hợp lệ." });
       return;
@@ -300,6 +300,13 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
     const parsedResult = safeParseJson(resultText);
     if (parsedResult && Array.isArray(parsedResult.suggestions)) {
       parsedResult.suggestions = validateAndSnapBackEntities(parsedResult.suggestions, text);
+      const resolvedChapterId = sourceChapterId || chapterId;
+      if (resolvedChapterId) {
+        parsedResult.suggestions = parsedResult.suggestions.map((s: any) => ({
+          ...s,
+          sourceChapterId: resolvedChapterId
+        }));
+      }
     }
     res.json({ ...parsedResult, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
@@ -381,7 +388,7 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
 // API: Trích xuất nhanh thuật ngữ (Tương thích với AutoTranslator)
 export async function extractGlossary(req: Request, res: Response): Promise<void> {
   try {
-    const { text, apiKeys, model, startKeyIndex = 0 } = req.body;
+    const { text, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "Văn bản không hợp lệ." });
       return;
@@ -436,7 +443,14 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
     }
 
     const parsedGlossary = Array.isArray(parsed) ? parsed : (parsed?.suggestions || []);
-    const validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text);
+    let validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text);
+    const resolvedChapterId = sourceChapterId || chapterId;
+    if (resolvedChapterId) {
+      validatedGlossary = validatedGlossary.map((s: any) => ({
+        ...s,
+        sourceChapterId: resolvedChapterId
+      }));
+    }
     res.json({ glossary: validatedGlossary, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
     console.error("Lỗi extract-glossary:", error);
@@ -943,7 +957,7 @@ async function polishWithContentSplit(
 // 2. API: Thực hiện dịch thô Giai đoạn 1 bảo lưu đồng bộ danh xưng
 export async function translateRaw(req: Request, res: Response): Promise<void> {
   try {
-    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0 } = req.body;
+    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
       return;
@@ -961,9 +975,14 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
         description
     );
 
+    const resolvedChapterId = sourceChapterId || chapterId;
+    const finalEntities = resolvedChapterId
+      ? (Array.isArray(discoveredEntities) ? discoveredEntities : []).map(ent => ({ ...ent, sourceChapterId: resolvedChapterId }))
+      : (Array.isArray(discoveredEntities) ? discoveredEntities : []);
+
     res.json({
       rawTranslation: rawTranslation || "",
-      discoveredEntities: Array.isArray(discoveredEntities) ? discoveredEntities : [],
+      discoveredEntities: finalEntities,
       successKeyIndex
     });
   } catch (error: any) {
@@ -975,7 +994,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
 // 3. API: Thực hiện biên tập văn phong mượt mà Giai đoạn 2
 export async function polishTranslation(req: Request, res: Response): Promise<void> {
   try {
-    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled } = req.body;
+    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId } = req.body;
     if (!rawTranslation || typeof rawTranslation !== "string") {
       res.status(400).json({ error: "Bản dịch thô không hợp lệ." });
       return;
@@ -989,7 +1008,10 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
       const checkResults = await checkLeftoverGlossary(sourceText, glossary || [], apiKeys, model, startKeyIndex);
       keyIndexAfterCheck = checkResults.successKeyIndex;
       if (Array.isArray(checkResults.items) && checkResults.items.length > 0) {
-        newlyDiscoveredDuringPolish = checkResults.items;
+        const resolvedChapterId = sourceChapterId || chapterId;
+        newlyDiscoveredDuringPolish = resolvedChapterId
+          ? checkResults.items.map((item: any) => ({ ...item, sourceChapterId: resolvedChapterId }))
+          : checkResults.items;
         console.log(`[Polish API] Phát hiện thêm ${newlyDiscoveredDuringPolish.length} thuật ngữ bị bỏ sót during rà soát!`);
       }
     }
@@ -1415,6 +1437,96 @@ export function validateAndSnapBackEntities(entities: any[], rawText: string): a
 
     return item;
   });
+}
+
+export interface FuzzyCandidate {
+  text: string;
+  similarity: number;
+  index: number;
+}
+
+/**
+ * Finds substring candidates in haystack that are fuzzy-similar to needle.
+ * Uses bigram (Dice coefficient) similarity on normalized characters.
+ */
+export function findFuzzyCandidates(haystack: string, needle: string, topN = 3): FuzzyCandidate[] {
+  if (!haystack || !needle) return [];
+  const needleTrim = needle.trim();
+  if (!needleTrim) return [];
+
+  const safeHaystack = haystack.length > 50000 ? haystack.substring(0, 50000) : haystack;
+  const haystackChars = Array.from(safeHaystack);
+  const needleNorm = canonicalizeHan(needleTrim);
+  const needleChars = Array.from(needleNorm);
+  const needleLen = needleChars.length;
+
+  const candidates: FuzzyCandidate[] = [];
+  const seenTexts = new Set<string>();
+
+  const minLen = Math.max(1, needleLen - 2);
+  const maxLen = needleLen + 2;
+
+  const getBigrams = (str: string): Set<string> => {
+    const bigrams = new Set<string>();
+    for (let i = 0; i < str.length - 1; i++) {
+      bigrams.add(str.substring(i, i + 2));
+    }
+    return bigrams;
+  };
+
+  const needleBigrams = getBigrams(needleNorm);
+
+  const calculateSimilarity = (wNorm: string): number => {
+    if (wNorm === needleNorm) return 1.0;
+    if (wNorm.length < 2 || needleNorm.length < 2) {
+      if (wNorm.length === 1 && needleNorm.length === 1) {
+        return wNorm === needleNorm ? 1.0 : 0.0;
+      }
+      return 0.0;
+    }
+    const wBigrams = getBigrams(wNorm);
+    let intersection = 0;
+    wBigrams.forEach((bg) => {
+      if (needleBigrams.has(bg)) {
+        intersection++;
+      }
+    });
+    return (2.0 * intersection) / (wBigrams.size + needleBigrams.size);
+  };
+
+  for (let wLen = minLen; wLen <= maxLen; wLen++) {
+    for (let i = 0; i <= haystackChars.length - wLen; i++) {
+      const windowStr = haystackChars.slice(i, i + wLen).join('');
+      if (seenTexts.has(windowStr)) continue;
+      seenTexts.add(windowStr);
+
+      const windowNorm = canonicalizeHan(windowStr);
+      const similarity = calculateSimilarity(windowNorm);
+      const pct = Math.round(similarity * 100);
+
+      if (pct >= 40) {
+        candidates.push({
+          text: windowStr,
+          similarity: pct,
+          index: i
+        });
+      }
+    }
+  }
+
+  candidates.sort((a, b) => {
+    if (b.similarity !== a.similarity) {
+      return b.similarity - a.similarity;
+    }
+    const diffA = Math.abs(Array.from(a.text).length - needleLen);
+    const diffB = Math.abs(Array.from(b.text).length - needleLen);
+    if (diffA !== diffB) {
+      return diffA - diffB;
+    }
+    return a.index - b.index;
+  });
+
+  return candidates.slice(0, topN);
 }
 
 

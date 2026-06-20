@@ -108,7 +108,8 @@ export function useGlossaryScan({
                 text: `${chap.title}\n\n${chap.sourceText}`,
                 apiKeys,
                 model: selectedModel,
-                startKeyIndex: currentApiKeyIndexRef.current
+                startKeyIndex: currentApiKeyIndexRef.current,
+                sourceChapterId: chap.id
               }),
             });
 
@@ -141,6 +142,7 @@ export function useGlossaryScan({
                     note: (ent.note || "").trim(),
                     sourceChapter: chap.title,
                     sourceParagraph: originParagraph,
+                    sourceChapterId: chap.id,
                     origin: 'scanned',
                     createdAt: new Date().toISOString(),
                     needsReview: ent.needsReview
@@ -157,7 +159,8 @@ export function useGlossaryScan({
                       reason: 'AI trích xuất nghi ngờ hallucinate',
                       originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
                       importedAt: new Date().toISOString(),
-                      needsReview: true
+                      needsReview: true,
+                      sourceChapterId: chap.id
                     };
                     pendingDiscovered.push(pendingPayload);
                     addLog(`[Hallucinate] Phát hiện từ nghi ngờ AI nhận diện sai "${chineseTrimmed}" - Đã chuyển vào hàng chờ kiểm duyệt.`, 'warn');

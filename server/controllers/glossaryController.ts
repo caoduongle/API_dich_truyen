@@ -94,7 +94,7 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
 // 1. API: Phân tích trích xuất gợi ý thuật ngữ từ văn bản thô
 export async function analyzeGlossary(req: Request, res: Response): Promise<void> {
   try {
-    const { text, apiKeys, model, startKeyIndex = 0 } = req.body;
+    const { text, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "Văn bản tiếng Trung không hợp lệ." });
       return;
@@ -159,6 +159,13 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
     const parsedResult = safeParseJson(resultText);
     if (parsedResult && Array.isArray(parsedResult.suggestions)) {
       parsedResult.suggestions = validateAndSnapBackEntities(parsedResult.suggestions, text);
+      const resolvedChapterId = sourceChapterId || chapterId;
+      if (resolvedChapterId) {
+        parsedResult.suggestions = parsedResult.suggestions.map((s: any) => ({
+          ...s,
+          sourceChapterId: resolvedChapterId
+        }));
+      }
     }
     res.json({ ...parsedResult, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
@@ -240,7 +247,7 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
 // API: Trích xuất nhanh thuật ngữ (Tương thích với AutoTranslator)
 export async function extractGlossary(req: Request, res: Response): Promise<void> {
   try {
-    const { text, apiKeys, model, startKeyIndex = 0 } = req.body;
+    const { text, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "Văn bản không hợp lệ." });
       return;
@@ -295,7 +302,14 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
     }
 
     const parsedGlossary = Array.isArray(parsed) ? parsed : (parsed?.suggestions || []);
-    const validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text);
+    let validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text);
+    const resolvedChapterId = sourceChapterId || chapterId;
+    if (resolvedChapterId) {
+      validatedGlossary = validatedGlossary.map((s: any) => ({
+        ...s,
+        sourceChapterId: resolvedChapterId
+      }));
+    }
     res.json({ glossary: validatedGlossary, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
     console.error("Lỗi extract-glossary:", error);

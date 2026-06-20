@@ -492,7 +492,7 @@ async function polishWithContentSplit(
 // 2. API: Thực hiện dịch thô Giai đoạn 1 bảo lưu đồng bộ danh xưng
 export async function translateRaw(req: Request, res: Response): Promise<void> {
   try {
-    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0 } = req.body;
+    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
       return;
@@ -510,9 +510,14 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
         description
     );
 
+    const resolvedChapterId = sourceChapterId || chapterId;
+    const finalEntities = resolvedChapterId
+      ? (Array.isArray(discoveredEntities) ? discoveredEntities : []).map(ent => ({ ...ent, sourceChapterId: resolvedChapterId }))
+      : (Array.isArray(discoveredEntities) ? discoveredEntities : []);
+
     res.json({
       rawTranslation: rawTranslation || "",
-      discoveredEntities: Array.isArray(discoveredEntities) ? discoveredEntities : [],
+      discoveredEntities: finalEntities,
       successKeyIndex
     });
   } catch (error: any) {
@@ -524,7 +529,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
 // 3. API: Thực hiện biên tập văn phong mượt mà Giai đoạn 2
 export async function polishTranslation(req: Request, res: Response): Promise<void> {
   try {
-    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled } = req.body;
+    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId } = req.body;
     if (!rawTranslation || typeof rawTranslation !== "string") {
       res.status(400).json({ error: "Bản dịch thô không hợp lệ." });
       return;
@@ -538,7 +543,10 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
       const checkResults = await checkLeftoverGlossary(sourceText, glossary || [], apiKeys, model, startKeyIndex);
       keyIndexAfterCheck = checkResults.successKeyIndex;
       if (Array.isArray(checkResults.items) && checkResults.items.length > 0) {
-        newlyDiscoveredDuringPolish = checkResults.items;
+        const resolvedChapterId = sourceChapterId || chapterId;
+        newlyDiscoveredDuringPolish = resolvedChapterId
+          ? checkResults.items.map((item: any) => ({ ...item, sourceChapterId: resolvedChapterId }))
+          : checkResults.items;
         console.log(`[Polish API] Phát hiện thêm ${newlyDiscoveredDuringPolish.length} thuật ngữ bị bỏ sót during rà soát!`);
       }
     }
