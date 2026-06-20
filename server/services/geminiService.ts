@@ -9,6 +9,21 @@ export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve
 let nextAllowedTime = 0;
 const MIN_REQUEST_INTERVAL_MS = 4620;
 
+// --- OVERLOAD (503) RETRY & COOLDOWN ---
+const MAX_OVERLOAD_RETRIES = 2;
+const OVERLOAD_BASE_DELAY_MS = 3000;
+let overloadCooldownUntil = 0;
+
+const isOverloadError = (err: any): boolean => {
+  const errStr = (err.message || String(err)).toLowerCase();
+  return (
+    errStr.includes('503') ||
+    errStr.includes('unavailable') ||
+    errStr.includes('overloaded') ||
+    errStr.includes('high demand')
+  );
+};
+
 export async function generateWithRotation(
     apiKeys: string[] | undefined,
     modelName: string | undefined,
@@ -35,6 +50,14 @@ export async function generateWithRotation(
   if (delay > 0) {
     console.log(`[Rate Limit] Đang hoãn ${delay}ms để đảm bảo tần suất tối đa 13 req/phút...`);
     await sleep(delay); // Đợi kết thúc khoảng thời gian gối đầu an toàn
+  }
+
+  // --- GIẢM TỐC TOÀN CỤC KHI MODEL QUÁ TẢI ---
+  const nowAfterRate = Date.now();
+  if (nowAfterRate < overloadCooldownUntil) {
+    const cooldownDelay = overloadCooldownUntil - nowAfterRate;
+    console.log(`[Overload Cooldown] Model đang quá tải, hoãn thêm ${cooldownDelay}ms trước khi gửi request...`);
+    await sleep(cooldownDelay);
   }
 
   const keysToTry = (Array.isArray(apiKeys) && apiKeys.length > 0)
@@ -104,31 +127,60 @@ export async function generateWithRotation(
         finalPrompt = prompt;
       }
 
-      const response = await ai.models.generateContent({
-        model,
-        contents: finalPrompt,
-        config
-      });
+      // --- VÒNG RETRY NỘI BỘ CHO LỖI OVERLOAD (503) ---
+      let overloadAttempt = 0;
+      while (true) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: finalPrompt,
+            config
+          });
 
-      let rawText = response.text ?? "";
-      if (isGemma) {
-        rawText = rawText
-            .replace(/^```(?:json)?\s*/im, "")
-            .replace(/```\s*$/im, "")
-            .replace(/^#+\s+[^\n]*\n?/gm, "")  // xóa dòng ### tiêu đề
-            .trim();
-        // Tìm JSON block đầu tiên nếu vẫn còn text thừa
-        const jsonStart = rawText.search(/[\{\[]/);
-        if (jsonStart > 0) rawText = rawText.substring(jsonStart);
+          // Thành công → reset cooldown toàn cục (model đã hồi phục)
+          overloadCooldownUntil = 0;
+
+          let rawText = response.text ?? "";
+          if (isGemma) {
+            rawText = rawText
+                .replace(/^```(?:json)?\s*/im, "")
+                .replace(/```\s*$/im, "")
+                .replace(/^#+\s+[^\n]*\n?/gm, "")  // xóa dòng ### tiêu đề
+                .trim();
+            // Tìm JSON block đầu tiên nếu vẫn còn text thừa
+            const jsonStart = rawText.search(/[\{\[]/); 
+            if (jsonStart > 0) rawText = rawText.substring(jsonStart);
+          }
+          return {
+            text: rawText,
+            successKeyIndex: i
+          };
+        } catch (innerErr: any) {
+          if (isOverloadError(innerErr) && overloadAttempt < MAX_OVERLOAD_RETRIES) {
+            overloadAttempt++;
+            const retryDelay = OVERLOAD_BASE_DELAY_MS * Math.pow(2, overloadAttempt - 1) + Math.floor(Math.random() * 1000);
+            console.warn(`[Overload Retry] Model quá tải (503), thử lại key ${i + 1} lần ${overloadAttempt}/${MAX_OVERLOAD_RETRIES} sau ${retryDelay}ms...`);
+
+            // Kích hoạt giảm tốc toàn cục tạm thời (8 giây)
+            overloadCooldownUntil = Math.max(overloadCooldownUntil, Date.now() + 8000);
+
+            await sleep(retryDelay);
+            continue; // Thử lại CHÍNH KEY ĐÓ
+          }
+          // Hết retry hoặc không phải overload → ném ra ngoài cho catch block chính xử lý
+          throw innerErr;
+        }
       }
-      return {
-        text: rawText,
-        successKeyIndex: i
-      };
     } catch (err: any) {
       console.error(`[Rotation Error] Lỗi khóa ${i + 1}: ${err.message || err}`);
       console.error(`[Rotation Error] Chi tiết:`, err?.cause ?? err);
       lastError = err;
+
+      // Nếu lỗi overload (503) đã hết retry → log rõ, KHÔNG blacklist key
+      if (isOverloadError(err)) {
+        console.warn(`[Overload Exhausted] Key ${i + 1} đã hết ${MAX_OVERLOAD_RETRIES} lần retry overload, chuyển sang key tiếp theo (KHÔNG blacklist).`);
+        continue;
+      }
 
       // Kích hoạt Circuit Breaker nếu gặp lỗi Rate Limit hoặc Quota Exhausted
       const errStr = (err.message || String(err)).toLowerCase();
