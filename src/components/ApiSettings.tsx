@@ -1,13 +1,7 @@
 import React, { useState } from 'react';
 import { X, Plus, Trash2, Key, Cpu, ClipboardPaste, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { AVAILABLE_MODELS } from '../constants/models';
 
-const AVAILABLE_MODELS = [
-  { id: 'gemini-2.5-flash',       label: 'Gemini 2.5 Flash (Khuyên dùng)' },
-  { id: 'gemini-2.5-pro',         label: 'Gemini 2.5 Pro (Mạnh nhất)' },
-  { id: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash' },
-  { id: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (Nhanh / Rẻ)' },
-  { id: 'gemma-4-31b-it',         label: 'Gemma 4 31B IT (Local)' },
-];
 
 interface ApiSettingsProps {
   apiKeys: string[];

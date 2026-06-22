@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import apiRouter from "./server/routes/api.ts";
+import { rateLimitByIP } from "./server/middleware/rateLimiter.ts";
 
 dotenv.config();
 
@@ -12,8 +13,12 @@ const PORT = 3000;
 // Hỗ trợ JSON Body dung lượng lớn cho các chương truyện dài
 app.use(express.json({ limit: "15mb" }));
 
+// Rate-limit theo IP cho toàn bộ API endpoints (chống lạm dụng khi không có auth)
+app.use("/api", rateLimitByIP);
+
 // Gắn các API endpoints từ router
 app.use("/api", apiRouter);
+
 
 // Tích hợp Vite middleware phục vụ Single Page Application
 async function startServer() {

@@ -318,6 +318,12 @@ export function useTranslationProcess({
     let currentTextToPolish = firstDraft;
     addLog(`${logPrefix} Kích hoạt chu trình mài giũa văn phong (${paramsRef.current.polishCycles} lượt)...`, 'info');
     for (let j = 1; j <= paramsRef.current.polishCycles; j++) {
+      // Rà soát từ điển bổ sung chỉ chạy ở lượt polish ĐẦU TIÊN vì sourceText
+      // không đổi giữa các lượt — tránh gọi Gemini API thừa mỗi vòng lặp.
+      const shouldExtract = paramsRef.current.isExtractionDuringTranslationEnabled && j === 1;
+      if (j === 1 && paramsRef.current.isExtractionDuringTranslationEnabled) {
+        addLog(`${logPrefix} [Rà soát từ điển] Kích hoạt rà soát thuật ngữ bị sót (chỉ chạy 1 lần/chương tại lượt polish đầu tiên).`, 'info');
+      }
       addLog(`${logPrefix} Biên tập chuốt chữ Lần ${j}/${paramsRef.current.polishCycles}...${hasProcessedText ? " (Sử dụng văn bản đã quét từ điển, không gửi kèm glossary)" : ""}`, "gemini");
       const polishRes = await fetch('/api/polish-translation', {
         method: 'POST',
@@ -333,9 +339,10 @@ export function useTranslationProcess({
           apiKeys: paramsRef.current.apiKeys,
           model: paramsRef.current.selectedModel,
           startKeyIndex: currentKeyIndex,
-          isExtractionEnabled: paramsRef.current.isExtractionDuringTranslationEnabled,
+          isExtractionEnabled: shouldExtract,
           sourceChapterId: chapter.id
         }),
+
         signal
       });
 

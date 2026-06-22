@@ -302,6 +302,13 @@ export default function TranslatorWorkspace({
           checks[idx] = true;
         });
         setSelectedSuggestions(checks);
+        // Cảnh báo khi văn bản đầu vào bị cắt ngắn (chỉ phân tích một phần)
+        if (data.truncated) {
+          showToast({
+            message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu được phân tích (giới hạn tiết kiệm token).`,
+            type: 'warning'
+          });
+        }
       } else {
         throw new Error("Không tìm thấy thuật ngữ nào.");
       }

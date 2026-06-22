@@ -466,6 +466,12 @@ function GlossaryManager({
       if (!response.ok) throw new Error("Lỗi phản hồi phân tích cẩm nang từ server.");
 
       const data = await response.json();
+      if (data.truncated) {
+        showToast({
+          message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
+          type: 'warning'
+        });
+      }
       const extractedList: Omit<GlossaryItem, 'id'>[] = data.extractedGlossary || [];
       if (extractedList.length === 0) {
         showToast({ message: "Không tìm thấy thuật ngữ nào có thể trích xuất từ tệp chỉ dẫn này.", type: 'warning' });

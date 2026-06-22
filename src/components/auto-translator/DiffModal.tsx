@@ -50,25 +50,46 @@ export const DiffModal = React.memo(function DiffModal({
     if (diffRightScrollRef.current) diffRightScrollRef.current.scrollTop = 0;
   }, [diffModalChapterIndex]);
 
+  // Escape 5 ký tự đặc biệt HTML để ngăn XSS khi dùng dangerouslySetInnerHTML
+  // Test cases thủ công:
+  // - Input: '<script>alert("xss")</script>' → phải hiển thị dạng text thuần, không thực thi
+  // - Input: 'A & B < C > D' → phải hiển thị đúng ký tự &, <, >
+  // - Input: 'Nói "hello"' → dấu ngoặc kép không bị biến thành attribute HTML
+  const escapeHtml = (text: string): string => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  };
+
   // Highlight processedSourceText: bọc các từ đã thay bằng span màu
+  // Quy trình: (1) Escape toàn bộ text → (2) Thay thế bằng placeholder → (3) Chèn <mark> HTML
+  // Placeholder dùng ký tự «» không bị escape nên không bị ảnh hưởng ở bước (1)
   const buildHighlightedHtml = (text: string) => {
-    let result = text;
+    // Bước 1: Escape HTML toàn bộ text trước
+    let result = escapeHtml(text);
     const sorted = [...glossary]
       .filter(i => i.vietnamese)
       .sort((a, b) => b.vietnamese.length - a.vietnamese.length);
     const placeholder: Record<string, string> = {};
     sorted.forEach((item, idx) => {
       if (!item.vietnamese) return;
-      const escaped = item.vietnamese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Escape phần vietnamese trước khi tìm kiếm (vì text đã được escape)
+      const escapedVietnamese = escapeHtml(item.vietnamese);
+      const regexEscaped = escapedVietnamese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const key = `««TERM_${idx}»»`;
-      result = result.replace(new RegExp(escaped, 'g'), key);
-      placeholder[key] = `<mark class="bg-amber-200 text-amber-900 rounded px-0.5 font-bold">${item.vietnamese}</mark>`;
+      result = result.replace(new RegExp(regexEscaped, 'g'), key);
+      // Nội dung hiển thị trong <mark> cũng phải được escape
+      placeholder[key] = `<mark class="bg-amber-200 text-amber-900 rounded px-0.5 font-bold">${escapedVietnamese}</mark>`;
     });
     Object.entries(placeholder).forEach(([k, v]) => {
       result = result.replace(new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), v);
     });
     return result;
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

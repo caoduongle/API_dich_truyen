@@ -1,17 +1,26 @@
 import { GoogleGenAI } from "@google/genai";
 import { safeParseJson } from "../utils/text.ts";
+import { DEFAULT_MODEL_ID } from "../constants/models.ts";
 
 const blacklistedKeys = new Map<string, number>();
 const BLACKLIST_COOLDOWN_MS = 5 * 60 * 1000; // Thời gian ngắt mạch: 5 phút
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-let nextAllowedTime = 0;
+// --- RATE LIMITER THEO TỪNG API KEY ---
+// Mỗi API key có mốc thời gian riêng (nextAllowedTime) để đảm bảo mỗi key
+// tuân thủ giới hạn ~13 req/phút (4620ms/req). Khi có N key, N request
+// song song sử dụng các key khác nhau sẽ KHÔNG bị chặn lẫn nhau.
+const nextAllowedTimeByKey = new Map<string, number>();
 const MIN_REQUEST_INTERVAL_MS = 4620;
 
 // --- OVERLOAD (503) RETRY & COOLDOWN ---
 const MAX_OVERLOAD_RETRIES = 2;
 const OVERLOAD_BASE_DELAY_MS = 3000;
+
+// overloadCooldownUntil TOÀN CỤC (không theo key) vì lỗi 503/overload
+// đến từ phía model Google (server-side capacity), không phụ thuộc API key
+// cụ thể nào. Khi model quá tải, tất cả key đều bị ảnh hưởng như nhau.
 let overloadCooldownUntil = 0;
 
 const MAX_OUTER_OVERLOAD_PASSES = 2;      // tối đa 2 lần quét lại TOÀN BỘ vòng key
@@ -37,29 +46,10 @@ export async function generateWithRotation(
     temperature?: number,
     startKeyIndex: number = 0
 ): Promise<{ text: string; successKeyIndex: number }> {
-  // --- THUẬT TOÁN ĐIỀU PHỐI THỜI GIAN (RATE LIMITER) ---
-  const now = Date.now();
-  let delay = 0;
-
-  if (now < nextAllowedTime) {
-    // Nếu thời điểm hiện tại chưa tới mốc được phép, tính toán độ trễ cần chờ
-    delay = nextAllowedTime - now;
-    // Đẩy mốc thời gian được phép kế tiếp lùi về sau
-    nextAllowedTime += MIN_REQUEST_INTERVAL_MS;
-  } else {
-    // Nếu hệ thống đang rảnh, đặt mốc cho request tiếp theo tính từ bây giờ
-    nextAllowedTime = now + MIN_REQUEST_INTERVAL_MS;
-  }
-
-  if (delay > 0) {
-    console.log(`[Rate Limit] Đang hoãn ${delay}ms để đảm bảo tần suất tối đa 13 req/phút...`);
-    await sleep(delay); // Đợi kết thúc khoảng thời gian gối đầu an toàn
-  }
-
-  // --- GIẢM TỐC TOÀN CỤC KHI MODEL QUÁ TẢI ---
-  const nowAfterRate = Date.now();
-  if (nowAfterRate < overloadCooldownUntil) {
-    const cooldownDelay = overloadCooldownUntil - nowAfterRate;
+  // --- GIẢM TỐC TOÀN CỤC KHI MODEL QUÁ TẢI (áp dụng trước khi thử bất kỳ key nào) ---
+  const nowBeforeKeys = Date.now();
+  if (nowBeforeKeys < overloadCooldownUntil) {
+    const cooldownDelay = overloadCooldownUntil - nowBeforeKeys;
     console.log(`[Overload Cooldown] Model đang quá tải, hoãn thêm ${cooldownDelay}ms trước khi gửi request...`);
     await sleep(cooldownDelay);
   }
@@ -72,7 +62,7 @@ export async function generateWithRotation(
     throw new Error("Không có API Key nào được thiết lập. Hãy thêm khóa trong phần 'Cấu hình AI' hoặc lưu trong file cấu hình máy chủ.");
   }
 
-  let model = modelName || "gemini-3.1-flash-lite";
+  let model = modelName || DEFAULT_MODEL_ID;
 
   // Cơ chế phòng thủ: Ép thêm tiền tố 'models/' đối với các dòng mô hình mở (như gemma)
   // để tránh việc SDK gửi sai cấu trúc endpoint lên Google Upstream Server gây lỗi 500.
@@ -100,7 +90,30 @@ export async function generateWithRotation(
         continue;
       }
 
+      // --- RATE LIMITER THEO KEY: mỗi key có mốc thời gian riêng ---
+      // Đảm bảo mỗi key riêng lẻ tuân thủ ~13 req/phút, nhưng các key
+      // khác nhau có thể gửi request đồng thời mà không chặn lẫn nhau.
+      const keyNextAllowed = nextAllowedTimeByKey.get(key) || 0;
+      const nowForRate = Date.now();
+      let keyDelay = 0;
+
+      if (nowForRate < keyNextAllowed) {
+        // Key này chưa tới mốc được phép, tính toán độ trễ cần chờ
+        keyDelay = keyNextAllowed - nowForRate;
+        // Đẩy mốc thời gian kế tiếp lùi về sau (cơ chế gối đầu)
+        nextAllowedTimeByKey.set(key, keyNextAllowed + MIN_REQUEST_INTERVAL_MS);
+      } else {
+        // Key đang rảnh, đặt mốc cho request tiếp theo tính từ bây giờ
+        nextAllowedTimeByKey.set(key, nowForRate + MIN_REQUEST_INTERVAL_MS);
+      }
+
+      if (keyDelay > 0) {
+        console.log(`[Rate Limit] Key ${i + 1}: Đang hoãn ${keyDelay}ms để đảm bảo tần suất tối đa 13 req/phút cho key này...`);
+        await sleep(keyDelay);
+      }
+
       try {
+
         console.log(`[Rotation] Thử khóa ${i + 1}/${keysToTry.length} (bắt đầu từ khóa ${safeStart + 1}) với model "${model}"`);
         const ai = new GoogleGenAI({
           apiKey: key,

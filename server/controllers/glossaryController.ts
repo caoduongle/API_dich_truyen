@@ -5,6 +5,13 @@ import { safeParseJson } from "../utils/text.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
 import { validateAndSnapBackEntities } from "../utils/sinoNormalize.ts";
 
+// --- GIỚI HẠN CẮT VĂN BẢN ĐẦU VÀO ---
+// Giới hạn ký tự gửi đến Gemini để tiết kiệm token/chi phí API.
+// analyzeGlossary cần nhiều ngữ cảnh hơn (trích xuất nhân vật/địa danh),
+// analyzeGuidelines chỉ cần phần hướng dẫn phong cách (thường ở đầu file).
+const MAX_CHARS_FOR_GLOSSARY_ANALYSIS = 8000;
+const MAX_CHARS_FOR_GUIDELINES_ANALYSIS = 4000;
+
 // Rà soát thuật ngữ sót sau giai đoạn dịch thô
 export async function checkLeftoverGlossary(
     sourceText: string,
@@ -100,7 +107,8 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       return;
     }
 
-    const truncatedText = text.slice(0, 8000);
+    const truncatedText = text.slice(0, MAX_CHARS_FOR_GLOSSARY_ANALYSIS);
+    const isTruncated = text.length > MAX_CHARS_FOR_GLOSSARY_ANALYSIS;
 
     const systemInstruction =
         "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
@@ -167,7 +175,11 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
         }));
       }
     }
-    res.json({ ...parsedResult, successKeyIndex: rotationResult.successKeyIndex });
+    res.json({
+      ...parsedResult,
+      successKeyIndex: rotationResult.successKeyIndex,
+      ...(isTruncated ? { truncated: true, originalLength: text.length, analyzedLength: MAX_CHARS_FOR_GLOSSARY_ANALYSIS } : {})
+    });
   } catch (error: any) {
     console.error("Lỗi phân tích Glossary:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích thuật ngữ." });
@@ -186,7 +198,8 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
     const parsedGlossary = parseGlossaryFromMd(text);
     console.log(`[analyze-guidelines] Regex parse: ${parsedGlossary.length} thuật ngữ.`);
 
-    const guidelinesSection = text.slice(0, 4000);
+    const guidelinesSection = text.slice(0, MAX_CHARS_FOR_GUIDELINES_ANALYSIS);
+    const isGuidelinesTruncated = text.length > MAX_CHARS_FOR_GUIDELINES_ANALYSIS;
 
     const systemInstruction =
         "Bạn là trợ lý dịch thuật AI lão luyện chuyên phân tích cẩm nang dịch thuật.\n" +
@@ -237,6 +250,7 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
       tone: aiMeta.tone,
       description: aiMeta.description,
       successKeyIndex: rotationResult.successKeyIndex,
+      ...(isGuidelinesTruncated ? { truncated: true, originalLength: text.length, analyzedLength: MAX_CHARS_FOR_GUIDELINES_ANALYSIS } : {})
     });
   } catch (error: any) {
     console.error("Lỗi phân tích cẩm nang hướng dẫn dịch thuật .md:", error);

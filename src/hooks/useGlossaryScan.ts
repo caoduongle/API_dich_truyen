@@ -115,6 +115,12 @@ export function useGlossaryScan({
 
             if (!response.ok) throw new Error("Gặp lỗi phản hồi trích xuất từ AI.");
             const data = await response.json();
+            if (data.truncated) {
+              showToast({
+                message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của Chương ${i + 1} được phân tích để tối ưu hiệu suất.`,
+                type: 'warning'
+              });
+            }
             if (typeof data.successKeyIndex === 'number') {
               currentApiKeyIndexRef.current = data.successKeyIndex;
             }

@@ -150,6 +150,13 @@ export default function ProjectList({
 
       const data = await response.json();
       
+      if (data.truncated) {
+        showToast({
+          message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
+          type: 'warning'
+        });
+      }
+
       if (data.extractedGlossary) {
         setAnalyzedGlossary(data.extractedGlossary);
       }

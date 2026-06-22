@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useNotifications } from '../components/NotificationSystem';
+import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
 
 export function useAIConfig() {
     const { showToast } = useNotifications();
@@ -15,8 +16,16 @@ export function useAIConfig() {
     });
 
     const [selectedModel, setSelectedModel] = useState<string>(() => {
-        return localStorage.getItem('gemini_selected_model') || 'gemini-3.5-flash';
+        const stored = localStorage.getItem('gemini_selected_model');
+        // Nếu giá trị đã lưu không nằm trong danh sách model hợp lệ
+        // (ví dụ: giá trị cũ 'gemini-3.5-flash' đã bị loại bỏ), tự động
+        // fallback về DEFAULT_MODEL_ID để tránh lệch dropdown.
+        if (stored && AVAILABLE_MODELS.some(m => m.id === stored)) {
+            return stored;
+        }
+        return DEFAULT_MODEL_ID;
     });
+
 
     const [showApiSettings, setShowApiSettings] = useState(false);
 
