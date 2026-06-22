@@ -3,7 +3,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation } from "../services/geminiService.ts";
 import { safeParseJson } from "../utils/text.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
-import { validateAndSnapBackEntities } from "../../shared/sinoNormalize.ts";
+import { validateAndSnapBackEntities, isHanEquivalent } from "../../shared/sinoNormalize.ts";
 import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts.ts";
 
 // --- GIỚI HẠN CẮT VĂN BẢN ĐẦU VÀO ---
@@ -80,6 +80,56 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
   return { items: [], successKeyIndex: startKeyIndex };
 }
 
+const MAX_CHUNKS_TO_ANALYZE = 5; // Tối đa 5 phân đoạn (~40,000 ký tự) để tránh quá tải API
+
+/**
+ * Phân tách đoạn văn bản dài thành các phần nhỏ hơn có độ dài tối đa maxChunkSize.
+ * Ưu tiên ngắt tại ký tự xuống dòng (\n) để không cắt đôi từ/câu.
+ */
+function splitTextIntoChunks(text: string, maxChunkSize: number): string[] {
+  if (text.length <= maxChunkSize) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  const lines = text.split('\n');
+  let currentChunk = "";
+
+  for (const line of lines) {
+    // Nếu thêm dòng này vào chunk hiện tại vượt quá maxChunkSize
+    if (currentChunk.length + (currentChunk ? 1 : 0) + line.length > maxChunkSize) {
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = "";
+      }
+
+      // Nếu bản thân một dòng dài hơn maxChunkSize, phải cắt cứng theo ký tự
+      if (line.length > maxChunkSize) {
+        let remainingLine = line;
+        while (remainingLine.length > maxChunkSize) {
+          chunks.push(remainingLine.slice(0, maxChunkSize));
+          remainingLine = remainingLine.slice(maxChunkSize);
+        }
+        currentChunk = remainingLine;
+      } else {
+        currentChunk = line;
+      }
+    } else {
+      if (currentChunk) {
+        currentChunk += "\n" + line;
+      } else {
+        currentChunk = line;
+      }
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
 // 1. API: Phân tích trích xuất gợi ý thuật ngữ từ văn bản thô
 export async function analyzeGlossary(req: Request, res: Response): Promise<void> {
   try {
@@ -89,15 +139,15 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       return;
     }
 
-    const truncatedText = text.slice(0, MAX_CHARS_FOR_GLOSSARY_ANALYSIS);
-    const isTruncated = text.length > MAX_CHARS_FOR_GLOSSARY_ANALYSIS;
+    const chunks = splitTextIntoChunks(text, MAX_CHARS_FOR_GLOSSARY_ANALYSIS);
+    const chunksToProcess = chunks.slice(0, MAX_CHUNKS_TO_ANALYZE);
+    const hasTruncatedChunks = chunks.length > MAX_CHUNKS_TO_ANALYZE;
+    const totalAnalyzedLength = chunksToProcess.reduce((sum, chunk) => sum + chunk.length, 0);
 
     const systemInstruction =
         "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
         "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung, trích xuất tất cả các tên nhân vật (characters), địa danh quan trọng (locations), bí kíp/vũ khí/thuật ngữ chuyên môn (terms) xuất hiện. " +
         buildEntityExtractionInstruction('analyze');
-
-    const prompt = `Phân tích đoạn truyện chữ sau và trích xuất danh sách thực thể:\n\n${truncatedText}`;
 
     const schema = {
       type: Type.OBJECT,
@@ -111,36 +161,63 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       required: ["suggestions"]
     };
 
-    const rotationResult = await generateWithRotation(
-        apiKeys,
-        model,
-        systemInstruction,
-        prompt,
-        schema,
-        0.2,
-        startKeyIndex
-    );
+    let currentKeyIndex = startKeyIndex;
+    const allSuggestions: any[] = [];
 
-    const resultText = rotationResult.text;
-    if (!resultText) {
-      throw new Error("Không nhận được kết quả phân tích từ AI.");
-    }
+    for (let i = 0; i < chunksToProcess.length; i++) {
+      const chunk = chunksToProcess[i];
+      const prompt = `Phân tích đoạn truyện chữ sau và trích xuất danh sách thực thể${
+        chunksToProcess.length > 1 ? ` (Phần ${i + 1}/${chunksToProcess.length})` : ""
+      }:\n\n${chunk}`;
 
-    const parsedResult = safeParseJson(resultText);
-    if (parsedResult && Array.isArray(parsedResult.suggestions)) {
-      parsedResult.suggestions = validateAndSnapBackEntities(parsedResult.suggestions, text);
-      const resolvedChapterId = sourceChapterId || chapterId;
-      if (resolvedChapterId) {
-        parsedResult.suggestions = parsedResult.suggestions.map((s: any) => ({
-          ...s,
-          sourceChapterId: resolvedChapterId
-        }));
+      const rotationResult = await generateWithRotation(
+          apiKeys,
+          model,
+          systemInstruction,
+          prompt,
+          schema,
+          0.2,
+          currentKeyIndex
+      );
+
+      currentKeyIndex = rotationResult.successKeyIndex;
+      const resultText = rotationResult.text;
+      if (!resultText) {
+        throw new Error(`Không nhận được kết quả phân tích từ AI ở phần ${i + 1}.`);
+      }
+
+      const parsedResult = safeParseJson(resultText);
+      if (parsedResult && Array.isArray(parsedResult.suggestions)) {
+        const validated = validateAndSnapBackEntities(parsedResult.suggestions, text);
+        allSuggestions.push(...validated);
       }
     }
+
+    // Loại bỏ trùng lặp dựa trên chữ Hán
+    const uniqueSuggestions: any[] = [];
+    for (const item of allSuggestions) {
+      if (!item || typeof item.chinese !== "string") continue;
+      const isDuplicate = uniqueSuggestions.some((existingItem) =>
+        isHanEquivalent(existingItem.chinese, item.chinese)
+      );
+      if (!isDuplicate) {
+        uniqueSuggestions.push(item);
+      }
+    }
+
+    const resolvedChapterId = sourceChapterId || chapterId;
+    let finalSuggestions = uniqueSuggestions;
+    if (resolvedChapterId) {
+      finalSuggestions = uniqueSuggestions.map((s: any) => ({
+        ...s,
+        sourceChapterId: resolvedChapterId
+      }));
+    }
+
     res.json({
-      ...parsedResult,
-      successKeyIndex: rotationResult.successKeyIndex,
-      ...(isTruncated ? { truncated: true, originalLength: text.length, analyzedLength: MAX_CHARS_FOR_GLOSSARY_ANALYSIS } : {})
+      suggestions: finalSuggestions,
+      successKeyIndex: currentKeyIndex,
+      ...(hasTruncatedChunks ? { truncated: true, originalLength: text.length, analyzedLength: totalAnalyzedLength } : {})
     });
   } catch (error: any) {
     console.error("Lỗi phân tích Glossary:", error);
