@@ -26,7 +26,10 @@ extraction_tasks = {
 
     # --- Source code frontend (React / TSX / CSS) ---
     "frontend_source.txt": {
-        "targets": [os.path.join(project_root, "src")],
+        "targets": [
+            os.path.join(project_root, "src"),
+            os.path.join(project_root, "shared"),
+        ],
         "extensions": (".ts", ".tsx", ".css")
     },
 
@@ -35,6 +38,7 @@ extraction_tasks = {
         "targets": [
             os.path.join(project_root, "server.ts"),
             os.path.join(project_root, "server"),
+            os.path.join(project_root, "shared"),
         ],
         "extensions": (".ts",)
     },

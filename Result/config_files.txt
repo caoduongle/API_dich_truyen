@@ -12,8 +12,9 @@
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -39,7 +40,8 @@
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2"
+    "typescript": "~5.8.2",
+    "vitest": "^4.1.9"
   }
 }
 
@@ -68,6 +70,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@shared/*": [
+        "./shared/*"
       ]
     },
     "allowImportingTsExtensions": true,
@@ -92,6 +97,7 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@shared': path.resolve(__dirname, './shared'),
       },
     },
     server: {
@@ -139,6 +145,9 @@ GEMINI_API_KEY="MY_GEMINI_API_KEY"
 # AI Studio automatically injects this at runtime with the Cloud Run service URL.
 # Used for self-referential links, OAuth callbacks, and API endpoints.
 APP_URL="MY_APP_URL"
+
+# TRUST_PROXY_HOPS: Số lượng hop proxy tin tưởng phía trước load balancer (mặc định 1)
+TRUST_PROXY_HOPS=1
 
 
 ================================================================================

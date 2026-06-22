@@ -19,7 +19,7 @@ export function buildEntityExtractionInstruction(mode: 'checkLeftover' | 'analyz
   }
 
   // extract mode
-  return "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật hoặc địa danh là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIÊN ANH trong trường 'vietnamese'. " +
+  return "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật hoặc địa danh là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIẾNG ANH trong trường 'vietnamese'. " +
          "ĐẶC BIỆT LƯU Ý: Nếu tên ngoại quốc có danh từ phân loại/đồ vật đi kèm ở hậu tố tiếng Trung (ví dụ: 茶 - trà, 镇 - thị trấn, 城 - thành), hãy dịch danh từ đó sang tiếng Việt rồi đưa lên trước tên tiếng Anh (Ví dụ: 阿帕茶 -> 'Trà Abbacchio' chứ không phải 'Abbacchio Tea').\n" +
          "Chỉ dùng phiên âm Hán-Việt khi tên/thuật ngữ là hoàn toàn gốc Trung Quốc.";
 }

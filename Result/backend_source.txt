@@ -13,6 +13,9 @@ import { rateLimitByIP } from "./server/middleware/rateLimiter.ts";
 dotenv.config();
 
 const app = express();
+// Tin tưởng proxy phía trước (Cloud Run / load balancer) để req.ip lấy đúng IP client thật từ X-Forwarded-For.
+app.set('trust proxy', process.env.TRUST_PROXY_HOPS ? Number(process.env.TRUST_PROXY_HOPS) : 1);
+
 const PORT = 3000;
 
 // Hỗ trợ JSON Body dung lượng lớn cho các chương truyện dài
@@ -53,21 +56,7 @@ startServer();
 /// FILE: server/constants/models.ts ///
 ================================================================================
 
-// Danh sách mô hình AI được phép sử dụng (whitelist phía server)
-// Đồng bộ với AVAILABLE_MODELS ở frontend (src/constants/models.ts)
-export const ALLOWED_MODEL_IDS: string[] = [
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-2.0-flash',
-  'gemini-3.1-flash-lite',
-  'gemma-4-31b-it',
-];
-
-// Giá trị mặc định khi client không gửi model, đồng bộ 3 chỗ:
-// 1. Backend fallback (geminiService.ts)
-// 2. Frontend dropdown mặc định (src/constants/models.ts)
-// 3. Frontend localStorage default (useAIConfig.ts)
-export const DEFAULT_MODEL_ID = 'gemini-3.1-flash-lite';
+export { ALLOWED_MODEL_IDS, DEFAULT_MODEL_ID, MAX_API_KEYS_PER_REQUEST } from '../../shared/models.ts';
 
 
 ================================================================================
@@ -170,7 +159,8 @@ import { Type } from "@google/genai";
 import { generateWithRotation } from "../services/geminiService.ts";
 import { safeParseJson } from "../utils/text.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
-import { validateAndSnapBackEntities } from "../utils/sinoNormalize.ts";
+import { validateAndSnapBackEntities } from "../../shared/sinoNormalize.ts";
+import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts.ts";
 
 // --- GIỚI HẠN CẮT VĂN BẢN ĐẦU VÀO ---
 // Giới hạn ký tự gửi đến Gemini để tiết kiệm token/chi phí API.
@@ -199,9 +189,7 @@ export async function checkLeftoverGlossary(
         "Bạn là trợ lý rà soát thuật ngữ dịch thuật chuyên nghiệp Trung - Việt.\n" +
         "Nhiệm vụ của bạn là rà soát văn bản gốc tiếng Trung để tìm xem còn nhân vật, địa danh, chiêu thức bối cảnh nào bị bỏ sót hay chưa được cấu hình trong bảng từ điển được cung cấp không.\n" +
         "Lưu ý: Chỉ trích xuất từ bị sót CHƯA CÓ trong bảng từ điển được cung cấp. Nếu không bị sót từ nào, hãy trả về danh sách trống.\n" +
-        "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật hoặc địa danh là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục và đặt TÊN GỐC TIẾNG ANH vào trường 'vietnamese'.\n" +
-        "ĐẶC BIỆT LƯU Ý: Nếu thuật ngữ ngoại quốc có kèm theo danh từ phân loại hoặc đồ vật bằng tiếng Trung ở phía sau (ví dụ: 茶 - trà, 镇 - thị trấn, 河 - sông, 城/市 - thành phố, 🏛️ - điện/tháp...), bạn PHẢI dịch danh từ phân loại đó sang tiếng Việt và ĐẢO LÊN TRƯỚC tên gốc tiếng Anh (Ví dụ: 阿帕茶 phải dịch thành 'Trà Abbacchio' chứ KHÔNG ĐƯỢC để dạng tiếng Anh 'Abbacchio Tea').\n" +
-        "Chỉ dùng phiên âm Hán-Việt khi tên/thuật ngữ hoàn toàn gốc Trung Quốc.";
+        buildEntityExtractionInstruction('checkLeftover');
 
     const prompt = `--- TỪ ĐIỂN ĐÃ CÓ (ĐÃ ĐƯỢC THIẾT LẬP) ---
 ${glossaryStr}
@@ -217,24 +205,7 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
         missingEntities: {
           type: Type.ARRAY,
           description: "Danh sách thuật ngữ phát hiện bị bỏ sót trong bảng từ điển.",
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              chinese: { type: Type.STRING, description: "Từ chữ Trung bị sót" },
-              pinyin: { type: Type.STRING, description: "Phiên âm Hán-Việt chuẩn phù hợp" },
-              vietnamese: {
-                type: Type.STRING,
-                description: "Nếu là phiên âm từ tên tiếng Anh/phương Tây, dùng tên tiếng Anh gốc (ví dụ: 阿诗娜 -> 'Athena'). Nếu đi kèm danh từ chỉ loại, dịch từ chỉ loại đó lên trước tên gốc tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio' chứ không phải 'Abbacchio Tea'). Nếu là tên thuần Trung, dùng phiên âm Hán-Việt."
-              },
-              type: {
-                type: Type.STRING,
-                enum: ["character", "location", "term", "phrase", "other"],
-                description: "Kiểu đối tượng bị sót"
-              },
-              note: { type: Type.STRING, description: "Mô tả vai trò/ý nghĩa dự kiến của đối tượng theo văn cảnh" }
-            },
-            required: ["chinese", "pinyin", "vietnamese", "type", "note"]
-          }
+          items: buildEntitySchema('checkLeftover')
         }
       },
       required: ["missingEntities"]
@@ -280,10 +251,7 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
     const systemInstruction =
         "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
         "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung, trích xuất tất cả các tên nhân vật (characters), địa danh quan trọng (locations), bí kíp/vũ khí/thuật ngữ chuyên môn (terms) xuất hiện. " +
-        "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật, địa danh trong văn bản là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIẾNG ANH trong trường 'vietnamese'. " +
-        "ĐẶC BIỆT LƯU Ý: Nếu từ ngữ gồm tên phiên âm ngoại quốc đi kèm hậu tố danh từ chỉ loại tiếng Trung (như - trà, 镇 - thị trấn, 河 - sông, 城 - thành), bạn phải dịch danh từ chỉ loại đó sang tiếng Việt và xếp lên trước tên gốc tiếng Anh (Ví dụ: 阿帕茶 dịch thành 'Trà Abbacchio' chứ KHÔNG ĐƯỢC để 'Abbacchio Tea'). " +
-        "Chỉ dùng phiên âm Hán-Việt khi tên/thuật ngữ là hoàn toàn gốc Trung Quốc không có tên tiếng Anh tương ứng. " +
-        "ĐẶC BIỆT QUAN TRỌNG về trường 'chinese': Bạn PHẢI copy CHÍNH XÁC ký tự Hán như chúng xuất hiện trong văn bản gốc được cung cấp. TUYỆT ĐỐI KHÔNG tự ý chuyển đổi giữa phồn thể (繁體字) và giản thể (簡體字). Nếu văn bản gốc viết '萬劍歸宗' thì trả về đúng '萬劍歸宗', không được đổi thành '万剑归宗' hay bất kỳ biến thể nào khác.";
+        buildEntityExtractionInstruction('analyze');
 
     const prompt = `Phân tích đoạn truyện chữ sau và trích xuất danh sách thực thể:\n\n${truncatedText}`;
 
@@ -293,24 +261,7 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
         suggestions: {
           type: Type.ARRAY,
           description: "Danh sách thuật ngữ trích xuất được",
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              chinese: { type: Type.STRING, description: "Từ tiếng Trung gốc, ví dụ '萧炎' hoặc '乌坦城'" },
-              pinyin: { type: Type.STRING, description: "Phiên âm Hán Việt chuẩn, ví dụ 'Tiêu Viêm' hoặc 'Ô Thản Thành'" },
-              vietnamese: {
-                type: Type.STRING,
-                description: "Nếu là phiên âm từ tên ngoại quốc, dùng tên tiếng Anh gốc. Nếu có hậu tố danh từ chỉ loại, dịch từ chỉ loại lên đầu (ví dụ: 阿帕茶 -> 'Trà Abbacchio' thay vì 'Abbacchio Tea'). Nếu thuần Trung, dùng Hán-Việt mượt mà."
-              },
-              type: {
-                type: Type.STRING,
-                enum: ["character", "location", "term", "phrase", "other"],
-                description: "Phân loại: nhân vật (character), địa danh (location), thuật ngữ khác (term/phrase)"
-              },
-              note: { type: Type.STRING, description: "Mô tả ngắn, ví dụ: 'Nhân vật nam chính, tư chất phi phàm' hoặc 'Nơi sinh ra của Tiêu Viêm'" }
-            },
-            required: ["chinese", "pinyin", "vietnamese", "type", "note"]
-          }
+          items: buildEntitySchema('analyze')
         }
       },
       required: ["suggestions"]
@@ -437,29 +388,11 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
     const systemInstruction =
         "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
         "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung và trích xuất tất cả tên nhân vật, địa danh, bí kíp/vũ khí/thuật ngữ chuyên môn. " +
-        "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật hoặc địa danh là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIÊN ANH trong trường 'vietnamese'. " +
-        "ĐẶC BIỆT LƯU Ý: Nếu tên ngoại quốc có danh từ phân loại/đồ vật đi kèm ở hậu tố tiếng Trung (ví dụ: 茶 - trà, 镇 - thị trấn, 城 - thành), hãy dịch danh từ đó sang tiếng Việt rồi đưa lên trước tên tiếng Anh (Ví dụ: 阿帕茶 -> 'Trà Abbacchio' chứ không phải 'Abbacchio Tea').\n" +
-        "Chỉ dùng phiên âm Hán-Việt khi tên/thuật ngữ là hoàn toàn gốc Trung Quốc.";
+        buildEntityExtractionInstruction('extract');
 
     const schema = {
       type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          chinese: { type: Type.STRING, description: "Từ tiếng Trung gốc" },
-          pinyin: { type: Type.STRING, description: "Phiên âm Hán-Việt chuẩn" },
-          vietnamese: {
-            type: Type.STRING,
-            description: "Tên tiếng Anh gốc cho từ phiên âm phương Tây, dịch hậu tố phân loại lên trước nếu có (ví dụ: 阿帕茶 -> 'Trà Abbacchio' chứ không phải 'Abbacchio Tea'). Nếu thuần Trung, dùng Hán-Việt."
-          },
-          type: {
-            type: Type.STRING,
-            enum: ["character", "location", "term", "phrase", "other"],
-          },
-          note: { type: Type.STRING, description: "Mô tả ngắn gọn vai trò/ý nghĩa" }
-        },
-        required: ["chinese", "pinyin", "vietnamese", "type", "note"]
-      }
+      items: buildEntitySchema('extract')
     };
 
     const prompt = `Phân tích đoạn truyện chữ sau và trích xuất thuật ngữ:\n\n${text}`;
@@ -506,9 +439,9 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError } from "../services/geminiService.ts";
-import { safeParseJson, findSplitPoint, getGenreStyleGuide } from "../utils/text.ts";
+import { safeParseJson, findSplitPoint, getGenreStyleGuide, escapeRegex } from "../utils/text.ts";
 import { checkLeftoverGlossary } from "./glossaryController.ts";
-import { isHanEquivalent, validateAndSnapBackEntities, findCanonicalSubstring } from "../utils/sinoNormalize.ts";
+import { isHanEquivalent, validateAndSnapBackEntities, findCanonicalSubstring } from "../../shared/sinoNormalize.ts";
 
 // Gọi trực tiếp tác vụ dịch thô từ Gemini API
 async function callRawTranslationDirect(
@@ -536,7 +469,7 @@ async function callRawTranslationDirect(
     const sortedGlossary = [...glossary].sort((a, b) => (b.chinese || "").length - (a.chinese || "").length);
     for (const item of sortedGlossary) {
       if (!item.chinese?.trim() || !item.vietnamese?.trim()) continue;
-      const esc = item.chinese.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+      const esc = escapeRegex(item.chinese.trim());
       const regex = new RegExp(esc, 'g');
       
       const occurrences = (substitutedText.match(regex) || []).length;
@@ -545,7 +478,7 @@ async function callRawTranslationDirect(
       } else {
         const canonicalSub = findCanonicalSubstring(substitutedText, item.chinese);
         if (canonicalSub) {
-          const escCanon = canonicalSub.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const escCanon = escapeRegex(canonicalSub);
           const regexCanon = new RegExp(escCanon, 'g');
           substitutedText = substitutedText.replace(regexCanon, `[${item.vietnamese}]`);
         }
@@ -555,7 +488,7 @@ async function callRawTranslationDirect(
       if (Array.isArray(item.variants) && item.variants.length > 0) {
         for (const variant of item.variants) {
           if (!variant || !variant.trim()) continue;
-          const escVar = variant.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const escVar = escapeRegex(variant.trim());
           const regexVar = new RegExp(escVar, 'g');
           const occurrencesVar = (substitutedText.match(regexVar) || []).length;
           if (occurrencesVar > 0) {
@@ -563,7 +496,7 @@ async function callRawTranslationDirect(
           } else {
             const canonicalSubVar = findCanonicalSubstring(substitutedText, variant);
             if (canonicalSubVar) {
-              const escCanonVar = canonicalSubVar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+              const escCanonVar = escapeRegex(canonicalSubVar);
               const regexCanonVar = new RegExp(escCanonVar, 'g');
               substitutedText = substitutedText.replace(regexCanonVar, `[${item.vietnamese}]`);
             }
@@ -811,7 +744,7 @@ async function callPolishDirect(
     for (const item of sortedGlossary) {
       if (!item.chinese || !item.chinese.trim()) continue;
       const chineseTerm = item.chinese.trim();
-      const esc = chineseTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+      const esc = escapeRegex(chineseTerm);
       const regex = new RegExp(esc, 'g');
 
       const occurrences = (substitutedSourceText.match(regex) || []).length;
@@ -822,7 +755,7 @@ async function callPolishDirect(
       } else {
         const canonicalSub = findCanonicalSubstring(substitutedSourceText, item.chinese);
         if (canonicalSub) {
-          const escCanon = canonicalSub.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const escCanon = escapeRegex(canonicalSub);
           const regexCanon = new RegExp(escCanon, 'g');
           const occurrencesCanon = (substitutedSourceText.match(regexCanon) || []).length;
           if (occurrencesCanon > 0) {
@@ -838,7 +771,7 @@ async function callPolishDirect(
         for (const variant of item.variants) {
           if (!variant || !variant.trim()) continue;
           const varTerm = variant.trim();
-          const escVar = varTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const escVar = escapeRegex(varTerm);
           const regexVar = new RegExp(escVar, 'g');
           
           const occurrencesVar = (substitutedSourceText.match(regexVar) || []).length;
@@ -849,7 +782,7 @@ async function callPolishDirect(
           } else {
             const canonicalSubVar = findCanonicalSubstring(substitutedSourceText, varTerm);
             if (canonicalSubVar) {
-              const escCanonVar = canonicalSubVar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+              const escCanonVar = escapeRegex(canonicalSubVar);
               const regexCanonVar = new RegExp(escCanonVar, 'g');
               const occurrencesCanonVar = (substitutedSourceText.match(regexCanonVar) || []).length;
               if (occurrencesCanonVar > 0) {
@@ -1163,7 +1096,7 @@ import {
 import {
   alignChapter
 } from "../controllers/alignmentController.ts";
-import { ALLOWED_MODEL_IDS } from "../constants/models.ts";
+import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models.ts";
 
 const router = Router();
 
@@ -1189,6 +1122,14 @@ function validateModelMiddleware(req: Request, res: Response, next: NextFunction
 // nếu client không gửi apiKeys hợp lệ, trả lỗi 400 thay vì âm thầm dùng key server.
 function checkApiKeysFallback(req: Request, res: Response, next: NextFunction): void {
   const { apiKeys } = req.body;
+
+  if (Array.isArray(apiKeys) && apiKeys.length > MAX_API_KEYS_PER_REQUEST) {
+    res.status(400).json({
+      error: `Quá nhiều API key trong một yêu cầu (tối đa ${MAX_API_KEYS_PER_REQUEST}).`
+    });
+    return;
+  }
+
   const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k: string) => typeof k === 'string' && k.trim().length > 0);
 
   if (!hasValidKeys) {
@@ -1229,7 +1170,7 @@ export default router;
 ================================================================================
 
 import { GoogleGenAI } from "@google/genai";
-import { safeParseJson } from "../utils/text.ts";
+import { safeParseJson, redactApiKey } from "../utils/text.ts";
 import { DEFAULT_MODEL_ID } from "../constants/models.ts";
 
 const blacklistedKeys = new Map<string, number>();
@@ -1426,8 +1367,10 @@ export async function generateWithRotation(
           }
         }
       } catch (err: any) {
-        console.error(`[Rotation Error] Lỗi khóa ${i + 1}: ${err.message || err}`);
-        console.error(`[Rotation Error] Chi tiết:`, err?.cause ?? err);
+        const errMsg = String(err.message || err);
+        const errDetail = err?.cause ? String(err.cause.stack || err.cause.message || err.cause) : String(err.stack || err.message || err);
+        console.error(`[Rotation Error] Lỗi khóa ${i + 1}: ${redactApiKey(errMsg, keysToTry)}`);
+        console.error(`[Rotation Error] Chi tiết:`, redactApiKey(errDetail, keysToTry));
         lastError = err;
 
         // Nếu lỗi overload (503) đã hết retry → log rõ, KHÔNG blacklist key
@@ -1475,6 +1418,103 @@ export async function generateWithRotation(
 
 
 ================================================================================
+/// FILE: server/utils/glossaryPrompts.ts ///
+================================================================================
+
+import { Type } from "@google/genai";
+
+/**
+ * Trả về phần system instruction chung chứa các quy tắc xử lý tên phiên âm,
+ * danh từ chỉ loại tiếng Trung (Athena, Trà Abbacchio, v.v.).
+ */
+export function buildEntityExtractionInstruction(mode: 'checkLeftover' | 'analyze' | 'extract'): string {
+  if (mode === 'checkLeftover') {
+    return "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật hoặc địa danh là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục và đặt TÊN GỐC TIẾNG ANH vào trường 'vietnamese'.\n" +
+           "ĐẶC BIỆT LƯU Ý: Nếu thuật ngữ ngoại quốc có kèm theo danh từ phân loại hoặc đồ vật bằng tiếng Trung ở phía sau (ví dụ: 茶 - trà, 镇 - thị trấn, 河 - sông, 城/市 - thành phố, 🏛️ - điện/tháp...), bạn PHẢI dịch danh từ phân loại đó sang tiếng Việt và ĐẢO LÊN TRƯỚC tên gốc tiếng Anh (Ví dụ: 阿帕茶 phải dịch thành 'Trà Abbacchio' chứ KHÔNG ĐƯỢC để dạng tiếng Anh 'Abbacchio Tea').\n" +
+           "Chỉ dùng phiên âm Hán-Việt khi tên/thuật ngữ hoàn toàn gốc Trung Quốc.";
+  }
+  
+  if (mode === 'analyze') {
+    return "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật, địa danh trong văn bản là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIẾNG ANH trong trường 'vietnamese'. " +
+           "ĐẶC BIỆT LƯU Ý: Nếu từ ngữ gồm tên phiên âm ngoại quốc đi kèm hậu tố danh từ chỉ loại tiếng Trung (như - trà, 镇 - thị trấn, 河 - sông, 城 - thành), bạn phải dịch danh từ chỉ loại đó sang tiếng Việt và xếp lên trước tên gốc tiếng Anh (Ví dụ: 阿帕茶 dịch thành 'Trà Abbacchio' chứ KHÔNG ĐƯỢC để 'Abbacchio Tea'). " +
+           "Chỉ dùng phiên âm Hán-Việt khi tên/thuật ngữ là hoàn toàn gốc Trung Quốc không có tên tiếng Anh tương ứng. " +
+           "ĐẶC BIỆT QUAN TRỌNG về trường 'chinese': Bạn PHẢI copy CHÍNH XÁC ký tự Hán như chúng xuất hiện trong văn bản gốc được cung cấp. TUYỆT ĐỐI KHÔNG tự ý chuyển đổi giữa phồn thể (繁體字) và giản thể (簡體字). Nếu văn bản gốc viết '萬劍歸宗' thì trả về đúng '萬劍歸宗', không được đổi thành '万剑归宗' hay bất kỳ biến thể nào khác.";
+  }
+
+  // extract mode
+  return "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật hoặc địa danh là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIẾNG ANH trong trường 'vietnamese'. " +
+         "ĐẶC BIỆT LƯU Ý: Nếu tên ngoại quốc có danh từ phân loại/đồ vật đi kèm ở hậu tố tiếng Trung (ví dụ: 茶 - trà, 镇 - thị trấn, 城 - thành), hãy dịch danh từ đó sang tiếng Việt rồi đưa lên trước tên tiếng Anh (Ví dụ: 阿帕茶 -> 'Trà Abbacchio' chứ không phải 'Abbacchio Tea').\n" +
+         "Chỉ dùng phiên âm Hán-Việt khi tên/thuật ngữ là hoàn toàn gốc Trung Quốc.";
+}
+
+/**
+ * Trả về JSON schema chuẩn cho một entity chứa các trường chinese, pinyin, vietnamese, type, và note.
+ */
+export function buildEntitySchema(mode: 'checkLeftover' | 'analyze' | 'extract'): any {
+  if (mode === 'checkLeftover') {
+    return {
+      type: Type.OBJECT,
+      properties: {
+        chinese: { type: Type.STRING, description: "Từ chữ Trung bị sót" },
+        pinyin: { type: Type.STRING, description: "Phiên âm Hán-Việt chuẩn phù hợp" },
+        vietnamese: {
+          type: Type.STRING,
+          description: "Nếu là phiên âm từ tên tiếng Anh/phương Tây, dùng tên tiếng Anh gốc (ví dụ: 阿诗娜 -> 'Athena'). Nếu đi kèm danh từ chỉ loại, dịch từ chỉ loại đó lên trước tên gốc tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio' chứ không phải 'Abbacchio Tea'). Nếu là tên thuần Trung, dùng phiên âm Hán-Việt."
+        },
+        type: {
+          type: Type.STRING,
+          enum: ["character", "location", "term", "phrase", "other"],
+          description: "Kiểu đối tượng bị sót"
+        },
+        note: { type: Type.STRING, description: "Mô tả vai trò/ý nghĩa dự kiến của đối tượng theo văn cảnh" }
+      },
+      required: ["chinese", "pinyin", "vietnamese", "type", "note"]
+    };
+  }
+
+  if (mode === 'analyze') {
+    return {
+      type: Type.OBJECT,
+      properties: {
+        chinese: { type: Type.STRING, description: "Từ tiếng Trung gốc, ví dụ '萧炎' hoặc '乌坦城'" },
+        pinyin: { type: Type.STRING, description: "Phiên âm Hán Việt chuẩn, ví dụ 'Tiêu Viêm' hoặc 'Ô Thản Thành'" },
+        vietnamese: {
+          type: Type.STRING,
+          description: "Nếu là phiên âm từ tên ngoại quốc, dùng tên tiếng Anh gốc. Nếu có hậu tố danh từ chỉ loại, dịch từ chỉ loại lên đầu (ví dụ: 阿帕茶 -> 'Trà Abbacchio' thay vị 'Abbacchio Tea'). Nếu thuần Trung, dùng Hán-Việt mượt mà."
+        },
+        type: {
+          type: Type.STRING,
+          enum: ["character", "location", "term", "phrase", "other"],
+          description: "Phân loại: nhân vật (character), địa danh (location), thuật ngữ khác (term/phrase)"
+        },
+        note: { type: Type.STRING, description: "Mô tả ngắn, ví dụ: 'Nhân vật nam chính, tư chất phi phàm' hoặc 'Nơi sinh ra của Tiêu Viêm'" }
+      },
+      required: ["chinese", "pinyin", "vietnamese", "type", "note"]
+    };
+  }
+
+  // extract mode
+  return {
+    type: Type.OBJECT,
+    properties: {
+      chinese: { type: Type.STRING, description: "Từ tiếng Trung gốc" },
+      pinyin: { type: Type.STRING, description: "Phiên âm Hán-Việt chuẩn" },
+      vietnamese: {
+        type: Type.STRING,
+        description: "Tên tiếng Anh gốc cho từ phiên âm phương Tây, dịch hậu tố phân loại lên trước nếu có (ví dụ: 阿帕茶 -> 'Trà Abbacchio' chứ không phải 'Abbacchio Tea'). Nếu thuần Trung, dùng Hán-Việt."
+      },
+      type: {
+        type: Type.STRING,
+        enum: ["character", "location", "term", "phrase", "other"],
+      },
+      note: { type: Type.STRING, description: "Mô tả ngắn gọn vai trò/ý nghĩa" }
+    },
+    required: ["chinese", "pinyin", "vietnamese", "type", "note"]
+  };
+}
+
+
+================================================================================
 /// FILE: server/utils/parser.ts ///
 ================================================================================
 
@@ -1485,6 +1525,7 @@ export function parseGlossaryFromMd(text: string): Array<{
   type: string;
   note: string;
 }> {
+  if (!text) return [];
   const results: Array<{
     chinese: string;
     pinyin: string;
@@ -1549,7 +1590,349 @@ export function parseGlossaryFromMd(text: string): Array<{
 
 
 ================================================================================
-/// FILE: server/utils/sinoNormalize.ts ///
+/// FILE: server/utils/text.ts ///
+================================================================================
+
+export function getGenreStyleGuide(genre: string): string {
+  const g = (genre || "").trim();
+  if (g === "Tiên Hiệp" || g === "Võ Hiệp")
+    return "Thể loại Tiên Hiệp/Võ Hiệp: dùng từ phong vị cổ phong thanh cao, kiếm khí dạt dào, xưng hô ta-ngươi-huynh-muội, tiền bối-hậu bối.";
+  if (g === "Ngôn Tình")
+    return "Thể loại Ngôn Tình: uyển chuyển lắng đọng lãng mạn, chú trọng cảm xúc nội tâm, xưng hô chàng-nàng-anh-em tự nhiên.";
+  if (g === "Đô Thị")
+    return "Thể loại Đô Thị: tinh gọn thực tế hiện đại, từ ngữ đời thường dễ cảm, không dùng từ cổ phong.";
+  if (g === "Huyền Huyễn" )
+    return "Thể loại Huyền Huyễn: kết hợp yếu tố cổ phong và kỳ ảo, linh hoạt xưng hô theo ngữ cảnh, giữ không khí huyền bí.";
+  if (g === "Huyền Huyễn Phương Tây")
+    return "Thể loại Huyền Huyễn Phương Tây: phong cách fantasy Âu Mỹ, tên nhân vật/địa danh giữ nguyên tiếng Anh hoặc phiên âm, xưng hô tôi-bạn-ngài tự nhiên, không dùng từ Hán Việt cổ phong.";
+  if (g === "Vô Hạn Lưu")
+    return "Thể loại Vô Hạn Lưu: nhịp văn nhanh dồn dập, không khí căng thẳng sinh tồn, từ ngữ sắc bén rõ ràng, mô tả hành động chiến đấu chi tiết kịch tính.";
+  if (g === "Lịch Sử / Quân Sự")
+    return "Thể loại Lịch Sử/Quân Sự: văn phong trầm hùng, mang tính dã sử trang nghiêm; sử dụng từ ngữ chương hồi, xưng hô tôn kính hoàng triều/quân thần (bệ hạ, thần, vi thần, khanh, tướng quân, bản soái...).";
+  if (g === "Khoa Huyễn / Võng Du")
+    return "Thể loại Khoa Huyễn/Võng Du: phong cách hiện đại công nghệ cao kết hợp thế giới ảo; dùng thuật ngữ số hóa, robot, cơ giáp, hệ thống ảo, chỉ số sức mạnh cụ thể, xưng hô tôi-anh hoặc ta-ngươi tùy hoàn cảnh.";
+  if (g === "Linh Dị / Thần Quái")
+    return "Thể loại Linh Dị/Thần Quái: văn phong u ám huyền bí, kích thích sự tò mò rùng rợn; tập trung mô tả bối cảnh âm trầm, tâm lý hoang mang sợ hãi, các hiện tượng tâm linh kì bí.";
+  if (g === "Hệ Thống / Điền Văn")
+    return "Thể loại Hệ Thống/Điền Văn: văn phong nhẹ nhàng ấm áp, chậm rãi; mô tả cuộc sống làm ruộng sinh hoạt bình dị thường ngày xen lẫn các nhiệm vụ vui nhộn của hệ thống phụ tá.";
+  return `Thể loại ${g}: dịch tự nhiên phù hợp văn phong thể loại, ưu tiên từ ngữ thuần Việt dễ hiểu.`;
+}
+
+export function safeParseJson(text: string): any {
+  if (!text) return null;
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch (err) {
+    // Thử làm sạch các khối markdown code block nếu bị kẹp đầu đuôi
+    let cleaned = trimmed
+      .replace(/^```(?:json)?\s*/im, "")
+      .replace(/```\s*$/im, "")
+      .trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch (err2) {
+      // Tìm vị trí mở ngoặc nhọn hoặc vuông đầu tiên để cô lập JSON
+      const startIdx = trimmed.search(/[\{\[]/);
+      if (startIdx !== -1) {
+        const startChar = trimmed[startIdx];
+        const endChar = startChar === '{' ? '}' : ']';
+        let depth = 0;
+        let inString = false;
+        let escape = false;
+        let endIdx = -1;
+
+        for (let i = startIdx; i < trimmed.length; i++) {
+          const char = trimmed[i];
+          if (escape) { escape = false; continue; }
+          if (char === '\\') { escape = true; continue; }
+          if (char === '"') { inString = !inString; continue; }
+
+          if (!inString) {
+            if (char === startChar) depth++;
+            else if (char === endChar) {
+              depth--;
+              if (depth === 0) {
+                endIdx = i;
+                break;
+              }
+            }
+          }
+        }
+
+        if (endIdx !== -1) {
+          try {
+            const cleanJsonStr = trimmed.substring(startIdx, endIdx + 1);
+            return JSON.parse(cleanJsonStr);
+          } catch (err3) {
+            const regex = startChar === '{' ? /\{[\s\S]*\}/ : /\[[\s\S]*\]/;
+            const match = trimmed.match(regex);
+            if (match) {
+              return JSON.parse(match[0]);
+            }
+          }
+        }
+      }
+      throw err2;
+    }
+  }
+}
+
+// Định vị điểm phân tách văn bản an toàn không làm đứt câu
+export function findSplitPoint(text: string): number {
+  const mid = Math.floor(text.length / 2);
+  const searchRange = Math.floor(text.length * 0.3);
+  let bestIdx = -1;
+  let minDiff = Infinity;
+  for (let i = mid - searchRange; i <= mid + searchRange; i++) {
+    if (i < 0 || i >= text.length) continue;
+    if (text[i] === '\n') {
+      const diff = Math.abs(i - mid);
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestIdx = i;
+      }
+    }
+  }
+
+  if (bestIdx === -1) {
+    minDiff = Infinity;
+    for (let i = mid - searchRange; i <= mid + searchRange; i++) {
+      if (i < 0 || i >= text.length) continue;
+      if (text[i] === '.' || text[i] === '。' || text[i] === '?' || text[i] === '？' || text[i] === '!' || text[i] === '！') {
+        const diff = Math.abs(i - mid);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestIdx = i + 1;
+        }
+      }
+    }
+  }
+
+  if (bestIdx === -1) {
+    minDiff = Infinity;
+    for (let i = mid - searchRange; i <= mid + searchRange; i++) {
+      if (i < 0 || i >= text.length) continue;
+      if (text[i] === ' ' || text[i] === '\t') {
+        const diff = Math.abs(i - mid);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestIdx = i;
+        }
+      }
+    }
+  }
+
+  return bestIdx !== -1 ? bestIdx : mid;
+}
+
+export function escapeRegex(str: string): string {
+  return str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+}
+
+export function redactApiKey(message: string, keys: string[]): string {
+  if (!message || !Array.isArray(keys)) return message;
+  let result = message;
+  for (const key of keys) {
+    if (key && key.trim().length > 5) {
+      result = result.split(key).join('***REDACTED***');
+    }
+  }
+  return result;
+}
+
+
+================================================================================
+/// FILE: server/utils/__tests__/parser.test.ts ///
+================================================================================
+
+import { describe, it, expect } from 'vitest';
+import { parseGlossaryFromMd } from '../parser';
+
+describe('parser utils', () => {
+  describe('parseGlossaryFromMd', () => {
+    it('should parse markdown tables correctly', () => {
+      const md = `
+| 萧炎 | Tiêu Viêm | Tiêu Viêm | Nhân vật chính |
+| 乌坦城 | Ô Thản Thành | Ô Thản Thành | Thành phố |
+`;
+      const parsed = parseGlossaryFromMd(md);
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0]).toEqual({
+        chinese: '萧炎',
+        pinyin: 'Tiêu Viêm',
+        vietnamese: 'Tiêu Viêm',
+        type: 'term', // default type since no header was encountered
+        note: 'Nhân vật chính'
+      });
+      expect(parsed[1].chinese).toBe('乌坦城');
+    });
+
+    it('should parse markdown arrow lists correctly', () => {
+      const md = `
+- 熏儿 -> Huân Nhi (Bạn gái nam chính)
+- 雅妃 -> Nhã Phi
+`;
+      const parsed = parseGlossaryFromMd(md);
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0]).toEqual({
+        chinese: '熏儿',
+        pinyin: '',
+        vietnamese: 'Huân Nhi (Bạn gái nam chính)',
+        type: 'term',
+        note: 'Bạn gái nam chính'
+      });
+      expect(parsed[1]).toEqual({
+        chinese: '雅妃',
+        pinyin: '',
+        vietnamese: 'Nhã Phi',
+        type: 'term',
+        note: ''
+      });
+    });
+
+    it('should switch entity types when encountering type section headings', () => {
+      const md = `
+# NHÂN VẬT (Characters)
+| 萧炎 | Tiêu Viêm | Tiêu Viêm | Main |
+
+# ĐỊA DANH (Locations)
+| 乌坦城 | Ô Thản Thành | Ô Thản Thành | City |
+`;
+      const parsed = parseGlossaryFromMd(md);
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0].type).toBe('character');
+      expect(parsed[1].type).toBe('location');
+    });
+
+    it('should handle empty input gracefully', () => {
+      expect(parseGlossaryFromMd('')).toEqual([]);
+      expect(parseGlossaryFromMd(null as any)).toEqual([]);
+    });
+
+    it('should ignore non-chinese terms in table/list', () => {
+      const md = `
+| English | pinyin | vietnamese | note |
+- Hello -> Xin chào
+`;
+      expect(parseGlossaryFromMd(md)).toEqual([]);
+    });
+  });
+});
+
+
+================================================================================
+/// FILE: server/utils/__tests__/text.test.ts ///
+================================================================================
+
+import { describe, it, expect } from 'vitest';
+import { safeParseJson, findSplitPoint, escapeRegex, getGenreStyleGuide } from '../text';
+
+describe('text utils', () => {
+  describe('safeParseJson', () => {
+    it('should parse valid JSON', () => {
+      expect(safeParseJson('{"name": "test", "value": 123}')).toEqual({ name: 'test', value: 123 });
+    });
+
+    it('should parse JSON wrapped in markdown block', () => {
+      expect(safeParseJson('```json\n{"foo": "bar"}\n```')).toEqual({ foo: 'bar' });
+    });
+
+    it('should isolate and parse JSON embedded in text', () => {
+      expect(safeParseJson('Here is some text {"key": "val"} and more text')).toEqual({ key: 'val' });
+    });
+
+    it('should return null for empty or falsy input', () => {
+      expect(safeParseJson('')).toBeNull();
+      expect(safeParseJson(null as any)).toBeNull();
+    });
+
+    it('should throw error when no JSON structure can be recovered', () => {
+      expect(() => safeParseJson('no json here')).toThrow();
+    });
+  });
+
+  describe('findSplitPoint', () => {
+    it('should split on newline if present near midpoint', () => {
+      const text = 'line one\nline two\nline three';
+      // Midpoint of text is around index 15
+      const splitPoint = findSplitPoint(text);
+      expect(text[splitPoint]).toBe('\n');
+    });
+
+    it('should split on sentence delimiter if no newline is available', () => {
+      const text = 'First sentence. Second sentence. Third sentence.';
+      const splitPoint = findSplitPoint(text);
+      expect(splitPoint).toBeGreaterThan(0);
+      expect(['.', '?', '!']).toContain(text[splitPoint - 1]);
+    });
+
+    it('should split at midpoint if no newline or sentence delimiters are found', () => {
+      const text = 'abcdefghijklmnopqrstuvwxyz';
+      const splitPoint = findSplitPoint(text);
+      expect(splitPoint).toBe(13); // exactly half
+    });
+  });
+
+  describe('escapeRegex', () => {
+    it('should escape all regex special characters', () => {
+      const special = '-\\^$*+?.()|[]{}';
+      const escaped = escapeRegex(special);
+      expect(escaped).toBe('-\\^$*+?.()|[]{}');
+    });
+
+    it('should leave normal strings unchanged', () => {
+      expect(escapeRegex('hello123_')).toBe('hello123_');
+    });
+
+    it('should handle empty strings', () => {
+      expect(escapeRegex('')).toBe('');
+    });
+  });
+
+  describe('getGenreStyleGuide', () => {
+    it('should return correct style guide for Tiên Hiệp', () => {
+      expect(getGenreStyleGuide('Tiên Hiệp')).toContain('ta-ngươi-huynh-muội');
+    });
+
+    it('should return correct style guide for Ngôn Tình', () => {
+      expect(getGenreStyleGuide('Ngôn Tình')).toContain('chàng-nàng');
+    });
+
+    it('should return correct style guide for Đô Thị', () => {
+      expect(getGenreStyleGuide('Đô Thị')).toContain('không dùng từ cổ phong');
+    });
+
+    it('should return fallback guide for unrecognized genre', () => {
+      expect(getGenreStyleGuide('Khác')).toContain('dịch tự nhiên phù hợp');
+    });
+  });
+});
+
+
+================================================================================
+/// FILE: shared/models.ts ///
+================================================================================
+
+export interface ModelDef { id: string; label: string }
+
+export const AVAILABLE_MODELS: ModelDef[] = [
+  { id: 'gemini-2.5-flash',       label: 'Gemini 2.5 Flash (Khuyên dùng)' },
+  { id: 'gemini-2.5-pro',         label: 'Gemini 2.5 Pro (Mạnh nhất)' },
+  { id: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash' },
+  { id: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (Nhanh / Rẻ)' },
+  { id: 'gemma-4-31b-it',         label: 'Gemma 4 31B IT (Local)' },
+];
+
+export const ALLOWED_MODEL_IDS: string[] = AVAILABLE_MODELS.map(m => m.id);
+
+export const DEFAULT_MODEL_ID = 'gemini-3.1-flash-lite';
+
+export const MAX_API_KEYS_PER_REQUEST = 20;
+
+
+================================================================================
+/// FILE: shared/sinoNormalize.ts ///
 ================================================================================
 
 import * as OpenCC from 'opencc-js';
@@ -1750,141 +2133,175 @@ export function findFuzzyCandidates(haystack: string, needle: string, topN = 3):
 }
 
 
-
 ================================================================================
-/// FILE: server/utils/text.ts ///
+/// FILE: shared/__tests__/sinoNormalize.test.ts ///
 ================================================================================
 
-export function getGenreStyleGuide(genre: string): string {
-  const g = (genre || "").trim();
-  if (g === "Tiên Hiệp" || g === "Võ Hiệp")
-    return "Thể loại Tiên Hiệp/Võ Hiệp: dùng từ phong vị cổ phong thanh cao, kiếm khí dạt dào, xưng hô ta-ngươi-huynh-muội, tiền bối-hậu bối.";
-  if (g === "Ngôn Tình")
-    return "Thể loại Ngôn Tình: uyển chuyển lắng đọng lãng mạn, chú trọng cảm xúc nội tâm, xưng hô chàng-nàng-anh-em tự nhiên.";
-  if (g === "Đô Thị")
-    return "Thể loại Đô Thị: tinh gọn thực tế hiện đại, từ ngữ đời thường dễ cảm, không dùng từ cổ phong.";
-  if (g === "Huyền Huyễn" )
-    return "Thể loại Huyền Huyễn: kết hợp yếu tố cổ phong và kỳ ảo, linh hoạt xưng hô theo ngữ cảnh, giữ không khí huyền bí.";
-  if (g === "Huyền Huyễn Phương Tây")
-    return "Thể loại Huyền Huyễn Phương Tây: phong cách fantasy Âu Mỹ, tên nhân vật/địa danh giữ nguyên tiếng Anh hoặc phiên âm, xưng hô tôi-bạn-ngài tự nhiên, không dùng từ Hán Việt cổ phong.";
-  if (g === "Vô Hạn Lưu")
-    return "Thể loại Vô Hạn Lưu: nhịp văn nhanh dồn dập, không khí căng thẳng sinh tồn, từ ngữ sắc bén rõ ràng, mô tả hành động chiến đấu chi tiết kịch tính.";
-  if (g === "Lịch Sử / Quân Sự")
-    return "Thể loại Lịch Sử/Quân Sự: văn phong trầm hùng, mang tính dã sử trang nghiêm; sử dụng từ ngữ chương hồi, xưng hô tôn kính hoàng triều/quân thần (bệ hạ, thần, vi thần, khanh, tướng quân, bản soái...).";
-  if (g === "Khoa Huyễn / Võng Du")
-    return "Thể loại Khoa Huyễn/Võng Du: phong cách hiện đại công nghệ cao kết hợp thế giới ảo; dùng thuật ngữ số hóa, robot, cơ giáp, hệ thống ảo, chỉ số sức mạnh cụ thể, xưng hô tôi-anh hoặc ta-ngươi tùy hoàn cảnh.";
-  if (g === "Linh Dị / Thần Quái")
-    return "Thể loại Linh Dị/Thần Quái: văn phong u ám huyền bí, kích thích sự tò mò rùng rợn; tập trung mô tả bối cảnh âm trầm, tâm lý hoang mang sợ hãi, các hiện tượng tâm linh kì bí.";
-  if (g === "Hệ Thống / Điền Văn")
-    return "Thể loại Hệ Thống/Điền Văn: văn phong nhẹ nhàng ấm áp, chậm rãi; mô tả cuộc sống làm ruộng sinh hoạt bình dị thường ngày xen lẫn các nhiệm vụ vui nhộn của hệ thống phụ tá.";
-  return `Thể loại ${g}: dịch tự nhiên phù hợp văn phong thể loại, ưu tiên từ ngữ thuần Việt dễ hiểu.`;
-}
+import { describe, it, expect } from 'vitest';
+import {
+  canonicalizeHan,
+  isHanEquivalent,
+  findCanonicalSubstring,
+  validateAndSnapBackEntities,
+  findFuzzyCandidates
+} from '../sinoNormalize';
 
-export function safeParseJson(text: string): any {
-  if (!text) return null;
-  const trimmed = text.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch (err) {
-    // Thử làm sạch các khối markdown code block nếu bị kẹp đầu đuôi
-    let cleaned = trimmed
-      .replace(/^```(?:json)?\s*/im, "")
-      .replace(/```\s*$/im, "")
-      .trim();
-    try {
-      return JSON.parse(cleaned);
-    } catch (err2) {
-      // Tìm vị trí mở ngoặc nhọn hoặc vuông đầu tiên để cô lập JSON
-      const startIdx = trimmed.search(/[\{\[]/);
-      if (startIdx !== -1) {
-        const startChar = trimmed[startIdx];
-        const endChar = startChar === '{' ? '}' : ']';
-        let depth = 0;
-        let inString = false;
-        let escape = false;
-        let endIdx = -1;
+describe('sinoNormalize shared utils', () => {
+  describe('canonicalizeHan', () => {
+    it('should convert Traditional Chinese characters to Simplified', () => {
+      expect(canonicalizeHan('萬劍歸宗')).toBe('万剑归宗');
+      expect(canonicalizeHan('蕭炎')).toBe('萧炎');
+    });
 
-        for (let i = startIdx; i < trimmed.length; i++) {
-          const char = trimmed[i];
-          if (escape) { escape = false; continue; }
-          if (char === '\\') { escape = true; continue; }
-          if (char === '"') { inString = !inString; continue; }
+    it('should convert a single Traditional Chinese character to Simplified', () => {
+      expect(canonicalizeHan('萬')).toBe('万');
+    });
 
-          if (!inString) {
-            if (char === startChar) depth++;
-            else if (char === endChar) {
-              depth--;
-              if (depth === 0) {
-                endIdx = i;
-                break;
-              }
-            }
-          }
-        }
+    it('should leave already simplified characters unchanged (idempotent)', () => {
+      expect(canonicalizeHan('万剑归宗')).toBe('万剑归宗');
+      expect(canonicalizeHan(canonicalizeHan('萬劍歸宗'))).toBe('万剑归宗');
+    });
 
-        if (endIdx !== -1) {
-          try {
-            const cleanJsonStr = trimmed.substring(startIdx, endIdx + 1);
-            return JSON.parse(cleanJsonStr);
-          } catch (err3) {
-            const regex = startChar === '{' ? /\{[\s\S]*\}/ : /\[[\s\S]*\]/;
-            const match = trimmed.match(regex);
-            if (match) {
-              return JSON.parse(match[0]);
-            }
-          }
-        }
-      }
-      throw err2;
-    }
-  }
-}
+    it('should leave non-Chinese text unchanged', () => {
+      expect(canonicalizeHan('hello 123')).toBe('hello 123');
+    });
 
-// Định vị điểm phân tách văn bản an toàn không làm đứt câu
-export function findSplitPoint(text: string): number {
-  const mid = Math.floor(text.length / 2);
-  const searchRange = Math.floor(text.length * 0.3);
-  let bestIdx = -1;
-  let minDiff = Infinity;
-  for (let i = mid - searchRange; i <= mid + searchRange; i++) {
-    if (i < 0 || i >= text.length) continue;
-    if (text[i] === '\n') {
-      const diff = Math.abs(i - mid);
-      if (diff < minDiff) {
-        minDiff = diff;
-        bestIdx = i;
-      }
-    }
-  }
+    it('should preserve non-Chinese characters in mixed string', () => {
+      expect(canonicalizeHan('萬劍歸宗 123! hello')).toBe('万剑归宗 123! hello');
+    });
 
-  if (bestIdx === -1) {
-    minDiff = Infinity;
-    for (let i = mid - searchRange; i <= mid + searchRange; i++) {
-      if (i < 0 || i >= text.length) continue;
-      if (text[i] === '.' || text[i] === '。' || text[i] === '?' || text[i] === '？' || text[i] === '!' || text[i] === '！') {
-        const diff = Math.abs(i - mid);
-        if (diff < minDiff) {
-          minDiff = diff;
-          bestIdx = i + 1;
-        }
-      }
-    }
-  }
+    it('should handle empty/null inputs', () => {
+      expect(canonicalizeHan('')).toBe('');
+      expect(canonicalizeHan(null as any)).toBe('');
+    });
+  });
 
-  if (bestIdx === -1) {
-    minDiff = Infinity;
-    for (let i = mid - searchRange; i <= mid + searchRange; i++) {
-      if (i < 0 || i >= text.length) continue;
-      if (text[i] === ' ' || text[i] === '\t') {
-        const diff = Math.abs(i - mid);
-        if (diff < minDiff) {
-          minDiff = diff;
-          bestIdx = i;
-        }
-      }
-    }
-  }
+  describe('isHanEquivalent', () => {
+    it('should return true for identical strings', () => {
+      expect(isHanEquivalent('萧炎', '萧炎')).toBe(true);
+    });
 
-  return bestIdx !== -1 ? bestIdx : mid;
-}
+    it('should match Traditional and Simplified representations of the same content', () => {
+      expect(isHanEquivalent('萬', '万')).toBe(true);
+      expect(isHanEquivalent(' 萬劍歸宗 ', '万剑归宗')).toBe(true);
+    });
+
+    it('should return false for different words', () => {
+      expect(isHanEquivalent('萧炎', '林动')).toBe(false);
+    });
+
+    it('should return false for empty or different length inputs', () => {
+      expect(isHanEquivalent('', '万')).toBe(false);
+      expect(isHanEquivalent('万', '')).toBe(false);
+      expect(isHanEquivalent('万', '万剑')).toBe(false);
+    });
+  });
+
+  describe('findCanonicalSubstring', () => {
+    it('should find substring when haystack and needle use the same style', () => {
+      expect(findCanonicalSubstring('Đây là 萧炎 trong truyện', '萧炎')).toBe('萧炎');
+      expect(findCanonicalSubstring('Đây là 蕭炎 trong truyện', '蕭炎')).toBe('蕭炎');
+    });
+
+    it('should find substring when haystack and needle use different styles', () => {
+      // haystack traditional, needle simplified
+      expect(findCanonicalSubstring('Đây là 蕭炎 trong truyện', '萧炎')).toBe('蕭炎');
+      // haystack simplified, needle traditional
+      expect(findCanonicalSubstring('Đây là 萧炎 trong truyện', '蕭炎')).toBe('萧炎');
+    });
+
+    it('should return null if no equivalent match exists', () => {
+      expect(findCanonicalSubstring('Đây là 萧炎 trong truyện', '九阳神功')).toBeNull();
+    });
+
+    it('should handle empty or null values', () => {
+      expect(findCanonicalSubstring('', '万')).toBeNull();
+      expect(findCanonicalSubstring('万', '')).toBeNull();
+      expect(findCanonicalSubstring(null as any, '万')).toBeNull();
+      expect(findCanonicalSubstring('万', null as any)).toBeNull();
+    });
+  });
+
+  describe('validateAndSnapBackEntities', () => {
+    it('should keep entity unchanged if exact match exists in raw source', () => {
+      const entities = [{ chinese: '萧炎', pinyin: 'Tiêu Viêm' }];
+      const result = validateAndSnapBackEntities(entities, 'Đây là 萧炎 trong truyện.');
+      expect(result[0].chinese).toBe('萧炎');
+      expect(result[0].needsReview).toBeUndefined();
+    });
+
+    it('should snap back entity to raw source style if canonical match exists', () => {
+      const entities = [{ chinese: '萧炎', pinyin: 'Tiêu Viêm' }];
+      // Raw source uses traditional '蕭炎'
+      const result = validateAndSnapBackEntities(entities, 'Đây là 蕭炎 trong truyện.');
+      expect(result[0].chinese).toBe('蕭炎');
+      expect(result[0].needsReview).toBeUndefined();
+    });
+
+    it('should snap back entity to raw source style if entity is traditional and source is simplified', () => {
+      const entities = [{ chinese: '蕭炎', pinyin: 'Tiêu Viêm' }];
+      // Raw source uses simplified '萧炎'
+      const result = validateAndSnapBackEntities(entities, 'Đây là 萧炎 trong truyện.');
+      expect(result[0].chinese).toBe('萧炎');
+      expect(result[0].needsReview).toBeUndefined();
+    });
+
+    it('should set needsReview if entity not present in raw source', () => {
+      const entities = [{ chinese: '林动', pinyin: 'Lâm Động' }];
+      const result = validateAndSnapBackEntities(entities, 'Đây là 萧炎 trong truyện.');
+      expect(result[0].needsReview).toBe(true);
+    });
+
+    it('should return empty list if entities is empty', () => {
+      expect(validateAndSnapBackEntities([], 'text')).toEqual([]);
+    });
+
+    it('should handle empty or null rawText gracefully by returning input entities or marked', () => {
+      const entities = [{ chinese: '萧炎', pinyin: 'Tiêu Viêm' }];
+      expect(validateAndSnapBackEntities(entities, '')).toEqual(entities);
+      expect(validateAndSnapBackEntities(entities, null as any)).toEqual(entities);
+    });
+  });
+
+  describe('findFuzzyCandidates', () => {
+    it('should place exact match as the first candidate with 100% similarity', () => {
+      const haystack = 'Hôm nay 萧炎 đấu với 纳兰嫣然 ở 乌坦城.';
+      const candidates = findFuzzyCandidates(haystack, '萧炎');
+      expect(candidates.length).toBeGreaterThan(0);
+      expect(candidates[0].text).toBe('萧炎');
+      expect(candidates[0].similarity).toBe(100);
+      expect(candidates[0].index).toBe(8); // Start index of '萧炎' in haystack
+    });
+
+    it('should find partial bigram matches when not exact', () => {
+      const haystack = '萬劍歸宗, 萬劍, 歸宗';
+      const candidates = findFuzzyCandidates(haystack, '万剑归宗');
+      expect(candidates.length).toBeGreaterThan(0);
+      expect(candidates.some(c => c.text === '萬劍歸宗')).toBe(true);
+    });
+
+    it('should respect topN limit', () => {
+      const haystack = '萬劍歸宗, 萬劍, 歸宗';
+      const candidates = findFuzzyCandidates(haystack, '万剑', 1);
+      expect(candidates.length).toBe(1);
+    });
+
+    it('should return empty list on empty inputs', () => {
+      expect(findFuzzyCandidates('', '萧炎')).toEqual([]);
+      expect(findFuzzyCandidates('萧炎', '')).toEqual([]);
+      expect(findFuzzyCandidates(null as any, '萧炎')).toEqual([]);
+      expect(findFuzzyCandidates('萧炎', null as any)).toEqual([]);
+    });
+
+    it('should handle very large haystack inputs without hanging', () => {
+      // Create a 60,000 character string
+      const largeHaystack = '萧炎 '.repeat(15000);
+      const start = Date.now();
+      const candidates = findFuzzyCandidates(largeHaystack, '萧炎', 3);
+      const duration = Date.now() - start;
+      expect(duration).toBeLessThan(1000); // Should run fast (under 1s)
+      expect(candidates.length).toBeGreaterThan(0);
+    });
+  });
+});
 
