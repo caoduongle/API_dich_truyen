@@ -18,6 +18,7 @@ interface DriveProgressWidgetProps {
     onStop: () => void;
     onResume: () => void;
     onSaveBackup: () => void;
+    concurrency?: number;
 }
 
 export function DriveProgressWidget({
@@ -37,6 +38,7 @@ export function DriveProgressWidget({
                                         onStop,
                                         onResume,
                                         onSaveBackup,
+                                        concurrency = 1,
                                     }: DriveProgressWidgetProps) {
     if (!isVisible) return null;
 
@@ -59,7 +61,9 @@ export function DriveProgressWidget({
                     )}
                     <span className="truncate">
             {isProcessing
-                ? `Đang dịch sỉ: ${processedCount}/${totalQueueLength} chương`
+                ? concurrency > 1
+                    ? `Đang dịch sỉ: ${processedCount}/${totalQueueLength} chương (${concurrency} luồng)`
+                    : `Đang dịch sỉ: ${processedCount}/${totalQueueLength} chương`
                 : `Đã tạm dừng: ${processedCount}/${totalQueueLength} chương`}
           </span>
                 </div>

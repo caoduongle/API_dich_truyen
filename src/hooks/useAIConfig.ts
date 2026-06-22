@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { useNotifications } from '../components/NotificationSystem';
+import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
 
 export function useAIConfig() {
+    const { showToast } = useNotifications();
     const [apiKeys, setApiKeys] = useState<string[]>(() => {
         const stored = localStorage.getItem('gemini_api_keys');
         if (stored) {
@@ -13,56 +16,72 @@ export function useAIConfig() {
     });
 
     const [selectedModel, setSelectedModel] = useState<string>(() => {
-        return localStorage.getItem('gemini_selected_model') || 'gemini-3.5-flash';
+        const stored = localStorage.getItem('gemini_selected_model');
+        // Nếu giá trị đã lưu không nằm trong danh sách model hợp lệ
+        // (ví dụ: giá trị cũ 'gemini-3.5-flash' đã bị loại bỏ), tự động
+        // fallback về DEFAULT_MODEL_ID để tránh lệch dropdown.
+        if (stored && AVAILABLE_MODELS.some(m => m.id === stored)) {
+            return stored;
+        }
+        return DEFAULT_MODEL_ID;
     });
+
 
     const [showApiSettings, setShowApiSettings] = useState(false);
 
-    const handleSaveModel = (model: string) => {
+    const handleSaveModel = useCallback((model: string) => {
         setSelectedModel(model);
         localStorage.setItem('gemini_selected_model', model);
-    };
+    }, []);
 
-    const handleAddApiKey = () => {
-        const updated = [...apiKeys, ''];
-        setApiKeys(updated);
-        localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-    };
+    const handleAddApiKey = useCallback(() => {
+        setApiKeys(prev => {
+            const updated = [...prev, ''];
+            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
+            return updated;
+        });
+    }, []);
 
-    const handleUpdateKeyIndex = (index: number, val: string) => {
-        const updated = [...apiKeys];
-        updated[index] = val;
-        setApiKeys(updated);
-        localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-    };
+    const handleUpdateKeyIndex = useCallback((index: number, val: string) => {
+        setApiKeys(prev => {
+            const updated = [...prev];
+            updated[index] = val;
+            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
+            return updated;
+        });
+    }, []);
 
-    const handleDeleteKeyIndex = (index: number) => {
-        const updated = apiKeys.filter((_, idx) => idx !== index);
-        setApiKeys(updated);
-        localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-    };
+    const handleDeleteKeyIndex = useCallback((index: number) => {
+        setApiKeys(prev => {
+            const updated = prev.filter((_, idx) => idx !== index);
+            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
+            return updated;
+        });
+    }, []);
 
-    const handleImportClipboardKeys = async () => {
+    const handleImportClipboardKeys = useCallback(async () => {
         try {
             const text = await navigator.clipboard.readText();
             if (!text) return;
             const keys = text
                 .split(/[\n,;]+/)
                 .map(k => k.trim())
-                .filter(k => k.length > 5);
+                .filter(k => k.length > 5 && k.startsWith('AIza'));
             if (keys.length > 0) {
-                const updated = [...apiKeys, ...keys];
-                const uniqueKeys = Array.from(new Set(updated));
-                setApiKeys(uniqueKeys);
-                localStorage.setItem('gemini_api_keys', JSON.stringify(uniqueKeys));
-                alert(`Đã nhận diện thành công và nhập sỉ ${keys.length} API Keys!`);
+                setApiKeys(prev => {
+                    const updated = [...prev, ...keys];
+                    const uniqueKeys = Array.from(new Set(updated));
+                    localStorage.setItem('gemini_api_keys', JSON.stringify(uniqueKeys));
+                    return uniqueKeys;
+                });
+                showToast({ message: `Đã nhận diện thành công và nhập sỉ ${keys.length} API Keys!`, type: 'success' });
             } else {
-                alert("Không tìm thấy dòng khóa hợp lệ trong clipboard.");
+                showToast({ message: "Không tìm thấy dòng khóa hợp lệ (phải bắt đầu bằng AIza) trong clipboard.", type: 'warning' });
             }
         } catch (_) {
-            alert("Lỗi truy xuất bộ nhớ Clipboard của trình duyệt. Bạn có thể tự dán thủ công.");
+            showToast({ message: "Lỗi truy xuất bộ nhớ Clipboard của trình duyệt. Bạn có thể tự dán thủ công.", type: 'error' });
         }
-    };
+    }, []);
 
     return {
         apiKeys,

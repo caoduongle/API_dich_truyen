@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { StoryProject, GlossaryItem, PendingGlossaryItem } from '../types';
-import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB } from '../services/db';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
+import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB, saveChapterToDB, deleteChapterFromDB, getChapterFromDB, getChaptersByProjectFromDB, deleteChaptersByProjectFromDB, saveChaptersToDB } from '../services/db';
+import { useNotifications } from '../components/NotificationSystem';
+import { isHanEquivalent } from '@shared/sinoNormalize';
 
-const DEFAULT_PROJECTS: StoryProject[] = [
+const DEFAULT_PROJECTS: any[] = [
     {
         id: 'proj_dau_pha',
         title: 'Đấu Phá Thương Khung (Đại Lục Đấu Khí)',
@@ -37,10 +39,29 @@ const DEFAULT_PROJECTS: StoryProject[] = [
     }
 ];
 
+function normalizeProject(project: any): StoryProject {
+    return {
+        ...project,
+        chapters: (project.chapters || []).map((c: any) => {
+            if ('sourceText' in c) {
+                return {
+                    id: c.id,
+                    title: c.title,
+                    status: c.status || 'not_started',
+                    createdAt: c.createdAt,
+                    updatedAt: c.updatedAt
+                };
+            }
+            return c;
+        })
+    };
+}
+
 export function useProjects() {
     const [projects, setProjects] = useState<StoryProject[]>([]);
     const [activeProjectId, setActiveProjectId] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(true);
+    const { showToast } = useNotifications();
 
     useEffect(() => {
         async function loadData() {
@@ -52,66 +73,129 @@ export function useProjects() {
                 for (const p of DEFAULT_PROJECTS) {
                     await saveProjectToDB(p);
                 }
-                setProjects(DEFAULT_PROJECTS);
-                setActiveProjectId(DEFAULT_PROJECTS[0].id);
+                const normalized = DEFAULT_PROJECTS.map(normalizeProject);
+                setProjects(normalized);
+                setActiveProjectId(normalized[0].id);
             }
             setIsLoading(false);
         }
         loadData();
     }, []);
 
-    const getActiveProject = (): StoryProject | undefined => {
+    const activeProject = useMemo(() => {
         return projects.find(p => p.id === activeProjectId);
-    };
+    }, [projects, activeProjectId]);
 
-    const handleUpdateProject = async (updatedProj: StoryProject) => {
-        setProjects(prev => prev.map(p => p.id === updatedProj.id ? updatedProj : p));
+    const handleUpdateProject = useCallback(async (updatedProj: StoryProject) => {
         await saveProjectToDB(updatedProj);
-    };
 
-    const handleSelectProject = (id: string) => {
+        const normalizedProj: StoryProject = {
+            ...updatedProj,
+            chapters: updatedProj.chapters.map(c => {
+                if ('sourceText' in c) {
+                    return {
+                        id: c.id,
+                        title: c.title,
+                        status: c.status || 'not_started',
+                        createdAt: c.createdAt,
+                        updatedAt: c.updatedAt
+                    };
+                }
+                return c as ChapterMetadata;
+            })
+        };
+
+        setProjects(prev => prev.map(p => p.id === normalizedProj.id ? normalizedProj : p));
+    }, []);
+
+    const handleSelectProject = useCallback((id: string) => {
         setActiveProjectId(id);
-    };
+    }, []);
 
-    const handleDeleteProject = async (id: string) => {
-        const remaining = projects.filter(p => p.id !== id);
+    const handleDeleteProject = useCallback(async (id: string) => {
+        const project = projects.find(p => p.id === id);
+        if (!project) return;
+
+        // 1. Load full chapter bodies for backup before deleting
+        const backedUpChapters = await getChaptersByProjectFromDB(id);
+
+        // 2. Perform DB deletion atomically (deletes project and its chapters)
         await deleteProjectFromDB(id);
 
-        if (remaining.length > 0) {
-            setProjects(remaining);
-            setActiveProjectId(remaining[0].id);
-        } else {
-            for (const p of DEFAULT_PROJECTS) {
-                await saveProjectToDB(p);
-            }
-            setProjects(DEFAULT_PROJECTS);
-            setActiveProjectId(DEFAULT_PROJECTS[0].id);
-        }
-    };
+        const oldProjects = [...projects];
 
-    const handleCreateProject = async (newProjData: Omit<StoryProject, 'id' | 'createdAt'>) => {
+        setProjects(prev => {
+            const remaining = prev.filter(p => p.id !== id);
+            if (remaining.length > 0) {
+                setActiveProjectId(remaining[0].id);
+                return remaining;
+            }
+            return remaining; // Avoid regenerating defaults if not needed
+        });
+
+        // 3. Show undoable toast
+        showToast({
+            message: `Đã xóa dự án "${project.title}" vĩnh viễn khỏi bộ nhớ.`,
+            type: 'info',
+            onUndo: async () => {
+                // Restore in IndexedDB
+                await saveProjectToDB(project);
+                await saveChaptersToDB(backedUpChapters);
+                // Restore in React state
+                setProjects(oldProjects);
+                setActiveProjectId(project.id);
+                showToast({
+                    message: `Đã khôi phục thành công dự án "${project.title}".`,
+                    type: 'success'
+                });
+            }
+        });
+    }, [projects, showToast]);
+
+    const handleCreateProject = useCallback(async (newProjData: Omit<StoryProject, 'id' | 'createdAt'>) => {
+        const id = 'proj_' + Date.now();
         const newProj: StoryProject = {
             ...newProjData,
-            id: 'proj_' + Date.now(),
+            id,
             glossary: newProjData.glossary || [],
             chapters: newProjData.chapters || [],
             createdAt: new Date().toISOString()
         };
-        setProjects(prev => [newProj, ...prev]);
-        setActiveProjectId(newProj.id);
         await saveProjectToDB(newProj);
-    };
 
-    const handleAddGlossaryItem = (newItem: Omit<GlossaryItem, 'id'>) => {
-        const activeP = getActiveProject();
-        if (!activeP) return;
+        const normalizedProj: StoryProject = {
+            ...newProj,
+            chapters: newProj.chapters.map(c => {
+                if ('sourceText' in c) {
+                    return {
+                        id: c.id,
+                        title: c.title,
+                        status: c.status || 'not_started',
+                        createdAt: c.createdAt,
+                        updatedAt: c.updatedAt
+                    };
+                }
+                return c as ChapterMetadata;
+            })
+        };
 
-        const cleanChinese = (newItem.chinese || '').replace(/\s+/g, '').trim();
+        setProjects(prev => [normalizedProj, ...prev]);
+        setActiveProjectId(id);
+    }, []);
+
+    const handleAddGlossaryItem = useCallback(async (newItem: Omit<GlossaryItem, 'id'>, force = false) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
+
         const cleanVietnamese = (newItem.vietnamese || '').trim().toLowerCase();
-        const alreadyExists = activeP.glossary.some(
-            (g) =>
-                g.chinese.replace(/\s+/g, '').trim() === cleanChinese ||
-                (cleanVietnamese && g.vietnamese.trim().toLowerCase() === cleanVietnamese)
+        const alreadyExists = activeProj.glossary.some(
+            (g) => {
+                if (force) {
+                    return g.chinese.trim() === newItem.chinese.trim();
+                }
+                return isHanEquivalent(g.chinese, newItem.chinese) ||
+                       (cleanVietnamese && g.vietnamese.trim().toLowerCase() === cleanVietnamese);
+            }
         );
         if (alreadyExists) return;
 
@@ -120,25 +204,29 @@ export function useProjects() {
             id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
             createdAt: newItem.createdAt || new Date().toISOString()
         };
-        const updated: StoryProject = { ...activeP, glossary: [completeItem, ...activeP.glossary] };
-        handleUpdateProject(updated);
-    };
+        const updated: StoryProject = { ...activeProj, glossary: [completeItem, ...activeProj.glossary] };
+        await saveProjectToDB(updated);
 
-    const handleAddGlossaryItems = (newItems: Omit<GlossaryItem, 'id'>[]) => {
-        const activeP = getActiveProject();
-        if (!activeP) return;
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
 
-        const existingChinese = new Set(activeP.glossary.map((g) => g.chinese.replace(/\s+/g, '').trim()));
-        const existingVietnamese = new Set(activeP.glossary.map((g) => g.vietnamese.trim().toLowerCase()));
+    const handleAddGlossaryItems = useCallback(async (newItems: Omit<GlossaryItem, 'id'>[]) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
 
         const completeItems: GlossaryItem[] = [];
         newItems.forEach((item, idx) => {
-            const cleanChinese = (item.chinese || '').replace(/\s+/g, '').trim();
             const cleanVietnamese = (item.vietnamese || '').trim().toLowerCase();
-            if (existingChinese.has(cleanChinese)) return;
-            if (cleanVietnamese && existingVietnamese.has(cleanVietnamese)) return;
-            existingChinese.add(cleanChinese);
-            if (cleanVietnamese) existingVietnamese.add(cleanVietnamese);
+            
+            // Check if item's Chinese already exists in activeProj.glossary or completeItems
+            const chineseExists = activeProj.glossary.some(g => isHanEquivalent(g.chinese, item.chinese)) ||
+                                  completeItems.some(g => isHanEquivalent(g.chinese, item.chinese));
+            if (chineseExists) return;
+
+            // Check if item's Vietnamese already exists in activeProj.glossary or completeItems
+            const vietnameseExists = (cleanVietnamese && activeProj.glossary.some(g => g.vietnamese.trim().toLowerCase() === cleanVietnamese)) ||
+                                     (cleanVietnamese && completeItems.some(g => g.vietnamese.trim().toLowerCase() === cleanVietnamese));
+            if (vietnameseExists) return;
 
             completeItems.push({
                 ...item,
@@ -147,48 +235,112 @@ export function useProjects() {
             });
         });
         if (completeItems.length === 0) return;
-        const updated: StoryProject = { ...activeP, glossary: [...completeItems, ...activeP.glossary] };
-        handleUpdateProject(updated);
-    };
+        const updated: StoryProject = { ...activeProj, glossary: [...completeItems, ...activeProj.glossary] };
+        await saveProjectToDB(updated);
 
-    const handleUpdateGlossaryItem = (id: string, updatedItem: GlossaryItem) => {
-        const activeP = getActiveProject();
-        if (!activeP) return;
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
 
-        const updatedGlossary = activeP.glossary.map(item => item.id === id ? updatedItem : item);
-        const updated: StoryProject = { ...activeP, glossary: updatedGlossary };
-        handleUpdateProject(updated);
-    };
+    const handleUpdateGlossaryItem = useCallback(async (id: string, updatedItem: GlossaryItem) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
 
-    const handleDeleteGlossaryItem = (id: string) => {
-        const activeP = getActiveProject();
-        if (!activeP) return;
+        const updatedGlossary = activeProj.glossary.map(item => item.id === id ? updatedItem : item);
+        const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
+        await saveProjectToDB(updated);
 
-        const updatedGlossary = activeP.glossary.filter(item => item.id !== id);
-        const updated: StoryProject = { ...activeP, glossary: updatedGlossary };
-        handleUpdateProject(updated);
-    };
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
 
-    const handleDeleteChapterHistory = (chapId: string) => {
-        const activeP = getActiveProject();
-        if (!activeP) return;
+    const handleDeleteGlossaryItem = useCallback(async (id: string) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
 
-        const updatedChapters = activeP.chapters.filter(c => c.id !== chapId);
-        const updated: StoryProject = { ...activeP, chapters: updatedChapters };
-        handleUpdateProject(updated);
-    };
+        const updatedGlossary = activeProj.glossary.filter(item => item.id !== id);
+        const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
+        await saveProjectToDB(updated);
 
-    const handleAddToPendingGlossary = (item: PendingGlossaryItem) => {
-        const activeP = getActiveProject();
-        if (!activeP) return;
-        handleUpdateProject({ ...activeP, pendingGlossary: [...(activeP.pendingGlossary || []), item] });
-    };
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
 
-    const handleConfirmPendingItem = (pendingId: string, override?: Partial<GlossaryItem>) => {
-        const activeP = getActiveProject();
-        if (!activeP) return;
+    const handleMergeGlossaryItems = useCallback(async (
+        primaryId: string,
+        mergedPayload: Partial<GlossaryItem>,
+        idsToDelete: string[]
+    ) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
 
-        const pendingItem = (activeP.pendingGlossary || []).find(p => p.id === pendingId);
+        const updatedGlossary = activeProj.glossary.map(item => {
+            if (item.id === primaryId) {
+                return {
+                    ...item,
+                    ...mergedPayload
+                } as GlossaryItem;
+            }
+            return item;
+        }).filter(item => !idsToDelete.includes(item.id));
+
+        const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
+        await saveProjectToDB(updated);
+
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
+
+    const handleDeleteChapterHistory = useCallback(async (chapId: string) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
+
+        const chapterMeta = activeProj.chapters.find(c => c.id === chapId);
+        if (!chapterMeta) return;
+
+        // 1. Back up full chapter data
+        const fullChapter = await getChapterFromDB(chapId);
+        if (!fullChapter) return;
+
+        // 2. Perform deletion
+        await deleteChapterFromDB(chapId);
+
+        const updatedChapters = activeProj.chapters.filter(c => c.id !== chapId);
+        const updated: StoryProject = { ...activeProj, chapters: updatedChapters };
+        await saveProjectToDB(updated);
+
+        const oldProjects = [...projects];
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+
+        // 3. Show undoable toast
+        showToast({
+            message: `Đã xóa chương "${chapterMeta.title}" khỏi lịch sử dịch.`,
+            type: 'info',
+            onUndo: async () => {
+                // Restore in IndexedDB
+                await saveChapterToDB(fullChapter);
+                await saveProjectToDB(activeProj);
+                // Restore in React state
+                setProjects(oldProjects);
+                showToast({
+                    message: `Đã khôi phục chương "${chapterMeta.title}" thành công.`,
+                    type: 'success'
+                });
+            }
+        });
+    }, [activeProjectId, projects, showToast]);
+
+    const handleAddToPendingGlossary = useCallback(async (item: PendingGlossaryItem) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
+
+        const updated: StoryProject = { ...activeProj, pendingGlossary: [...(activeProj.pendingGlossary || []), item] };
+        await saveProjectToDB(updated);
+
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
+
+    const handleConfirmPendingItem = useCallback(async (pendingId: string, override?: Partial<GlossaryItem>) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
+
+        const pendingItem = (activeProj.pendingGlossary || []).find(p => p.id === pendingId);
         if (!pendingItem) return;
         const confirmed: GlossaryItem = {
             id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
@@ -199,26 +351,97 @@ export function useProjects() {
             note: override?.note ?? pendingItem.note,
             createdAt: new Date().toISOString()
         };
-        handleUpdateProject({
-            ...activeP,
-            glossary: [confirmed, ...activeP.glossary],
-            pendingGlossary: (activeP.pendingGlossary || []).filter(p => p.id !== pendingId)
-        });
-    };
+        const updated: StoryProject = {
+            ...activeProj,
+            glossary: [confirmed, ...activeProj.glossary],
+            pendingGlossary: (activeProj.pendingGlossary || []).filter(p => p.id !== pendingId)
+        };
+        await saveProjectToDB(updated);
 
-    const handleDiscardPendingItem = (pendingId: string) => {
-        const activeP = getActiveProject();
-        if (!activeP) return;
-        handleUpdateProject({
-            ...activeP,
-            pendingGlossary: (activeP.pendingGlossary || []).filter(p => p.id !== pendingId)
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
+
+    const handleDiscardPendingItem = useCallback(async (pendingId: string) => {
+        const activeProj = projects.find(p => p.id === activeProjectId);
+        if (!activeProj) return;
+
+        const updated: StoryProject = {
+            ...activeProj,
+            pendingGlossary: (activeProj.pendingGlossary || []).filter(p => p.id !== pendingId)
+        };
+        await saveProjectToDB(updated);
+
+        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+    }, [activeProjectId, projects]);
+
+    const handleResetChapters = useCallback(async (projectId: string, chapIds: string[]) => {
+        const backedUpChapters: Chapter[] = [];
+        for (const chapId of chapIds) {
+            const chap = await getChapterFromDB(chapId);
+            if (chap) {
+                backedUpChapters.push(chap);
+            }
+        }
+
+        if (backedUpChapters.length === 0) return;
+
+        // 1. Perform reset on IndexedDB chapters
+        const resetChaptersList = backedUpChapters.map(chap => ({
+            ...chap,
+            rawTranslation: '',
+            polishedTranslation: '',
+            translatedLines: [],
+            status: 'not_started' as const,
+            updatedAt: new Date().toISOString()
+        }));
+        await saveChaptersToDB(resetChaptersList);
+
+        const oldProjects = [...projects];
+
+        // 2. Perform reset on React state
+        const activeProj = projects.find(p => p.id === projectId);
+        if (activeProj) {
+            const updatedChapters = activeProj.chapters.map(c => {
+                if (chapIds.includes(c.id)) {
+                    return {
+                        ...c,
+                        status: 'not_started' as const,
+                        updatedAt: new Date().toISOString()
+                    };
+                }
+                return c;
+            });
+            const updatedProj = { ...activeProj, chapters: updatedChapters };
+            await saveProjectToDB(updatedProj);
+            setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
+        }
+
+        // 3. Show undoable toast
+        const count = chapIds.length;
+        showToast({
+            message: `Đã reset ${count} chương về trạng thái bản gốc tiếng Trung.`,
+            type: 'info',
+            onUndo: async () => {
+                // Restore all chapters in IndexedDB
+                await saveChaptersToDB(backedUpChapters);
+                // Restore in React state
+                setProjects(oldProjects);
+                const oldProj = oldProjects.find(p => p.id === projectId);
+                if (oldProj) {
+                    await saveProjectToDB(oldProj);
+                }
+                showToast({
+                    message: `Đã khôi phục hoàn chỉnh bản dịch cho ${count} chương.`,
+                    type: 'success'
+                });
+            }
         });
-    };
+    }, [projects, showToast]);
 
     return {
         projects,
         activeProjectId,
-        activeProject: getActiveProject(),
+        activeProject,
         isLoading,
         handleUpdateProject,
         handleSelectProject,
@@ -228,9 +451,11 @@ export function useProjects() {
         handleAddGlossaryItems,
         handleUpdateGlossaryItem,
         handleDeleteGlossaryItem,
+        handleMergeGlossaryItems,
         handleDeleteChapterHistory,
         handleAddToPendingGlossary,
         handleConfirmPendingItem,
-        handleDiscardPendingItem
+        handleDiscardPendingItem,
+        handleResetChapters
     };
 }

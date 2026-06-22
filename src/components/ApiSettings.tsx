@@ -1,13 +1,7 @@
 import React, { useState } from 'react';
 import { X, Plus, Trash2, Key, Cpu, ClipboardPaste, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { AVAILABLE_MODELS } from '../constants/models';
 
-const AVAILABLE_MODELS = [
-  { id: 'gemini-2.5-flash',       label: 'Gemini 2.5 Flash (Khuyên dùng)' },
-  { id: 'gemini-2.5-pro',         label: 'Gemini 2.5 Pro (Mạnh nhất)' },
-  { id: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash' },
-  { id: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (Nhanh / Rẻ)' },
-  { id: 'gemma-4-31b-it',         label: 'Gemma 4 31B IT (Local)' },
-];
 
 interface ApiSettingsProps {
   apiKeys: string[];
@@ -40,7 +34,7 @@ export default function ApiSettings({
     });
   };
 
-  const validKeyCount = apiKeys.filter(k => k.trim().length > 5).length;
+  const validKeyCount = apiKeys.filter(k => k.trim().length > 5 && k.trim().startsWith('AIza')).length;
 
   return (
     /* Backdrop */
@@ -118,7 +112,7 @@ export default function ApiSettings({
               <div className="space-y-2">
                 {apiKeys.map((key, idx) => {
                   const isRevealed = revealedKeys.has(idx);
-                  const isValid = key.trim().length > 5;
+                  const isValid = key.trim().length > 5 && key.trim().startsWith('AIza');
                   return (
                     <div key={idx} className="flex items-center gap-2">
                       <div className={`flex-1 flex items-center gap-1 border rounded-lg px-2.5 py-1.5 bg-white transition-colors ${

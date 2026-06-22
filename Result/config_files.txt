@@ -12,8 +12,9 @@
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -24,6 +25,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "opencc-js": "^1.3.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^6.2.3"
@@ -32,12 +34,14 @@
     "@types/express": "^4.17.21",
     "@types/jszip": "^3.4.0",
     "@types/node": "^22.14.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vitest": "^4.1.9"
   }
 }
 
@@ -66,10 +70,14 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@shared/*": [
+        "./shared/*"
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "strict": true
   }
 }
 
@@ -89,6 +97,7 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@shared': path.resolve(__dirname, './shared'),
       },
     },
     server: {
@@ -137,6 +146,9 @@ GEMINI_API_KEY="MY_GEMINI_API_KEY"
 # Used for self-referential links, OAuth callbacks, and API endpoints.
 APP_URL="MY_APP_URL"
 
+# TRUST_PROXY_HOPS: Số lượng hop proxy tin tưởng phía trước load balancer (mặc định 1)
+TRUST_PROXY_HOPS=1
+
 
 ================================================================================
 /// FILE: .gitignore ///
@@ -150,4 +162,16 @@ coverage/
 *.log
 .env*
 !.env.example
+
+
+================================================================================
+/// FILE: metadata.json ///
+================================================================================
+
+{
+  "name": "AI Dịch Truyện Trung-Việt (Full)",
+  "description": "Hệ thống AI toàn diện dịch truyện chữ Trung → Việt: dịch 2 giai đoạn (thô + biên tập), xoay vòng đa API key, từ điển thuật ngữ song ngữ với hàng chờ kiểm duyệt trùng lặp, tìm vị trí xuất hiện, import Markdown, dịch song song, export JSONL fine-tuning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
 
