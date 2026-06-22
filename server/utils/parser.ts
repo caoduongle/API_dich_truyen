@@ -5,6 +5,7 @@ export function parseGlossaryFromMd(text: string): Array<{
   type: string;
   note: string;
 }> {
+  if (!text) return [];
   const results: Array<{
     chinese: string;
     pinyin: string;

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
 import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB, saveChapterToDB, deleteChapterFromDB, getChapterFromDB, getChaptersByProjectFromDB, deleteChaptersByProjectFromDB, saveChaptersToDB } from '../services/db';
 import { useNotifications } from '../components/NotificationSystem';
-import { isHanEquivalent } from '../utils/sinoNormalize';
+import { isHanEquivalent } from '@shared/sinoNormalize';
 
 const DEFAULT_PROJECTS: any[] = [
     {

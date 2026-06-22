@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { safeParseJson } from "../utils/text.ts";
+import { safeParseJson, redactApiKey } from "../utils/text.ts";
 import { DEFAULT_MODEL_ID } from "../constants/models.ts";
 
 const blacklistedKeys = new Map<string, number>();
@@ -196,8 +196,10 @@ export async function generateWithRotation(
           }
         }
       } catch (err: any) {
-        console.error(`[Rotation Error] Lỗi khóa ${i + 1}: ${err.message || err}`);
-        console.error(`[Rotation Error] Chi tiết:`, err?.cause ?? err);
+        const errMsg = String(err.message || err);
+        const errDetail = err?.cause ? String(err.cause.stack || err.cause.message || err.cause) : String(err.stack || err.message || err);
+        console.error(`[Rotation Error] Lỗi khóa ${i + 1}: ${redactApiKey(errMsg, keysToTry)}`);
+        console.error(`[Rotation Error] Chi tiết:`, redactApiKey(errDetail, keysToTry));
         lastError = err;
 
         // Nếu lỗi overload (503) đã hết retry → log rõ, KHÔNG blacklist key

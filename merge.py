@@ -46,7 +46,8 @@ SKIP_DIRS = {"node_modules", "dist", ".vite", ".git", "Result", ".idea"}
 
 def write_file_content(outfile, filepath):
     outfile.write(f"\n{'=' * 80}\n")
-    outfile.write(f"/// FILE: {os.path.relpath(filepath, project_root)} ///\n")
+    rel_path = os.path.relpath(filepath, project_root).replace('\\', '/')
+    outfile.write(f"/// FILE: {rel_path} ///\n")
     outfile.write(f"{'=' * 80}\n\n")
     try:
         with open(filepath, 'r', encoding='utf-8') as infile:
@@ -67,7 +68,8 @@ def run_extraction():
         with open(output_path, 'w', encoding='utf-8') as outfile:
             for target in config["targets"]:
                 if not os.path.exists(target):
-                    print(f"  [SKIP] Not found: {os.path.relpath(target, project_root)}")
+                    rel_target = os.path.relpath(target, project_root).replace('\\', '/')
+                    print(f"  [SKIP] Not found: {rel_target}")
                     continue
 
                 if os.path.isfile(target):

@@ -130,3 +130,18 @@ export function findSplitPoint(text: string): number {
 
   return bestIdx !== -1 ? bestIdx : mid;
 }
+
+export function escapeRegex(str: string): string {
+  return str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+}
+
+export function redactApiKey(message: string, keys: string[]): string {
+  if (!message || !Array.isArray(keys)) return message;
+  let result = message;
+  for (const key of keys) {
+    if (key && key.trim().length > 5) {
+      result = result.split(key).join('***REDACTED***');
+    }
+  }
+  return result;
+}

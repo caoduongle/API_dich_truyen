@@ -1,6 +1,6 @@
 
 ================================================================================
-/// FILE: src\App.tsx ///
+/// FILE: src/App.tsx ///
 ================================================================================
 
 import React, { useState, startTransition, useCallback, memo } from 'react';
@@ -388,7 +388,7 @@ export default function App() {
 
 
 ================================================================================
-/// FILE: src\index.css ///
+/// FILE: src/index.css ///
 ================================================================================
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght=400;500;650;700;800&family=JetBrains+Mono:wght=400;500;650;700&family=Space+Grotesk:wght=400;500;650;700&display=swap');
@@ -455,7 +455,7 @@ html {
 }
 
 ================================================================================
-/// FILE: src\main.tsx ///
+/// FILE: src/main.tsx ///
 ================================================================================
 
 import {StrictMode} from 'react';
@@ -471,7 +471,7 @@ createRoot(document.getElementById('root')!).render(
 
 
 ================================================================================
-/// FILE: src\types.ts ///
+/// FILE: src/types.ts ///
 ================================================================================
 
 /**
@@ -600,26 +600,20 @@ export interface PolishTranslationResponse {
 }
 
 ================================================================================
-/// FILE: src\vite-env.d.ts ///
+/// FILE: src/vite-env.d.ts ///
 ================================================================================
 
 /// <reference types="vite/client" />
 
 
 ================================================================================
-/// FILE: src\components\ApiSettings.tsx ///
+/// FILE: src/components/ApiSettings.tsx ///
 ================================================================================
 
 import React, { useState } from 'react';
 import { X, Plus, Trash2, Key, Cpu, ClipboardPaste, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { AVAILABLE_MODELS } from '../constants/models';
 
-const AVAILABLE_MODELS = [
-  { id: 'gemini-2.5-flash',       label: 'Gemini 2.5 Flash (Khuyên dùng)' },
-  { id: 'gemini-2.5-pro',         label: 'Gemini 2.5 Pro (Mạnh nhất)' },
-  { id: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash' },
-  { id: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (Nhanh / Rẻ)' },
-  { id: 'gemma-4-31b-it',         label: 'Gemma 4 31B IT (Local)' },
-];
 
 interface ApiSettingsProps {
   apiKeys: string[];
@@ -810,7 +804,7 @@ export default function ApiSettings({
 
 
 ================================================================================
-/// FILE: src\components\AutoTranslator.tsx ///
+/// FILE: src/components/AutoTranslator.tsx ///
 ================================================================================
 
 import React, { useState, useEffect } from 'react';
@@ -1229,7 +1223,7 @@ export default function AutoTranslator({
 
 
 ================================================================================
-/// FILE: src\components\ChapterHistoryPanel.tsx ///
+/// FILE: src/components/ChapterHistoryPanel.tsx ///
 ================================================================================
 
 import React, { useState, useEffect } from 'react';
@@ -1604,7 +1598,7 @@ export default function ChapterHistoryPanel({
 
 
 ================================================================================
-/// FILE: src\components\ErrorBoundary.tsx ///
+/// FILE: src/components/ErrorBoundary.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -1678,7 +1672,7 @@ export default ErrorBoundary;
 
 
 ================================================================================
-/// FILE: src\components\GlossaryManager.tsx ///
+/// FILE: src/components/GlossaryManager.tsx ///
 ================================================================================
 
 import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, startTransition } from 'react';
@@ -2149,6 +2143,12 @@ function GlossaryManager({
       if (!response.ok) throw new Error("Lỗi phản hồi phân tích cẩm nang từ server.");
 
       const data = await response.json();
+      if (data.truncated) {
+        showToast({
+          message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
+          type: 'warning'
+        });
+      }
       const extractedList: Omit<GlossaryItem, 'id'>[] = data.extractedGlossary || [];
       if (extractedList.length === 0) {
         showToast({ message: "Không tìm thấy thuật ngữ nào có thể trích xuất từ tệp chỉ dẫn này.", type: 'warning' });
@@ -2753,7 +2753,7 @@ export default React.memo(GlossaryManager);
 
 
 ================================================================================
-/// FILE: src\components\NotificationSystem.tsx ///
+/// FILE: src/components/NotificationSystem.tsx ///
 ================================================================================
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
@@ -3026,7 +3026,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
 
 ================================================================================
-/// FILE: src\components\ProjectList.tsx ///
+/// FILE: src/components/ProjectList.tsx ///
 ================================================================================
 
 import React, { useState, useRef, useMemo } from 'react';
@@ -3181,6 +3181,13 @@ export default function ProjectList({
 
       const data = await response.json();
       
+      if (data.truncated) {
+        showToast({
+          message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
+          type: 'warning'
+        });
+      }
+
       if (data.extractedGlossary) {
         setAnalyzedGlossary(data.extractedGlossary);
       }
@@ -3924,7 +3931,7 @@ export default function ProjectList({
 
 
 ================================================================================
-/// FILE: src\components\TranslatorWorkspace.tsx ///
+/// FILE: src/components/TranslatorWorkspace.tsx ///
 ================================================================================
 
 import React, { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
@@ -4231,6 +4238,13 @@ export default function TranslatorWorkspace({
           checks[idx] = true;
         });
         setSelectedSuggestions(checks);
+        // Cảnh báo khi văn bản đầu vào bị cắt ngắn (chỉ phân tích một phần)
+        if (data.truncated) {
+          showToast({
+            message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu được phân tích (giới hạn tiết kiệm token).`,
+            type: 'warning'
+          });
+        }
       } else {
         throw new Error("Không tìm thấy thuật ngữ nào.");
       }
@@ -4781,7 +4795,7 @@ export default function TranslatorWorkspace({
 
 
 ================================================================================
-/// FILE: src\components\auto-translator\ApplyGlossaryPanel.tsx ///
+/// FILE: src/components/auto-translator/ApplyGlossaryPanel.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -4943,7 +4957,7 @@ function RefreshCwIcon(props: React.SVGProps<SVGSVGElement>) {
 
 
 ================================================================================
-/// FILE: src\components\auto-translator\BulkScanConfigPanel.tsx ///
+/// FILE: src/components/auto-translator/BulkScanConfigPanel.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -5062,7 +5076,7 @@ export const BulkScanConfigPanel = React.memo(function BulkScanConfigPanel({
 
 
 ================================================================================
-/// FILE: src\components\auto-translator\DiffModal.tsx ///
+/// FILE: src/components/auto-translator/DiffModal.tsx ///
 ================================================================================
 
 import React, { useRef, useEffect } from 'react';
@@ -5117,25 +5131,46 @@ export const DiffModal = React.memo(function DiffModal({
     if (diffRightScrollRef.current) diffRightScrollRef.current.scrollTop = 0;
   }, [diffModalChapterIndex]);
 
+  // Escape 5 ký tự đặc biệt HTML để ngăn XSS khi dùng dangerouslySetInnerHTML
+  // Test cases thủ công:
+  // - Input: '<script>alert("xss")</script>' → phải hiển thị dạng text thuần, không thực thi
+  // - Input: 'A & B < C > D' → phải hiển thị đúng ký tự &, <, >
+  // - Input: 'Nói "hello"' → dấu ngoặc kép không bị biến thành attribute HTML
+  const escapeHtml = (text: string): string => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  };
+
   // Highlight processedSourceText: bọc các từ đã thay bằng span màu
+  // Quy trình: (1) Escape toàn bộ text → (2) Thay thế bằng placeholder → (3) Chèn <mark> HTML
+  // Placeholder dùng ký tự «» không bị escape nên không bị ảnh hưởng ở bước (1)
   const buildHighlightedHtml = (text: string) => {
-    let result = text;
+    // Bước 1: Escape HTML toàn bộ text trước
+    let result = escapeHtml(text);
     const sorted = [...glossary]
       .filter(i => i.vietnamese)
       .sort((a, b) => b.vietnamese.length - a.vietnamese.length);
     const placeholder: Record<string, string> = {};
     sorted.forEach((item, idx) => {
       if (!item.vietnamese) return;
-      const escaped = item.vietnamese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Escape phần vietnamese trước khi tìm kiếm (vì text đã được escape)
+      const escapedVietnamese = escapeHtml(item.vietnamese);
+      const regexEscaped = escapedVietnamese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const key = `««TERM_${idx}»»`;
-      result = result.replace(new RegExp(escaped, 'g'), key);
-      placeholder[key] = `<mark class="bg-amber-200 text-amber-900 rounded px-0.5 font-bold">${item.vietnamese}</mark>`;
+      result = result.replace(new RegExp(regexEscaped, 'g'), key);
+      // Nội dung hiển thị trong <mark> cũng phải được escape
+      placeholder[key] = `<mark class="bg-amber-200 text-amber-900 rounded px-0.5 font-bold">${escapedVietnamese}</mark>`;
     });
     Object.entries(placeholder).forEach(([k, v]) => {
       result = result.replace(new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), v);
     });
     return result;
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -5235,7 +5270,7 @@ export const DiffModal = React.memo(function DiffModal({
 
 
 ================================================================================
-/// FILE: src\components\auto-translator\DiscoveredTermsPanel.tsx ///
+/// FILE: src/components/auto-translator/DiscoveredTermsPanel.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -5284,7 +5319,7 @@ export const DiscoveredTermsPanel = React.memo(function DiscoveredTermsPanel({
 
 
 ================================================================================
-/// FILE: src\components\auto-translator\DriveProgressWidget.tsx ///
+/// FILE: src/components/auto-translator/DriveProgressWidget.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -5483,7 +5518,7 @@ export function DriveProgressWidget({
 }
 
 ================================================================================
-/// FILE: src\components\auto-translator\ExportFilesPanel.tsx ///
+/// FILE: src/components/auto-translator/ExportFilesPanel.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -5571,7 +5606,7 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
 
 
 ================================================================================
-/// FILE: src\components\auto-translator\GlossaryScanWidget.tsx ///
+/// FILE: src/components/auto-translator/GlossaryScanWidget.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -5746,7 +5781,7 @@ export function GlossaryScanWidget({
 }
 
 ================================================================================
-/// FILE: src\components\auto-translator\QueueStatusPanel.tsx ///
+/// FILE: src/components/auto-translator/QueueStatusPanel.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -5831,7 +5866,7 @@ function RefreshCwIcon(props: React.SVGProps<SVGSVGElement>) {
 
 
 ================================================================================
-/// FILE: src\components\auto-translator\TerminalConsole.tsx ///
+/// FILE: src/components/auto-translator/TerminalConsole.tsx ///
 ================================================================================
 
 import React, { useEffect, useRef } from 'react';
@@ -5905,7 +5940,7 @@ export const TerminalConsole = React.memo(function TerminalConsole({ logs, onCle
 });
 
 ================================================================================
-/// FILE: src\components\auto-translator\TranslationConfigPanel.tsx ///
+/// FILE: src/components/auto-translator/TranslationConfigPanel.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -6186,7 +6221,7 @@ function RefreshCwIcon(props: React.SVGProps<SVGSVGElement>) {
 
 
 ================================================================================
-/// FILE: src\components\glossary-manager\AddGlossaryForm.tsx ///
+/// FILE: src/components/glossary-manager/AddGlossaryForm.tsx ///
 ================================================================================
 
 import React, { useState, useEffect } from 'react';
@@ -6349,7 +6384,7 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({ glossary, o
 
 
 ================================================================================
-/// FILE: src\components\glossary-manager\DuplicatePanel.tsx ///
+/// FILE: src/components/glossary-manager/DuplicatePanel.tsx ///
 ================================================================================
 
 import React, { useState, useCallback } from 'react';
@@ -6623,7 +6658,7 @@ export const DuplicatePanel = React.memo(function DuplicatePanel({
 
 
 ================================================================================
-/// FILE: src\components\glossary-manager\GlossaryDetailSidebar.tsx ///
+/// FILE: src/components/glossary-manager/GlossaryDetailSidebar.tsx ///
 ================================================================================
 
 import React, { useState } from 'react';
@@ -6865,7 +6900,7 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
 
 
 ================================================================================
-/// FILE: src\components\glossary-manager\GlossaryHeader.tsx ///
+/// FILE: src/components/glossary-manager/GlossaryHeader.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -6994,7 +7029,7 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
 
 
 ================================================================================
-/// FILE: src\components\glossary-manager\GlossaryTable.tsx ///
+/// FILE: src/components/glossary-manager/GlossaryTable.tsx ///
 ================================================================================
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -7407,7 +7442,7 @@ export const GlossaryTable = React.memo(function GlossaryTable({
 
 
 ================================================================================
-/// FILE: src\components\glossary-manager\ImportGuidelinesModal.tsx ///
+/// FILE: src/components/glossary-manager/ImportGuidelinesModal.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -7477,7 +7512,7 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
 
 
 ================================================================================
-/// FILE: src\components\glossary-manager\MergeHanPanel.tsx ///
+/// FILE: src/components/glossary-manager/MergeHanPanel.tsx ///
 ================================================================================
 
 import React, { useState, useEffect } from 'react';
@@ -7787,7 +7822,7 @@ export function MergeHanPanel({
 
 
 ================================================================================
-/// FILE: src\components\glossary-manager\ReviewQueuePanel.tsx ///
+/// FILE: src/components/glossary-manager/ReviewQueuePanel.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -8052,7 +8087,7 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
 
 
 ================================================================================
-/// FILE: src\components\translator-workspace\BilingualEditor.tsx ///
+/// FILE: src/components/translator-workspace/BilingualEditor.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -8529,7 +8564,7 @@ export const BilingualEditor = React.memo(function BilingualEditor({
 
 
 ================================================================================
-/// FILE: src\components\translator-workspace\GlossarySidebar.tsx ///
+/// FILE: src/components/translator-workspace/GlossarySidebar.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -8617,7 +8652,7 @@ export const GlossarySidebar = React.memo(function GlossarySidebar({
 
 
 ================================================================================
-/// FILE: src\components\translator-workspace\ImportChaptersModal.tsx ///
+/// FILE: src/components/translator-workspace/ImportChaptersModal.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -8754,7 +8789,7 @@ export const ImportChaptersModal = React.memo(function ImportChaptersModal({
 
 
 ================================================================================
-/// FILE: src\components\translator-workspace\ProjectMetadataModal.tsx ///
+/// FILE: src/components/translator-workspace/ProjectMetadataModal.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -8916,7 +8951,7 @@ export const ProjectMetadataModal = React.memo(function ProjectMetadataModal({
 
 
 ================================================================================
-/// FILE: src\components\translator-workspace\SuggestionsDrawer.tsx ///
+/// FILE: src/components/translator-workspace/SuggestionsDrawer.tsx ///
 ================================================================================
 
 import React from 'react';
@@ -9022,7 +9057,26 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
 
 
 ================================================================================
-/// FILE: src\data\examples.ts ///
+/// FILE: src/constants/models.ts ///
+================================================================================
+
+// Danh sách mô hình AI có sẵn — nguồn chân lý duy nhất cho cả
+// dropdown ApiSettings.tsx và giá trị mặc định useAIConfig.ts
+// Đồng bộ với ALLOWED_MODEL_IDS ở backend (server/constants/models.ts)
+export const AVAILABLE_MODELS = [
+  { id: 'gemini-2.5-flash',       label: 'Gemini 2.5 Flash (Khuyên dùng)' },
+  { id: 'gemini-2.5-pro',         label: 'Gemini 2.5 Pro (Mạnh nhất)' },
+  { id: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash' },
+  { id: 'gemini-3.1-flash-lite',  label: 'Gemini 3.1 Flash Lite (Nhanh / Rẻ)' },
+  { id: 'gemma-4-31b-it',         label: 'Gemma 4 31B IT (Local)' },
+] as const;
+
+// Giá trị mặc định — đồng bộ với backend (server/constants/models.ts)
+export const DEFAULT_MODEL_ID = 'gemini-3.1-flash-lite';
+
+
+================================================================================
+/// FILE: src/data/examples.ts ///
 ================================================================================
 
 export interface ChineseExample {
@@ -9073,11 +9127,12 @@ export const CHINESE_EXAMPLES: ChineseExample[] = [
 
 
 ================================================================================
-/// FILE: src\hooks\useAIConfig.ts ///
+/// FILE: src/hooks/useAIConfig.ts ///
 ================================================================================
 
 import { useState, useCallback } from 'react';
 import { useNotifications } from '../components/NotificationSystem';
+import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
 
 export function useAIConfig() {
     const { showToast } = useNotifications();
@@ -9093,8 +9148,16 @@ export function useAIConfig() {
     });
 
     const [selectedModel, setSelectedModel] = useState<string>(() => {
-        return localStorage.getItem('gemini_selected_model') || 'gemini-3.5-flash';
+        const stored = localStorage.getItem('gemini_selected_model');
+        // Nếu giá trị đã lưu không nằm trong danh sách model hợp lệ
+        // (ví dụ: giá trị cũ 'gemini-3.5-flash' đã bị loại bỏ), tự động
+        // fallback về DEFAULT_MODEL_ID để tránh lệch dropdown.
+        if (stored && AVAILABLE_MODELS.some(m => m.id === stored)) {
+            return stored;
+        }
+        return DEFAULT_MODEL_ID;
     });
+
 
     const [showApiSettings, setShowApiSettings] = useState(false);
 
@@ -9167,7 +9230,7 @@ export function useAIConfig() {
 
 
 ================================================================================
-/// FILE: src\hooks\useAutoTranslationQueue.ts ///
+/// FILE: src/hooks/useAutoTranslationQueue.ts ///
 ================================================================================
 
 import { useState, useCallback, useRef } from 'react';
@@ -9267,7 +9330,7 @@ export function useAutoTranslationQueue(props: UseAutoTranslationQueueProps) {
 
 
 ================================================================================
-/// FILE: src\hooks\useExportFiles.ts ///
+/// FILE: src/hooks/useExportFiles.ts ///
 ================================================================================
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -9518,7 +9581,7 @@ export function useExportFiles({
 
 
 ================================================================================
-/// FILE: src\hooks\useGlossaryApply.ts ///
+/// FILE: src/hooks/useGlossaryApply.ts ///
 ================================================================================
 
 import { useState, useRef, useEffect, useCallback, startTransition } from 'react';
@@ -9667,7 +9730,7 @@ export function useGlossaryApply({
 
 
 ================================================================================
-/// FILE: src\hooks\useGlossaryScan.ts ///
+/// FILE: src/hooks/useGlossaryScan.ts ///
 ================================================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -9787,6 +9850,12 @@ export function useGlossaryScan({
 
             if (!response.ok) throw new Error("Gặp lỗi phản hồi trích xuất từ AI.");
             const data = await response.json();
+            if (data.truncated) {
+              showToast({
+                message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của Chương ${i + 1} được phân tích để tối ưu hiệu suất.`,
+                type: 'warning'
+              });
+            }
             if (typeof data.successKeyIndex === 'number') {
               currentApiKeyIndexRef.current = data.successKeyIndex;
             }
@@ -9899,7 +9968,7 @@ export function useGlossaryScan({
 
 
 ================================================================================
-/// FILE: src\hooks\useProjects.ts ///
+/// FILE: src/hooks/useProjects.ts ///
 ================================================================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -10366,7 +10435,7 @@ export function useProjects() {
 
 
 ================================================================================
-/// FILE: src\hooks\useRangeState.ts ///
+/// FILE: src/hooks/useRangeState.ts ///
 ================================================================================
 
 import { useState, useEffect } from 'react';
@@ -10394,7 +10463,7 @@ export function useRangeState(totalChapters: number) {
 
 
 ================================================================================
-/// FILE: src\hooks\useTranslationProcess.ts ///
+/// FILE: src/hooks/useTranslationProcess.ts ///
 ================================================================================
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -10717,6 +10786,12 @@ export function useTranslationProcess({
     let currentTextToPolish = firstDraft;
     addLog(`${logPrefix} Kích hoạt chu trình mài giũa văn phong (${paramsRef.current.polishCycles} lượt)...`, 'info');
     for (let j = 1; j <= paramsRef.current.polishCycles; j++) {
+      // Rà soát từ điển bổ sung chỉ chạy ở lượt polish ĐẦU TIÊN vì sourceText
+      // không đổi giữa các lượt — tránh gọi Gemini API thừa mỗi vòng lặp.
+      const shouldExtract = paramsRef.current.isExtractionDuringTranslationEnabled && j === 1;
+      if (j === 1 && paramsRef.current.isExtractionDuringTranslationEnabled) {
+        addLog(`${logPrefix} [Rà soát từ điển] Kích hoạt rà soát thuật ngữ bị sót (chỉ chạy 1 lần/chương tại lượt polish đầu tiên).`, 'info');
+      }
       addLog(`${logPrefix} Biên tập chuốt chữ Lần ${j}/${paramsRef.current.polishCycles}...${hasProcessedText ? " (Sử dụng văn bản đã quét từ điển, không gửi kèm glossary)" : ""}`, "gemini");
       const polishRes = await fetch('/api/polish-translation', {
         method: 'POST',
@@ -10732,9 +10807,10 @@ export function useTranslationProcess({
           apiKeys: paramsRef.current.apiKeys,
           model: paramsRef.current.selectedModel,
           startKeyIndex: currentKeyIndex,
-          isExtractionEnabled: paramsRef.current.isExtractionDuringTranslationEnabled,
+          isExtractionEnabled: shouldExtract,
           sourceChapterId: chapter.id
         }),
+
         signal
       });
 
@@ -11227,7 +11303,7 @@ export function useTranslationProcess({
 
 
 ================================================================================
-/// FILE: src\hooks\useVirtualList.ts ///
+/// FILE: src/hooks/useVirtualList.ts ///
 ================================================================================
 
 import { useState, useCallback, UIEvent } from 'react';
@@ -11282,7 +11358,7 @@ export function useVirtualList<T>({
 
 
 ================================================================================
-/// FILE: src\services\db.ts ///
+/// FILE: src/services/db.ts ///
 ================================================================================
 
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
@@ -11631,7 +11707,7 @@ export const deleteChaptersByProjectFromDB = async (projectId: string): Promise<
 
 
 ================================================================================
-/// FILE: src\utils\download.ts ///
+/// FILE: src/utils/download.ts ///
 ================================================================================
 
 /**
@@ -11648,7 +11724,7 @@ export function triggerDownload(url: string, filename: string): void {
 
 
 ================================================================================
-/// FILE: src\utils\fileParser.ts ///
+/// FILE: src/utils/fileParser.ts ///
 ================================================================================
 
 import JSZip from 'jszip';
@@ -11852,7 +11928,7 @@ async function parseEpubFallback(zip: JSZip, filePaths: string[]): Promise<{ tit
 
 
 ================================================================================
-/// FILE: src\utils\sinoNormalize.ts ///
+/// FILE: src/utils/sinoNormalize.ts ///
 ================================================================================
 
 import * as OpenCC from 'opencc-js';

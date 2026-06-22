@@ -4,7 +4,7 @@ import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { Edit3, AlertCircle } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
-import { isHanEquivalent } from '../utils/sinoNormalize';
+import { isHanEquivalent } from '@shared/sinoNormalize';
 
 // Sub-components
 import { ProjectMetadataModal } from './translator-workspace/ProjectMetadataModal';

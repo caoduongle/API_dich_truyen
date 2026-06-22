@@ -11,7 +11,7 @@ import {
 import {
   alignChapter
 } from "../controllers/alignmentController.ts";
-import { ALLOWED_MODEL_IDS } from "../constants/models.ts";
+import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models.ts";
 
 const router = Router();
 
@@ -37,6 +37,14 @@ function validateModelMiddleware(req: Request, res: Response, next: NextFunction
 // nếu client không gửi apiKeys hợp lệ, trả lỗi 400 thay vì âm thầm dùng key server.
 function checkApiKeysFallback(req: Request, res: Response, next: NextFunction): void {
   const { apiKeys } = req.body;
+
+  if (Array.isArray(apiKeys) && apiKeys.length > MAX_API_KEYS_PER_REQUEST) {
+    res.status(400).json({
+      error: `Quá nhiều API key trong một yêu cầu (tối đa ${MAX_API_KEYS_PER_REQUEST}).`
+    });
+    return;
+  }
+
   const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k: string) => typeof k === 'string' && k.trim().length > 0);
 
   if (!hasValidKeys) {

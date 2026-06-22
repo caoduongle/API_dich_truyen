@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GlossaryType, GlossaryItem } from '../../types';
 import { useNotifications } from '../NotificationSystem';
-import { isHanEquivalent } from '../../utils/sinoNormalize';
+import { isHanEquivalent } from '@shared/sinoNormalize';
 
 interface AddGlossaryFormProps {
   glossary: GlossaryItem[];

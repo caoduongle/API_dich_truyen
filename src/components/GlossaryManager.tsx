@@ -4,7 +4,7 @@ import { Search, Calendar, Info } from 'lucide-react';
 import { useNotifications } from './NotificationSystem';
 import { getChaptersByProjectFromDB } from '../services/db';
 import { triggerDownload } from '../utils/download';
-import { isHanEquivalent } from '../utils/sinoNormalize';
+import { isHanEquivalent } from '@shared/sinoNormalize';
 
 // Sub-components
 import { GlossaryHeader } from './glossary-manager/GlossaryHeader';
@@ -15,7 +15,7 @@ import { DuplicatePanel, DuplicateGroupEdit } from './glossary-manager/Duplicate
 import { GlossaryTable } from './glossary-manager/GlossaryTable';
 import { GlossaryDetailSidebar } from './glossary-manager/GlossaryDetailSidebar';
 import { MergeHanPanel, MergeHanGroup } from './glossary-manager/MergeHanPanel';
-import { canonicalizeHan } from '../utils/sinoNormalize';
+import { canonicalizeHan } from '@shared/sinoNormalize';
 
 
 interface GlossaryManagerProps {

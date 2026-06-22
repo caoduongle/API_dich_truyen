@@ -194,4 +194,3 @@ export function findFuzzyCandidates(haystack: string, needle: string, topN = 3):
 
   return candidates.slice(0, topN);
 }
-

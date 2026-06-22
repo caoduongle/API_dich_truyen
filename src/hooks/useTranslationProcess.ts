@@ -4,7 +4,7 @@ import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../components/NotificationSystem';
-import { isHanEquivalent } from '../utils/sinoNormalize';
+import { isHanEquivalent } from '@shared/sinoNormalize';
 
 export interface UseTranslationProcessProps {
   activeProject: StoryProject;

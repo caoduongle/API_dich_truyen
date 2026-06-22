@@ -3,7 +3,7 @@ import { AlertTriangle, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { getChapterFromDB } from '../../services/db';
-import { findFuzzyCandidates, FuzzyCandidate } from '../../utils/sinoNormalize';
+import { findFuzzyCandidates, FuzzyCandidate } from '@shared/sinoNormalize';
 
 export interface ReviewQueuePanelProps {
   reviewQueue: Array<GlossaryItem & { reason: string }>;
@@ -18,11 +18,13 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
   handleAcceptReviewItem,
   handleDiscardReviewItem,
   handleUpdateReviewItem,
+  fuzzyCacheRef,
 }: {
   item: GlossaryItem & { reason: string };
   handleAcceptReviewItem: (id: string) => void;
   handleDiscardReviewItem: (id: string) => void;
   handleUpdateReviewItem: (id: string, updatedFields: Partial<GlossaryItem>) => void;
+  fuzzyCacheRef: React.RefObject<Map<string, FuzzyCandidate[]>>;
 }) {
   const [candidates, setCandidates] = React.useState<FuzzyCandidate[]>([]);
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
@@ -37,23 +39,48 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
         .then((chap) => {
           if (chap && chap.sourceText) {
             setChapterText(chap.sourceText);
-            const res = findFuzzyCandidates(chap.sourceText, item.chinese, 3);
-            setCandidates(res);
+            const cacheKey = `${item.sourceChapterId}_${item.chinese}`;
+            if (fuzzyCacheRef?.current && fuzzyCacheRef.current.has(cacheKey)) {
+              setCandidates(fuzzyCacheRef.current.get(cacheKey) || []);
+              setIsLoading(false);
+              setHasSearched(true);
+              return;
+            }
+
+            const runFuzzyMatch = () => {
+              const res = findFuzzyCandidates(chap.sourceText, item.chinese, 3);
+              if (fuzzyCacheRef?.current) {
+                fuzzyCacheRef.current.set(cacheKey, res);
+              }
+              setCandidates(res);
+              setIsLoading(false);
+              setHasSearched(true);
+            };
+
+            if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+              (window as any).requestIdleCallback(() => {
+                runFuzzyMatch();
+              });
+            } else {
+              setTimeout(() => {
+                runFuzzyMatch();
+              }, 0);
+            }
+          } else {
+            setHasSearched(true);
+            setIsLoading(false);
           }
-          setHasSearched(true);
         })
         .catch((err) => {
           console.error("Lỗi khi tải chương gốc để tìm kiếm gợi ý:", err);
           setHasSearched(true);
-        })
-        .finally(() => {
           setIsLoading(false);
         });
     } else {
       setCandidates([]);
       setHasSearched(false);
     }
-  }, [item.needsReview, item.sourceChapterId, item.chinese]);
+  }, [item.needsReview, item.sourceChapterId, item.chinese, fuzzyCacheRef]);
 
   const handleApplyCandidate = (candidateText: string) => {
     let newParagraph = '';
@@ -207,6 +234,7 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
   handleDiscardReviewItem,
   handleUpdateReviewItem,
 }: ReviewQueuePanelProps) {
+  const fuzzyCacheRef = React.useRef<Map<string, FuzzyCandidate[]>>(new Map());
   const { showConfirm } = useNotifications();
   if (reviewQueue.length === 0) return null;
 
@@ -251,6 +279,7 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
             handleAcceptReviewItem={handleAcceptReviewItem}
             handleDiscardReviewItem={handleDiscardReviewItem}
             handleUpdateReviewItem={handleUpdateReviewItem}
+            fuzzyCacheRef={fuzzyCacheRef}
           />
         ))}
       </div>

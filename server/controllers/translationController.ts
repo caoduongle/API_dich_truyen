@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError } from "../services/geminiService.ts";
-import { safeParseJson, findSplitPoint, getGenreStyleGuide } from "../utils/text.ts";
+import { safeParseJson, findSplitPoint, getGenreStyleGuide, escapeRegex } from "../utils/text.ts";
 import { checkLeftoverGlossary } from "./glossaryController.ts";
-import { isHanEquivalent, validateAndSnapBackEntities, findCanonicalSubstring } from "../utils/sinoNormalize.ts";
+import { isHanEquivalent, validateAndSnapBackEntities, findCanonicalSubstring } from "../../shared/sinoNormalize.ts";
 
 // Gọi trực tiếp tác vụ dịch thô từ Gemini API
 async function callRawTranslationDirect(
@@ -31,7 +31,7 @@ async function callRawTranslationDirect(
     const sortedGlossary = [...glossary].sort((a, b) => (b.chinese || "").length - (a.chinese || "").length);
     for (const item of sortedGlossary) {
       if (!item.chinese?.trim() || !item.vietnamese?.trim()) continue;
-      const esc = item.chinese.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+      const esc = escapeRegex(item.chinese.trim());
       const regex = new RegExp(esc, 'g');
       
       const occurrences = (substitutedText.match(regex) || []).length;
@@ -40,7 +40,7 @@ async function callRawTranslationDirect(
       } else {
         const canonicalSub = findCanonicalSubstring(substitutedText, item.chinese);
         if (canonicalSub) {
-          const escCanon = canonicalSub.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const escCanon = escapeRegex(canonicalSub);
           const regexCanon = new RegExp(escCanon, 'g');
           substitutedText = substitutedText.replace(regexCanon, `[${item.vietnamese}]`);
         }
@@ -50,7 +50,7 @@ async function callRawTranslationDirect(
       if (Array.isArray(item.variants) && item.variants.length > 0) {
         for (const variant of item.variants) {
           if (!variant || !variant.trim()) continue;
-          const escVar = variant.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const escVar = escapeRegex(variant.trim());
           const regexVar = new RegExp(escVar, 'g');
           const occurrencesVar = (substitutedText.match(regexVar) || []).length;
           if (occurrencesVar > 0) {
@@ -58,7 +58,7 @@ async function callRawTranslationDirect(
           } else {
             const canonicalSubVar = findCanonicalSubstring(substitutedText, variant);
             if (canonicalSubVar) {
-              const escCanonVar = canonicalSubVar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+              const escCanonVar = escapeRegex(canonicalSubVar);
               const regexCanonVar = new RegExp(escCanonVar, 'g');
               substitutedText = substitutedText.replace(regexCanonVar, `[${item.vietnamese}]`);
             }
@@ -306,7 +306,7 @@ async function callPolishDirect(
     for (const item of sortedGlossary) {
       if (!item.chinese || !item.chinese.trim()) continue;
       const chineseTerm = item.chinese.trim();
-      const esc = chineseTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+      const esc = escapeRegex(chineseTerm);
       const regex = new RegExp(esc, 'g');
 
       const occurrences = (substitutedSourceText.match(regex) || []).length;
@@ -317,7 +317,7 @@ async function callPolishDirect(
       } else {
         const canonicalSub = findCanonicalSubstring(substitutedSourceText, item.chinese);
         if (canonicalSub) {
-          const escCanon = canonicalSub.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const escCanon = escapeRegex(canonicalSub);
           const regexCanon = new RegExp(escCanon, 'g');
           const occurrencesCanon = (substitutedSourceText.match(regexCanon) || []).length;
           if (occurrencesCanon > 0) {
@@ -333,7 +333,7 @@ async function callPolishDirect(
         for (const variant of item.variants) {
           if (!variant || !variant.trim()) continue;
           const varTerm = variant.trim();
-          const escVar = varTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+          const escVar = escapeRegex(varTerm);
           const regexVar = new RegExp(escVar, 'g');
           
           const occurrencesVar = (substitutedSourceText.match(regexVar) || []).length;
@@ -344,7 +344,7 @@ async function callPolishDirect(
           } else {
             const canonicalSubVar = findCanonicalSubstring(substitutedSourceText, varTerm);
             if (canonicalSubVar) {
-              const escCanonVar = canonicalSubVar.replace(/[-\/\\^$*+?.()|[\]{}]/g, '$&');
+              const escCanonVar = escapeRegex(canonicalSubVar);
               const regexCanonVar = new RegExp(escCanonVar, 'g');
               const occurrencesCanonVar = (substitutedSourceText.match(regexCanonVar) || []).length;
               if (occurrencesCanonVar > 0) {

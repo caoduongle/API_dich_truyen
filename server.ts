@@ -8,6 +8,9 @@ import { rateLimitByIP } from "./server/middleware/rateLimiter.ts";
 dotenv.config();
 
 const app = express();
+// Tin tưởng proxy phía trước (Cloud Run / load balancer) để req.ip lấy đúng IP client thật từ X-Forwarded-For.
+app.set('trust proxy', process.env.TRUST_PROXY_HOPS ? Number(process.env.TRUST_PROXY_HOPS) : 1);
+
 const PORT = 3000;
 
 // Hỗ trợ JSON Body dung lượng lớn cho các chương truyện dài

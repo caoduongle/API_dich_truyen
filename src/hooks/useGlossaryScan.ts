@@ -3,7 +3,7 @@ import { StoryProject, GlossaryItem, PendingGlossaryItem } from '../types';
 import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../components/NotificationSystem';
-import { isHanEquivalent } from '../utils/sinoNormalize';
+import { isHanEquivalent } from '@shared/sinoNormalize';
 
 export interface UseGlossaryScanProps {
   activeProject: StoryProject;
