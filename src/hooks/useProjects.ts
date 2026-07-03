@@ -201,7 +201,7 @@ export function useProjects() {
 
         const completeItem: GlossaryItem = {
             ...newItem,
-            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
             createdAt: newItem.createdAt || new Date().toISOString()
         };
         const updated: StoryProject = { ...activeProj, glossary: [completeItem, ...activeProj.glossary] };
@@ -230,7 +230,7 @@ export function useProjects() {
 
             completeItems.push({
                 ...item,
-                id: `glo_md_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`,
+                id: `glo_md_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
                 createdAt: item.createdAt || new Date().toISOString()
             });
         });
@@ -343,7 +343,7 @@ export function useProjects() {
         const pendingItem = (activeProj.pendingGlossary || []).find(p => p.id === pendingId);
         if (!pendingItem) return;
         const confirmed: GlossaryItem = {
-            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
             chinese: override?.chinese ?? pendingItem.chinese,
             pinyin: override?.pinyin ?? pendingItem.pinyin,
             vietnamese: override?.vietnamese ?? pendingItem.vietnamese,

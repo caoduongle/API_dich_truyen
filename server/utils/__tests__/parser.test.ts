@@ -30,7 +30,7 @@ describe('parser utils', () => {
       expect(parsed[0]).toEqual({
         chinese: '熏儿',
         pinyin: '',
-        vietnamese: 'Huân Nhi (Bạn gái nam chính)',
+        vietnamese: 'Huân Nhi',
         type: 'term',
         note: 'Bạn gái nam chính'
       });

@@ -52,8 +52,11 @@ export function parseGlossaryFromMd(text: string): Array<{
       if (!chinese || !vietnamese || !HAN_REGEX.test(chinese)) continue;
       const noteMatch = vietnamese.match(/\(([^)]+)\)\s*$/);
       const note = noteMatch ? noteMatch[1] : "";
+      const cleanVietnamese = (noteMatch && typeof noteMatch.index === 'number')
+        ? vietnamese.substring(0, noteMatch.index).trim()
+        : vietnamese;
 
-      results.push({ chinese, pinyin: "", vietnamese, type: currentType, note });
+      results.push({ chinese, pinyin: "", vietnamese: cleanVietnamese, type: currentType, note });
       continue;
     }
 

@@ -149,6 +149,9 @@ APP_URL="MY_APP_URL"
 # TRUST_PROXY_HOPS: Số lượng hop proxy tin tưởng phía trước load balancer (mặc định 1)
 TRUST_PROXY_HOPS=1
 
+# ALLOW_SERVER_KEY_FALLBACK: Cho phép tự động sử dụng key phía server nếu client chưa cấu hình key riêng
+ALLOW_SERVER_KEY_FALLBACK=true
+
 
 ================================================================================
 /// FILE: .gitignore ///

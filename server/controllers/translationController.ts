@@ -189,8 +189,41 @@ async function translateRawWithContentSplit(
     model: string | undefined,
     depth = 0,
     startKeyIndex: number = 0,
-    description?: string
+    description?: string,
+    enableSegmentTranslation?: boolean
 ): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number }> {
+  if (enableSegmentTranslation) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const translatedParagraphs: string[] = [];
+    let currentKeyIdx = startKeyIndex;
+    const discoveredEntitiesAll: any[] = [];
+
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
+      if (!line) continue;
+      const res = await callRawTranslationDirect(
+        line,
+        genre,
+        tone,
+        glossary,
+        apiKeys,
+        model,
+        currentKeyIdx,
+        description
+      );
+      translatedParagraphs.push(res.rawTranslation);
+      currentKeyIdx = res.successKeyIndex;
+      if (Array.isArray(res.discoveredEntities)) {
+        discoveredEntitiesAll.push(...res.discoveredEntities);
+      }
+    }
+    return {
+      rawTranslation: translatedParagraphs.join("\n\n"),
+      discoveredEntities: discoveredEntitiesAll,
+      successKeyIndex: currentKeyIdx
+    };
+  }
+
   if (text.length < 150 || depth > 4) {
     return callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description);
   }
@@ -423,8 +456,42 @@ async function polishWithContentSplit(
     model: string | undefined,
     depth = 0,
     startKeyIndex: number = 0,
-    description?: string
+    description?: string,
+    enableSegmentTranslation?: boolean
 ): Promise<{ polishedTranslation: string; successKeyIndex: number }> {
+  if (enableSegmentTranslation) {
+    const srcLines = sourceText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const rawLines = rawTranslation.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const polishedParagraphs: string[] = [];
+    let currentKeyIdx = startKeyIndex;
+
+    const maxLen = Math.max(srcLines.length, rawLines.length);
+    for (let idx = 0; idx < maxLen; idx++) {
+      const srcLine = srcLines[idx] || "";
+      const rawLine = rawLines[idx] || "";
+      if (!srcLine && !rawLine) continue;
+
+      const res = await callPolishDirect(
+        srcLine,
+        rawLine,
+        genre,
+        tone,
+        glossary,
+        additionalInstructions,
+        apiKeys,
+        model,
+        currentKeyIdx,
+        description
+      );
+      polishedParagraphs.push(res.polishedTranslation);
+      currentKeyIdx = res.successKeyIndex;
+    }
+    return {
+      polishedTranslation: polishedParagraphs.join("\n\n"),
+      successKeyIndex: currentKeyIdx
+    };
+  }
+
   if (rawTranslation.length < 150 || depth > 4) {
     return callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description);
   }
@@ -492,7 +559,7 @@ async function polishWithContentSplit(
 // 2. API: Thực hiện dịch thô Giai đoạn 1 bảo lưu đồng bộ danh xưng
 export async function translateRaw(req: Request, res: Response): Promise<void> {
   try {
-    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
+    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
       return;
@@ -507,7 +574,8 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
         model,
         0,
         startKeyIndex,
-        description
+        description,
+        enableSegmentTranslation
     );
 
     const resolvedChapterId = sourceChapterId || chapterId;
@@ -529,7 +597,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
 // 3. API: Thực hiện biên tập văn phong mượt mà Giai đoạn 2
 export async function polishTranslation(req: Request, res: Response): Promise<void> {
   try {
-    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId } = req.body;
+    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
     if (!rawTranslation || typeof rawTranslation !== "string") {
       res.status(400).json({ error: "Bản dịch thô không hợp lệ." });
       return;
@@ -579,7 +647,8 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
         model,
         0,
         keyIndexAfterCheck,
-        description
+        description,
+        enableSegmentTranslation
     );
 
     res.json({
@@ -590,5 +659,96 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
   } catch (error: any) {
     console.error("Lỗi tối ưu văn phong:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi tối ưu biên tập.", ...(isOverloadError(error) ? { errorType: 'overload' } : {}) });
+  }
+}
+
+// 4. API: AI tự động kiểm duyệt (Critique Phase)
+export async function qaCritique(req: Request, res: Response): Promise<void> {
+  try {
+    const { sourceText, translatedText, apiKeys, model, startKeyIndex = 0 } = req.body;
+    if (!sourceText || typeof sourceText !== "string") {
+      res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
+      return;
+    }
+    if (!translatedText || typeof translatedText !== "string") {
+      res.status(400).json({ error: "Bản dịch không hợp lệ." });
+      return;
+    }
+
+    const systemInstruction =
+        "Bạn là một chuyên gia kiểm định chất lượng (QA) dịch thuật Trung - Việt chuyên nghiệp.\n" +
+        "Nhiệm vụ của bạn là kiểm tra xem bản dịch tiếng Việt có đầy đủ, chính xác so với văn bản gốc tiếng Trung hay không.\n" +
+        "Hãy đối chiếu kỹ văn bản gốc tiếng Trung và bản dịch tiếng Việt để phát hiện các lỗi sau:\n" +
+        "1. Bỏ sót / cắt xén (Omissions): Những câu, đoạn hoặc chi tiết quan trọng trong bản gốc tiếng Trung bị thiếu trong bản dịch.\n" +
+        "2. Thêm thắt / ảo giác (Additions/Hallucinations): Thông tin tự vẽ ra, không hề có trong bản gốc tiếng Trung.\n" +
+        "3. Lặp lại nội dung (Repetitions): Câu chữ bị lặp đi lặp lại nhiều lần vô nghĩa trong bản dịch.\n\n" +
+        "Bạn PHẢI trả về kết quả dưới định dạng JSON theo schema được yêu cầu, chứa danh sách các lỗi phát hiện được (hoặc mảng trống nếu không có lỗi). Hãy phản hồi cực kỳ nghiêm ngặt và chính xác.";
+
+    const prompt = `--- VĂN BẢN TRUNG GỐC ---
+${sourceText}
+
+--- BẢN DỊCH TIẾNG VIỆT ---
+${translatedText}
+
+Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản dịch.`;
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        isValid: {
+          type: Type.BOOLEAN,
+          description: "true nếu không phát hiện bất kỳ lỗi nghiêm trọng nào về bỏ sót, thêm thắt hoặc lặp lại. false nếu phát hiện lỗi."
+        },
+        issues: {
+          type: Type.ARRAY,
+          description: "Danh sách các lỗi phát hiện được trong bản dịch.",
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              type: {
+                type: Type.STRING,
+                enum: ["omission", "addition", "repetition", "other"],
+                description: "Phân loại lỗi: bỏ sót (omission), thêm thắt (addition), lặp lại (repetition), khác (other)."
+              },
+              severity: {
+                type: Type.STRING,
+                enum: ["critical", "warning", "info"],
+                description: "Mức độ nghiêm trọng của lỗi."
+              },
+              description: {
+                type: Type.STRING,
+                description: "Mô tả chi tiết lỗi phát hiện được, ghi rõ nội dung tiếng Trung bị ảnh hưởng và lỗi tiếng Việt tương ứng."
+              }
+            },
+            required: ["type", "severity", "description"]
+          }
+        }
+      },
+      required: ["isValid", "issues"]
+    };
+
+    const rotationResult = await generateWithRotation(
+        apiKeys,
+        model,
+        systemInstruction,
+        prompt,
+        schema,
+        0.15,
+        startKeyIndex
+    );
+    const resultText = rotationResult.text;
+    if (resultText) {
+      const parsed = safeParseJson(resultText);
+      res.json({
+        isValid: parsed?.isValid ?? true,
+        issues: Array.isArray(parsed?.issues) ? parsed.issues : [],
+        successKeyIndex: rotationResult.successKeyIndex
+      });
+    } else {
+      res.json({ isValid: true, issues: [], successKeyIndex: startKeyIndex });
+    }
+  } catch (error: any) {
+    console.error("[QA Critique Error] Thất bại rà soát kiểm duyệt:", error);
+    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi chạy kiểm duyệt AI." });
   }
 }

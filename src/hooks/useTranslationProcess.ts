@@ -30,6 +30,9 @@ export interface UseTranslationProcessProps {
 
   // Concurrency
   concurrency: number;
+
+  enableAiQaCritique: boolean;
+  enableSegmentTranslation: boolean;
 }
 
 export function useTranslationProcess({
@@ -50,6 +53,8 @@ export function useTranslationProcess({
   setLogs,
   skipFailedChapters,
   concurrency,
+  enableAiQaCritique,
+  enableSegmentTranslation,
 }: UseTranslationProcessProps) {
   const { showToast } = useNotifications();
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -72,7 +77,9 @@ export function useTranslationProcess({
     autoTranslateMode,
     additionalInstructions,
     isExtractionDuringTranslationEnabled,
-    skipFailedChapters
+    skipFailedChapters,
+    enableAiQaCritique,
+    enableSegmentTranslation
   });
 
   useEffect(() => {
@@ -111,7 +118,9 @@ export function useTranslationProcess({
       autoTranslateMode,
       additionalInstructions,
       isExtractionDuringTranslationEnabled,
-      skipFailedChapters
+      skipFailedChapters,
+      enableAiQaCritique,
+      enableSegmentTranslation
     };
   }, [apiKeys, selectedModel, polishCycles, autoTranslateMode, additionalInstructions, isExtractionDuringTranslationEnabled, skipFailedChapters]);
 
@@ -226,7 +235,8 @@ export function useTranslationProcess({
           apiKeys: paramsRef.current.apiKeys,
           model: paramsRef.current.selectedModel,
           startKeyIndex: currentKeyIndex,
-          sourceChapterId: chapter.id
+          sourceChapterId: chapter.id,
+          enableSegmentTranslation: paramsRef.current.enableSegmentTranslation
         }),
         signal
       });
@@ -340,7 +350,8 @@ export function useTranslationProcess({
           model: paramsRef.current.selectedModel,
           startKeyIndex: currentKeyIndex,
           isExtractionEnabled: shouldExtract,
-          sourceChapterId: chapter.id
+          sourceChapterId: chapter.id,
+          enableSegmentTranslation: paramsRef.current.enableSegmentTranslation
         }),
 
         signal
@@ -358,6 +369,43 @@ export function useTranslationProcess({
         currentKeyIndex = polishData.successKeyIndex;
       }
       addLog(`${logPrefix} Hoàn tất chuốt mịn lượt thứ ${j}!`, 'success');
+    }
+
+    // ── GIAI ĐOẠN 3: Kiểm duyệt chất lượng AI (Critique Phase) ──
+    if (paramsRef.current.enableAiQaCritique) {
+      addLog(`${logPrefix} [Kiểm duyệt AI] Bắt đầu rà soát thẩm định chất lượng bản dịch...`, 'info');
+      try {
+        const qaRes = await fetch('/api/qa-critique', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceText: chapter.sourceText,
+            translatedText: currentTextToPolish,
+            apiKeys: paramsRef.current.apiKeys,
+            model: paramsRef.current.selectedModel,
+            startKeyIndex: currentKeyIndex
+          }),
+          signal
+        });
+        if (qaRes.ok) {
+          const qaData = await qaRes.json();
+          if (qaData.isValid) {
+            addLog(`${logPrefix} [Kiểm duyệt AI] Đạt chuẩn! Không phát hiện lỗi bỏ sót, thêm thắt hoặc lặp lại.`, 'success');
+          } else {
+            addLog(`${logPrefix} [Kiểm duyệt AI] Phát hiện ${qaData.issues.length} vấn đề kiểm duyệt:`, 'warn');
+            qaData.issues.forEach((issue: any) => {
+              addLog(`- [${issue.type.toUpperCase()}] (${issue.severity}): ${issue.description}`, 'warn');
+            });
+          }
+          if (typeof qaData.successKeyIndex === 'number') {
+            currentKeyIndex = qaData.successKeyIndex;
+          }
+        } else {
+          addLog(`${logPrefix} [Kiểm duyệt AI] Lỗi hệ thống kiểm duyệt, tiếp tục tiến trình...`, 'warn');
+        }
+      } catch (qaErr: any) {
+        addLog(`${logPrefix} [Kiểm duyệt AI] Lỗi gọi API QA Critique: ${qaErr.message || qaErr}`, 'warn');
+      }
     }
 
     // ── Lưu kết quả ──

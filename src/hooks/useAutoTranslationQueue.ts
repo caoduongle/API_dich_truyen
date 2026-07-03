@@ -39,6 +39,9 @@ export interface UseAutoTranslationQueueProps {
 
   // Concurrency
   concurrency: number;
+
+  enableAiQaCritique: boolean;
+  enableSegmentTranslation: boolean;
 }
 
 export interface LogEntry {

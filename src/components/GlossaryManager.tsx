@@ -683,9 +683,9 @@ function GlossaryManager({
 
   const getOriginBadge = useCallback((origin?: string) => {
     switch (origin) {
-      case 'guideline': return <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Cẩm nang</span>;
-      case 'scanned':  return <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">AI Quét</span>;
-      default:         return <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Thủ công</span>;
+      case 'guideline': return <span className="bg-emerald-950/30 text-emerald-400 border border-emerald-900/40 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Cẩm nang</span>;
+      case 'scanned':  return <span className="bg-amber-950/30 text-amber-400 border border-amber-900/45 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">AI Quét</span>;
+      default:         return <span className="bg-slate-800 text-slate-300 border border-slate-700/50 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Thủ công</span>;
     }
   }, []);
 
@@ -717,11 +717,11 @@ function GlossaryManager({
 
   const getBadgeColor = useCallback((type: GlossaryType) => {
     switch (type) {
-      case 'character': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
-      case 'location':  return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'term':      return 'bg-amber-50 text-amber-700 border-amber-200';
-      case 'phrase':    return 'bg-purple-50 text-purple-700 border-purple-200';
-      default:          return 'bg-slate-50 text-slate-700 border-slate-200';
+      case 'character': return 'bg-indigo-950/40 text-indigo-300 border-indigo-900/40';
+      case 'location':  return 'bg-blue-950/40 text-blue-300 border-blue-900/40';
+      case 'term':      return 'bg-amber-950/40 text-amber-300 border-amber-900/40';
+      case 'phrase':    return 'bg-purple-950/40 text-purple-300 border-purple-900/40';
+      default:          return 'bg-slate-800/40 text-slate-300 border-slate-700/40';
     }
   }, []);
 
@@ -743,7 +743,7 @@ function GlossaryManager({
           <>
             {parts.map((part, i) => (
                 part.toLowerCase() === word.toLowerCase() ? (
-                    <mark key={i} className="bg-yellow-200 text-slate-900 font-extrabold px-1 rounded shadow-3xs border border-yellow-350">
+                    <mark key={i} className="bg-amber-550/20 text-amber-300 font-extrabold px-1 rounded shadow-3xs border border-amber-500/35">
                       {part}
                     </mark>
                 ) : (
@@ -836,34 +836,34 @@ function GlossaryManager({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         <div className={`space-y-4 transition-all duration-300 ${selectedItem ? 'lg:col-span-7' : 'lg:col-span-12'}`}>
           {/* Filter and Search Bar */}
-          <div className="flex flex-col xl:flex-row gap-2 bg-slate-50 border border-slate-200 p-2.5 rounded-lg shadow-2xs">
+          <div className="flex flex-col xl:flex-row gap-2 bg-slate-900/40 border border-slate-800/80 p-2.5 rounded-lg shadow-2xs">
             <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-450" />
               <input
                 id="input-search-glossary"
                 type="text"
                 placeholder="Tìm kiếm từ tiếng Trung, Hán Việt hoặc bản dịch..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded text-xs focus:outline-none focus:border-indigo-500 text-slate-850"
+                className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-750/80 rounded text-xs focus:outline-none focus:border-indigo-550 text-slate-100"
               />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 justify-between xl:justify-end shrink-0">
-              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-1 shadow-3xs">
+              <div className="flex items-center gap-1 bg-slate-950 border border-slate-750/85 rounded px-2 py-1 shadow-3xs">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
                 <input
                   type="date"
                   value={searchDate}
                   onChange={(e) => setSearchDate(e.target.value)}
-                  className="text-xs bg-transparent text-slate-700 focus:outline-none cursor-pointer font-sans h-5"
+                  className="text-xs bg-transparent text-slate-200 focus:outline-none cursor-pointer font-sans h-5"
                   title="Tìm kiếm từ vựng chính xác theo ngày thêm vào hệ thống"
                 />
                 {searchDate && (
                   <button
                     type="button"
                     onClick={() => setSearchDate('')}
-                    className="text-slate-400 hover:text-rose-600 font-bold text-xs pl-1"
+                    className="text-slate-400 hover:text-rose-455 font-bold text-xs pl-1"
                     title="Xóa bộ lọc ngày"
                   >
                     &times;
@@ -874,7 +874,7 @@ function GlossaryManager({
               <select
                 value={selectedOrigin}
                 onChange={(e) => setSelectedOrigin(e.target.value)}
-                className="bg-white border border-slate-200 rounded text-xs px-2 py-1.5 text-slate-700 focus:outline-none cursor-pointer h-8"
+                className="bg-slate-950 border border-slate-750/80 rounded text-xs px-2 py-1.5 text-slate-350 focus:outline-none cursor-pointer h-8"
               >
                 <option value="all">Mọi nguồn gốc</option>
                 <option value="guideline">Từ file cẩm nang (.md)</option>
@@ -886,7 +886,7 @@ function GlossaryManager({
                 id="select-filter-type"
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
-                className="bg-white border border-slate-200 rounded text-xs px-2 py-1.5 text-slate-700 focus:outline-none cursor-pointer h-8"
+                className="bg-slate-950 border border-slate-750/80 rounded text-xs px-2 py-1.5 text-slate-350 focus:outline-none cursor-pointer h-8"
               >
                 <option value="all">Tất cả thể loại</option>
                 <option value="character">Nhân vật</option>
@@ -902,7 +902,7 @@ function GlossaryManager({
                   const val = e.target.value;
                   setPageSize(val === 'all' ? 'all' : Number(val));
                 }}
-                className="bg-white border border-slate-200 rounded text-xs px-2 py-1.5 text-slate-700 focus:outline-none cursor-pointer h-8"
+                className="bg-slate-950 border border-slate-750/80 rounded text-xs px-2 py-1.5 text-slate-350 focus:outline-none cursor-pointer h-8"
               >
                 <option value="all">Hiện tất cả</option>
                 <option value={10}>Hiện 10 từ/trang</option>
@@ -943,45 +943,45 @@ function GlossaryManager({
         />
       </div>
 
-      <div className="bg-indigo-55/40 bg-indigo-50 border border-indigo-100 rounded-lg p-3 flex gap-2 items-start shadow-xs">
-        <Info className="w-4 h-4 text-indigo-650 mt-0.5 shrink-0" />
-        <div className="text-[11px] text-indigo-900 leading-relaxed font-sans">
-          <strong className="block text-indigo-950 mb-0.5">Mẹo xưng hô nhân vật linh hoạt:</strong>
-          Đặc biệt đối với nhân vật nữ hoặc thầy trò quân nhân, bạn hãy điền ghi chú cột reference: <code className="bg-white/80 border border-indigo-100 px-1 rounded font-mono text-red-650 font-semibold">nhân vật nữ, kêu bằng nàng, có xưng hô đệ tử/sư tôn...</code>. AI sẽ xử lý ngữ cảnh này để cải thiện chất lượng dịch thô!
+      <div className="bg-indigo-950/20 border border-indigo-800/40 rounded-lg p-3 flex gap-2 items-start shadow-xs">
+        <Info className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
+        <div className="text-[11px] text-indigo-200 leading-relaxed font-sans">
+          <strong className="block text-indigo-100 mb-0.5">Mẹo xưng hô nhân vật linh hoạt:</strong>
+          Đặc biệt đối với nhân vật nữ hoặc thầy trò quân nhân, bạn hãy điền ghi chú cột reference: <code className="bg-slate-950/80 border border-indigo-900/40 px-1 rounded font-mono text-rose-455 font-semibold">nhân vật nữ, kêu bằng nàng, có xưng hô đệ tử/sư tôn...</code>. AI sẽ xử lý ngữ cảnh này để cải thiện chất lượng dịch thô!
         </div>
       </div>
 
       {pendingGlossary.filter(p => !p.needsReview).length > 0 && onConfirmPending && onDiscardPending && (
-        <div className="bg-white border border-amber-250 rounded-xl overflow-hidden shadow-sm">
-          <div className="bg-amber-50 border-b border-amber-100 px-4 py-3 flex items-center justify-between">
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <div className="bg-amber-950/15 border-b border-amber-900/20 px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <AlertTriangleIcon className="w-4 h-4 text-amber-500" />
-              <h3 className="text-sm font-bold text-amber-900">Hàng Chờ Kiểm Duyệt Trùng Lặp</h3>
-              <span className="bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
+              <AlertTriangleIcon className="w-4 h-4 text-amber-500 animate-pulse" />
+              <h3 className="text-sm font-bold text-slate-200">Hàng Chờ Kiểm Duyệt Trùng Lặp</h3>
+              <span className="bg-amber-950/30 text-amber-400 border border-amber-900/40 text-[10px] font-bold px-2 py-0.5 rounded-full">
                 {pendingGlossary.filter(p => !p.needsReview).length} mục
               </span>
             </div>
-            <p className="text-[11px] text-amber-600 hidden sm:block">
+            <p className="text-[11px] text-amber-400/80 hidden sm:block">
               Các thuật ngữ bị trùng lặp khi nhập. Xem xét và xác nhận hoặc loại bỏ.
             </p>
           </div>
-          <div className="p-4 space-y-2 max-h-72 overflow-y-auto">
+          <div className="p-4 space-y-2 max-h-72 overflow-y-auto bg-slate-950/20">
             {pendingGlossary.filter(p => !p.needsReview).map((pending) => (
               <div key={pending.id}
-                   className="bg-amber-50/50 border border-amber-100 rounded-lg p-3 flex items-start justify-between gap-3">
+                   className="bg-amber-950/5 border border-amber-900/20 rounded-lg p-3 flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="font-mono font-bold text-amber-800 text-sm">{pending.chinese}</span>
-                    <span className="text-slate-400 text-xs">→</span>
-                    <span className="font-semibold text-slate-800 text-sm">{pending.vietnamese}</span>
-                    {pending.pinyin && <span className="text-slate-400 text-[10px]">({pending.pinyin})</span>}
-                    <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-semibold">
+                    <span className="font-mono font-bold text-amber-400 text-sm">{pending.chinese}</span>
+                    <span className="text-slate-500 text-xs">→</span>
+                    <span className="font-semibold text-slate-200 text-sm">{pending.vietnamese}</span>
+                    {pending.pinyin && <span className="text-slate-500 text-[10px]">({pending.pinyin})</span>}
+                    <span className="text-[10px] bg-amber-950/25 text-amber-400 border border-amber-900/45 px-1.5 py-0.5 rounded font-semibold">
                       {pending.reason}
                     </span>
                   </div>
-                  {pending.note && <p className="text-xs text-slate-500 italic">{pending.note}</p>}
+                  {pending.note && <p className="text-xs text-slate-450 italic">{pending.note}</p>}
                   {pending.originalValue && (
-                    <p className="text-[10px] text-amber-600 mt-0.5">
+                    <p className="text-[10px] text-amber-500 mt-0.5">
                       ⚠ Đã có: {pending.originalValue}
                     </p>
                   )}
@@ -989,14 +989,14 @@ function GlossaryManager({
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={() => onConfirmPending(pending.id)}
-                    className="flex items-center gap-1 py-1 px-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded text-xs font-semibold transition cursor-pointer"
+                    className="flex items-center gap-1 py-1 px-2.5 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-900/20 border border-emerald-800/40 rounded text-xs font-semibold transition cursor-pointer"
                     title="Xác nhận thêm vào từ điển"
                   >
-                    <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-600" /> Xác nhận
+                    <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-500" /> Xác nhận
                   </button>
                   <button
                     onClick={() => onDiscardPending(pending.id)}
-                    className="flex items-center gap-1 py-1 px-2 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded text-xs font-semibold transition cursor-pointer"
+                    className="flex items-center gap-1 py-1 px-2 text-slate-500 hover:bg-rose-950/25 hover:text-rose-455 rounded text-xs font-semibold transition cursor-pointer"
                     title="Loại bỏ"
                   >
                     <XIcon className="w-3.5 h-3.5" /> Bỏ qua

@@ -27,6 +27,8 @@ interface AutoTranslatorProps {
   apiKeys: string[];
   selectedModel: string;
   onProcessingChange?: (processing: boolean) => void;
+  enableAiQaCritique: boolean;
+  enableSegmentTranslation: boolean;
 }
 
 export default function AutoTranslator({
@@ -35,6 +37,8 @@ export default function AutoTranslator({
   apiKeys,
   selectedModel,
   onProcessingChange,
+  enableAiQaCritique,
+  enableSegmentTranslation,
 }: AutoTranslatorProps) {
   const totalChapters = activeProject.chapters.length || 0;
 
@@ -150,6 +154,8 @@ export default function AutoTranslator({
     exportMode,
     skipFailedChapters,
     concurrency,
+    enableAiQaCritique,
+    enableSegmentTranslation,
   });
 
   const handleExportModeChange = (mode: 'web' | 'audio' | 'align_jsonl') => {
@@ -197,25 +203,26 @@ export default function AutoTranslator({
   return (
     <div id="auto-translator" className="space-y-6">
       {/* Banner tổng quan tham số */}
-      <div className="bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 text-white rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-md">
+      <div className="bg-gradient-to-r from-[#0c1220] via-[#111a2e] to-[#182747] text-white rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-800/80 shadow-xl shadow-indigo-950/10">
         <div className="space-y-1">
-          <span className="bg-indigo-500/20 text-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-500/35 uppercase tracking-wider">HỆ THỐNG AUTOMATION SỈ</span>
-          <h2 className="text-base font-bold tracking-tight mt-1 flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-indigo-400 animate-spin" />
-            Biên Dịch &amp; Tự Động Thuật Ngữ Bộ Truyện
+          <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-bold px-2.5 py-0.5 rounded border border-indigo-500/25 uppercase tracking-wider">Hệ thống dịch hàng loạt</span>
+          <h2 className="text-base font-extrabold tracking-tight mt-1 flex items-center gap-2">
+            <Cpu className="w-5 h-5 text-indigo-400" />
+            Biên Dịch Tự Động &amp; Trích Thuật Ngữ Sỉ
           </h2>
-          <p className="text-slate-400 text-xs">Hệ thống kích hoạt dịch tuần tự song song, tự động bóc tách từ vựng mới nạp gối đầu cho các chương kế sau.</p>
+          <p className="text-slate-400 text-xs">Hệ thống dịch tuần tự song song, tự động phát hiện và nạp từ điển gối đầu.</p>
         </div>
 
-        <div className="bg-white/5 border border-white/10 p-3 rounded-lg text-xs grid grid-cols-2 gap-x-4 gap-y-1.5 max-w-sm shrink-0">
-          <div className="text-slate-400 font-semibold">Mô hình AI:</div>
-          <div className="text-indigo-300 font-extrabold text-right">{selectedModel}</div>
-          <div className="text-slate-400 font-semibold">Tông xưng hô:</div>
-          <div className="text-indigo-300 font-extrabold text-right line-clamp-1">{activeProject.tone}</div>
-          <div className="text-slate-400 font-semibold text-xs leading-none">Chương chưa dịch:</div>
-          <div className="text-yellow-400 font-extrabold text-right text-xs leading-none">{totalUntranslatedChapters} / {totalChapters} chap</div>
+        <div className="bg-slate-900/50 border border-slate-800 p-3.5 rounded-xl text-xs grid grid-cols-2 gap-x-4 gap-y-2 max-w-sm shrink-0">
+          <div className="text-slate-400 font-semibold">Mô hình AI</div>
+          <div className="text-indigo-400 font-extrabold text-right">{selectedModel}</div>
+          <div className="text-slate-400 font-semibold">Tông xưng hô</div>
+          <div className="text-indigo-400 font-extrabold text-right line-clamp-1">{activeProject.tone}</div>
+          <div className="text-slate-400 font-semibold text-xs leading-none">Chương chưa dịch</div>
+          <div className="text-yellow-500 font-extrabold text-right text-xs leading-none">{totalUntranslatedChapters} / {totalChapters} chap</div>
         </div>
       </div>
+
 
       {/* Cấu hình tham số và bảng điều khiển */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -250,17 +257,17 @@ export default function AutoTranslator({
 
           {/* Failed chapters section */}
           {activeProject.translationQueueState?.failedIds && activeProject.translationQueueState.failedIds.length > 0 && (
-            <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl space-y-2.5 animate-in slide-in-from-top-2 duration-200 shadow-xs">
+            <div className="bg-rose-950/20 border border-rose-900/40 p-4 rounded-xl space-y-2.5 animate-in slide-in-from-top-2 duration-200 shadow-lg">
               <div className="flex items-center gap-2">
                 <span className="flex h-2 w-2 relative shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
                 </span>
-                <span className="text-xs font-bold text-rose-800 uppercase tracking-wider">
+                <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">
                   Phát hiện {activeProject.translationQueueState.failedIds.length} chương lỗi
                 </span>
               </div>
-              <p className="text-[11px] text-rose-600 font-normal leading-relaxed max-h-24 overflow-y-auto bg-white/45 p-2 rounded border border-rose-100/50">
+              <p className="text-[11px] text-rose-300/90 font-normal leading-relaxed max-h-24 overflow-y-auto bg-slate-950/40 p-2.5 rounded-lg border border-rose-900/30 custom-scrollbar">
                 {activeProject.translationQueueState.failedIds.map((fid) => {
                   const chap = activeProject.chapters.find(c => c.id === fid);
                   return chap ? chap.title : fid;
@@ -270,7 +277,7 @@ export default function AutoTranslator({
                 type="button"
                 onClick={handleRetryFailedChapters}
                 disabled={isProcessing}
-                className={`w-full py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-extrabold shadow-sm flex items-center justify-center gap-1.5 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}`}
+                className={`w-full py-2.5 bg-rose-650 hover:bg-rose-600 text-white rounded-lg text-xs font-extrabold shadow-md shadow-rose-500/10 flex items-center justify-center gap-1.5 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}`}
               >
                 Dịch lại các chương lỗi này
               </button>
@@ -339,9 +346,9 @@ export default function AutoTranslator({
       {/* Modal xem chi tiết diff sourceText vs processedSourceText */}
       {isDiffModalOpen && (
         isLoadingDiffChapters ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl p-6 text-center shadow-2xl">
-              <p className="text-xs font-bold text-slate-700 animate-pulse">Đang tải dữ liệu so sánh từ IndexedDB...</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="bg-[#0f1424] border border-slate-800 rounded-2xl p-6 text-center shadow-2xl max-w-sm w-full">
+              <p className="text-xs font-bold text-indigo-400 animate-pulse">Đang tải dữ liệu so sánh từ IndexedDB...</p>
             </div>
           </div>
         ) : fullChaptersForDiff.length > 0 ? (
@@ -353,12 +360,12 @@ export default function AutoTranslator({
             onClose={() => setIsDiffModalOpen(false)}
           />
         ) : (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl p-6 text-center shadow-2xl space-y-4">
-              <p className="text-xs font-bold text-slate-700">Chưa có chương nào áp dụng từ điển để so sánh!</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="bg-[#0f1424] border border-slate-800 rounded-2xl p-6 text-center shadow-2xl space-y-4 max-w-sm w-full">
+              <p className="text-xs font-bold text-slate-300">Chưa có chương nào áp dụng từ điển để so sánh!</p>
               <button
                 onClick={() => setIsDiffModalOpen(false)}
-                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-md shadow-indigo-500/10"
               >
                 Đóng
               </button>

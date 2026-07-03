@@ -351,3 +351,59 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi trích xuất thuật ngữ." });
   }
 }
+
+// API: Dịch nhanh cụm từ bôi đen với ngữ cảnh
+export async function quickTranslateTerm(req: Request, res: Response): Promise<void> {
+  try {
+    const { term, contextText, apiKeys, model, startKeyIndex = 0 } = req.body;
+    if (!term || typeof term !== "string" || !term.trim()) {
+      res.status(400).json({ error: "Thuật ngữ bôi đen không hợp lệ." });
+      return;
+    }
+
+    const systemInstruction =
+        "Bạn là trợ lý dịch thuật Trung - Việt lão luyện tinh thông Hán học và văn học mạng (tiên hiệp, võ hiệp, ngôn tình, huyền huyễn, đô thị).\n" +
+        "Nhiệm vụ của bạn là phân tích từ hoặc cụm từ tiếng Trung được bôi đen và ngữ cảnh xung quanh của nó (nếu có), từ đó đề xuất định nghĩa từ điển phù hợp gồm:\n" +
+        "1. chinese: giữ nguyên từ tiếng Trung gốc.\n" +
+        "2. pinyin: phiên âm Hán-Việt chuẩn xác của cụm từ (ví dụ: '萧炎' -> 'Tiêu Viêm', '斗罗大陆' -> 'Đấu La Đại Lục', '斗破苍穹' -> 'Đấu Phá Thương Khung').\n" +
+        "3. vietnamese: gợi ý dịch thuần Việt hay hoặc giữ nguyên nghĩa Hán-Việt (ví dụ với nhân vật/địa danh).\n" +
+        "4. type: loại thuật ngữ ('character' nếu là tên người/nhân vật, 'location' nếu là địa danh/nơi chốn, 'term' nếu là chiêu thức/bí kíp/vật phẩm, 'phrase' nếu là thành ngữ/cụm từ phổ biến, 'other' cho loại khác).\n" +
+        "5. note: giải nghĩa ngắn gọn hoặc ghi chú vai trò của từ này trong ngữ cảnh.";
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        chinese: { type: Type.STRING },
+        pinyin: { type: Type.STRING },
+        vietnamese: { type: Type.STRING },
+        type: {
+          type: Type.STRING,
+          enum: ["character", "location", "term", "phrase", "other"]
+        },
+        note: { type: Type.STRING }
+      },
+      required: ["chinese", "pinyin", "vietnamese", "type", "note"]
+    };
+
+    const prompt = `Cụm từ bôi đen: "${term.trim()}"\n${contextText ? `Ngữ cảnh xung quanh: "... ${contextText.trim()} ..."` : ""}`;
+
+    const rotationResult = await generateWithRotation(
+        apiKeys,
+        model,
+        systemInstruction,
+        prompt,
+        schema,
+        0.1,
+        startKeyIndex
+    );
+    const resultText = rotationResult.text;
+    if (!resultText) throw new Error("Không nhận được kết quả từ AI.");
+
+    const parsed = safeParseJson(resultText);
+    res.json({ term: parsed, successKeyIndex: rotationResult.successKeyIndex });
+  } catch (error: any) {
+    console.error("Lỗi quick-translate-term:", error);
+    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích thuật ngữ." });
+  }
+}
+

@@ -125,30 +125,30 @@ export function MergeHanPanel({
   if (!show || groups.length === 0) return null;
 
   return (
-    <div className="bg-slate-50 border border-amber-200 rounded-xl p-4 space-y-4 shadow-xs">
-      <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+    <div className="bg-slate-900/40 border border-amber-900/40 rounded-2xl p-4 space-y-4 shadow-xl backdrop-blur-md">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-amber-500" />
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+          <Sparkles className="w-5 h-5 text-amber-400" />
+          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
             Gợi ý gộp biến thể Hán tự (Phồn / Giản thể)
           </h3>
-          <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+          <span className="bg-amber-950/40 text-amber-400 border border-amber-900/50 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full">
             {groups.length} nhóm
           </span>
         </div>
         <button
           onClick={() => setShow(false)}
-          className="text-xs font-bold text-slate-500 hover:text-slate-700 bg-white border border-slate-200 rounded px-2.5 py-1 transition-colors cursor-pointer"
+          className="text-xs font-bold text-slate-400 hover:text-slate-200 bg-slate-950/40 border border-slate-800 rounded-lg px-2.5 py-1.5 transition-all cursor-pointer"
         >
           Đóng gợi ý
         </button>
       </div>
 
-      <p className="text-xs text-slate-500 leading-relaxed max-w-4xl">
+      <p className="text-xs text-slate-400 leading-relaxed max-w-4xl">
         Hệ thống phát hiện các thuật ngữ viết khác nhau giữa Phồn thể và Giản thể nhưng có cùng dạng chuẩn hóa. Bạn có thể chọn giữ lại 1 từ chính (Primary), các từ còn lại sẽ được lưu tự động thành biến thể (variants) của từ đó để hệ thống tiếp tục hỗ trợ đối chiếu dịch tự động.
       </p>
 
-      <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+      <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
         {groups.map(group => {
           const primaryId = selectedPrimaryIds[group.groupId];
           const payload = mergePayloads[group.groupId] || {};
@@ -158,11 +158,11 @@ export function MergeHanPanel({
           return (
             <div
               key={group.groupId}
-              className="bg-white border border-slate-200 hover:border-amber-300 rounded-xl overflow-hidden shadow-2xs transition-colors grid grid-cols-1 lg:grid-cols-12"
+              className="bg-slate-950/40 border border-slate-850 hover:border-amber-900/40 rounded-xl overflow-hidden shadow-lg transition-colors grid grid-cols-1 lg:grid-cols-12"
             >
               {/* Left Column: Select Primary */}
-              <div className="lg:col-span-7 p-4 border-r border-slate-100 space-y-3 bg-slate-50/20">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              <div className="lg:col-span-7 p-4 border-r border-slate-850 space-y-3 bg-slate-950/20">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                   Chọn dạng chữ chính (Primary Form)
                 </span>
                 
@@ -175,26 +175,26 @@ export function MergeHanPanel({
                         onClick={() => handleSelectPrimary(group.groupId, item)}
                         className={`p-3 border rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-all ${
                           isPrimary
-                            ? 'bg-amber-50/50 border-amber-300 shadow-2xs'
-                            : 'bg-white border-slate-200 hover:bg-slate-50/40'
+                            ? 'bg-amber-950/30 border-amber-900/50 shadow-md shadow-amber-500/5'
+                            : 'bg-slate-900/10 border-slate-850 hover:bg-slate-900/30 hover:border-slate-800'
                         }`}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-slate-800 text-sm">{item.chinese}</span>
-                            <span className="text-slate-400 text-xs">→</span>
-                            <span className="font-semibold text-indigo-950 text-xs">{item.vietnamese}</span>
-                            <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">
+                            <span className="font-mono font-bold text-slate-200 text-sm">{item.chinese}</span>
+                            <span className="text-slate-500 text-xs">→</span>
+                            <span className="font-semibold text-slate-350 text-xs">{item.vietnamese}</span>
+                            <span className="text-[9px] bg-slate-900 text-slate-400 border border-slate-800 px-1.5 py-0.5 rounded font-mono">
                               {item.type}
                             </span>
                           </div>
                           {item.note && (
-                            <p className="text-[11px] text-slate-400 italic truncate mt-0.5" title={item.note}>
+                            <p className="text-[11px] text-slate-500 italic truncate mt-0.5" title={item.note}>
                               {item.note}
                             </p>
                           )}
                           {Array.isArray(item.variants) && item.variants.length > 0 && (
-                            <div className="text-[9px] text-amber-700 mt-1 font-mono">
+                            <div className="text-[9px] text-amber-400/80 mt-1 font-mono">
                               Biến thể đã có: {item.variants.join(', ')}
                             </div>
                           )}
@@ -203,8 +203,8 @@ export function MergeHanPanel({
                         <div className="shrink-0">
                           <div className={`w-5 h-5 rounded-full flex items-center justify-center border transition-all ${
                             isPrimary
-                              ? 'bg-amber-500 border-amber-500 text-white'
-                              : 'bg-white border-slate-300'
+                              ? 'bg-amber-500 border-amber-500 text-slate-950'
+                              : 'bg-slate-950 border-slate-800'
                           }`}>
                             {isPrimary && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                           </div>
@@ -216,79 +216,79 @@ export function MergeHanPanel({
               </div>
 
               {/* Right Column: Edit Merged Details */}
-              <div className="lg:col-span-5 p-4 flex flex-col justify-between gap-3 bg-amber-50/5">
+              <div className="lg:col-span-5 p-4 flex flex-col justify-between gap-3 bg-slate-900/20">
                 <div className="space-y-3">
-                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+                  <span className="text-[10px] font-bold text-amber-400/80 uppercase tracking-wider block">
                     Thông tin sau khi gộp
                   </span>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Dịch Việt</span>
+                      <span className="block text-[9px] uppercase font-bold text-slate-500 mb-0.5">Dịch Việt</span>
                       <input
                         type="text"
                         value={payload.vietnamese || ''}
                         onChange={(e) => handleUpdateField(group.groupId, 'vietnamese', e.target.value)}
-                        className="w-full text-xs font-bold bg-white border border-slate-200 focus:border-amber-400 rounded px-2 py-1.5 text-indigo-950 outline-none transition-colors"
+                        className="w-full text-xs font-semibold bg-slate-950/60 border border-slate-800 focus:border-amber-500/80 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none transition-colors"
                       />
                     </div>
                     <div>
-                      <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Phiên âm</span>
+                      <span className="block text-[9px] uppercase font-bold text-slate-500 mb-0.5">Phiên âm</span>
                       <input
                         type="text"
                         value={payload.pinyin || ''}
                         onChange={(e) => handleUpdateField(group.groupId, 'pinyin', e.target.value)}
-                        className="w-full text-xs bg-white border border-slate-200 focus:border-amber-400 rounded px-2 py-1.5 text-slate-700 outline-none transition-colors"
+                        className="w-full text-xs bg-slate-950/60 border border-slate-800 focus:border-amber-500/80 rounded-lg px-2.5 py-1.5 text-slate-200 outline-none transition-colors"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Phân loại</span>
+                    <span className="block text-[9px] uppercase font-bold text-slate-500 mb-0.5">Phân loại</span>
                     <select
                       value={payload.type || 'character'}
                       onChange={(e) => handleUpdateField(group.groupId, 'type', e.target.value)}
-                      className="w-full text-xs bg-white border border-slate-200 focus:border-amber-400 rounded px-2 py-1.5 text-slate-700 outline-none transition-colors"
+                      className="w-full text-xs bg-slate-950/60 border border-slate-800 focus:border-amber-500/80 rounded-lg px-2 py-1.5 text-slate-200 outline-none transition-colors cursor-pointer"
                     >
-                      <option value="character">Nhân vật</option>
-                      <option value="location">Địa danh</option>
-                      <option value="term">Bí kíp / Vật phẩm</option>
-                      <option value="phrase">Thành ngữ / Cụm từ</option>
-                      <option value="other">Thuật ngữ khác</option>
+                      <option value="character" className="bg-slate-950 text-slate-200">Nhân vật</option>
+                      <option value="location" className="bg-slate-950 text-slate-200">Địa danh</option>
+                      <option value="term" className="bg-slate-950 text-slate-200">Bí kíp / Vật phẩm</option>
+                      <option value="phrase" className="bg-slate-950 text-slate-200">Thành ngữ / Cụm từ</option>
+                      <option value="other" className="bg-slate-950 text-slate-200">Thuật ngữ khác</option>
                     </select>
                   </div>
 
                   <div>
-                    <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Ghi chú gộp</span>
+                    <span className="block text-[9px] uppercase font-bold text-slate-500 mb-0.5">Ghi chú gộp</span>
                     <textarea
                       value={payload.note || ''}
                       onChange={(e) => handleUpdateField(group.groupId, 'note', e.target.value)}
                       rows={2}
-                      className="w-full text-xs bg-white border border-slate-200 focus:border-amber-400 rounded px-2 py-1 text-slate-600 outline-none transition-colors resize-none"
+                      className="w-full text-xs bg-slate-950/60 border border-slate-800 focus:border-amber-500/80 rounded-lg px-2.5 py-1.5 text-slate-350 outline-none transition-colors resize-none"
                     />
                   </div>
 
-                  <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 flex items-start gap-1.5">
+                  <div className="bg-slate-950/60 border border-slate-850 rounded-lg p-2.5 flex items-start gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
-                    <div className="text-[10px] text-slate-500 leading-tight">
-                      Từ chính: <strong className="font-mono text-slate-700">{primaryItem.chinese}</strong>.
+                    <div className="text-[10px] text-slate-400 leading-tight">
+                      Từ chính: <strong className="font-mono text-slate-300">{primaryItem.chinese}</strong>.
                       <br />
-                      Biến thể sẽ lưu: <strong className="font-mono text-slate-700">{otherItems.map(it => it.chinese).join(', ')}</strong>.
+                      Biến thể sẽ lưu: <strong className="font-mono text-slate-300">{otherItems.map(it => it.chinese).join(', ')}</strong>.
                     </div>
                   </div>
                 </div>
 
-                <div className="flex gap-2 border-t border-slate-100 pt-3">
+                <div className="flex gap-2 border-t border-slate-850 pt-3">
                   <button
                     onClick={() => handleMergeSubmit(group.groupId)}
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg py-2 text-xs font-bold transition-colors cursor-pointer shadow-xs border border-amber-600/10"
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg py-2 text-xs font-bold transition-all cursor-pointer shadow-md shadow-amber-500/10 border border-amber-600/10"
                   >
                     <Check className="w-4 h-4" />
                     Đồng ý gộp
                   </button>
                   <button
                     onClick={() => handleIgnore(group.groupId)}
-                    className="flex items-center justify-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg px-3 py-2 text-xs font-bold transition-colors cursor-pointer border border-slate-200"
+                    className="flex items-center justify-center gap-1 bg-slate-900/50 hover:bg-slate-800/60 border border-slate-800 text-slate-300 rounded-lg px-3 py-2 text-xs font-bold transition-all cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                     Bỏ qua

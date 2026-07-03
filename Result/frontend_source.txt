@@ -2802,6 +2802,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmModal, setConfirmModal] = useState<ConfirmOptions | null>(null);
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
+  const toastIntervals = useRef<Map<string, any>>(new Map());
+
+  // Clean up all intervals on unmount
+  useEffect(() => {
+    return () => {
+      toastIntervals.current.forEach((intervalId) => clearInterval(intervalId));
+      toastIntervals.current.clear();
+    };
+  }, []);
 
   const showToast = useCallback((options: ToastOptions | string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -2823,12 +2832,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
         if (elapsed >= duration) {
           clearInterval(intervalId);
+          toastIntervals.current.delete(id);
           setToasts((prev) => prev.filter((t) => t.id !== id));
         }
       }, 50);
 
-      // Clean up interval on unmount/remove if needed
-      return () => clearInterval(intervalId);
+      toastIntervals.current.set(id, intervalId);
     }
   }, []);
 
@@ -2848,6 +2857,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const handleRemoveToast = (id: string) => {
+    const intervalId = toastIntervals.current.get(id);
+    if (intervalId) {
+      clearInterval(intervalId);
+      toastIntervals.current.delete(id);
+    }
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
@@ -3083,7 +3097,7 @@ export default function ProjectList({
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [genre, setGenre] = useState('Tiên Hiệp');
-  const [tone, setTone] = useState('Dịch thuần Việt mượt màng');
+  const [tone, setTone] = useState('Dịch thuần Việt mượt mà');
   const [description, setDescription] = useState('');
 
   // File analysis states
@@ -4267,7 +4281,7 @@ export default function TranslatorWorkspace({
         if (!isDuplicate) {
           const itemPayload = {
             ...s,
-            id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11),
             createdAt: new Date().toISOString(),
             sourceChapterId: currentChapterId || undefined
           };
@@ -9147,7 +9161,7 @@ export const CHINESE_EXAMPLES: ChineseExample[] = [
 /// FILE: src/hooks/useAIConfig.ts ///
 ================================================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNotifications } from '../components/NotificationSystem';
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
 
@@ -9175,8 +9189,12 @@ export function useAIConfig() {
         return DEFAULT_MODEL_ID;
     });
 
-
     const [showApiSettings, setShowApiSettings] = useState(false);
+
+    // Sync apiKeys to localStorage whenever they change
+    useEffect(() => {
+        localStorage.setItem('gemini_api_keys', JSON.stringify(apiKeys));
+    }, [apiKeys]);
 
     const handleSaveModel = useCallback((model: string) => {
         setSelectedModel(model);
@@ -9184,28 +9202,19 @@ export function useAIConfig() {
     }, []);
 
     const handleAddApiKey = useCallback(() => {
-        setApiKeys(prev => {
-            const updated = [...prev, ''];
-            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-            return updated;
-        });
+        setApiKeys(prev => [...prev, '']);
     }, []);
 
     const handleUpdateKeyIndex = useCallback((index: number, val: string) => {
         setApiKeys(prev => {
             const updated = [...prev];
             updated[index] = val;
-            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
             return updated;
         });
     }, []);
 
     const handleDeleteKeyIndex = useCallback((index: number) => {
-        setApiKeys(prev => {
-            const updated = prev.filter((_, idx) => idx !== index);
-            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-            return updated;
-        });
+        setApiKeys(prev => prev.filter((_, idx) => idx !== index));
     }, []);
 
     const handleImportClipboardKeys = useCallback(async () => {
@@ -9219,9 +9228,7 @@ export function useAIConfig() {
             if (keys.length > 0) {
                 setApiKeys(prev => {
                     const updated = [...prev, ...keys];
-                    const uniqueKeys = Array.from(new Set(updated));
-                    localStorage.setItem('gemini_api_keys', JSON.stringify(uniqueKeys));
-                    return uniqueKeys;
+                    return Array.from(new Set(updated));
                 });
                 showToast({ message: `Đã nhận diện thành công và nhập sỉ ${keys.length} API Keys!`, type: 'success' });
             } else {
@@ -10191,7 +10198,7 @@ export function useProjects() {
 
         const completeItem: GlossaryItem = {
             ...newItem,
-            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
             createdAt: newItem.createdAt || new Date().toISOString()
         };
         const updated: StoryProject = { ...activeProj, glossary: [completeItem, ...activeProj.glossary] };
@@ -10220,7 +10227,7 @@ export function useProjects() {
 
             completeItems.push({
                 ...item,
-                id: `glo_md_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`,
+                id: `glo_md_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
                 createdAt: item.createdAt || new Date().toISOString()
             });
         });
@@ -10333,7 +10340,7 @@ export function useProjects() {
         const pendingItem = (activeProj.pendingGlossary || []).find(p => p.id === pendingId);
         if (!pendingItem) return;
         const confirmed: GlossaryItem = {
-            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
             chinese: override?.chinese ?? pendingItem.chinese,
             pinyin: override?.pinyin ?? pendingItem.pinyin,
             vietnamese: override?.vietnamese ?? pendingItem.vietnamese,
