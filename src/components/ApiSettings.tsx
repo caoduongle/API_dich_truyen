@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plus, Trash2, Key, Cpu, ClipboardPaste, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { X, Plus, Trash2, Key, Cpu, ClipboardPaste, Eye, EyeOff } from 'lucide-react';
 import { AVAILABLE_MODELS } from '../constants/models';
 
 
@@ -46,7 +46,7 @@ export default function ApiSettings({
     });
   };
 
-  const validKeyCount = apiKeys.filter(k => k.trim().length > 5 && k.trim().startsWith('AIza')).length;
+  const validKeyCount = apiKeys.filter(k => k.trim().length > 0).length;
 
   return (
     /* Backdrop */
@@ -67,8 +67,8 @@ export default function ApiSettings({
               <h2 className="text-sm font-extrabold text-slate-200">Cấu hình AI</h2>
               <p className="text-[11px] text-slate-450">
                 {validKeyCount > 0 ? (
-                  <span className="text-emerald-450 font-semibold flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3 text-emerald-500" /> {validKeyCount} key đang hoạt động
+                  <span className="text-slate-400 font-semibold flex items-center gap-1">
+                    <Key className="w-3 h-3 text-indigo-400" /> Đã cấu hình {validKeyCount} key
                   </span>
                 ) : (
                   'Chưa có API key nào được cấu hình'
@@ -177,12 +177,9 @@ export default function ApiSettings({
               <div className="space-y-2">
                 {apiKeys.map((key, idx) => {
                   const isRevealed = revealedKeys.has(idx);
-                  const isValid = key.trim().length > 5 && key.trim().startsWith('AIza');
                   return (
                     <div key={idx} className="flex items-center gap-2">
-                      <div className={`flex-1 flex items-center gap-1 border rounded-lg px-2.5 py-1.5 bg-slate-955 bg-slate-950 transition-colors ${
-                        isValid ? 'border-emerald-800 bg-emerald-950/20' : 'border-slate-800'
-                      }`}>
+                      <div className="flex-1 flex items-center gap-1 border border-slate-800 rounded-lg px-2.5 py-1.5 bg-slate-950">
                         <span className="text-[10px] font-bold text-slate-400 shrink-0 w-5 text-center">
                           {idx + 1}
                         </span>
@@ -190,12 +187,9 @@ export default function ApiSettings({
                           type={isRevealed ? 'text' : 'password'}
                           value={key}
                           onChange={e => onUpdateKeyIndex(idx, e.target.value)}
-                          placeholder="AIza..."
+                          placeholder="Nhập Gemini API Key..."
                           className="flex-1 text-xs bg-transparent outline-none text-slate-100 font-mono min-w-0"
                         />
-                        {isValid && (
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        )}
                       </div>
                       <button
                         onClick={() => toggleReveal(idx)}

@@ -508,6 +508,62 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
   }
 }
 
+// API: Dịch nhanh cụm từ bôi đen với ngữ cảnh
+export async function quickTranslateTerm(req: Request, res: Response): Promise<void> {
+  try {
+    const { term, contextText, apiKeys, model, startKeyIndex = 0 } = req.body;
+    if (!term || typeof term !== "string" || !term.trim()) {
+      res.status(400).json({ error: "Thuật ngữ bôi đen không hợp lệ." });
+      return;
+    }
+
+    const systemInstruction =
+        "Bạn là trợ lý dịch thuật Trung - Việt lão luyện tinh thông Hán học và văn học mạng (tiên hiệp, võ hiệp, ngôn tình, huyền huyễn, đô thị).\n" +
+        "Nhiệm vụ của bạn là phân tích từ hoặc cụm từ tiếng Trung được bôi đen và ngữ cảnh xung quanh của nó (nếu có), từ đó đề xuất định nghĩa từ điển phù hợp gồm:\n" +
+        "1. chinese: giữ nguyên từ tiếng Trung gốc.\n" +
+        "2. pinyin: phiên âm Hán-Việt chuẩn xác của cụm từ (ví dụ: '萧炎' -> 'Tiêu Viêm', '斗罗大陆' -> 'Đấu La Đại Lục', '斗破苍穹' -> 'Đấu Phá Thương Khung').\n" +
+        "3. vietnamese: gợi ý dịch thuần Việt hay hoặc giữ nguyên nghĩa Hán-Việt (ví dụ với nhân vật/địa danh).\n" +
+        "4. type: loại thuật ngữ ('character' nếu là tên người/nhân vật, 'location' nếu là địa danh/nơi chốn, 'term' nếu là chiêu thức/bí kíp/vật phẩm, 'phrase' nếu là thành ngữ/cụm từ phổ biến, 'other' cho loại khác).\n" +
+        "5. note: giải nghĩa ngắn gọn hoặc ghi chú vai trò của từ này trong ngữ cảnh.";
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        chinese: { type: Type.STRING },
+        pinyin: { type: Type.STRING },
+        vietnamese: { type: Type.STRING },
+        type: {
+          type: Type.STRING,
+          enum: ["character", "location", "term", "phrase", "other"]
+        },
+        note: { type: Type.STRING }
+      },
+      required: ["chinese", "pinyin", "vietnamese", "type", "note"]
+    };
+
+    const prompt = `Cụm từ bôi đen: "${term.trim()}"\n${contextText ? `Ngữ cảnh xung quanh: "... ${contextText.trim()} ..."` : ""}`;
+
+    const rotationResult = await generateWithRotation(
+        apiKeys,
+        model,
+        systemInstruction,
+        prompt,
+        schema,
+        0.1,
+        startKeyIndex
+    );
+    const resultText = rotationResult.text;
+    if (!resultText) throw new Error("Không nhận được kết quả từ AI.");
+
+    const parsed = safeParseJson(resultText);
+    res.json({ term: parsed, successKeyIndex: rotationResult.successKeyIndex });
+  } catch (error: any) {
+    console.error("Lỗi quick-translate-term:", error);
+    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích thuật ngữ." });
+  }
+}
+
+
 
 ================================================================================
 /// FILE: server/controllers/translationController.ts ///
@@ -704,8 +760,41 @@ async function translateRawWithContentSplit(
     model: string | undefined,
     depth = 0,
     startKeyIndex: number = 0,
-    description?: string
+    description?: string,
+    enableSegmentTranslation?: boolean
 ): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number }> {
+  if (enableSegmentTranslation) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const translatedParagraphs: string[] = [];
+    let currentKeyIdx = startKeyIndex;
+    const discoveredEntitiesAll: any[] = [];
+
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
+      if (!line) continue;
+      const res = await callRawTranslationDirect(
+        line,
+        genre,
+        tone,
+        glossary,
+        apiKeys,
+        model,
+        currentKeyIdx,
+        description
+      );
+      translatedParagraphs.push(res.rawTranslation);
+      currentKeyIdx = res.successKeyIndex;
+      if (Array.isArray(res.discoveredEntities)) {
+        discoveredEntitiesAll.push(...res.discoveredEntities);
+      }
+    }
+    return {
+      rawTranslation: translatedParagraphs.join("\n\n"),
+      discoveredEntities: discoveredEntitiesAll,
+      successKeyIndex: currentKeyIdx
+    };
+  }
+
   if (text.length < 150 || depth > 4) {
     return callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description);
   }
@@ -938,8 +1027,42 @@ async function polishWithContentSplit(
     model: string | undefined,
     depth = 0,
     startKeyIndex: number = 0,
-    description?: string
+    description?: string,
+    enableSegmentTranslation?: boolean
 ): Promise<{ polishedTranslation: string; successKeyIndex: number }> {
+  if (enableSegmentTranslation) {
+    const srcLines = sourceText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const rawLines = rawTranslation.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const polishedParagraphs: string[] = [];
+    let currentKeyIdx = startKeyIndex;
+
+    const maxLen = Math.max(srcLines.length, rawLines.length);
+    for (let idx = 0; idx < maxLen; idx++) {
+      const srcLine = srcLines[idx] || "";
+      const rawLine = rawLines[idx] || "";
+      if (!srcLine && !rawLine) continue;
+
+      const res = await callPolishDirect(
+        srcLine,
+        rawLine,
+        genre,
+        tone,
+        glossary,
+        additionalInstructions,
+        apiKeys,
+        model,
+        currentKeyIdx,
+        description
+      );
+      polishedParagraphs.push(res.polishedTranslation);
+      currentKeyIdx = res.successKeyIndex;
+    }
+    return {
+      polishedTranslation: polishedParagraphs.join("\n\n"),
+      successKeyIndex: currentKeyIdx
+    };
+  }
+
   if (rawTranslation.length < 150 || depth > 4) {
     return callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description);
   }
@@ -1007,7 +1130,7 @@ async function polishWithContentSplit(
 // 2. API: Thực hiện dịch thô Giai đoạn 1 bảo lưu đồng bộ danh xưng
 export async function translateRaw(req: Request, res: Response): Promise<void> {
   try {
-    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
+    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
       return;
@@ -1022,7 +1145,8 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
         model,
         0,
         startKeyIndex,
-        description
+        description,
+        enableSegmentTranslation
     );
 
     const resolvedChapterId = sourceChapterId || chapterId;
@@ -1044,7 +1168,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
 // 3. API: Thực hiện biên tập văn phong mượt mà Giai đoạn 2
 export async function polishTranslation(req: Request, res: Response): Promise<void> {
   try {
-    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId } = req.body;
+    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
     if (!rawTranslation || typeof rawTranslation !== "string") {
       res.status(400).json({ error: "Bản dịch thô không hợp lệ." });
       return;
@@ -1094,7 +1218,8 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
         model,
         0,
         keyIndexAfterCheck,
-        description
+        description,
+        enableSegmentTranslation
     );
 
     res.json({
@@ -1105,6 +1230,97 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
   } catch (error: any) {
     console.error("Lỗi tối ưu văn phong:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi tối ưu biên tập.", ...(isOverloadError(error) ? { errorType: 'overload' } : {}) });
+  }
+}
+
+// 4. API: AI tự động kiểm duyệt (Critique Phase)
+export async function qaCritique(req: Request, res: Response): Promise<void> {
+  try {
+    const { sourceText, translatedText, apiKeys, model, startKeyIndex = 0 } = req.body;
+    if (!sourceText || typeof sourceText !== "string") {
+      res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
+      return;
+    }
+    if (!translatedText || typeof translatedText !== "string") {
+      res.status(400).json({ error: "Bản dịch không hợp lệ." });
+      return;
+    }
+
+    const systemInstruction =
+        "Bạn là một chuyên gia kiểm định chất lượng (QA) dịch thuật Trung - Việt chuyên nghiệp.\n" +
+        "Nhiệm vụ của bạn là kiểm tra xem bản dịch tiếng Việt có đầy đủ, chính xác so với văn bản gốc tiếng Trung hay không.\n" +
+        "Hãy đối chiếu kỹ văn bản gốc tiếng Trung và bản dịch tiếng Việt để phát hiện các lỗi sau:\n" +
+        "1. Bỏ sót / cắt xén (Omissions): Những câu, đoạn hoặc chi tiết quan trọng trong bản gốc tiếng Trung bị thiếu trong bản dịch.\n" +
+        "2. Thêm thắt / ảo giác (Additions/Hallucinations): Thông tin tự vẽ ra, không hề có trong bản gốc tiếng Trung.\n" +
+        "3. Lặp lại nội dung (Repetitions): Câu chữ bị lặp đi lặp lại nhiều lần vô nghĩa trong bản dịch.\n\n" +
+        "Bạn PHẢI trả về kết quả dưới định dạng JSON theo schema được yêu cầu, chứa danh sách các lỗi phát hiện được (hoặc mảng trống nếu không có lỗi). Hãy phản hồi cực kỳ nghiêm ngặt và chính xác.";
+
+    const prompt = `--- VĂN BẢN TRUNG GỐC ---
+${sourceText}
+
+--- BẢN DỊCH TIẾNG VIỆT ---
+${translatedText}
+
+Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản dịch.`;
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        isValid: {
+          type: Type.BOOLEAN,
+          description: "true nếu không phát hiện bất kỳ lỗi nghiêm trọng nào về bỏ sót, thêm thắt hoặc lặp lại. false nếu phát hiện lỗi."
+        },
+        issues: {
+          type: Type.ARRAY,
+          description: "Danh sách các lỗi phát hiện được trong bản dịch.",
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              type: {
+                type: Type.STRING,
+                enum: ["omission", "addition", "repetition", "other"],
+                description: "Phân loại lỗi: bỏ sót (omission), thêm thắt (addition), lặp lại (repetition), khác (other)."
+              },
+              severity: {
+                type: Type.STRING,
+                enum: ["critical", "warning", "info"],
+                description: "Mức độ nghiêm trọng của lỗi."
+              },
+              description: {
+                type: Type.STRING,
+                description: "Mô tả chi tiết lỗi phát hiện được, ghi rõ nội dung tiếng Trung bị ảnh hưởng và lỗi tiếng Việt tương ứng."
+              }
+            },
+            required: ["type", "severity", "description"]
+          }
+        }
+      },
+      required: ["isValid", "issues"]
+    };
+
+    const rotationResult = await generateWithRotation(
+        apiKeys,
+        model,
+        systemInstruction,
+        prompt,
+        schema,
+        0.15,
+        startKeyIndex
+    );
+    const resultText = rotationResult.text;
+    if (resultText) {
+      const parsed = safeParseJson(resultText);
+      res.json({
+        isValid: parsed?.isValid ?? true,
+        issues: Array.isArray(parsed?.issues) ? parsed.issues : [],
+        successKeyIndex: rotationResult.successKeyIndex
+      });
+    } else {
+      res.json({ isValid: true, issues: [], successKeyIndex: startKeyIndex });
+    }
+  } catch (error: any) {
+    console.error("[QA Critique Error] Thất bại rà soát kiểm duyệt:", error);
+    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi chạy kiểm duyệt AI." });
   }
 }
 
@@ -1164,11 +1380,13 @@ import { Router, Request, Response, NextFunction } from "express";
 import {
   analyzeGlossary,
   analyzeGuidelines,
-  extractGlossary
+  extractGlossary,
+  quickTranslateTerm
 } from "../controllers/glossaryController.ts";
 import {
   translateRaw,
-  polishTranslation
+  polishTranslation,
+  qaCritique
 } from "../controllers/translationController.ts";
 import {
   alignChapter
@@ -1225,10 +1443,12 @@ function checkApiKeysFallback(req: Request, res: Response, next: NextFunction): 
 router.post("/analyze-glossary", validateModelMiddleware, checkApiKeysFallback, analyzeGlossary);
 router.post("/analyze-guidelines", validateModelMiddleware, checkApiKeysFallback, analyzeGuidelines);
 router.post("/extract-glossary", validateModelMiddleware, checkApiKeysFallback, extractGlossary);
+router.post("/quick-translate-term", validateModelMiddleware, checkApiKeysFallback, quickTranslateTerm);
 
 // Routes for Translation Tasks
 router.post("/translate-raw", validateModelMiddleware, checkApiKeysFallback, translateRaw);
 router.post("/polish-translation", validateModelMiddleware, checkApiKeysFallback, polishTranslation);
+router.post("/qa-critique", validateModelMiddleware, checkApiKeysFallback, qaCritique);
 
 // Routes for Bilingual alignment
 router.post("/align-chapter", validateModelMiddleware, checkApiKeysFallback, alignChapter);

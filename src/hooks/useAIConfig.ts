@@ -88,7 +88,7 @@ export function useAIConfig() {
             const keys = text
                 .split(/[\n,;]+/)
                 .map(k => k.trim())
-                .filter(k => k.length > 5 && k.startsWith('AIza'));
+                .filter(k => k.length > 5);
             if (keys.length > 0) {
                 setApiKeys(prev => {
                     const updated = [...prev, ...keys];
@@ -96,7 +96,7 @@ export function useAIConfig() {
                 });
                 showToast({ message: `Đã nhận diện thành công và nhập sỉ ${keys.length} API Keys!`, type: 'success' });
             } else {
-                showToast({ message: "Không tìm thấy dòng khóa hợp lệ (phải bắt đầu bằng AIza) trong clipboard.", type: 'warning' });
+                showToast({ message: "Không tìm thấy dòng khóa hợp lệ trong clipboard.", type: 'warning' });
             }
         } catch (_) {
             showToast({ message: "Lỗi truy xuất bộ nhớ Clipboard của trình duyệt. Bạn có thể tự dán thủ công.", type: 'error' });
