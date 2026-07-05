@@ -300,6 +300,8 @@ export function AppContent() {
                     onAddToPending={handleAddToPendingGlossary}
                     onConfirmPending={handleConfirmPendingItem}
                     onDiscardPending={handleDiscardPendingItem}
+                    activeProject={activeProject}
+                    onUpdateProject={handleUpdateProject}
                   />
                 </ErrorBoundary>
               )}
@@ -616,6 +618,7 @@ export interface StoryProject {
         skipFailedChapters?: boolean;
         failedIds?: string[];
     };
+    ignoredDuplicatePairs?: string[];
 }
 
 // ---- API Request/Response types ----
@@ -1797,7 +1800,7 @@ export default ErrorBoundary;
 ================================================================================
 
 import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, startTransition } from 'react';
-import { GlossaryItem, GlossaryType, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
+import { GlossaryItem, GlossaryType, PendingGlossaryItem, Chapter, ChapterMetadata, StoryProject } from '../types';
 import { Search, Calendar, Info } from 'lucide-react';
 import { useNotifications } from './NotificationSystem';
 import { getChaptersByProjectFromDB } from '../services/db';
@@ -1831,14 +1834,19 @@ interface GlossaryManagerProps {
   onAddToPending?: (item: PendingGlossaryItem) => void;
   onConfirmPending?: (pendingId: string, override?: Partial<GlossaryItem>) => void;
   onDiscardPending?: (pendingId: string) => void;
+  activeProject?: StoryProject;
+  onUpdateProject?: (updated: StoryProject) => void;
 }
 
-function computeDuplicateGroups(glossary: GlossaryItem[], projectId: string = ''): DuplicateGroupEdit[] {
+export function computeDuplicateGroups(
+  glossary: GlossaryItem[], 
+  projectId: string = '', 
+  ignoredDuplicatePairs: string[] = []
+): DuplicateGroupEdit[] {
   const n = glossary.length;
   if (n < 2) return [];
 
-  const ignoreKey = `ignored_dups_${projectId}`;
-  const ignoredPairs = new Set<string>(JSON.parse(localStorage.getItem(ignoreKey) || '[]'));
+  const ignoredPairs = new Set<string>(ignoredDuplicatePairs);
 
   const parent = Array.from({ length: n }, (_, i) => i);
   function find(x: number): number {
@@ -1919,6 +1927,8 @@ function GlossaryManager({
   onMergeGlossaryItems,
   onConfirmPending,
   onDiscardPending,
+  activeProject,
+  onUpdateProject,
 }: GlossaryManagerProps) {
   const { showToast, showConfirm } = useNotifications();
   const [fullChapters, setFullChapters] = useState<Chapter[]>([]);
@@ -1932,6 +1942,34 @@ function GlossaryManager({
     }
     loadFullChapters();
   }, [projectId, chapters]);
+
+  useEffect(() => {
+    if (!activeProject || !onUpdateProject) return;
+
+    if (activeProject.ignoredDuplicatePairs === undefined) {
+      const ignoreKey = `ignored_dups_${projectId}`;
+      const localData = localStorage.getItem(ignoreKey);
+      if (localData) {
+        try {
+          const parsed = JSON.parse(localData);
+          if (Array.isArray(parsed)) {
+            onUpdateProject({
+              ...activeProject,
+              ignoredDuplicatePairs: parsed
+            });
+          }
+        } catch (e) {
+          console.error('Error migrating ignored duplicate pairs:', e);
+        }
+        localStorage.removeItem(ignoreKey);
+      } else {
+        onUpdateProject({
+          ...activeProject,
+          ignoredDuplicatePairs: []
+        });
+      }
+    }
+  }, [projectId, activeProject, onUpdateProject]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
@@ -2004,7 +2042,7 @@ function GlossaryManager({
     setShowDuplicatePanel(true);
     setDuplicateGroups([]);
     startTransition(() => {
-      const groups = computeDuplicateGroups(glossary, projId);
+      const groups = computeDuplicateGroups(glossary, projId, activeProject?.ignoredDuplicatePairs || []);
       setDuplicateGroups(groups);
       if (groups.length === 0) {
         showToast({ message: 'Tuyệt vời! Không tìm thấy từ ngữ nào bị trùng lặp trong từ điển của bạn.', type: 'success' });
@@ -2132,19 +2170,23 @@ function GlossaryManager({
     const group = duplicateGroupsRef.current.find(g => g.groupId === groupId);
     if (!group) return;
 
-    const projId = projectId || 'default_project';
-    const ignoreKey = `ignored_dups_${projId}`;
-    const ignoredPairs = JSON.parse(localStorage.getItem(ignoreKey) || '[]');
+    if (!activeProject || !onUpdateProject) return;
+
+    const currentIgnored = activeProject.ignoredDuplicatePairs || [];
+    const newIgnored = [...currentIgnored];
 
     for (let i = 0; i < group.items.length; i++) {
       for (let j = i + 1; j < group.items.length; j++) {
-        ignoredPairs.push(`${group.items[i].id}-${group.items[j].id}`);
+        newIgnored.push(`${group.items[i].id}-${group.items[j].id}`);
       }
     }
 
-    localStorage.setItem(ignoreKey, JSON.stringify(ignoredPairs));
+    onUpdateProject({
+      ...activeProject,
+      ignoredDuplicatePairs: newIgnored
+    });
     setDuplicateGroups(prev => prev.filter(g => g.groupId !== groupId));
-  }, [projectId]);
+  }, [activeProject, onUpdateProject]);
 
   const handleDeleteDupItem = useCallback(async (groupId: string, itemId: string) => {
     const confirmed = await showConfirm({
@@ -9858,6 +9900,53 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
       </div>
     </div>
   );
+});
+
+
+================================================================================
+/// FILE: src/components/__tests__/GlossaryManager.test.ts ///
+================================================================================
+
+import { describe, it, expect } from 'vitest';
+import { computeDuplicateGroups } from '../GlossaryManager';
+import { GlossaryItem } from '../../types';
+
+describe('computeDuplicateGroups', () => {
+    it('should identify duplicate groups based on same Chinese or same Vietnamese text', () => {
+        const glossary: GlossaryItem[] = [
+            { id: 'glo_1', chinese: '萧炎', pinyin: 'Tiêu Viêm', vietnamese: 'Tiêu Viêm', type: 'character', note: '' },
+            { id: 'glo_2', chinese: '萧炎', pinyin: 'Tiêu Viêm', vietnamese: 'Tiêu Viêm Lớn', type: 'character', note: '' }, // Duplicate Chinese
+            { id: 'glo_3', chinese: '药老', pinyin: 'Dược Lão', vietnamese: 'Dược Lão', type: 'character', note: '' },
+        ];
+
+        const groups = computeDuplicateGroups(glossary, 'proj_1');
+        expect(groups.length).toBe(1);
+        expect(groups[0].items.map(item => item.id)).toContain('glo_1');
+        expect(groups[0].items.map(item => item.id)).toContain('glo_2');
+    });
+
+    it('should ignore duplicate pairs specified in ignoredDuplicatePairs', () => {
+        const glossary: GlossaryItem[] = [
+            { id: 'glo_1', chinese: '萧炎', pinyin: 'Tiêu Viêm', vietnamese: 'Tiêu Viêm', type: 'character', note: '' },
+            { id: 'glo_2', chinese: '萧炎', pinyin: 'Tiêu Viêm', vietnamese: 'Tiêu Viêm Lớn', type: 'character', note: '' }, // Duplicate Chinese
+            { id: 'glo_3', chinese: '药老', pinyin: 'Dược Lão', vietnamese: 'Dược Lão', type: 'character', note: '' },
+        ];
+
+        // If the pair 'glo_1-glo_2' is ignored, there should be no duplicate groups
+        const groups = computeDuplicateGroups(glossary, 'proj_1', ['glo_1-glo_2']);
+        expect(groups.length).toBe(0);
+    });
+
+    it('should handle ignored pairs order-independently', () => {
+        const glossary: GlossaryItem[] = [
+            { id: 'glo_1', chinese: '萧炎', pinyin: 'Tiêu Viêm', vietnamese: 'Tiêu Viêm', type: 'character', note: '' },
+            { id: 'glo_2', chinese: '萧炎', pinyin: 'Tiêu Viêm', vietnamese: 'Tiêu Viêm Lớn', type: 'character', note: '' }, // Duplicate Chinese
+        ];
+
+        // Should ignore even if the IDs in the ignoredDuplicatePairs array are ordered differently (e.g. glo_2-glo_1)
+        const groups = computeDuplicateGroups(glossary, 'proj_1', ['glo_2-glo_1']);
+        expect(groups.length).toBe(0);
+    });
 });
 
 

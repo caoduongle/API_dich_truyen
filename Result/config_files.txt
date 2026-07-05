@@ -22,6 +22,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "ioredis": "^5.5.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
@@ -151,6 +152,10 @@ TRUST_PROXY_HOPS=1
 
 # ALLOW_SERVER_KEY_FALLBACK: Cho phép tự động sử dụng key phía server nếu client chưa cấu hình key riêng
 ALLOW_SERVER_KEY_FALLBACK=true
+
+# REDIS_URL: URL kết nối tới Redis (ví dụ: redis://localhost:6379)
+# Nếu có cấu hình, hệ thống sẽ sử dụng rate limiter phân tán bằng Redis thay vì in-memory rate limiter.
+# REDIS_URL=""
 
 
 ================================================================================
