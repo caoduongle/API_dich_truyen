@@ -85,6 +85,7 @@ export interface StoryProject {
         skipFailedChapters?: boolean;
         failedIds?: string[];
     };
+    ignoredDuplicatePairs?: string[];
 }
 
 // ---- API Request/Response types ----

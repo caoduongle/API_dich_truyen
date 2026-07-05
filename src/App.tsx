@@ -295,6 +295,8 @@ export function AppContent() {
                     onAddToPending={handleAddToPendingGlossary}
                     onConfirmPending={handleConfirmPendingItem}
                     onDiscardPending={handleDiscardPendingItem}
+                    activeProject={activeProject}
+                    onUpdateProject={handleUpdateProject}
                   />
                 </ErrorBoundary>
               )}

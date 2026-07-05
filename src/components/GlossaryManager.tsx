@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, startTransition } from 'react';
-import { GlossaryItem, GlossaryType, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
+import { GlossaryItem, GlossaryType, PendingGlossaryItem, Chapter, ChapterMetadata, StoryProject } from '../types';
 import { Search, Calendar, Info } from 'lucide-react';
 import { useNotifications } from './NotificationSystem';
 import { getChaptersByProjectFromDB } from '../services/db';
@@ -33,14 +33,19 @@ interface GlossaryManagerProps {
   onAddToPending?: (item: PendingGlossaryItem) => void;
   onConfirmPending?: (pendingId: string, override?: Partial<GlossaryItem>) => void;
   onDiscardPending?: (pendingId: string) => void;
+  activeProject?: StoryProject;
+  onUpdateProject?: (updated: StoryProject) => void;
 }
 
-function computeDuplicateGroups(glossary: GlossaryItem[], projectId: string = ''): DuplicateGroupEdit[] {
+export function computeDuplicateGroups(
+  glossary: GlossaryItem[], 
+  projectId: string = '', 
+  ignoredDuplicatePairs: string[] = []
+): DuplicateGroupEdit[] {
   const n = glossary.length;
   if (n < 2) return [];
 
-  const ignoreKey = `ignored_dups_${projectId}`;
-  const ignoredPairs = new Set<string>(JSON.parse(localStorage.getItem(ignoreKey) || '[]'));
+  const ignoredPairs = new Set<string>(ignoredDuplicatePairs);
 
   const parent = Array.from({ length: n }, (_, i) => i);
   function find(x: number): number {
@@ -121,6 +126,8 @@ function GlossaryManager({
   onMergeGlossaryItems,
   onConfirmPending,
   onDiscardPending,
+  activeProject,
+  onUpdateProject,
 }: GlossaryManagerProps) {
   const { showToast, showConfirm } = useNotifications();
   const [fullChapters, setFullChapters] = useState<Chapter[]>([]);
@@ -134,6 +141,34 @@ function GlossaryManager({
     }
     loadFullChapters();
   }, [projectId, chapters]);
+
+  useEffect(() => {
+    if (!activeProject || !onUpdateProject) return;
+
+    if (activeProject.ignoredDuplicatePairs === undefined) {
+      const ignoreKey = `ignored_dups_${projectId}`;
+      const localData = localStorage.getItem(ignoreKey);
+      if (localData) {
+        try {
+          const parsed = JSON.parse(localData);
+          if (Array.isArray(parsed)) {
+            onUpdateProject({
+              ...activeProject,
+              ignoredDuplicatePairs: parsed
+            });
+          }
+        } catch (e) {
+          console.error('Error migrating ignored duplicate pairs:', e);
+        }
+        localStorage.removeItem(ignoreKey);
+      } else {
+        onUpdateProject({
+          ...activeProject,
+          ignoredDuplicatePairs: []
+        });
+      }
+    }
+  }, [projectId, activeProject, onUpdateProject]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
@@ -206,7 +241,7 @@ function GlossaryManager({
     setShowDuplicatePanel(true);
     setDuplicateGroups([]);
     startTransition(() => {
-      const groups = computeDuplicateGroups(glossary, projId);
+      const groups = computeDuplicateGroups(glossary, projId, activeProject?.ignoredDuplicatePairs || []);
       setDuplicateGroups(groups);
       if (groups.length === 0) {
         showToast({ message: 'Tuyệt vời! Không tìm thấy từ ngữ nào bị trùng lặp trong từ điển của bạn.', type: 'success' });
@@ -334,19 +369,23 @@ function GlossaryManager({
     const group = duplicateGroupsRef.current.find(g => g.groupId === groupId);
     if (!group) return;
 
-    const projId = projectId || 'default_project';
-    const ignoreKey = `ignored_dups_${projId}`;
-    const ignoredPairs = JSON.parse(localStorage.getItem(ignoreKey) || '[]');
+    if (!activeProject || !onUpdateProject) return;
+
+    const currentIgnored = activeProject.ignoredDuplicatePairs || [];
+    const newIgnored = [...currentIgnored];
 
     for (let i = 0; i < group.items.length; i++) {
       for (let j = i + 1; j < group.items.length; j++) {
-        ignoredPairs.push(`${group.items[i].id}-${group.items[j].id}`);
+        newIgnored.push(`${group.items[i].id}-${group.items[j].id}`);
       }
     }
 
-    localStorage.setItem(ignoreKey, JSON.stringify(ignoredPairs));
+    onUpdateProject({
+      ...activeProject,
+      ignoredDuplicatePairs: newIgnored
+    });
     setDuplicateGroups(prev => prev.filter(g => g.groupId !== groupId));
-  }, [projectId]);
+  }, [activeProject, onUpdateProject]);
 
   const handleDeleteDupItem = useCallback(async (groupId: string, itemId: string) => {
     const confirmed = await showConfirm({

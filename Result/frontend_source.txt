@@ -10459,7 +10459,29 @@ export function useGlossaryApply({
 
     const runApply = async () => {
       try {
-        const sortedGlossary = [...glossary].sort((a, b) => b.chinese.length - a.chinese.length);
+        interface GlossaryForm {
+          form: string;
+          vietnamese: string;
+        }
+
+        const forms: GlossaryForm[] = [];
+        glossary.forEach((item) => {
+          if (!item.vietnamese) return;
+          const allForms = [item.chinese, ...(item.variants || [])].filter(Boolean);
+          allForms.forEach(form => {
+            const clean = form.trim();
+            if (clean) {
+              forms.push({
+                form: clean,
+                vietnamese: item.vietnamese.trim()
+              });
+            }
+          });
+        });
+
+        // Sort by length of form descending to prioritize longer phrases
+        forms.sort((a, b) => b.form.length - a.form.length);
+
         let scopedChapters = chapters;
         if (applyGlossaryRangeEnabled) {
           const startIdx = Math.max(0, applyGlossaryRangeStart - 1);
@@ -10473,11 +10495,12 @@ export function useGlossaryApply({
         const glossaryMap = new Map<string, string>();
         const terms: string[] = [];
 
-        sortedGlossary.forEach((item) => {
-          if (item.chinese && item.vietnamese) {
-            const cleanChinese = item.chinese.trim();
-            glossaryMap.set(cleanChinese, item.vietnamese.trim());
-            terms.push(cleanChinese);
+        forms.forEach(({ form, vietnamese }) => {
+          if (glossaryMap.has(form)) {
+            console.warn(`Trùng lặp thuật ngữ glossary: "${form}" đã được định nghĩa.`);
+          } else {
+            glossaryMap.set(form, vietnamese);
+            terms.push(form);
           }
         });
 
@@ -10539,7 +10562,7 @@ export function useGlossaryApply({
       }
     };
 
-    runApply();
+    await runApply();
   }, [applyGlossaryRangeEnabled, applyGlossaryRangeStart, applyGlossaryRangeEnd, onUpdateProject, addLog]);
 
   return {
@@ -10793,7 +10816,7 @@ export function useGlossaryScan({
 /// FILE: src/hooks/useProjects.ts ///
 ================================================================================
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
 import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB, saveChapterToDB, deleteChapterFromDB, getChapterFromDB, getChaptersByProjectFromDB, deleteChaptersByProjectFromDB, saveChaptersToDB } from '../services/db';
 import { useNotifications } from '../components/NotificationSystem';
@@ -10853,10 +10876,23 @@ function normalizeProject(project: any): StoryProject {
 }
 
 export function useProjects() {
-    const [projects, setProjects] = useState<StoryProject[]>([]);
+    const [projects, setProjectsState] = useState<StoryProject[]>([]);
     const [activeProjectId, setActiveProjectId] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const { showToast } = useNotifications();
+
+    const projectsRef = useRef<StoryProject[]>([]);
+    useEffect(() => {
+        projectsRef.current = projects;
+    }, [projects]);
+
+    const setProjects = useCallback((updater: StoryProject[] | ((prev: StoryProject[]) => StoryProject[])) => {
+        setProjectsState(prev => {
+            const next = typeof updater === 'function' ? updater(prev) : updater;
+            projectsRef.current = next;
+            return next;
+        });
+    }, []);
 
     useEffect(() => {
         async function loadData() {
@@ -10875,7 +10911,7 @@ export function useProjects() {
             setIsLoading(false);
         }
         loadData();
-    }, []);
+    }, [setProjects]);
 
     const activeProject = useMemo(() => {
         return projects.find(p => p.id === activeProjectId);
@@ -10901,14 +10937,15 @@ export function useProjects() {
         };
 
         setProjects(prev => prev.map(p => p.id === normalizedProj.id ? normalizedProj : p));
-    }, []);
+    }, [setProjects]);
 
     const handleSelectProject = useCallback((id: string) => {
         setActiveProjectId(id);
     }, []);
 
     const handleDeleteProject = useCallback(async (id: string) => {
-        const project = projects.find(p => p.id === id);
+        const currentProjects = projectsRef.current;
+        const project = currentProjects.find(p => p.id === id);
         if (!project) return;
 
         // 1. Load full chapter bodies for backup before deleting
@@ -10917,7 +10954,7 @@ export function useProjects() {
         // 2. Perform DB deletion atomically (deletes project and its chapters)
         await deleteProjectFromDB(id);
 
-        const oldProjects = [...projects];
+        const oldProjects = [...currentProjects];
 
         setProjects(prev => {
             const remaining = prev.filter(p => p.id !== id);
@@ -10925,7 +10962,7 @@ export function useProjects() {
                 setActiveProjectId(remaining[0].id);
                 return remaining;
             }
-            return remaining; // Avoid regenerating defaults if not needed
+            return remaining;
         });
 
         // 3. Show undoable toast
@@ -10945,7 +10982,7 @@ export function useProjects() {
                 });
             }
         });
-    }, [projects, showToast]);
+    }, [setProjects, showToast]);
 
     const handleCreateProject = useCallback(async (newProjData: Omit<StoryProject, 'id' | 'createdAt'>) => {
         const id = 'proj_' + Date.now();
@@ -10976,114 +11013,140 @@ export function useProjects() {
 
         setProjects(prev => [normalizedProj, ...prev]);
         setActiveProjectId(id);
-    }, []);
+    }, [setProjects]);
 
-    const handleAddGlossaryItem = useCallback(async (newItem: Omit<GlossaryItem, 'id'>, force = false) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
-        if (!activeProj) return;
+    const handleAddGlossaryItem = useCallback((newItem: Omit<GlossaryItem, 'id'>, force = false) => {
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const activeProj = prev[idx];
 
-        const cleanVietnamese = (newItem.vietnamese || '').trim().toLowerCase();
-        const alreadyExists = activeProj.glossary.some(
-            (g) => {
-                if (force) {
-                    return g.chinese.trim() === newItem.chinese.trim();
+            const cleanVietnamese = (newItem.vietnamese || '').trim().toLowerCase();
+            const alreadyExists = activeProj.glossary.some(
+                (g) => {
+                    if (force) {
+                        return g.chinese.trim() === newItem.chinese.trim();
+                    }
+                    return isHanEquivalent(g.chinese, newItem.chinese) ||
+                           (cleanVietnamese && g.vietnamese.trim().toLowerCase() === cleanVietnamese);
                 }
-                return isHanEquivalent(g.chinese, newItem.chinese) ||
-                       (cleanVietnamese && g.vietnamese.trim().toLowerCase() === cleanVietnamese);
-            }
-        );
-        if (alreadyExists) return;
+            );
+            if (alreadyExists) return prev;
 
-        const completeItem: GlossaryItem = {
-            ...newItem,
-            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-            createdAt: newItem.createdAt || new Date().toISOString()
-        };
-        const updated: StoryProject = { ...activeProj, glossary: [completeItem, ...activeProj.glossary] };
-        await saveProjectToDB(updated);
+            const completeItem: GlossaryItem = {
+                ...newItem,
+                id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                createdAt: newItem.createdAt || new Date().toISOString()
+            };
+            const updated: StoryProject = { ...activeProj, glossary: [completeItem, ...activeProj.glossary] };
+            saveProjectToDB(updated);
 
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }, [activeProjectId, projects]);
-
-    const handleAddGlossaryItems = useCallback(async (newItems: Omit<GlossaryItem, 'id'>[]) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
-        if (!activeProj) return;
-
-        const completeItems: GlossaryItem[] = [];
-        newItems.forEach((item, idx) => {
-            const cleanVietnamese = (item.vietnamese || '').trim().toLowerCase();
-            
-            // Check if item's Chinese already exists in activeProj.glossary or completeItems
-            const chineseExists = activeProj.glossary.some(g => isHanEquivalent(g.chinese, item.chinese)) ||
-                                  completeItems.some(g => isHanEquivalent(g.chinese, item.chinese));
-            if (chineseExists) return;
-
-            // Check if item's Vietnamese already exists in activeProj.glossary or completeItems
-            const vietnameseExists = (cleanVietnamese && activeProj.glossary.some(g => g.vietnamese.trim().toLowerCase() === cleanVietnamese)) ||
-                                     (cleanVietnamese && completeItems.some(g => g.vietnamese.trim().toLowerCase() === cleanVietnamese));
-            if (vietnameseExists) return;
-
-            completeItems.push({
-                ...item,
-                id: `glo_md_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
-                createdAt: item.createdAt || new Date().toISOString()
-            });
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
         });
-        if (completeItems.length === 0) return;
-        const updated: StoryProject = { ...activeProj, glossary: [...completeItems, ...activeProj.glossary] };
-        await saveProjectToDB(updated);
+    }, [activeProjectId, setProjects]);
 
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }, [activeProjectId, projects]);
+    const handleAddGlossaryItems = useCallback((newItems: Omit<GlossaryItem, 'id'>[]) => {
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const activeProj = prev[idx];
 
-    const handleUpdateGlossaryItem = useCallback(async (id: string, updatedItem: GlossaryItem) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
-        if (!activeProj) return;
+            const completeItems: GlossaryItem[] = [];
+            newItems.forEach((item, idx2) => {
+                const cleanVietnamese = (item.vietnamese || '').trim().toLowerCase();
+                
+                // Check if item's Chinese already exists in activeProj.glossary or completeItems
+                const chineseExists = activeProj.glossary.some(g => isHanEquivalent(g.chinese, item.chinese)) ||
+                                      completeItems.some(g => isHanEquivalent(g.chinese, item.chinese));
+                if (chineseExists) return;
 
-        const updatedGlossary = activeProj.glossary.map(item => item.id === id ? updatedItem : item);
-        const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
-        await saveProjectToDB(updated);
+                // Check if item's Vietnamese already exists in activeProj.glossary or completeItems
+                const vietnameseExists = (cleanVietnamese && activeProj.glossary.some(g => g.vietnamese.trim().toLowerCase() === cleanVietnamese)) ||
+                                         (cleanVietnamese && completeItems.some(g => g.vietnamese.trim().toLowerCase() === cleanVietnamese));
+                if (vietnameseExists) return;
 
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }, [activeProjectId, projects]);
+                completeItems.push({
+                    ...item,
+                    id: `glo_md_${Date.now()}_${idx2}_${Math.random().toString(36).substring(2, 6)}`,
+                    createdAt: item.createdAt || new Date().toISOString()
+                });
+            });
+            if (completeItems.length === 0) return prev;
+            const updated: StoryProject = { ...activeProj, glossary: [...completeItems, ...activeProj.glossary] };
+            saveProjectToDB(updated);
 
-    const handleDeleteGlossaryItem = useCallback(async (id: string) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
-        if (!activeProj) return;
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+        });
+    }, [activeProjectId, setProjects]);
 
-        const updatedGlossary = activeProj.glossary.filter(item => item.id !== id);
-        const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
-        await saveProjectToDB(updated);
+    const handleUpdateGlossaryItem = useCallback((id: string, updatedItem: GlossaryItem) => {
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const activeProj = prev[idx];
 
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }, [activeProjectId, projects]);
+            const updatedGlossary = activeProj.glossary.map(item => item.id === id ? updatedItem : item);
+            const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
+            saveProjectToDB(updated);
 
-    const handleMergeGlossaryItems = useCallback(async (
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+        });
+    }, [activeProjectId, setProjects]);
+
+    const handleDeleteGlossaryItem = useCallback((id: string) => {
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const activeProj = prev[idx];
+
+            const updatedGlossary = activeProj.glossary.filter(item => item.id !== id);
+            const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
+            saveProjectToDB(updated);
+
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+        });
+    }, [activeProjectId, setProjects]);
+
+    const handleMergeGlossaryItems = useCallback((
         primaryId: string,
         mergedPayload: Partial<GlossaryItem>,
         idsToDelete: string[]
     ) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
-        if (!activeProj) return;
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const activeProj = prev[idx];
 
-        const updatedGlossary = activeProj.glossary.map(item => {
-            if (item.id === primaryId) {
-                return {
-                    ...item,
-                    ...mergedPayload
-                } as GlossaryItem;
-            }
-            return item;
-        }).filter(item => !idsToDelete.includes(item.id));
+            const updatedGlossary = activeProj.glossary.map(item => {
+                if (item.id === primaryId) {
+                    return {
+                        ...item,
+                        ...mergedPayload
+                    } as GlossaryItem;
+                }
+                return item;
+            }).filter(item => !idsToDelete.includes(item.id));
 
-        const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
-        await saveProjectToDB(updated);
+            const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
+            saveProjectToDB(updated);
 
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }, [activeProjectId, projects]);
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+        });
+    }, [activeProjectId, setProjects]);
 
     const handleDeleteChapterHistory = useCallback(async (chapId: string) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
+        const currentProjects = projectsRef.current;
+        const activeProj = currentProjects.find(p => p.id === activeProjectId);
         if (!activeProj) return;
 
         const chapterMeta = activeProj.chapters.find(c => c.id === chapId);
@@ -11096,12 +11159,21 @@ export function useProjects() {
         // 2. Perform deletion
         await deleteChapterFromDB(chapId);
 
-        const updatedChapters = activeProj.chapters.filter(c => c.id !== chapId);
-        const updated: StoryProject = { ...activeProj, chapters: updatedChapters };
-        await saveProjectToDB(updated);
+        const oldProjects = [...currentProjects];
 
-        const oldProjects = [...projects];
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const targetProj = prev[idx];
+
+            const updatedChapters = targetProj.chapters.filter(c => c.id !== chapId);
+            const updated: StoryProject = { ...targetProj, chapters: updatedChapters };
+            saveProjectToDB(updated);
+
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+        });
 
         // 3. Show undoable toast
         showToast({
@@ -11119,55 +11191,70 @@ export function useProjects() {
                 });
             }
         });
-    }, [activeProjectId, projects, showToast]);
+    }, [activeProjectId, setProjects, showToast]);
 
-    const handleAddToPendingGlossary = useCallback(async (item: PendingGlossaryItem) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
-        if (!activeProj) return;
+    const handleAddToPendingGlossary = useCallback((item: PendingGlossaryItem) => {
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const activeProj = prev[idx];
 
-        const updated: StoryProject = { ...activeProj, pendingGlossary: [...(activeProj.pendingGlossary || []), item] };
-        await saveProjectToDB(updated);
+            const updated: StoryProject = { ...activeProj, pendingGlossary: [...(activeProj.pendingGlossary || []), item] };
+            saveProjectToDB(updated);
 
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }, [activeProjectId, projects]);
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+        });
+    }, [activeProjectId, setProjects]);
 
-    const handleConfirmPendingItem = useCallback(async (pendingId: string, override?: Partial<GlossaryItem>) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
-        if (!activeProj) return;
+    const handleConfirmPendingItem = useCallback((pendingId: string, override?: Partial<GlossaryItem>) => {
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const activeProj = prev[idx];
 
-        const pendingItem = (activeProj.pendingGlossary || []).find(p => p.id === pendingId);
-        if (!pendingItem) return;
-        const confirmed: GlossaryItem = {
-            id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-            chinese: override?.chinese ?? pendingItem.chinese,
-            pinyin: override?.pinyin ?? pendingItem.pinyin,
-            vietnamese: override?.vietnamese ?? pendingItem.vietnamese,
-            type: override?.type ?? pendingItem.type,
-            note: override?.note ?? pendingItem.note,
-            createdAt: new Date().toISOString()
-        };
-        const updated: StoryProject = {
-            ...activeProj,
-            glossary: [confirmed, ...activeProj.glossary],
-            pendingGlossary: (activeProj.pendingGlossary || []).filter(p => p.id !== pendingId)
-        };
-        await saveProjectToDB(updated);
+            const pendingItem = (activeProj.pendingGlossary || []).find(p => p.id === pendingId);
+            if (!pendingItem) return prev;
+            const confirmed: GlossaryItem = {
+                id: 'glo_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                chinese: override?.chinese ?? pendingItem.chinese,
+                pinyin: override?.pinyin ?? pendingItem.pinyin,
+                vietnamese: override?.vietnamese ?? pendingItem.vietnamese,
+                type: override?.type ?? pendingItem.type,
+                note: override?.note ?? pendingItem.note,
+                createdAt: new Date().toISOString()
+            };
+            const updated: StoryProject = {
+                ...activeProj,
+                glossary: [confirmed, ...activeProj.glossary],
+                pendingGlossary: (activeProj.pendingGlossary || []).filter(p => p.id !== pendingId)
+            };
+            saveProjectToDB(updated);
 
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }, [activeProjectId, projects]);
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+        });
+    }, [activeProjectId, setProjects]);
 
-    const handleDiscardPendingItem = useCallback(async (pendingId: string) => {
-        const activeProj = projects.find(p => p.id === activeProjectId);
-        if (!activeProj) return;
+    const handleDiscardPendingItem = useCallback((pendingId: string) => {
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === activeProjectId);
+            if (idx === -1) return prev;
+            const activeProj = prev[idx];
 
-        const updated: StoryProject = {
-            ...activeProj,
-            pendingGlossary: (activeProj.pendingGlossary || []).filter(p => p.id !== pendingId)
-        };
-        await saveProjectToDB(updated);
+            const updated: StoryProject = {
+                ...activeProj,
+                pendingGlossary: (activeProj.pendingGlossary || []).filter(p => p.id !== pendingId)
+            };
+            saveProjectToDB(updated);
 
-        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }, [activeProjectId, projects]);
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+        });
+    }, [activeProjectId, setProjects]);
 
     const handleResetChapters = useCallback(async (projectId: string, chapIds: string[]) => {
         const backedUpChapters: Chapter[] = [];
@@ -11191,12 +11278,16 @@ export function useProjects() {
         }));
         await saveChaptersToDB(resetChaptersList);
 
-        const oldProjects = [...projects];
+        const currentProjects = projectsRef.current;
+        const oldProjects = [...currentProjects];
 
         // 2. Perform reset on React state
-        const activeProj = projects.find(p => p.id === projectId);
-        if (activeProj) {
-            const updatedChapters = activeProj.chapters.map(c => {
+        setProjects(prev => {
+            const idx = prev.findIndex(p => p.id === projectId);
+            if (idx === -1) return prev;
+            const targetProj = prev[idx];
+
+            const updatedChapters = targetProj.chapters.map(c => {
                 if (chapIds.includes(c.id)) {
                     return {
                         ...c,
@@ -11206,10 +11297,13 @@ export function useProjects() {
                 }
                 return c;
             });
-            const updatedProj = { ...activeProj, chapters: updatedChapters };
-            await saveProjectToDB(updatedProj);
-            setProjects(prev => prev.map(p => p.id === projectId ? updatedProj : p));
-        }
+            const updatedProj = { ...targetProj, chapters: updatedChapters };
+            saveProjectToDB(updatedProj);
+
+            const next = [...prev];
+            next[idx] = updatedProj;
+            return next;
+        });
 
         // 3. Show undoable toast
         const count = chapIds.length;
@@ -11231,7 +11325,7 @@ export function useProjects() {
                 });
             }
         });
-    }, [projects, showToast]);
+    }, [setProjects, showToast]);
 
     return {
         projects,
@@ -12225,6 +12319,358 @@ export function useVirtualList<T>({
     scrollTop,
   };
 }
+
+
+================================================================================
+/// FILE: src/hooks/__tests__/useGlossaryApply.test.ts ///
+================================================================================
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useGlossaryApply } from '../useGlossaryApply';
+import { StoryProject, GlossaryItem } from '../../types';
+
+// Mock dependencies
+vi.mock('../../services/db', () => ({
+  getChaptersByProjectFromDB: vi.fn(),
+  saveChapterToDB: vi.fn(),
+}));
+
+vi.mock('../../components/NotificationSystem', () => ({
+  useNotifications: () => ({
+    showToast: vi.fn(),
+  }),
+}));
+
+let mockState = {
+  isApplyingGlossary: false,
+  applyGlossaryResult: null as any,
+};
+
+const mockSetIsApplying = vi.fn((val) => {
+  mockState.isApplyingGlossary = typeof val === 'function' ? val(mockState.isApplyingGlossary) : val;
+});
+
+const mockSetApplyGlossaryResult = vi.fn((val) => {
+  mockState.applyGlossaryResult = typeof val === 'function' ? val(mockState.applyGlossaryResult) : val;
+});
+
+let refCurrent: any = null;
+
+vi.mock('react', () => {
+  return {
+    useState: (initial: any) => {
+      if (typeof initial === 'boolean') {
+        return [mockState.isApplyingGlossary, mockSetIsApplying];
+      } else {
+        return [mockState.applyGlossaryResult, mockSetApplyGlossaryResult];
+      }
+    },
+    useEffect: (fn: any) => fn(),
+    useCallback: (fn: any) => fn,
+    useRef: (initial: any) => {
+      if (refCurrent === null) {
+        refCurrent = initial;
+      }
+      return {
+        get current() {
+          return refCurrent;
+        },
+        set current(val) {
+          refCurrent = val;
+        }
+      };
+    },
+    startTransition: (fn: any) => fn(),
+  };
+});
+
+describe('useGlossaryApply - Glossary application hook', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        refCurrent = null;
+        mockState.isApplyingGlossary = false;
+        mockState.applyGlossaryResult = null;
+    });
+
+    it('should replace both primary Chinese and its variants in the source text', async () => {
+        const glossary: GlossaryItem[] = [
+            {
+                id: 'glo_1',
+                chinese: '万剑归宗',
+                variants: ['萬劍歸宗'],
+                vietnamese: 'Vạn Kiếm Quy Tông',
+                type: 'term',
+                note: '',
+            }
+        ];
+
+        const activeProject: StoryProject = {
+            id: 'proj_1',
+            title: 'Test Proj',
+            glossary,
+            chapters: [
+                {
+                    id: 'chap_1',
+                    title: 'Chương 1',
+                    status: 'not_started',
+                    createdAt: '',
+                    updatedAt: '',
+                }
+            ],
+            createdAt: '',
+        };
+
+        refCurrent = activeProject;
+
+        const dbChapters = [
+            {
+                id: 'chap_1',
+                title: 'Chương 1',
+                sourceText: 'Câu 1: 万剑归宗! Câu 2: 萬劍歸宗!',
+                rawTranslation: '',
+                polishedTranslation: '',
+                translatedLines: [],
+                status: 'not_started' as const,
+                createdAt: '',
+                updatedAt: '',
+            }
+        ];
+
+        const getChaptersMock = vi.mocked(await import('../../services/db')).getChaptersByProjectFromDB;
+        getChaptersMock.mockResolvedValue(dbChapters);
+
+        const saveChapterMock = vi.mocked(await import('../../services/db')).saveChapterToDB;
+        saveChapterMock.mockResolvedValue(undefined as any);
+
+        const onUpdateProject = vi.fn();
+        const addLog = vi.fn();
+
+        const hook = useGlossaryApply({
+            activeProject,
+            onUpdateProject,
+            applyGlossaryRangeEnabled: false,
+            applyGlossaryRangeStart: 1,
+            applyGlossaryRangeEnd: 1,
+            addLog,
+        });
+
+        await hook.handleApplyGlossaryToAllChapters();
+
+        // Verify that saveChapterToDB was called with the updated sourceText
+        expect(saveChapterMock).toHaveBeenCalled();
+        const updatedChapter = saveChapterMock.mock.calls[0][0];
+        expect(updatedChapter.processedSourceText).toBe('Câu 1: Vạn Kiếm Quy Tông! Câu 2: Vạn Kiếm Quy Tông!');
+        
+        // Verify that onUpdateProject was called
+        expect(onUpdateProject).toHaveBeenCalled();
+    });
+
+    it('should prioritize longer forms (variants) over shorter forms to prevent partial replacement', async () => {
+        const glossary: GlossaryItem[] = [
+            {
+                id: 'glo_1',
+                chinese: '剑',
+                variants: ['劍'],
+                vietnamese: 'Kiếm',
+                type: 'term',
+                note: '',
+            },
+            {
+                id: 'glo_2',
+                chinese: '万剑归宗',
+                variants: ['萬劍歸宗'],
+                vietnamese: 'Vạn Kiếm Quy Tông',
+                type: 'term',
+                note: '',
+            }
+        ];
+
+        const activeProject: StoryProject = {
+            id: 'proj_1',
+            title: 'Test Proj',
+            glossary,
+            chapters: [
+                {
+                    id: 'chap_1',
+                    title: 'Chương 1',
+                    status: 'not_started',
+                    createdAt: '',
+                    updatedAt: '',
+                }
+            ],
+            createdAt: '',
+        };
+
+        refCurrent = activeProject;
+
+        const dbChapters = [
+            {
+                id: 'chap_1',
+                title: 'Chương 1',
+                sourceText: 'Ta dùng 萬劍歸宗!',
+                rawTranslation: '',
+                polishedTranslation: '',
+                translatedLines: [],
+                status: 'not_started' as const,
+                createdAt: '',
+                updatedAt: '',
+            }
+        ];
+
+        const getChaptersMock = vi.mocked(await import('../../services/db')).getChaptersByProjectFromDB;
+        getChaptersMock.mockResolvedValue(dbChapters);
+
+        const saveChapterMock = vi.mocked(await import('../../services/db')).saveChapterToDB;
+        saveChapterMock.mockResolvedValue(undefined as any);
+
+        const onUpdateProject = vi.fn();
+        const addLog = vi.fn();
+
+        const hook = useGlossaryApply({
+            activeProject,
+            onUpdateProject,
+            applyGlossaryRangeEnabled: false,
+            applyGlossaryRangeStart: 1,
+            applyGlossaryRangeEnd: 1,
+            addLog,
+        });
+
+        await hook.handleApplyGlossaryToAllChapters();
+
+        expect(saveChapterMock).toHaveBeenCalled();
+        const updatedChapter = saveChapterMock.mock.calls[0][0];
+        expect(updatedChapter.processedSourceText).toBe('Ta dùng Vạn Kiếm Quy Tông!');
+    });
+});
+
+
+================================================================================
+/// FILE: src/hooks/__tests__/useProjects.test.ts ///
+================================================================================
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useProjects } from '../useProjects';
+import { GlossaryItem } from '../../types';
+
+// Mock dependencies
+vi.mock('../../services/db', () => ({
+    getProjectsFromDB: vi.fn(),
+    saveProjectToDB: vi.fn(),
+    deleteProjectFromDB: vi.fn(),
+    saveChapterToDB: vi.fn(),
+    deleteChapterFromDB: vi.fn(),
+    getChapterFromDB: vi.fn(),
+    getChaptersByProjectFromDB: vi.fn(),
+    deleteChaptersByProjectFromDB: vi.fn(),
+    saveChaptersToDB: vi.fn(),
+}));
+
+vi.mock('../../components/NotificationSystem', () => ({
+    useNotifications: () => ({
+        showToast: vi.fn(),
+    }),
+}));
+
+vi.mock('@shared/sinoNormalize', () => ({
+    isHanEquivalent: (a: string, b: string) => a === b,
+}));
+
+let mockState = {
+    projects: [] as any[],
+    activeProjectId: '',
+    isLoading: true,
+};
+
+let refCurrent: any[] = [];
+
+const mockSetProjectsState = vi.fn((updater) => {
+    if (typeof updater === 'function') {
+        mockState.projects = updater(mockState.projects);
+    } else {
+        mockState.projects = updater;
+    }
+    refCurrent = mockState.projects;
+});
+
+const mockSetActiveProjectId = vi.fn((val) => {
+    mockState.activeProjectId = val;
+});
+
+const mockSetIsLoading = vi.fn((val) => {
+    mockState.isLoading = val;
+});
+
+vi.mock('react', () => {
+    return {
+        useState: (initial: any) => {
+            if (Array.isArray(initial)) {
+                return [mockState.projects, mockSetProjectsState];
+            } else if (typeof initial === 'string') {
+                return [mockState.activeProjectId, mockSetActiveProjectId];
+            } else {
+                return [mockState.isLoading, mockSetIsLoading];
+            }
+        },
+        useEffect: vi.fn(),
+        useCallback: (fn: any) => fn,
+        useMemo: (fn: any) => fn(),
+        useRef: (initial: any) => {
+            return {
+                get current() {
+                    return refCurrent;
+                },
+                set current(val) {
+                    refCurrent = val;
+                }
+            };
+        },
+    };
+});
+
+describe('useProjects - State management hook', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockState.projects = [
+            {
+                id: 'proj_1',
+                title: 'Test Project',
+                glossary: [
+                    { id: 'glo_1', chinese: '测试1', pinyin: 'test1', vietnamese: 'test1', type: 'term', note: '' },
+                    { id: 'glo_2', chinese: '测试2', pinyin: 'test2', vietnamese: 'test2', type: 'term', note: '' },
+                ],
+                chapters: [],
+                pendingGlossary: [],
+                createdAt: new Date().toISOString(),
+            }
+        ];
+        mockState.activeProjectId = 'proj_1';
+        mockState.isLoading = false;
+        refCurrent = mockState.projects;
+    });
+
+    it('should correctly update multiple glossary items synchronously in the same tick', async () => {
+        const hook = useProjects();
+
+        const updatedItem1: GlossaryItem = { id: 'glo_1', chinese: '测试1', pinyin: 'test1', vietnamese: 'updated_test1', type: 'term', note: 'new note 1' };
+        const updatedItem2: GlossaryItem = { id: 'glo_2', chinese: '测试2', pinyin: 'test2', vietnamese: 'updated_test2', type: 'term', note: 'new note 2' };
+
+        // Call updates synchronously back-to-back
+        hook.handleUpdateGlossaryItem('glo_1', updatedItem1);
+        hook.handleUpdateGlossaryItem('glo_2', updatedItem2);
+
+        // Check the final state
+        const activeProj = mockState.projects.find(p => p.id === 'proj_1');
+        expect(activeProj).toBeDefined();
+        
+        const item1 = activeProj.glossary.find((g: any) => g.id === 'glo_1');
+        const item2 = activeProj.glossary.find((g: any) => g.id === 'glo_2');
+
+        expect(item1.vietnamese).toBe('updated_test1');
+        expect(item2.vietnamese).toBe('updated_test2');
+        expect(item1.note).toBe('new note 1');
+        expect(item2.note).toBe('new note 2');
+    });
+});
 
 
 ================================================================================

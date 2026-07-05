@@ -3,7 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import apiRouter from "./server/routes/api.ts";
-import { rateLimitByIP } from "./server/middleware/rateLimiter.ts";
+import { createRateLimiter } from "./server/middleware/rateLimiter.ts";
 
 dotenv.config();
 
@@ -17,7 +17,7 @@ const PORT = 3000;
 app.use(express.json({ limit: "15mb" }));
 
 // Rate-limit theo IP cho toàn bộ API endpoints (chống lạm dụng khi không có auth)
-app.use("/api", rateLimitByIP);
+app.use("/api", createRateLimiter());
 
 // Gắn các API endpoints từ router
 app.use("/api", apiRouter);
@@ -41,6 +41,9 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server fully started and listening on http://localhost:${PORT}`);
+    if (!process.env.REDIS_URL) {
+      console.warn("[RateLimiter] Đang dùng in-memory rate limiter — CHỈ chính xác khi chạy 1 instance. Nếu scale nhiều instance, hãy cấu hình REDIS_URL để bật rate limiter phân tán.");
+    }
   });
 }
 
