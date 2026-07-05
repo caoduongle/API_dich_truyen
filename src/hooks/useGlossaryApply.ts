@@ -51,7 +51,29 @@ export function useGlossaryApply({
 
     const runApply = async () => {
       try {
-        const sortedGlossary = [...glossary].sort((a, b) => b.chinese.length - a.chinese.length);
+        interface GlossaryForm {
+          form: string;
+          vietnamese: string;
+        }
+
+        const forms: GlossaryForm[] = [];
+        glossary.forEach((item) => {
+          if (!item.vietnamese) return;
+          const allForms = [item.chinese, ...(item.variants || [])].filter(Boolean);
+          allForms.forEach(form => {
+            const clean = form.trim();
+            if (clean) {
+              forms.push({
+                form: clean,
+                vietnamese: item.vietnamese.trim()
+              });
+            }
+          });
+        });
+
+        // Sort by length of form descending to prioritize longer phrases
+        forms.sort((a, b) => b.form.length - a.form.length);
+
         let scopedChapters = chapters;
         if (applyGlossaryRangeEnabled) {
           const startIdx = Math.max(0, applyGlossaryRangeStart - 1);
@@ -65,11 +87,12 @@ export function useGlossaryApply({
         const glossaryMap = new Map<string, string>();
         const terms: string[] = [];
 
-        sortedGlossary.forEach((item) => {
-          if (item.chinese && item.vietnamese) {
-            const cleanChinese = item.chinese.trim();
-            glossaryMap.set(cleanChinese, item.vietnamese.trim());
-            terms.push(cleanChinese);
+        forms.forEach(({ form, vietnamese }) => {
+          if (glossaryMap.has(form)) {
+            console.warn(`Trùng lặp thuật ngữ glossary: "${form}" đã được định nghĩa.`);
+          } else {
+            glossaryMap.set(form, vietnamese);
+            terms.push(form);
           }
         });
 
@@ -131,7 +154,7 @@ export function useGlossaryApply({
       }
     };
 
-    runApply();
+    await runApply();
   }, [applyGlossaryRangeEnabled, applyGlossaryRangeStart, applyGlossaryRangeEnd, onUpdateProject, addLog]);
 
   return {

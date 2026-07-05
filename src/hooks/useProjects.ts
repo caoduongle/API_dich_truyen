@@ -197,7 +197,7 @@ export function useProjects() {
         setActiveProjectId(id);
     }, [setProjects]);
 
-    const handleAddGlossaryItem = useCallback(async (newItem: Omit<GlossaryItem, 'id'>, force = false) => {
+    const handleAddGlossaryItem = useCallback((newItem: Omit<GlossaryItem, 'id'>, force = false) => {
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -229,7 +229,7 @@ export function useProjects() {
         });
     }, [activeProjectId, setProjects]);
 
-    const handleAddGlossaryItems = useCallback(async (newItems: Omit<GlossaryItem, 'id'>[]) => {
+    const handleAddGlossaryItems = useCallback((newItems: Omit<GlossaryItem, 'id'>[]) => {
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -265,7 +265,7 @@ export function useProjects() {
         });
     }, [activeProjectId, setProjects]);
 
-    const handleUpdateGlossaryItem = useCallback(async (id: string, updatedItem: GlossaryItem) => {
+    const handleUpdateGlossaryItem = useCallback((id: string, updatedItem: GlossaryItem) => {
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -281,7 +281,7 @@ export function useProjects() {
         });
     }, [activeProjectId, setProjects]);
 
-    const handleDeleteGlossaryItem = useCallback(async (id: string) => {
+    const handleDeleteGlossaryItem = useCallback((id: string) => {
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -297,7 +297,7 @@ export function useProjects() {
         });
     }, [activeProjectId, setProjects]);
 
-    const handleMergeGlossaryItems = useCallback(async (
+    const handleMergeGlossaryItems = useCallback((
         primaryId: string,
         mergedPayload: Partial<GlossaryItem>,
         idsToDelete: string[]
@@ -375,7 +375,7 @@ export function useProjects() {
         });
     }, [activeProjectId, setProjects, showToast]);
 
-    const handleAddToPendingGlossary = useCallback(async (item: PendingGlossaryItem) => {
+    const handleAddToPendingGlossary = useCallback((item: PendingGlossaryItem) => {
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -390,7 +390,7 @@ export function useProjects() {
         });
     }, [activeProjectId, setProjects]);
 
-    const handleConfirmPendingItem = useCallback(async (pendingId: string, override?: Partial<GlossaryItem>) => {
+    const handleConfirmPendingItem = useCallback((pendingId: string, override?: Partial<GlossaryItem>) => {
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -420,7 +420,7 @@ export function useProjects() {
         });
     }, [activeProjectId, setProjects]);
 
-    const handleDiscardPendingItem = useCallback(async (pendingId: string) => {
+    const handleDiscardPendingItem = useCallback((pendingId: string) => {
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
