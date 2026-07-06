@@ -70,6 +70,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
             {
                 id: 'glo_1',
                 chinese: '万剑归宗',
+                pinyin: '',
                 variants: ['萬劍歸宗'],
                 vietnamese: 'Vạn Kiếm Quy Tông',
                 type: 'term',
@@ -80,7 +81,12 @@ describe('useGlossaryApply - Glossary application hook', () => {
         const activeProject: StoryProject = {
             id: 'proj_1',
             title: 'Test Proj',
+            author: '',
+            genre: '',
+            tone: '',
+            description: '',
             glossary,
+            pendingGlossary: [],
             chapters: [
                 {
                     id: 'chap_1',
@@ -102,6 +108,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
                 sourceText: 'Câu 1: 万剑归宗! Câu 2: 萬劍歸宗!',
                 rawTranslation: '',
                 polishedTranslation: '',
+                paragraphs: [],
                 translatedLines: [],
                 status: 'not_started' as const,
                 createdAt: '',
@@ -143,6 +150,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
             {
                 id: 'glo_1',
                 chinese: '剑',
+                pinyin: '',
                 variants: ['劍'],
                 vietnamese: 'Kiếm',
                 type: 'term',
@@ -151,6 +159,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
             {
                 id: 'glo_2',
                 chinese: '万剑归宗',
+                pinyin: '',
                 variants: ['萬劍歸宗'],
                 vietnamese: 'Vạn Kiếm Quy Tông',
                 type: 'term',
@@ -161,7 +170,12 @@ describe('useGlossaryApply - Glossary application hook', () => {
         const activeProject: StoryProject = {
             id: 'proj_1',
             title: 'Test Proj',
+            author: '',
+            genre: '',
+            tone: '',
+            description: '',
             glossary,
+            pendingGlossary: [],
             chapters: [
                 {
                     id: 'chap_1',
@@ -183,6 +197,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
                 sourceText: 'Ta dùng 萬劍歸宗!',
                 rawTranslation: '',
                 polishedTranslation: '',
+                paragraphs: [],
                 translatedLines: [],
                 status: 'not_started' as const,
                 createdAt: '',

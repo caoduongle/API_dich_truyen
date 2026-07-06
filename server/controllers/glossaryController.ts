@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation } from "../services/geminiService.ts";
+import { generateWithRotation, sleep, isOverloadError } from "../services/geminiService.ts";
 import { safeParseJson } from "../utils/text.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
 import { validateAndSnapBackEntities, isHanEquivalent } from "../../shared/sinoNormalize.ts";
@@ -163,6 +163,7 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
 
     let currentKeyIndex = startKeyIndex;
     const allSuggestions: any[] = [];
+    const failedChunkIndexes: number[] = [];
 
     for (let i = 0; i < chunksToProcess.length; i++) {
       const chunk = chunksToProcess[i];
@@ -170,26 +171,100 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
         chunksToProcess.length > 1 ? ` (Phần ${i + 1}/${chunksToProcess.length})` : ""
       }:\n\n${chunk}`;
 
-      const rotationResult = await generateWithRotation(
-          apiKeys,
-          model,
-          systemInstruction,
-          prompt,
-          schema,
-          0.2,
-          currentKeyIndex
-      );
+      let rotationResult: any = null;
+      let resultText = "";
+      let success = false;
 
-      currentKeyIndex = rotationResult.successKeyIndex;
-      const resultText = rotationResult.text;
-      if (!resultText) {
-        throw new Error(`Không nhận được kết quả phân tích từ AI ở phần ${i + 1}.`);
+      try {
+        rotationResult = await generateWithRotation(
+            apiKeys,
+            model,
+            systemInstruction,
+            prompt,
+            schema,
+            0.2,
+            currentKeyIndex
+        );
+        currentKeyIndex = rotationResult.successKeyIndex;
+        resultText = rotationResult.text;
+
+        if (!resultText) {
+          throw new Error("Kết quả phân tích bị trống rỗng (nghi ngờ vi phạm bộ lọc an toàn).");
+        }
+        success = true;
+      } catch (err: any) {
+        if (err.message && err.message.startsWith("ALL_KEYS_EXHAUSTED")) {
+          throw err;
+        }
+
+        const errStr = (err.message || "").toLowerCase();
+        const isSafetyOrEmpty = errStr.includes("safety") ||
+            errStr.includes("block") ||
+            errStr.includes("content") ||
+            errStr.includes("trống") ||
+            errStr.includes("empty") ||
+            errStr.includes("finishreason") ||
+            errStr.includes("filter") ||
+            errStr.includes("candidate");
+
+        const isOverload = isOverloadError(err);
+
+        if (isOverload || isSafetyOrEmpty) {
+          console.warn(
+            `[analyzeGlossary Warning] Chunk ${i + 1}/${chunksToProcess.length} thất bại do ${isOverload ? 'quá tải' : 'bộ lọc an toàn hoặc trống rỗng'}. Lý do: ${err.message || 'resultText rỗng'}. Tiến hành thử lại sau 750ms...`
+          );
+          await sleep(750);
+
+          try {
+            rotationResult = await generateWithRotation(
+                apiKeys,
+                model,
+                systemInstruction,
+                prompt,
+                schema,
+                0.2,
+                currentKeyIndex
+            );
+            currentKeyIndex = rotationResult.successKeyIndex;
+            resultText = rotationResult.text;
+
+            if (!resultText) {
+              throw new Error("Kết quả phân tích bị trống rỗng sau khi thử lại (nghi ngờ vi phạm bộ lọc an toàn).");
+            }
+            success = true;
+          } catch (retryErr: any) {
+            if (retryErr.message && retryErr.message.startsWith("ALL_KEYS_EXHAUSTED")) {
+              throw retryErr;
+            }
+            console.warn(
+              `[analyzeGlossary Warning] Chunk ${i + 1}/${chunksToProcess.length} vẫn thất bại sau retry: ${retryErr.message}. Bỏ qua chunk này.`
+            );
+            failedChunkIndexes.push(i + 1);
+            continue;
+          }
+        } else {
+          console.error(
+            `[analyzeGlossary Error] Chunk ${i + 1}/${chunksToProcess.length} thất bại với lỗi không thử lại: ${err.message}. Bỏ qua chunk này.`
+          );
+          failedChunkIndexes.push(i + 1);
+          continue;
+        }
       }
 
-      const parsedResult = safeParseJson(resultText);
-      if (parsedResult && Array.isArray(parsedResult.suggestions)) {
-        const validated = validateAndSnapBackEntities(parsedResult.suggestions, text);
-        allSuggestions.push(...validated);
+      if (success && resultText) {
+        try {
+          const parsedResult = safeParseJson(resultText);
+          if (parsedResult && Array.isArray(parsedResult.suggestions)) {
+            const validated = validateAndSnapBackEntities(parsedResult.suggestions, text);
+            allSuggestions.push(...validated);
+          } else {
+            console.warn(`[analyzeGlossary Warning] Kết quả của Chunk ${i + 1} không chứa danh sách suggestions hợp lệ.`);
+            failedChunkIndexes.push(i + 1);
+          }
+        } catch (parseErr: any) {
+          console.error(`[analyzeGlossary Parse Error] Lỗi phân tích JSON ở Chunk ${i + 1}: ${parseErr.message}`);
+          failedChunkIndexes.push(i + 1);
+        }
       }
     }
 
@@ -217,6 +292,9 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
     res.json({
       suggestions: finalSuggestions,
       successKeyIndex: currentKeyIndex,
+      partialFailure: failedChunkIndexes.length > 0,
+      failedChunks: failedChunkIndexes,
+      totalChunks: chunksToProcess.length,
       ...(hasTruncatedChunks ? { truncated: true, originalLength: text.length, analyzedLength: totalAnalyzedLength } : {})
     });
   } catch (error: any) {

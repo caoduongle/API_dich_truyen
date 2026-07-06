@@ -61,6 +61,7 @@ export default function AutoTranslator({
   const translationRange = useRangeState(totalChapters);
   const applyGlossaryRange = useRangeState(totalChapters);
   const scanRange = useRangeState(totalChapters);
+  const exportRange = useRangeState(totalChapters);
   const [extractionLoops, setExtractionLoops] = useState<number>(1);
 
   // Export configs
@@ -152,6 +153,9 @@ export default function AutoTranslator({
     chaptersPerFile,
     exportScope,
     exportMode,
+    exportRangeEnabled: exportRange.enabled,
+    exportRangeStart: exportRange.start,
+    exportRangeEnd: exportRange.end,
     skipFailedChapters,
     concurrency,
     enableAiQaCritique,
@@ -326,6 +330,13 @@ export default function AutoTranslator({
             isExportingTxt={isExportingTxt}
             handleExportTxt={handleExportTxt}
             handleExportAlignJsonl={handleExportAlignJsonl}
+            exportRangeEnabled={exportRange.enabled}
+            setExportRangeEnabled={exportRange.setEnabled}
+            exportRangeStart={exportRange.start}
+            setExportRangeStart={exportRange.setStart}
+            exportRangeEnd={exportRange.end}
+            setExportRangeEnd={exportRange.setEnd}
+            totalChapters={totalChapters}
           />
         </div>
 

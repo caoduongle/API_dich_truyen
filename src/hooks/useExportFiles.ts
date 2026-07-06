@@ -16,6 +16,10 @@ export interface UseExportFilesProps {
 
   // Shared state updater
   addLog: (message: string, type?: LogEntry['type']) => void;
+
+  exportRangeEnabled: boolean;
+  exportRangeStart: number;
+  exportRangeEnd: number;
 }
 
 export function useExportFiles({
@@ -26,6 +30,9 @@ export function useExportFiles({
   apiKeys,
   selectedModel,
   addLog,
+  exportRangeEnabled,
+  exportRangeStart,
+  exportRangeEnd,
 }: UseExportFilesProps) {
   const { showToast } = useNotifications();
   const [isExportingTxt, setIsExportingTxt] = useState<boolean>(false);
@@ -53,8 +60,20 @@ export function useExportFiles({
         chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
       }
 
+      if (exportRangeEnabled) {
+        const startIdx = Math.max(0, exportRangeStart - 1);
+        const endIdx = Math.min(allChapters.length, exportRangeEnd);
+        const allowedIds = new Set(allChapters.slice(startIdx, endIdx).map(c => c.id));
+        chaptersToExport = chaptersToExport.filter(c => allowedIds.has(c.id));
+      }
+
       if (chaptersToExport.length === 0) {
-        showToast({ message: "Không tìm thấy chương nào thỏa mãn điều kiện lọc!", type: 'warning' });
+        showToast({
+          message: exportRangeEnabled
+            ? "Không tìm thấy chương nào trong phạm vi đã chọn thỏa điều kiện lọc!"
+            : "Không tìm thấy chương nào thỏa mãn điều kiện lọc!",
+          type: 'warning'
+        });
         setIsExportingTxt(false);
         return;
       }
@@ -170,7 +189,7 @@ export function useExportFiles({
     } finally {
       setIsExportingTxt(false);
     }
-  }, [chaptersPerFile, exportScope, exportMode, addLog]);
+  }, [chaptersPerFile, exportScope, exportMode, addLog, exportRangeEnabled, exportRangeStart, exportRangeEnd]);
 
   const handleExportAlignJsonl = useCallback(async () => {
     setIsExportingTxt(true);
@@ -183,9 +202,21 @@ export function useExportFiles({
         setIsExportingTxt(false);
         return;
       }
-      const chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
+      let chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
+      if (exportRangeEnabled) {
+        const startIdx = Math.max(0, exportRangeStart - 1);
+        const endIdx = Math.min(allChapters.length, exportRangeEnd);
+        const allowedIds = new Set(allChapters.slice(startIdx, endIdx).map(c => c.id));
+        chaptersToExport = chaptersToExport.filter(c => allowedIds.has(c.id));
+      }
+
       if (chaptersToExport.length === 0) {
-        showToast({ message: "Không tìm thấy chương truyện nào đã được dịch thuật để gióng hàng!", type: 'warning' });
+        showToast({
+          message: exportRangeEnabled
+            ? "Không tìm thấy chương nào trong phạm vi đã chọn thỏa điều kiện lọc!"
+            : "Không tìm thấy chương truyện nào đã được dịch thuật để gióng hàng!",
+          type: 'warning'
+        });
         setIsExportingTxt(false);
         return;
       }
@@ -243,7 +274,7 @@ export function useExportFiles({
     } finally {
       setIsExportingTxt(false);
     }
-  }, [apiKeys, selectedModel, addLog]);
+  }, [apiKeys, selectedModel, addLog, exportRangeEnabled, exportRangeStart, exportRangeEnd]);
 
   return {
     isExportingTxt,

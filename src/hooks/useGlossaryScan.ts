@@ -121,6 +121,13 @@ export function useGlossaryScan({
                 type: 'warning'
               });
             }
+            if (data.partialFailure === true) {
+              const successfulChunks = data.totalChunks - data.failedChunks.length;
+              addLog(
+                `Chương ${chap.title}: chỉ phân tích được ${successfulChunks}/${data.totalChunks} phần, các phần lỗi: ${data.failedChunks.join(', ')}`,
+                'warn'
+              );
+            }
             if (typeof data.successKeyIndex === 'number') {
               currentApiKeyIndexRef.current = data.successKeyIndex;
             }

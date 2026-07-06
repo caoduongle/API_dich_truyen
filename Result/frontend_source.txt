@@ -987,6 +987,7 @@ export default function AutoTranslator({
   const translationRange = useRangeState(totalChapters);
   const applyGlossaryRange = useRangeState(totalChapters);
   const scanRange = useRangeState(totalChapters);
+  const exportRange = useRangeState(totalChapters);
   const [extractionLoops, setExtractionLoops] = useState<number>(1);
 
   // Export configs
@@ -1078,6 +1079,9 @@ export default function AutoTranslator({
     chaptersPerFile,
     exportScope,
     exportMode,
+    exportRangeEnabled: exportRange.enabled,
+    exportRangeStart: exportRange.start,
+    exportRangeEnd: exportRange.end,
     skipFailedChapters,
     concurrency,
     enableAiQaCritique,
@@ -1252,6 +1256,13 @@ export default function AutoTranslator({
             isExportingTxt={isExportingTxt}
             handleExportTxt={handleExportTxt}
             handleExportAlignJsonl={handleExportAlignJsonl}
+            exportRangeEnabled={exportRange.enabled}
+            setExportRangeEnabled={exportRange.setEnabled}
+            exportRangeStart={exportRange.start}
+            setExportRangeStart={exportRange.setStart}
+            exportRangeEnd={exportRange.end}
+            setExportRangeEnd={exportRange.setEnd}
+            totalChapters={totalChapters}
           />
         </div>
 
@@ -5971,7 +5982,7 @@ export function DriveProgressWidget({
 ================================================================================
 
 import React from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, ListOrdered } from 'lucide-react';
 
 export interface ExportFilesPanelProps {
   exportMode: 'web' | 'audio' | 'align_jsonl';
@@ -5983,6 +5994,13 @@ export interface ExportFilesPanelProps {
   isExportingTxt: boolean;
   handleExportTxt: () => void;
   handleExportAlignJsonl: () => void;
+  exportRangeEnabled: boolean;
+  setExportRangeEnabled: (b: boolean) => void;
+  exportRangeStart: number;
+  setExportRangeStart: (n: number) => void;
+  exportRangeEnd: number;
+  setExportRangeEnd: (n: number) => void;
+  totalChapters: number;
 }
 
 export const ExportFilesPanel = React.memo(function ExportFilesPanel({
@@ -5995,8 +6013,17 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
   isExportingTxt,
   handleExportTxt,
   handleExportAlignJsonl,
+  exportRangeEnabled,
+  setExportRangeEnabled,
+  exportRangeStart,
+  setExportRangeStart,
+  exportRangeEnd,
+  setExportRangeEnd,
+  totalChapters,
 }: ExportFilesPanelProps) {
   const maxLimit = exportMode === 'web' ? 20 : 10;
+  const safeStart = Math.max(1, Math.min(exportRangeStart, totalChapters));
+  const safeEnd = Math.max(safeStart, Math.min(exportRangeEnd, totalChapters));
 
   return (
     <div id="export-txt-card" className="space-y-4 bg-slate-900/40 border border-slate-800/80 p-5 rounded-xl shadow-xs">
@@ -6045,6 +6072,64 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
       ) : (
         <div className="bg-indigo-950/20 border border-indigo-800/40 p-3 rounded-lg text-[10px] text-indigo-300 leading-relaxed">• Mỗi chương trích một file `.jsonl` độc lập.<br />• Khớp sọc đối nghĩa Trung-Việt 100% làm học liệu huấn luyện tinh chỉnh AI.</div>
       )}
+
+      {/* Giới hạn phân đoạn vùng chương xuất */}
+      <div className="space-y-2.5 pt-3 border-t border-slate-800/60">
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <ListOrdered className="w-3.5 h-3.5 text-emerald-500" /> Giới hạn phạm vi chương xuất
+            </span>
+            <span className="text-[10px] text-slate-500 font-normal mt-0.5">
+              Chỉ xuất các chương trong khoảng đã chọn
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExportRangeEnabled(!exportRangeEnabled)}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-250 focus:outline-none ${exportRangeEnabled ? 'bg-emerald-600' : 'bg-slate-800'}`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${exportRangeEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+          </button>
+        </div>
+
+        {exportRangeEnabled && (
+          <div className="space-y-3 animate-in slide-in-from-top-1 duration-200">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase block">Từ số</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalChapters}
+                  value={exportRangeStart}
+                  onChange={e => {
+                    const v = Math.max(1, Math.min(totalChapters, Number(e.target.value)));
+                    setExportRangeStart(v);
+                    if (v > exportRangeEnd) setExportRangeEnd(v);
+                  }}
+                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-555"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase block">Đến số</label>
+                <input
+                  type="number"
+                  min={exportRangeStart}
+                  max={totalChapters}
+                  value={exportRangeEnd}
+                  onChange={e => setExportRangeEnd(Math.max(exportRangeStart, Math.min(totalChapters, Number(e.target.value))))}
+                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-555"
+                />
+              </div>
+            </div>
+            <div className="bg-emerald-950/30 border border-emerald-900/50 rounded-lg px-3 py-2 text-[11px] text-emerald-300 flex items-center justify-between">
+              <span>Số chương trong phạm vi:</span>
+              <strong className="text-emerald-400 font-extrabold">{totalChapters > 0 ? (safeEnd - safeStart + 1) : 0} chương</strong>
+            </div>
+          </div>
+        )}
+      </div>
 
       <button onClick={exportMode === 'align_jsonl' ? handleExportAlignJsonl : handleExportTxt} disabled={isExportingTxt} className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-extrabold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer">
         {isExportingTxt ? "Đang xử lý kết xuất..." : exportMode === 'align_jsonl' ? "Bắt đầu gióng hàng & tải .JSONL" : "Bắt đầu xuất tải tệp .TXT sỉ"}
@@ -10176,6 +10261,9 @@ export interface UseAutoTranslationQueueProps {
   chaptersPerFile: number;
   exportScope: 'all' | 'translated';
   exportMode: 'web' | 'audio' | 'align_jsonl';
+  exportRangeEnabled: boolean;
+  exportRangeStart: number;
+  exportRangeEnd: number;
   
   // Retry options
   skipFailedChapters: boolean;
@@ -10245,6 +10333,7 @@ export function useAutoTranslationQueue(props: UseAutoTranslationQueueProps) {
 ================================================================================
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import JSZip from 'jszip';
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
 import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
@@ -10261,6 +10350,10 @@ export interface UseExportFilesProps {
 
   // Shared state updater
   addLog: (message: string, type?: LogEntry['type']) => void;
+
+  exportRangeEnabled: boolean;
+  exportRangeStart: number;
+  exportRangeEnd: number;
 }
 
 export function useExportFiles({
@@ -10271,6 +10364,9 @@ export function useExportFiles({
   apiKeys,
   selectedModel,
   addLog,
+  exportRangeEnabled,
+  exportRangeStart,
+  exportRangeEnd,
 }: UseExportFilesProps) {
   const { showToast } = useNotifications();
   const [isExportingTxt, setIsExportingTxt] = useState<boolean>(false);
@@ -10298,8 +10394,20 @@ export function useExportFiles({
         chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
       }
 
+      if (exportRangeEnabled) {
+        const startIdx = Math.max(0, exportRangeStart - 1);
+        const endIdx = Math.min(allChapters.length, exportRangeEnd);
+        const allowedIds = new Set(allChapters.slice(startIdx, endIdx).map(c => c.id));
+        chaptersToExport = chaptersToExport.filter(c => allowedIds.has(c.id));
+      }
+
       if (chaptersToExport.length === 0) {
-        showToast({ message: "Không tìm thấy chương nào thỏa mãn điều kiện lọc!", type: 'warning' });
+        showToast({
+          message: exportRangeEnabled
+            ? "Không tìm thấy chương nào trong phạm vi đã chọn thỏa điều kiện lọc!"
+            : "Không tìm thấy chương nào thỏa mãn điều kiện lọc!",
+          type: 'warning'
+        });
         setIsExportingTxt(false);
         return;
       }
@@ -10313,6 +10421,11 @@ export function useExportFiles({
       for (let i = 0; i < chaptersToExport.length; i += cap) {
         chaptersChunks.push(chaptersToExport.slice(i, i + cap));
       }
+
+      const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
+      const cleanTitle = sanitize(proj.title);
+
+      const zip = new JSZip();
 
       for (let chunkIdx = 0; chunkIdx < chaptersChunks.length; chunkIdx++) {
         const chunkMeta = chaptersChunks[chunkIdx];
@@ -10390,25 +10503,27 @@ export function useExportFiles({
 
         const firstChapter = validChunk[0];
         const lastChapter = validChunk[validChunk.length - 1];
-        const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
-        const cleanTitle = sanitize(proj.title);
         const startName = sanitize(firstChapter.title);
         const endName = sanitize(lastChapter.title);
 
         const suffix = exportMode === 'audio' ? '_AUDIO' : '_WEB';
         const filename = `${cleanTitle}_[${startName}]_den_[${endName}]${suffix}.txt`;
-        const blob = new Blob([fileContent], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        triggerDownload(url, filename);
-        URL.revokeObjectURL(url);
+        zip.file(filename, fileContent);
       }
-      addLog("ĐÃ HOÀN TẤT TẢI XUỐNG TOÀN BỘ CÁC TỆP .TXT VĂN BẢN CHẤT LƯỢNG CAO!", "success");
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const zipFilename = `${cleanTitle}_TXT_EXPORT.zip`;
+      triggerDownload(url, zipFilename);
+      URL.revokeObjectURL(url);
+
+      addLog("ĐÃ HOÀN TẤT ĐÓNG GÓI VÀ TẢI XUỐNG TỆP .ZIP CHỨA CÁC TỆP .TXT VĂN BẢN CHẤT LƯỢNG CAO!", "success");
     } catch (error: any) {
       addLog(`Lỗi khi xuất tệp: ${error.message || error}`, "error");
     } finally {
       setIsExportingTxt(false);
     }
-  }, [chaptersPerFile, exportScope, exportMode, addLog]);
+  }, [chaptersPerFile, exportScope, exportMode, addLog, exportRangeEnabled, exportRangeStart, exportRangeEnd]);
 
   const handleExportAlignJsonl = useCallback(async () => {
     setIsExportingTxt(true);
@@ -10421,9 +10536,21 @@ export function useExportFiles({
         setIsExportingTxt(false);
         return;
       }
-      const chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
+      let chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
+      if (exportRangeEnabled) {
+        const startIdx = Math.max(0, exportRangeStart - 1);
+        const endIdx = Math.min(allChapters.length, exportRangeEnd);
+        const allowedIds = new Set(allChapters.slice(startIdx, endIdx).map(c => c.id));
+        chaptersToExport = chaptersToExport.filter(c => allowedIds.has(c.id));
+      }
+
       if (chaptersToExport.length === 0) {
-        showToast({ message: "Không tìm thấy chương truyện nào đã được dịch thuật để gióng hàng!", type: 'warning' });
+        showToast({
+          message: exportRangeEnabled
+            ? "Không tìm thấy chương nào trong phạm vi đã chọn thỏa điều kiện lọc!"
+            : "Không tìm thấy chương truyện nào đã được dịch thuật để gióng hàng!",
+          type: 'warning'
+        });
         setIsExportingTxt(false);
         return;
       }
@@ -10481,7 +10608,7 @@ export function useExportFiles({
     } finally {
       setIsExportingTxt(false);
     }
-  }, [apiKeys, selectedModel, addLog]);
+  }, [apiKeys, selectedModel, addLog, exportRangeEnabled, exportRangeStart, exportRangeEnd]);
 
   return {
     isExportingTxt,
@@ -12486,6 +12613,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
             {
                 id: 'glo_1',
                 chinese: '万剑归宗',
+                pinyin: '',
                 variants: ['萬劍歸宗'],
                 vietnamese: 'Vạn Kiếm Quy Tông',
                 type: 'term',
@@ -12496,7 +12624,12 @@ describe('useGlossaryApply - Glossary application hook', () => {
         const activeProject: StoryProject = {
             id: 'proj_1',
             title: 'Test Proj',
+            author: '',
+            genre: '',
+            tone: '',
+            description: '',
             glossary,
+            pendingGlossary: [],
             chapters: [
                 {
                     id: 'chap_1',
@@ -12518,6 +12651,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
                 sourceText: 'Câu 1: 万剑归宗! Câu 2: 萬劍歸宗!',
                 rawTranslation: '',
                 polishedTranslation: '',
+                paragraphs: [],
                 translatedLines: [],
                 status: 'not_started' as const,
                 createdAt: '',
@@ -12559,6 +12693,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
             {
                 id: 'glo_1',
                 chinese: '剑',
+                pinyin: '',
                 variants: ['劍'],
                 vietnamese: 'Kiếm',
                 type: 'term',
@@ -12567,6 +12702,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
             {
                 id: 'glo_2',
                 chinese: '万剑归宗',
+                pinyin: '',
                 variants: ['萬劍歸宗'],
                 vietnamese: 'Vạn Kiếm Quy Tông',
                 type: 'term',
@@ -12577,7 +12713,12 @@ describe('useGlossaryApply - Glossary application hook', () => {
         const activeProject: StoryProject = {
             id: 'proj_1',
             title: 'Test Proj',
+            author: '',
+            genre: '',
+            tone: '',
+            description: '',
             glossary,
+            pendingGlossary: [],
             chapters: [
                 {
                     id: 'chap_1',
@@ -12599,6 +12740,7 @@ describe('useGlossaryApply - Glossary application hook', () => {
                 sourceText: 'Ta dùng 萬劍歸宗!',
                 rawTranslation: '',
                 polishedTranslation: '',
+                paragraphs: [],
                 translatedLines: [],
                 status: 'not_started' as const,
                 createdAt: '',

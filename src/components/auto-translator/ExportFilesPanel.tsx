@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, ListOrdered } from 'lucide-react';
 
 export interface ExportFilesPanelProps {
   exportMode: 'web' | 'audio' | 'align_jsonl';
@@ -11,6 +11,13 @@ export interface ExportFilesPanelProps {
   isExportingTxt: boolean;
   handleExportTxt: () => void;
   handleExportAlignJsonl: () => void;
+  exportRangeEnabled: boolean;
+  setExportRangeEnabled: (b: boolean) => void;
+  exportRangeStart: number;
+  setExportRangeStart: (n: number) => void;
+  exportRangeEnd: number;
+  setExportRangeEnd: (n: number) => void;
+  totalChapters: number;
 }
 
 export const ExportFilesPanel = React.memo(function ExportFilesPanel({
@@ -23,8 +30,17 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
   isExportingTxt,
   handleExportTxt,
   handleExportAlignJsonl,
+  exportRangeEnabled,
+  setExportRangeEnabled,
+  exportRangeStart,
+  setExportRangeStart,
+  exportRangeEnd,
+  setExportRangeEnd,
+  totalChapters,
 }: ExportFilesPanelProps) {
   const maxLimit = exportMode === 'web' ? 20 : 10;
+  const safeStart = Math.max(1, Math.min(exportRangeStart, totalChapters));
+  const safeEnd = Math.max(safeStart, Math.min(exportRangeEnd, totalChapters));
 
   return (
     <div id="export-txt-card" className="space-y-4 bg-slate-900/40 border border-slate-800/80 p-5 rounded-xl shadow-xs">
@@ -73,6 +89,64 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
       ) : (
         <div className="bg-indigo-950/20 border border-indigo-800/40 p-3 rounded-lg text-[10px] text-indigo-300 leading-relaxed">• Mỗi chương trích một file `.jsonl` độc lập.<br />• Khớp sọc đối nghĩa Trung-Việt 100% làm học liệu huấn luyện tinh chỉnh AI.</div>
       )}
+
+      {/* Giới hạn phân đoạn vùng chương xuất */}
+      <div className="space-y-2.5 pt-3 border-t border-slate-800/60">
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <ListOrdered className="w-3.5 h-3.5 text-emerald-500" /> Giới hạn phạm vi chương xuất
+            </span>
+            <span className="text-[10px] text-slate-500 font-normal mt-0.5">
+              Chỉ xuất các chương trong khoảng đã chọn
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExportRangeEnabled(!exportRangeEnabled)}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-250 focus:outline-none ${exportRangeEnabled ? 'bg-emerald-600' : 'bg-slate-800'}`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${exportRangeEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+          </button>
+        </div>
+
+        {exportRangeEnabled && (
+          <div className="space-y-3 animate-in slide-in-from-top-1 duration-200">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase block">Từ số</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalChapters}
+                  value={exportRangeStart}
+                  onChange={e => {
+                    const v = Math.max(1, Math.min(totalChapters, Number(e.target.value)));
+                    setExportRangeStart(v);
+                    if (v > exportRangeEnd) setExportRangeEnd(v);
+                  }}
+                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-555"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase block">Đến số</label>
+                <input
+                  type="number"
+                  min={exportRangeStart}
+                  max={totalChapters}
+                  value={exportRangeEnd}
+                  onChange={e => setExportRangeEnd(Math.max(exportRangeStart, Math.min(totalChapters, Number(e.target.value))))}
+                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-555"
+                />
+              </div>
+            </div>
+            <div className="bg-emerald-950/30 border border-emerald-900/50 rounded-lg px-3 py-2 text-[11px] text-emerald-300 flex items-center justify-between">
+              <span>Số chương trong phạm vi:</span>
+              <strong className="text-emerald-400 font-extrabold">{totalChapters > 0 ? (safeEnd - safeStart + 1) : 0} chương</strong>
+            </div>
+          </div>
+        )}
+      </div>
 
       <button onClick={exportMode === 'align_jsonl' ? handleExportAlignJsonl : handleExportTxt} disabled={isExportingTxt} className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-extrabold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer">
         {isExportingTxt ? "Đang xử lý kết xuất..." : exportMode === 'align_jsonl' ? "Bắt đầu gióng hàng & tải .JSONL" : "Bắt đầu xuất tải tệp .TXT sỉ"}

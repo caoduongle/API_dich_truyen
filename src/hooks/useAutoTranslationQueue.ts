@@ -33,6 +33,9 @@ export interface UseAutoTranslationQueueProps {
   chaptersPerFile: number;
   exportScope: 'all' | 'translated';
   exportMode: 'web' | 'audio' | 'align_jsonl';
+  exportRangeEnabled: boolean;
+  exportRangeStart: number;
+  exportRangeEnd: number;
   
   // Retry options
   skipFailedChapters: boolean;
