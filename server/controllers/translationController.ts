@@ -144,7 +144,7 @@ ${substitutedText}`;
   );
   const resultText = rotationResult.text;
   if (!resultText) {
-    throw new Error("Không nhận được phản hồi dịch từ AI.");
+    throw new Error("Không nhận được phản hồi dịch từ AI (kết quả trả về trống).");
   }
 
   let parsed: any;
@@ -266,7 +266,18 @@ async function translateRawWithContentSplit(
   } catch (error: any) {
     const errorMsg = (error.message || "").toLowerCase();
     if (error.message && error.message.startsWith("ALL_KEYS_EXHAUSTED")) {
-      throw error;
+      const isSafetyOrEmptyExhausted = errorMsg.includes("safety") ||
+          errorMsg.includes("block") ||
+          errorMsg.includes("content") ||
+          errorMsg.includes("trống") ||
+          errorMsg.includes("empty") ||
+          errorMsg.includes("finishreason") ||
+          errorMsg.includes("filter") ||
+          errorMsg.includes("candidate") ||
+          errorMsg.includes("không nhận được");
+      if (!isSafetyOrEmptyExhausted) {
+        throw error;
+      }
     }
 
     const isSafetyOrEmpty = errorMsg.includes("safety") ||
@@ -276,7 +287,8 @@ async function translateRawWithContentSplit(
         errorMsg.includes("empty") ||
         errorMsg.includes("finishreason") ||
         errorMsg.includes("filter") ||
-        errorMsg.includes("candidate");
+        errorMsg.includes("candidate") ||
+        errorMsg.includes("không nhận được");
 
     if (isSafetyOrEmpty) {
       console.warn(`[Divide & Conquer Split] Phát hiện vi phạm bộ lọc / lỗi rỗng tại Độ sâu ${depth}. Tiến hành giãn cách và chia nhỏ văn bản dài ${text.length} ký tự...`);
@@ -509,7 +521,18 @@ async function polishWithContentSplit(
   } catch (error: any) {
     const errorMsg = (error.message || "").toLowerCase();
     if (error.message && error.message.startsWith("ALL_KEYS_EXHAUSTED")) {
-      throw error;
+      const isSafetyOrEmptyExhausted = errorMsg.includes("safety") ||
+          errorMsg.includes("block") ||
+          errorMsg.includes("content") ||
+          errorMsg.includes("trống") ||
+          errorMsg.includes("empty") ||
+          errorMsg.includes("finishreason") ||
+          errorMsg.includes("filter") ||
+          errorMsg.includes("candidate") ||
+          errorMsg.includes("không nhận được");
+      if (!isSafetyOrEmptyExhausted) {
+        throw error;
+      }
     }
 
     const isSafetyOrEmpty = errorMsg.includes("safety") ||
@@ -519,7 +542,8 @@ async function polishWithContentSplit(
         errorMsg.includes("empty") ||
         errorMsg.includes("finishreason") ||
         errorMsg.includes("filter") ||
-        errorMsg.includes("candidate");
+        errorMsg.includes("candidate") ||
+        errorMsg.includes("không nhận được");
 
     if (isSafetyOrEmpty) {
       console.warn(`[Divide & Conquer Split Polish] Phát hiện vi phạm bộ lọc / lỗi rỗng biên tập ở Độ sâu ${depth}. Tiến hành chia nhỏ bản dịch thô...`);
