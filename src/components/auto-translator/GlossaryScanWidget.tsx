@@ -1,5 +1,6 @@
 import React from 'react';
 import { Maximize2, Minimize2, X, RefreshCw, Sparkles, Square, Check } from 'lucide-react';
+import { StoryProject } from '../../types';
 
 interface GlossaryScanWidgetProps {
     isVisible: boolean;
@@ -16,6 +17,9 @@ interface GlossaryScanWidgetProps {
     currentScanningChapterTitle: string;
     selectedModel: string;
     onToggleScan: () => void;
+    failedIds?: string[];
+    onRetryFailedGlossaryChapters?: () => void;
+    activeProject: StoryProject;
 }
 
 export function GlossaryScanWidget({
@@ -33,6 +37,9 @@ export function GlossaryScanWidget({
                                        currentScanningChapterTitle,
                                        selectedModel,
                                        onToggleScan,
+                                       failedIds,
+                                       onRetryFailedGlossaryChapters,
+                                       activeProject,
                                    }: GlossaryScanWidgetProps) {
     if (!isVisible) return null;
 
@@ -116,6 +123,36 @@ export function GlossaryScanWidget({
               </span>
                             <p className="font-extrabold text-slate-100 truncate">{currentScanningChapterTitle}</p>
                             <p className="text-[10px] text-slate-400">Mô hình: {selectedModel}</p>
+                        </div>
+                    )}
+
+                    {failedIds && failedIds.length > 0 && (
+                        <div className="bg-rose-950/20 border border-rose-900/40 p-3 rounded-lg space-y-2 animate-in slide-in-from-top-2 duration-200">
+                            <div className="flex items-center gap-2">
+                                <span className="flex h-1.5 w-1.5 relative shrink-0">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
+                                </span>
+                                <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">
+                                    Phát hiện {failedIds.length} chương lỗi khi quét
+                                </span>
+                            </div>
+                            <p className="text-[10px] text-rose-300/90 font-normal leading-normal max-h-16 overflow-y-auto bg-slate-950/40 p-2 rounded border border-rose-900/30 custom-scrollbar">
+                                {failedIds.map((fid) => {
+                                    const chap = activeProject.chapters.find(c => c.id === fid);
+                                    return chap ? chap.title : fid;
+                                }).join(', ')}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={onRetryFailedGlossaryChapters}
+                                disabled={isScanning}
+                                className={`w-full py-1.5 bg-rose-650 hover:bg-rose-600 text-white rounded-lg text-[11px] font-extrabold shadow-sm flex items-center justify-center gap-1 transition-all ${
+                                    isScanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                                }`}
+                            >
+                                Quét lại các chương lỗi này
+                            </button>
                         </div>
                     )}
 

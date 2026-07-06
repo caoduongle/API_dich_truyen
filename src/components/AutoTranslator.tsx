@@ -131,6 +131,7 @@ export default function AutoTranslator({
     handleAutoExtractGlossary,
     triggerExportDownload,
     handleRetryFailedChapters,
+    handleRetryFailedGlossaryChapters,
   } = useAutoTranslationQueue({
     activeProject,
     onUpdateProject,
@@ -424,7 +425,10 @@ export default function AutoTranslator({
         scanFoundCount={scanFoundCount}
         currentScanningChapterTitle={currentScanningChapterTitle}
         selectedModel={selectedModel}
-        onToggleScan={handleAutoExtractGlossary}
+        onToggleScan={() => handleAutoExtractGlossary()}
+        failedIds={activeProject.glossaryScanQueueState?.failedIds}
+        onRetryFailedGlossaryChapters={handleRetryFailedGlossaryChapters}
+        activeProject={activeProject}
       />
     </div>
   );

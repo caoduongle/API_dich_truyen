@@ -11,7 +11,7 @@ vi.mock("../../services/geminiService", () => {
   };
 });
 
-describe("analyzeGlossary Controller", () => {
+describe("analyzeGlossary Controller with Divide & Conquer", () => {
   let req: Partial<Request>;
   let res: Partial<Response>;
   let jsonMock: any;
@@ -35,30 +35,21 @@ describe("analyzeGlossary Controller", () => {
     };
   });
 
-  it("should process multiple chunks successfully and return aggregated suggestions", async () => {
-    // MAX_CHARS_FOR_GLOSSARY_ANALYSIS = 8000.
-    // Line 1 (4000 chars) + Line 2 (5000 chars) -> split into exactly 2 chunks.
-    const longText = "A".repeat(4000) + "\n" + "B".repeat(5000);
-
-    req.body.text = longText;
+  it("should process the entire text successfully when no error occurs", async () => {
+    req.body.text = "Short text under 300 chars.";
 
     vi.mocked(geminiService.generateWithRotation)
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "A", "vietnamese": "A_VN", "type": "character", "note": "Character A"}]}', successKeyIndex: 1 })
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "B", "vietnamese": "B_VN", "type": "character", "note": "Character B"}]}', successKeyIndex: 0 });
+      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "A", "vietnamese": "A_VN", "type": "character", "note": "Character A"}]}', successKeyIndex: 1 });
 
     await analyzeGlossary(req as Request, res as Response);
 
-    expect(geminiService.generateWithRotation).toHaveBeenCalledTimes(2);
+    expect(geminiService.generateWithRotation).toHaveBeenCalledTimes(1);
     expect(jsonMock).toHaveBeenCalledWith(
       expect.objectContaining({
         suggestions: [
           expect.objectContaining({ chinese: "A", vietnamese: "A_VN" }),
-          expect.objectContaining({ chinese: "B", vietnamese: "B_VN" }),
         ],
-        successKeyIndex: 0,
-        partialFailure: false,
-        failedChunks: [],
-        totalChunks: 2,
+        successKeyIndex: 1,
       })
     );
   });
@@ -76,89 +67,49 @@ describe("analyzeGlossary Controller", () => {
     );
   });
 
-  it("should retry on overload error and succeed on second try", async () => {
-    const longText = "A".repeat(4000) + "\n" + "B".repeat(5000);
-    req.body.text = longText;
+  it("should trigger Divide & Conquer split when safety block error occurs on long text", async () => {
+    // text length must be >= 300 chars to allow splitting
+    const longText = "A".repeat(200) + "\n" + "B".repeat(200); // 401 chars
 
-    // First call for chunk 1 fails with 503 (overload), retry succeeds.
-    // Second call for chunk 2 succeeds immediately.
-    vi.mocked(geminiService.generateWithRotation)
-      // Chunk 1, try 1 (fail with 503)
-      .mockRejectedValueOnce(new Error("503 overload"))
-      // Chunk 1, try 2 (retry - succeeds)
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "A", "vietnamese": "A_VN", "type": "character", "note": "A"}]}', successKeyIndex: 1 })
-      // Chunk 2 (succeeds)
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "B", "vietnamese": "B_VN", "type": "character", "note": "B"}]}', successKeyIndex: 0 });
-
-    await analyzeGlossary(req as Request, res as Response);
-
-    expect(geminiService.generateWithRotation).toHaveBeenCalledTimes(3);
-    expect(geminiService.sleep).toHaveBeenCalledWith(750);
-    expect(jsonMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        suggestions: [
-          expect.objectContaining({ chinese: "A" }),
-          expect.objectContaining({ chinese: "B" }),
-        ],
-        successKeyIndex: 0,
-        partialFailure: false,
-        failedChunks: [],
-        totalChunks: 2,
-      })
-    );
-  });
-
-  it("should mark partial failure if chunk retry fails", async () => {
-    const longText = "A".repeat(4000) + "\n" + "B".repeat(5000);
     req.body.text = longText;
 
     vi.mocked(geminiService.generateWithRotation)
-      // Chunk 1 fails and its retry also fails (overload)
-      .mockRejectedValueOnce(new Error("503 overload"))
-      .mockRejectedValueOnce(new Error("503 overload"))
-      // Chunk 2 succeeds
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "B", "vietnamese": "B_VN", "type": "character", "note": "B"}]}', successKeyIndex: 0 });
+      // First call fails with safety block
+      .mockRejectedValueOnce(new Error("safety block error"))
+      // Recursive call for part 1 succeeds
+      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "A", "vietnamese": "A_VN", "type": "character", "note": "Character A"}]}', successKeyIndex: 0 })
+      // Recursive call for part 2 succeeds
+      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "B", "vietnamese": "B_VN", "type": "character", "note": "Character B"}]}', successKeyIndex: 1 });
 
     await analyzeGlossary(req as Request, res as Response);
 
+    // Should call once for full text, then once for part 1, once for part 2
     expect(geminiService.generateWithRotation).toHaveBeenCalledTimes(3);
     expect(jsonMock).toHaveBeenCalledWith(
       expect.objectContaining({
         suggestions: [
-          expect.objectContaining({ chinese: "B" }),
+          expect.objectContaining({ chinese: "A", vietnamese: "A_VN" }),
+          expect.objectContaining({ chinese: "B", vietnamese: "B_VN" }),
         ],
-        successKeyIndex: 0,
-        partialFailure: true,
-        failedChunks: [1], // 1-based index of failed chunk
-        totalChunks: 2,
+        successKeyIndex: 1, // returns the successKeyIndex of the last recursive call
       })
     );
   });
 
-  it("should mark partial failure on non-retryable error without retrying", async () => {
-    const longText = "A".repeat(4000) + "\n" + "B".repeat(5000);
+  it("should bubble up non-safety general errors immediately without splitting", async () => {
+    const longText = "A".repeat(200) + "\n" + "B".repeat(200); // 401 chars
     req.body.text = longText;
 
     vi.mocked(geminiService.generateWithRotation)
-      // Chunk 1 fails with non-retryable error (e.g. invalid config)
-      .mockRejectedValueOnce(new Error("Some non-retryable error"))
-      // Chunk 2 succeeds
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "B", "vietnamese": "B_VN", "type": "character", "note": "B"}]}', successKeyIndex: 0 });
+      .mockRejectedValueOnce(new Error("Some general API network failure"));
 
     await analyzeGlossary(req as Request, res as Response);
 
-    // No retry for chunk 1, so only 2 calls total
-    expect(geminiService.generateWithRotation).toHaveBeenCalledTimes(2);
-    expect(geminiService.sleep).not.toHaveBeenCalled();
+    expect(geminiService.generateWithRotation).toHaveBeenCalledTimes(1);
+    expect(statusMock).toHaveBeenCalledWith(500);
     expect(jsonMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        suggestions: [
-          expect.objectContaining({ chinese: "B" }),
-        ],
-        successKeyIndex: 0,
-        partialFailure: true,
-        failedChunks: [1],
-        totalChunks: 2,
+        error: "Some general API network failure",
       })
     );
   });

@@ -105,7 +105,7 @@ export const BulkScanConfigPanel = React.memo(function BulkScanConfigPanel({
         </div>
       </div>
 
-      <button type="button" onClick={handleAutoExtractGlossary} className={`w-full py-2.5 rounded-lg text-xs font-extrabold shadow-sm flex items-center justify-center gap-2 cursor-pointer ${isScanningGlossary ? 'bg-rose-600 text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}>
+      <button type="button" onClick={() => handleAutoExtractGlossary()} className={`w-full py-2.5 rounded-lg text-xs font-extrabold shadow-sm flex items-center justify-center gap-2 cursor-pointer ${isScanningGlossary ? 'bg-rose-600 text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}>
         {isScanningGlossary ? <><Square className="w-3.5 h-3.5 fill-white" /> Dừng quét lọc ({scanningProgress}%)</> : <><Database className="w-3.5 h-3.5 fill-white" /> Kích hoạt quét lọc sỉ mới</>}
       </button>
     </div>

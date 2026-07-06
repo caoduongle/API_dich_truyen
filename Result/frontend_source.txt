@@ -618,6 +618,10 @@ export interface StoryProject {
         skipFailedChapters?: boolean;
         failedIds?: string[];
     };
+    glossaryScanQueueState?: {
+        failedIds?: string[];
+        lastScanRange?: { start: number; end: number } | null;
+    };
     ignoredDuplicatePairs?: string[];
 }
 
@@ -1057,6 +1061,7 @@ export default function AutoTranslator({
     handleAutoExtractGlossary,
     triggerExportDownload,
     handleRetryFailedChapters,
+    handleRetryFailedGlossaryChapters,
   } = useAutoTranslationQueue({
     activeProject,
     onUpdateProject,
@@ -1351,6 +1356,9 @@ export default function AutoTranslator({
         currentScanningChapterTitle={currentScanningChapterTitle}
         selectedModel={selectedModel}
         onToggleScan={handleAutoExtractGlossary}
+        failedIds={activeProject.glossaryScanQueueState?.failedIds}
+        onRetryFailedGlossaryChapters={handleRetryFailedGlossaryChapters}
+        activeProject={activeProject}
       />
     </div>
   );
@@ -6145,6 +6153,7 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
 
 import React from 'react';
 import { Maximize2, Minimize2, X, RefreshCw, Sparkles, Square, Check } from 'lucide-react';
+import { StoryProject } from '../../types';
 
 interface GlossaryScanWidgetProps {
     isVisible: boolean;
@@ -6161,6 +6170,9 @@ interface GlossaryScanWidgetProps {
     currentScanningChapterTitle: string;
     selectedModel: string;
     onToggleScan: () => void;
+    failedIds?: string[];
+    onRetryFailedGlossaryChapters?: () => void;
+    activeProject: StoryProject;
 }
 
 export function GlossaryScanWidget({
@@ -6178,6 +6190,9 @@ export function GlossaryScanWidget({
                                        currentScanningChapterTitle,
                                        selectedModel,
                                        onToggleScan,
+                                       failedIds,
+                                       onRetryFailedGlossaryChapters,
+                                       activeProject,
                                    }: GlossaryScanWidgetProps) {
     if (!isVisible) return null;
 
@@ -6261,6 +6276,36 @@ export function GlossaryScanWidget({
               </span>
                             <p className="font-extrabold text-slate-100 truncate">{currentScanningChapterTitle}</p>
                             <p className="text-[10px] text-slate-400">Mô hình: {selectedModel}</p>
+                        </div>
+                    )}
+
+                    {failedIds && failedIds.length > 0 && (
+                        <div className="bg-rose-950/20 border border-rose-900/40 p-3 rounded-lg space-y-2 animate-in slide-in-from-top-2 duration-200">
+                            <div className="flex items-center gap-2">
+                                <span className="flex h-1.5 w-1.5 relative shrink-0">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
+                                </span>
+                                <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">
+                                    Phát hiện {failedIds.length} chương lỗi khi quét
+                                </span>
+                            </div>
+                            <p className="text-[10px] text-rose-300/90 font-normal leading-normal max-h-16 overflow-y-auto bg-slate-950/40 p-2 rounded border border-rose-900/30 custom-scrollbar">
+                                {failedIds.map((fid) => {
+                                    const chap = activeProject.chapters.find(c => c.id === fid);
+                                    return chap ? chap.title : fid;
+                                }).join(', ')}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={onRetryFailedGlossaryChapters}
+                                disabled={isScanning}
+                                className={`w-full py-1.5 bg-rose-650 hover:bg-rose-600 text-white rounded-lg text-[11px] font-extrabold shadow-sm flex items-center justify-center gap-1 transition-all ${
+                                    isScanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                                }`}
+                            >
+                                Quét lại các chương lỗi này
+                            </button>
                         </div>
                     )}
 
@@ -10795,7 +10840,7 @@ export function useGlossaryApply({
 ================================================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { StoryProject, GlossaryItem, PendingGlossaryItem } from '../types';
+import { StoryProject, GlossaryItem, PendingGlossaryItem, ChapterMetadata } from '../types';
 import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../components/NotificationSystem';
@@ -10846,7 +10891,7 @@ export function useGlossaryScan({
     projectRef.current = activeProject;
   }, [activeProject]);
 
-  const handleAutoExtractGlossary = useCallback(async () => {
+  const handleAutoExtractGlossary = useCallback(async (overrideChapters?: ChapterMetadata[]) => {
     if (isScanningGlossary) {
       isStopScanRequestedRef.current = true;
       addLog("ĐANG YÊU CẦU DỪNG QUÉT... Vui lòng chờ kết thúc chương hiện tại.", "warn");
@@ -10859,8 +10904,8 @@ export function useGlossaryScan({
       return;
     }
 
-    let scopedChaps = chaps;
-    if (scanRangeEnabled) {
+    let scopedChaps = overrideChapters ?? chaps;
+    if (!overrideChapters && scanRangeEnabled) {
       const startIdx = Math.max(0, scanRangeStart - 1);
       const endIdx = Math.min(chaps.length, scanRangeEnd);
       scopedChaps = chaps.slice(startIdx, endIdx);
@@ -10873,7 +10918,7 @@ export function useGlossaryScan({
     setCurrentScanningChapterIndex(0);
     setTotalScanChapters(scopedChaps.length);
     setCurrentScanningChapterTitle('');
-    addLog(`=== KHỞI CHẠY QUÉT LỌC THUẬT NGỮ SỈ${scanRangeEnabled ? ` (Chương ${scanRangeStart}→${scanRangeEnd})` : ' TOÀN BỘ TRUYỆN'} ===`, 'success');
+    addLog(`=== KHỞI CHẠY QUÉT LỌC THUẬT NGỮ SỈ${!overrideChapters && scanRangeEnabled ? ` (Chương ${scanRangeStart}→${scanRangeEnd})` : ' TOÀN BỘ TRUYỆN'} ===`, 'success');
 
     try {
       const dbChapters = await getChaptersByProjectFromDB(projectRef.current.id);
@@ -10881,6 +10926,11 @@ export function useGlossaryScan({
 
       let updatedGlossary = [...projectRef.current.glossary];
       let chaptersProcessedSinceLastUpdate = 0;
+
+      const newlyFailedIds: string[] = [];
+      let activeFailedIds = overrideChapters
+        ? [...(projectRef.current.glossaryScanQueueState?.failedIds || [])]
+        : [];
 
       for (let loop = 1; loop <= extractionLoops; loop++) {
         if (isStopScanRequestedRef.current) break;
@@ -10984,7 +11034,10 @@ export function useGlossaryScan({
                 }
               }
             }
+
+            activeFailedIds = activeFailedIds.filter(id => id !== chap.id);
           } catch (chapErr: any) {
+            newlyFailedIds.push(chap.id);
             if (String(chapErr.message).startsWith("ALL_KEYS_EXHAUSTED")) {
               isStopScanRequestedRef.current = true;
               addLog("Dừng quét thuật ngữ do hệ thống Key hết hạn mức.", 'error');
@@ -10995,13 +11048,24 @@ export function useGlossaryScan({
 
           chaptersProcessedSinceLastUpdate++;
           if (chaptersProcessedSinceLastUpdate >= 10) {
-            onUpdateProject({ ...projectRef.current, glossary: updatedGlossary });
+            const mergedFailed = Array.from(new Set([...activeFailedIds, ...newlyFailedIds]));
+            onUpdateProject({
+              ...projectRef.current,
+              glossary: updatedGlossary,
+              glossaryScanQueueState: { failedIds: mergedFailed }
+            });
             chaptersProcessedSinceLastUpdate = 0;
           }
         }
       }
 
-      onUpdateProject({ ...projectRef.current, glossary: updatedGlossary });
+      const mergedFailed = Array.from(new Set([...activeFailedIds, ...newlyFailedIds]));
+      onUpdateProject({
+        ...projectRef.current,
+        glossary: updatedGlossary,
+        glossaryScanQueueState: { failedIds: mergedFailed }
+      });
+
       if (isStopScanRequestedRef.current) {
         addLog("=== TIẾN TRÌNH QUÉT LỌC TỰ ĐỘNG ĐÃ DỪNG THEO YÊU CẦU ===", 'warn');
       } else {
@@ -11015,6 +11079,19 @@ export function useGlossaryScan({
     }
   }, [isScanningGlossary, scanRangeEnabled, scanRangeStart, scanRangeEnd, extractionLoops, apiKeys, selectedModel, currentApiKeyIndexRef, onUpdateProject, addLog, setAutoDiscoveredBatch]);
 
+  const handleRetryFailedGlossaryChapters = useCallback(() => {
+    const failedIds = projectRef.current.glossaryScanQueueState?.failedIds || [];
+    if (failedIds.length === 0) return;
+    const chaps = projectRef.current.chapters || [];
+    const failedChaps = chaps.filter(c => failedIds.includes(c.id));
+    if (failedChaps.length === 0) {
+      addLog("Không tìm thấy chương lỗi nào trong dự án.", "warn");
+      return;
+    }
+    addLog(`Chuẩn bị quét lại ${failedChaps.length} chương lỗi...`, 'info');
+    handleAutoExtractGlossary(failedChaps);
+  }, [addLog, handleAutoExtractGlossary]);
+
   return {
     isScanningGlossary,
     scanningProgress,
@@ -11024,6 +11101,7 @@ export function useGlossaryScan({
     totalScanChapters,
     scanFoundCount,
     handleAutoExtractGlossary,
+    handleRetryFailedGlossaryChapters,
   };
 }
 

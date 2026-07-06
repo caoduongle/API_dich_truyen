@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError } from "../services/geminiService.ts";
-import { safeParseJson } from "../utils/text.ts";
+import { safeParseJson, findSplitPoint } from "../utils/text.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
 import { validateAndSnapBackEntities, isHanEquivalent } from "../../shared/sinoNormalize.ts";
 import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts.ts";
@@ -130,6 +130,99 @@ function splitTextIntoChunks(text: string, maxChunkSize: number): string[] {
   return chunks;
 }
 
+async function callGlossaryAnalysisDirect(
+    text: string,
+    apiKeys: string[] | undefined,
+    model: string | undefined,
+    startKeyIndex: number,
+    systemInstruction: string,
+    schema: any
+): Promise<{ suggestions: any[]; successKeyIndex: number }> {
+  const rotationResult = await generateWithRotation(
+      apiKeys,
+      model,
+      systemInstruction,
+      text,
+      schema,
+      0.2,
+      startKeyIndex
+  );
+
+  const resultText = rotationResult.text;
+  if (!resultText) {
+    throw new Error("Kết quả phân tích bị trống rỗng (nghi ngờ vi phạm bộ lọc an toàn).");
+  }
+
+  const parsedResult = safeParseJson(resultText);
+  const suggestions = parsedResult && Array.isArray(parsedResult.suggestions) ? parsedResult.suggestions : [];
+  return {
+    suggestions,
+    successKeyIndex: rotationResult.successKeyIndex
+  };
+}
+
+async function analyzeGlossaryWithContentSplit(
+    text: string,
+    apiKeys: string[] | undefined,
+    model: string | undefined,
+    systemInstruction: string,
+    schema: any,
+    depth = 0,
+    startKeyIndex = 0
+): Promise<{ suggestions: any[]; successKeyIndex: number }> {
+  if (text.length < 300 || depth > 4) {
+    return callGlossaryAnalysisDirect(text, apiKeys, model, startKeyIndex, systemInstruction, schema);
+  }
+
+  if (depth > 0) {
+    await sleep(depth * 600);
+  }
+
+  try {
+    return await callGlossaryAnalysisDirect(text, apiKeys, model, startKeyIndex, systemInstruction, schema);
+  } catch (error: any) {
+    const errorMsg = (error.message || "").toLowerCase();
+    if (error.message && error.message.startsWith("ALL_KEYS_EXHAUSTED")) {
+      throw error;
+    }
+
+    const isSafetyOrEmpty = errorMsg.includes("safety") ||
+        errorMsg.includes("block") ||
+        errorMsg.includes("content") ||
+        errorMsg.includes("trống") ||
+        errorMsg.includes("empty") ||
+        errorMsg.includes("finishreason") ||
+        errorMsg.includes("filter") ||
+        errorMsg.includes("candidate");
+
+    if (isSafetyOrEmpty) {
+      console.warn(`[Divide & Conquer Glossary] Phát hiện lỗi ở Độ sâu ${depth}, đang chia nhỏ đoạn ${text.length} ký tự...`);
+
+      await sleep((depth + 1) * 750);
+
+      const splitIdx = findSplitPoint(text);
+      const part1 = text.substring(0, splitIdx).trim();
+      const part2 = text.substring(splitIdx).trim();
+
+      if (part1.length === 0 || part2.length === 0) {
+        throw error;
+      }
+
+      console.log(`[Divide & Conquer Glossary] Chia thành: Phần A (${part1.length} ký tự) & Phần B (${part2.length} ký tự)`);
+      const [res1, res2] = await Promise.all([
+        analyzeGlossaryWithContentSplit(part1, apiKeys, model, systemInstruction, schema, depth + 1, startKeyIndex),
+        analyzeGlossaryWithContentSplit(part2, apiKeys, model, systemInstruction, schema, depth + 1, startKeyIndex)
+      ]);
+
+      return {
+        suggestions: [...(res1.suggestions || []), ...(res2.suggestions || [])],
+        successKeyIndex: res2.successKeyIndex
+      };
+    }
+    throw error;
+  }
+}
+
 // 1. API: Phân tích trích xuất gợi ý thuật ngữ từ văn bản thô
 export async function analyzeGlossary(req: Request, res: Response): Promise<void> {
   try {
@@ -161,112 +254,19 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       required: ["suggestions"]
     };
 
-    let currentKeyIndex = startKeyIndex;
-    const allSuggestions: any[] = [];
-    const failedChunkIndexes: number[] = [];
+    const textToAnalyze = text.substring(0, totalAnalyzedLength);
 
-    for (let i = 0; i < chunksToProcess.length; i++) {
-      const chunk = chunksToProcess[i];
-      const prompt = `Phân tích đoạn truyện chữ sau và trích xuất danh sách thực thể${
-        chunksToProcess.length > 1 ? ` (Phần ${i + 1}/${chunksToProcess.length})` : ""
-      }:\n\n${chunk}`;
+    const result = await analyzeGlossaryWithContentSplit(
+        textToAnalyze,
+        apiKeys,
+        model,
+        systemInstruction,
+        schema,
+        0,
+        startKeyIndex
+    );
 
-      let rotationResult: any = null;
-      let resultText = "";
-      let success = false;
-
-      try {
-        rotationResult = await generateWithRotation(
-            apiKeys,
-            model,
-            systemInstruction,
-            prompt,
-            schema,
-            0.2,
-            currentKeyIndex
-        );
-        currentKeyIndex = rotationResult.successKeyIndex;
-        resultText = rotationResult.text;
-
-        if (!resultText) {
-          throw new Error("Kết quả phân tích bị trống rỗng (nghi ngờ vi phạm bộ lọc an toàn).");
-        }
-        success = true;
-      } catch (err: any) {
-        if (err.message && err.message.startsWith("ALL_KEYS_EXHAUSTED")) {
-          throw err;
-        }
-
-        const errStr = (err.message || "").toLowerCase();
-        const isSafetyOrEmpty = errStr.includes("safety") ||
-            errStr.includes("block") ||
-            errStr.includes("content") ||
-            errStr.includes("trống") ||
-            errStr.includes("empty") ||
-            errStr.includes("finishreason") ||
-            errStr.includes("filter") ||
-            errStr.includes("candidate");
-
-        const isOverload = isOverloadError(err);
-
-        if (isOverload || isSafetyOrEmpty) {
-          console.warn(
-            `[analyzeGlossary Warning] Chunk ${i + 1}/${chunksToProcess.length} thất bại do ${isOverload ? 'quá tải' : 'bộ lọc an toàn hoặc trống rỗng'}. Lý do: ${err.message || 'resultText rỗng'}. Tiến hành thử lại sau 750ms...`
-          );
-          await sleep(750);
-
-          try {
-            rotationResult = await generateWithRotation(
-                apiKeys,
-                model,
-                systemInstruction,
-                prompt,
-                schema,
-                0.2,
-                currentKeyIndex
-            );
-            currentKeyIndex = rotationResult.successKeyIndex;
-            resultText = rotationResult.text;
-
-            if (!resultText) {
-              throw new Error("Kết quả phân tích bị trống rỗng sau khi thử lại (nghi ngờ vi phạm bộ lọc an toàn).");
-            }
-            success = true;
-          } catch (retryErr: any) {
-            if (retryErr.message && retryErr.message.startsWith("ALL_KEYS_EXHAUSTED")) {
-              throw retryErr;
-            }
-            console.warn(
-              `[analyzeGlossary Warning] Chunk ${i + 1}/${chunksToProcess.length} vẫn thất bại sau retry: ${retryErr.message}. Bỏ qua chunk này.`
-            );
-            failedChunkIndexes.push(i + 1);
-            continue;
-          }
-        } else {
-          console.error(
-            `[analyzeGlossary Error] Chunk ${i + 1}/${chunksToProcess.length} thất bại với lỗi không thử lại: ${err.message}. Bỏ qua chunk này.`
-          );
-          failedChunkIndexes.push(i + 1);
-          continue;
-        }
-      }
-
-      if (success && resultText) {
-        try {
-          const parsedResult = safeParseJson(resultText);
-          if (parsedResult && Array.isArray(parsedResult.suggestions)) {
-            const validated = validateAndSnapBackEntities(parsedResult.suggestions, text);
-            allSuggestions.push(...validated);
-          } else {
-            console.warn(`[analyzeGlossary Warning] Kết quả của Chunk ${i + 1} không chứa danh sách suggestions hợp lệ.`);
-            failedChunkIndexes.push(i + 1);
-          }
-        } catch (parseErr: any) {
-          console.error(`[analyzeGlossary Parse Error] Lỗi phân tích JSON ở Chunk ${i + 1}: ${parseErr.message}`);
-          failedChunkIndexes.push(i + 1);
-        }
-      }
-    }
+    const allSuggestions = result.suggestions;
 
     // Loại bỏ trùng lặp dựa trên chữ Hán
     const uniqueSuggestions: any[] = [];
@@ -280,10 +280,12 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       }
     }
 
+    const validatedSuggestions = validateAndSnapBackEntities(uniqueSuggestions, text);
+
     const resolvedChapterId = sourceChapterId || chapterId;
-    let finalSuggestions = uniqueSuggestions;
+    let finalSuggestions = validatedSuggestions;
     if (resolvedChapterId) {
-      finalSuggestions = uniqueSuggestions.map((s: any) => ({
+      finalSuggestions = validatedSuggestions.map((s: any) => ({
         ...s,
         sourceChapterId: resolvedChapterId
       }));
@@ -291,10 +293,7 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
 
     res.json({
       suggestions: finalSuggestions,
-      successKeyIndex: currentKeyIndex,
-      partialFailure: failedChunkIndexes.length > 0,
-      failedChunks: failedChunkIndexes,
-      totalChunks: chunksToProcess.length,
+      successKeyIndex: result.successKeyIndex,
       ...(hasTruncatedChunks ? { truncated: true, originalLength: text.length, analyzedLength: totalAnalyzedLength } : {})
     });
   } catch (error: any) {

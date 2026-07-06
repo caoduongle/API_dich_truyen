@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { StoryProject, GlossaryItem, PendingGlossaryItem } from '../types';
+import { StoryProject, GlossaryItem, PendingGlossaryItem, ChapterMetadata } from '../types';
 import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../components/NotificationSystem';
@@ -50,7 +50,7 @@ export function useGlossaryScan({
     projectRef.current = activeProject;
   }, [activeProject]);
 
-  const handleAutoExtractGlossary = useCallback(async () => {
+  const handleAutoExtractGlossary = useCallback(async (overrideChapters?: ChapterMetadata[]) => {
     if (isScanningGlossary) {
       isStopScanRequestedRef.current = true;
       addLog("ĐANG YÊU CẦU DỪNG QUÉT... Vui lòng chờ kết thúc chương hiện tại.", "warn");
@@ -63,8 +63,8 @@ export function useGlossaryScan({
       return;
     }
 
-    let scopedChaps = chaps;
-    if (scanRangeEnabled) {
+    let scopedChaps = overrideChapters ?? chaps;
+    if (!overrideChapters && scanRangeEnabled) {
       const startIdx = Math.max(0, scanRangeStart - 1);
       const endIdx = Math.min(chaps.length, scanRangeEnd);
       scopedChaps = chaps.slice(startIdx, endIdx);
@@ -77,7 +77,7 @@ export function useGlossaryScan({
     setCurrentScanningChapterIndex(0);
     setTotalScanChapters(scopedChaps.length);
     setCurrentScanningChapterTitle('');
-    addLog(`=== KHỞI CHẠY QUÉT LỌC THUẬT NGỮ SỈ${scanRangeEnabled ? ` (Chương ${scanRangeStart}→${scanRangeEnd})` : ' TOÀN BỘ TRUYỆN'} ===`, 'success');
+    addLog(`=== KHỞI CHẠY QUÉT LỌC THUẬT NGỮ SỈ${!overrideChapters && scanRangeEnabled ? ` (Chương ${scanRangeStart}→${scanRangeEnd})` : ' TOÀN BỘ TRUYỆN'} ===`, 'success');
 
     try {
       const dbChapters = await getChaptersByProjectFromDB(projectRef.current.id);
@@ -85,6 +85,11 @@ export function useGlossaryScan({
 
       let updatedGlossary = [...projectRef.current.glossary];
       let chaptersProcessedSinceLastUpdate = 0;
+
+      const newlyFailedIds: string[] = [];
+      let activeFailedIds = overrideChapters
+        ? [...(projectRef.current.glossaryScanQueueState?.failedIds || [])]
+        : [];
 
       for (let loop = 1; loop <= extractionLoops; loop++) {
         if (isStopScanRequestedRef.current) break;
@@ -120,13 +125,6 @@ export function useGlossaryScan({
                 message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của Chương ${i + 1} được phân tích để tối ưu hiệu suất.`,
                 type: 'warning'
               });
-            }
-            if (data.partialFailure === true) {
-              const successfulChunks = data.totalChunks - data.failedChunks.length;
-              addLog(
-                `Chương ${chap.title}: chỉ phân tích được ${successfulChunks}/${data.totalChunks} phần, các phần lỗi: ${data.failedChunks.join(', ')}`,
-                'warn'
-              );
             }
             if (typeof data.successKeyIndex === 'number') {
               currentApiKeyIndexRef.current = data.successKeyIndex;
@@ -195,7 +193,10 @@ export function useGlossaryScan({
                 }
               }
             }
+
+            activeFailedIds = activeFailedIds.filter(id => id !== chap.id);
           } catch (chapErr: any) {
+            newlyFailedIds.push(chap.id);
             if (String(chapErr.message).startsWith("ALL_KEYS_EXHAUSTED")) {
               isStopScanRequestedRef.current = true;
               addLog("Dừng quét thuật ngữ do hệ thống Key hết hạn mức.", 'error');
@@ -206,13 +207,24 @@ export function useGlossaryScan({
 
           chaptersProcessedSinceLastUpdate++;
           if (chaptersProcessedSinceLastUpdate >= 10) {
-            onUpdateProject({ ...projectRef.current, glossary: updatedGlossary });
+            const mergedFailed = Array.from(new Set([...activeFailedIds, ...newlyFailedIds]));
+            onUpdateProject({
+              ...projectRef.current,
+              glossary: updatedGlossary,
+              glossaryScanQueueState: { failedIds: mergedFailed }
+            });
             chaptersProcessedSinceLastUpdate = 0;
           }
         }
       }
 
-      onUpdateProject({ ...projectRef.current, glossary: updatedGlossary });
+      const mergedFailed = Array.from(new Set([...activeFailedIds, ...newlyFailedIds]));
+      onUpdateProject({
+        ...projectRef.current,
+        glossary: updatedGlossary,
+        glossaryScanQueueState: { failedIds: mergedFailed }
+      });
+
       if (isStopScanRequestedRef.current) {
         addLog("=== TIẾN TRÌNH QUÉT LỌC TỰ ĐỘNG ĐÃ DỪNG THEO YÊU CẦU ===", 'warn');
       } else {
@@ -226,6 +238,19 @@ export function useGlossaryScan({
     }
   }, [isScanningGlossary, scanRangeEnabled, scanRangeStart, scanRangeEnd, extractionLoops, apiKeys, selectedModel, currentApiKeyIndexRef, onUpdateProject, addLog, setAutoDiscoveredBatch]);
 
+  const handleRetryFailedGlossaryChapters = useCallback(() => {
+    const failedIds = projectRef.current.glossaryScanQueueState?.failedIds || [];
+    if (failedIds.length === 0) return;
+    const chaps = projectRef.current.chapters || [];
+    const failedChaps = chaps.filter(c => failedIds.includes(c.id));
+    if (failedChaps.length === 0) {
+      addLog("Không tìm thấy chương lỗi nào trong dự án.", "warn");
+      return;
+    }
+    addLog(`Chuẩn bị quét lại ${failedChaps.length} chương lỗi...`, 'info');
+    handleAutoExtractGlossary(failedChaps);
+  }, [addLog, handleAutoExtractGlossary]);
+
   return {
     isScanningGlossary,
     scanningProgress,
@@ -235,5 +260,6 @@ export function useGlossaryScan({
     totalScanChapters,
     scanFoundCount,
     handleAutoExtractGlossary,
+    handleRetryFailedGlossaryChapters,
   };
 }
