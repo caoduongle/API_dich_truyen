@@ -11,43 +11,93 @@ html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
+  background-color: #080c16;
+  color: #cbd5e1;
 }
 
 /* KÍCH HOẠT VÀ TỐI ƯU THANH CUỘN MƯỢT MÀ TOÀN TRANG TRÊN FIREFOX */
 html {
   scroll-behavior: smooth;
-  scrollbar-width: auto;
-  scrollbar-color: #cbd5e1 #f1f5f9;
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b #080c16;
 }
 
 /* ĐỊNH DẠNG THANH CUỘN ĐẬM RÕ, DỄ BẤM KÉO CHO CHROME, EDGE, SAFARI */
 ::-webkit-scrollbar {
-  width: 10px; /* Diện tích rộng rãi, dễ bám chuột */
-  height: 10px; /* Độ dày cho thanh cuộn ngang khi bảng quá dài */
+  width: 8px; /* Tiết kiệm diện tích hơn */
+  height: 8px;
 }
 
 /* Định dạng máng trượt (nền của thanh kéo) */
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #080c16;
   border-radius: 9999px;
 }
 
 /* Định dạng con chạy (Thành kéo chính để người dùng bám chuột) */
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #1e293b;
   border-radius: 9999px;
-  border: 2px solid #f1f5f9;
+  border: 2px solid #080c16;
   transition: background-color 0.2s ease;
 }
 
 /* Trạng thái khi người dùng di chuột vào thanh kéo (Hover) */
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #334155;
   cursor: grab;
 }
 
 /* Trạng thái khi người dùng đang bấm giữ chuột để kéo (Active) */
 ::-webkit-scrollbar-thumb:active {
-  background: #64748b;
+  background: #475569;
   cursor: grabbing;
+}
+
+/* LỚP ẨN THANH CUỘN NHƯNG VẪN CHO PHÉP TRƯỢT */
+.scrollbar-none {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* Chrome, Safari và Opera */
+}
+
+/* HIỆU ỨNG ANIMATIONS MƯỢT MÀ */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.glow-shadow {
+  box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.15), 0 8px 20px -6px rgba(99, 102, 241, 0.1);
+}
+
+.glow-shadow-emerald {
+  box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.15), 0 8px 20px -6px rgba(16, 185, 129, 0.1);
+}
+
+.glow-shadow-indigo {
+  box-shadow: 0 0 20px 0 rgba(79, 70, 229, 0.2);
+}
+
+/* Custom glassmorphism classes */
+.glass-panel {
+  background: rgba(18, 24, 38, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }

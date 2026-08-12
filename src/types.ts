@@ -15,7 +15,10 @@ export interface GlossaryItem {
     createdAt?: string;   // ISO timestamp
     sourceChapter?: string;
     sourceParagraph?: string;
+    sourceChapterId?: string;
     origin?: 'guideline' | 'scanned' | 'manual';
+    variants?: string[];  // Traditional/Simplified variants under canonicalization
+    needsReview?: boolean;
 }
 
 /**
@@ -29,18 +32,30 @@ export interface PendingGlossaryItem {
     vietnamese: string;
     type: GlossaryType;
     note: string;
-    reason: string;         // "Duplicate Chinese" | "Duplicate Vietnamese" | "Duplicate Both"
+    reason: 'Duplicate Chinese' | 'Duplicate Vietnamese' | 'Duplicate Both' | 'AI trích xuất nghi ngờ hallucinate';
     originalValue?: string; // value of the duplicate already in the main glossary
     importedAt: string;
+    needsReview?: boolean;
+    sourceChapterId?: string;
 }
 
 export type ChapterStatus = 'not_started' | 'in_progress' | 'completed';
 
+export interface ChapterMetadata {
+    id: string;
+    title: string;
+    status: ChapterStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface Chapter {
     id: string;
     title: string;
+    projectId?: string;           // Parent project ID for indexing
     // --- Full-chapter 2-phase translation (primary workflow) ---
     sourceText: string;           // Original Chinese text block
+
     processedSourceText?: string; // sourceText after glossary pre-replacement (used by auto-translator if set)
     rawTranslation: string;       // Phase 1: raw translation
     polishedTranslation: string;  // Phase 2: polished literary output
@@ -61,8 +76,20 @@ export interface StoryProject {
     description: string;
     glossary: GlossaryItem[];
     pendingGlossary: PendingGlossaryItem[];  // Deduplication verification queue
-    chapters: Chapter[];
+    chapters: ChapterMetadata[];
     createdAt: string;
+    translationQueueState?: {
+        queueIds: string[];
+        currentIndex: number;
+        mode: string;
+        skipFailedChapters?: boolean;
+        failedIds?: string[];
+    };
+    glossaryScanQueueState?: {
+        failedIds?: string[];
+        lastScanRange?: { start: number; end: number } | null;
+    };
+    ignoredDuplicatePairs?: string[];
 }
 
 // ---- API Request/Response types ----

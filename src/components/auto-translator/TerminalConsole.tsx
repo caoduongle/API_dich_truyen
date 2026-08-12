@@ -21,28 +21,28 @@ export const TerminalConsole = React.memo(function TerminalConsole({ logs, onCle
     }, [logs]);
 
     return (
-        <div className="bg-slate-900 rounded-xl border border-slate-850 overflow-hidden flex flex-col h-[280px] shadow-md">
-            <div className="bg-slate-950 text-slate-400 px-4 py-2 flex justify-between items-center text-xs border-b border-white/5 shrink-0">
-        <span className="font-mono text-[10px] text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-          <code className="w-2 h-2 rounded-full bg-emerald-500 block animate-pulse"></code>
-          Hệ điều hành logs máy chủ dịch thuật
+        <div className="bg-[#0b0f19] rounded-2xl border border-slate-800/80 overflow-hidden flex flex-col h-[280px] shadow-lg shadow-indigo-950/5">
+            <div className="bg-[#0e1424] text-slate-400 px-4 py-2.5 flex justify-between items-center text-xs border-b border-slate-800/80 shrink-0">
+        <span className="font-mono text-[10px] text-slate-400 uppercase tracking-widest flex items-center gap-2">
+          <code className="w-2 h-2 rounded-full bg-emerald-500 block animate-pulse shadow-sm shadow-emerald-500/50"></code>
+          Nhật Ký Tiến Trình Biên Dịch
         </span>
                 <button
                     type="button"
                     onClick={onClear}
-                    className="text-[10px] font-bold text-slate-500 hover:text-white transition-colors cursor-pointer"
+                    className="text-[10px] font-bold text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
                 >
-                    Clear terminal
+                    Xóa log
                 </button>
             </div>
 
             <div
                 ref={containerRef}
-                className="p-4 overflow-y-auto flex-1 font-mono text-[11px] leading-relaxed space-y-1 bg-slate-950"
+                className="p-4 overflow-y-auto flex-1 font-mono text-[11px] leading-relaxed space-y-1.5 bg-[#070b13] scrollbar-none"
             >
                 {logs.length === 0 ? (
                     <div className="text-slate-600 italic py-16 text-center">
-                        Nhấn nút &quot;Kích hoạt Dịch Tự Động&quot; để chứng kiến hệ điều hành dịch và trích lọc từ vựng sỉ hoạt động.
+                        Hệ thống log đang trống. Bấm nút bắt đầu để theo dõi tiến trình chạy nền.
                     </div>
                 ) : (
                     logs.map((log, idx) => {

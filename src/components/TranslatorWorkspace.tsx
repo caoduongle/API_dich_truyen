@@ -1,16 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { StoryProject, GlossaryItem, GlossaryType, Chapter } from '../types';
+import React, { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
+import { StoryProject, GlossaryItem, GlossaryType, Chapter, PendingGlossaryItem } from '../types';
+import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
+import { Edit3, AlertCircle } from 'lucide-react';
+import { getChapterFromDB } from '../services/db';
+import { useNotifications } from './NotificationSystem';
+import { isHanEquivalent } from '@shared/sinoNormalize';
+
+// Sub-components
+import { ProjectMetadataModal } from './translator-workspace/ProjectMetadataModal';
+import { ImportChaptersModal } from './translator-workspace/ImportChaptersModal';
+import { BilingualEditor } from './translator-workspace/BilingualEditor';
+import { GlossarySidebar } from './translator-workspace/GlossarySidebar';
+import { SuggestionsDrawer } from './translator-workspace/SuggestionsDrawer';
+
 import { CHINESE_EXAMPLES } from '../data/examples';
-import { 
-  Sparkles, Languages, ChevronRight, Copy, Check, Save, Play, 
-  RefreshCw, AlertCircle, HelpCircle, BookOpen, FileText, Plus, Info, Edit3 
-} from 'lucide-react';
 
 interface TranslatorWorkspaceProps {
   activeProject: StoryProject;
   onUpdateProject: (updated: StoryProject) => void;
   apiKeys: string[];
   selectedModel: string;
+  loadedChapter?: Chapter | null;
+  onClearLoadedChapter?: () => void;
+  warningParagraphMismatch: boolean;
+  enableAiQaCritique: boolean;
+  enableSegmentTranslation: boolean;
 }
 
 export default function TranslatorWorkspace({
@@ -18,12 +32,46 @@ export default function TranslatorWorkspace({
   onUpdateProject,
   apiKeys,
   selectedModel,
+  loadedChapter,
+  onClearLoadedChapter,
+  warningParagraphMismatch,
+  enableAiQaCritique,
+  enableSegmentTranslation,
 }: TranslatorWorkspaceProps) {
+  const { showToast, showConfirm } = useNotifications();
+  const [activeChapterIndex, setActiveChapterIndex] = useState<number>(0);
+  const [currentChapterId, setCurrentChapterId] = useState<string | null>(null);
   const [sourceText, setSourceText] = useState('');
+  const [originalSourceText, setOriginalSourceText] = useState('');
+  const [isGlossaryApplied, setIsGlossaryApplied] = useState(false);
+  const [isExtractionEnabled, setIsExtractionEnabled] = useState(true);
   const [rawTranslation, setRawTranslation] = useState('');
   const [polishedTranslation, setPolishedTranslation] = useState('');
   const [additionalInstructions, setAdditionalInstructions] = useState('');
   const [chapterTitle, setChapterTitle] = useState('');
+  const [qaIssues, setQaIssues] = useState<any[]>([]);
+  const [isCheckingQa, setIsCheckingQa] = useState<boolean>(false);
+
+  // Local states for optimized glossary helper filtering
+  const [glossarySearch, setGlossarySearch] = useState('');
+  const [onlyShowMatching, setOnlyShowMatching] = useState(false);
+  const deferredSourceText = useDeferredValue(sourceText);
+
+  // States for Editing Project Metadata Modal
+  const [isEditingMetadata, setIsEditingMetadata] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editAuthor, setEditAuthor] = useState('');
+  const [editGenre, setEditGenre] = useState('');
+  const [editTone, setEditTone] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+
+  // States for importing chapters from a new file inside workspace
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importedFileName, setImportedFileName] = useState('');
+  const [parsedImportChapters, setParsedImportChapters] = useState<{ title: string; sourceText: string }[]>([]);
+  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const [importSplitMethod, setImportSplitMethod] = useState<'regex' | 'chunk'>('regex');
+  const [isParsingImportFile, setIsParsingImportFile] = useState(false);
 
   // Loading states
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -43,24 +91,183 @@ export default function TranslatorWorkspace({
   // Active viewing stage tab
   const [activeStage, setActiveStage] = useState<'raw' | 'polished'>('raw');
 
-  // Triggering alerts
+  // Triggering alerts/sync on project id change
   useEffect(() => {
-    // Clear outputs if active project changes to prevent mixing chapters
     setSourceText('');
+    setOriginalSourceText('');
+    setIsGlossaryApplied(false);
     setRawTranslation('');
     setPolishedTranslation('');
     setSuggestions([]);
     setSelectedSuggestions({});
     setErrorMessage(null);
     setAutoDiscoveredTerms([]);
+    setQaIssues([]);
     setChapterTitle(`Chương ${activeProject.chapters.length + 1}: `);
+
+    setEditTitle(activeProject.title);
+    setEditAuthor(activeProject.author || '');
+    setEditGenre(activeProject.genre);
+    setEditTone(activeProject.tone);
+    setEditDescription(activeProject.description || '');
+
+    setImportedFileName('');
+    setParsedImportChapters([]);
+    setImportMode('append');
+    setImportSplitMethod('regex');
+    setIsParsingImportFile(false);
+    if (importFileRef.current) importFileRef.current.value = '';
   }, [activeProject.id]);
 
-  // Load a preset example helper
-  const handleLoadExample = (index: number) => {
+  // Load a chapter from history when loadedChapter changes
+  useEffect(() => {
+    if (loadedChapter) {
+      setCurrentChapterId(loadedChapter.id);
+      setChapterTitle(loadedChapter.title);
+      setSourceText(loadedChapter.sourceText);
+      setOriginalSourceText(loadedChapter.sourceText);
+      setIsGlossaryApplied(false);
+      setRawTranslation(loadedChapter.rawTranslation || '');
+      setPolishedTranslation(loadedChapter.polishedTranslation || '');
+      setSuggestions([]);
+      setSelectedSuggestions({});
+      setErrorMessage(null);
+      setAutoDiscoveredTerms([]);
+      setQaIssues([]);
+      onClearLoadedChapter?.();
+    }
+  }, [loadedChapter]);
+
+  const handleOpenEditModal = useCallback(() => {
+    setEditTitle(activeProject.title);
+    setEditAuthor(activeProject.author || '');
+    setEditGenre(activeProject.genre);
+    setEditTone(activeProject.tone);
+    setEditDescription(activeProject.description || '');
+
+    setImportedFileName('');
+    setParsedImportChapters([]);
+    setImportMode('append');
+    setImportSplitMethod('regex');
+    setIsParsingImportFile(false);
+    if (importFileRef.current) importFileRef.current.value = '';
+
+    setIsEditingMetadata(true);
+  }, [activeProject]);
+
+  const handleImportRawFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportedFileName(file.name);
+    setParsedImportChapters([]);
+    setIsParsingImportFile(true);
+
+    try {
+      if (file.name.endsWith('.txt')) {
+        const fullText = await file.text();
+        const chaps = parseTxtContent(fullText, importSplitMethod);
+        setParsedImportChapters(chaps);
+      } else if (file.name.endsWith('.epub')) {
+        const chaps = await parseEpubFile(file);
+        setParsedImportChapters(chaps);
+      } else {
+        showToast({ message: "Chỉ hỗ trợ định dạng tệp .txt hoặc .epub.", type: 'warning' });
+        setImportedFileName('');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast({ message: "Lỗi khi đọc file raw gốc: " + err.message, type: 'error' });
+      setImportedFileName('');
+    } finally {
+      setIsParsingImportFile(false);
+    }
+  };
+
+  const handleToggleImportSplitMethod = async (method: 'regex' | 'chunk') => {
+    setImportSplitMethod(method);
+    if (importFileRef.current?.files?.[0] && importFileRef.current.files[0].name.endsWith('.txt')) {
+      setIsParsingImportFile(true);
+      try {
+        const fullText = await importFileRef.current.files[0].text();
+        const chaps = parseTxtContent(fullText, method);
+        setParsedImportChapters(chaps);
+      } catch (err: any) {
+        showToast({ message: err.message, type: 'error' });
+      } finally {
+        setIsParsingImportFile(false);
+      }
+    }
+  };
+
+  const handleSaveMetadata = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTitle.trim()) {
+      showToast({ message: "Vui lòng điền tên tiểu thuyết.", type: 'warning' });
+      return;
+    }
+
+    let updatedChapters = [...activeProject.chapters];
+    if (parsedImportChapters.length > 0) {
+      const newChapters: Chapter[] = parsedImportChapters.map((pc, idx) => ({
+        id: 'chap_file_import_' + Date.now() + '_' + idx,
+        title: pc.title,
+        sourceText: pc.sourceText,
+        rawTranslation: '',
+        polishedTranslation: '',
+        paragraphs: [],
+        translatedLines: [],
+        status: 'not_started',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }));
+
+      if (importMode === 'replace') {
+        const confirmed = await showConfirm({
+          title: 'Thay thế chương cũ',
+          message: "Hành động này sẽ XÓA TOÀN BỘ lịch sử và bản dịch của các chương cũ trong dự án này để thay thế bằng file mới. Bạn có chắc chắn không?",
+          confirmText: 'Xác nhận thay thế',
+          cancelText: 'Hủy',
+          type: 'danger'
+        });
+        if (confirmed) {
+          updatedChapters = newChapters;
+        } else {
+          return;
+        }
+      } else {
+        updatedChapters = [...activeProject.chapters, ...newChapters];
+      }
+    }
+
+    const updated = {
+      ...activeProject,
+      title: editTitle.trim(),
+      author: editAuthor.trim() || "Khuyết Danh",
+      genre: editGenre,
+      tone: editTone,
+      description: editDescription.trim(),
+      chapters: updatedChapters
+    };
+    onUpdateProject(updated);
+    setIsEditingMetadata(false);
+
+    setImportedFileName('');
+    setParsedImportChapters([]);
+    if (importFileRef.current) importFileRef.current.value = '';
+
+    if (parsedImportChapters.length > 0) {
+      showToast({ message: `Đã cập nhật dự án và ${importMode === 'replace' ? 'thay thế' : 'nhập thêm'} thành công ${parsedImportChapters.length} chương mới!`, type: 'success' });
+    } else {
+      showToast({ message: "Đã cập nhật thông tin dự án thành công!", type: 'success' });
+    }
+  };
+
+  const handleLoadExample = useCallback((index: number) => {
     const ex = CHINESE_EXAMPLES[index];
     setSourceText(ex.sourceText);
-    // Suggest updating project settings dynamically to suit the example
+    setOriginalSourceText(ex.sourceText);
+    setIsGlossaryApplied(false);
     const updated = {
       ...activeProject,
       genre: ex.genre,
@@ -68,9 +275,8 @@ export default function TranslatorWorkspace({
     };
     onUpdateProject(updated);
     setErrorMessage(null);
-  };
+  }, [activeProject, onUpdateProject]);
 
-  // 1. Magical Analyze Glossary function
   const handleAnalyzeGlossary = async () => {
     if (!sourceText.trim()) {
       setErrorMessage("Vui lòng điền nội dung chữ Trung Quốc để phân tích.");
@@ -88,7 +294,8 @@ export default function TranslatorWorkspace({
         body: JSON.stringify({
           text: sourceText,
           apiKeys,
-          model: selectedModel
+          model: selectedModel,
+          sourceChapterId: currentChapterId || undefined
         }),
       });
 
@@ -100,12 +307,18 @@ export default function TranslatorWorkspace({
       const data = await response.json();
       if (data.suggestions && Array.isArray(data.suggestions)) {
         setSuggestions(data.suggestions);
-        // Autocheck all suggested items by default
         const checks: Record<number, boolean> = {};
         data.suggestions.forEach((_: any, idx: number) => {
           checks[idx] = true;
         });
         setSelectedSuggestions(checks);
+        // Cảnh báo khi văn bản đầu vào bị cắt ngắn (chỉ phân tích một phần)
+        if (data.truncated) {
+          showToast({
+            message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu được phân tích (giới hạn tiết kiệm token).`,
+            type: 'warning'
+          });
+        }
       } else {
         throw new Error("Không tìm thấy thuật ngữ nào.");
       }
@@ -117,41 +330,63 @@ export default function TranslatorWorkspace({
     }
   };
 
-  // Save selected suggestions into project glossary
-  const handleImportSuggestions = () => {
+  const handleImportSuggestions = useCallback(() => {
     const itemsToAdd: GlossaryItem[] = [];
+    const pendingToAdd: PendingGlossaryItem[] = [];
     suggestions.forEach((s, idx) => {
       if (selectedSuggestions[idx]) {
-        // Prevent adding duplicate identical Chinese entries
         const isDuplicate = activeProject.glossary.some(
-          (item) => item.chinese === s.chinese
+          (item) => isHanEquivalent(item.chinese, s.chinese)
         );
         if (!isDuplicate) {
-          itemsToAdd.push({
+          const itemPayload = {
             ...s,
-            id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-            createdAt: new Date().toISOString() // <-- THÊM DÒNG NÀY
-          });
+            id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11),
+            createdAt: new Date().toISOString(),
+            sourceChapterId: currentChapterId || undefined
+          };
+          if (s.needsReview) {
+            pendingToAdd.push({
+              id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+              chinese: s.chinese.trim(),
+              pinyin: s.pinyin?.trim() || '',
+              vietnamese: s.vietnamese.trim(),
+              type: s.type || 'other',
+              note: s.note?.trim() || '',
+              reason: 'AI trích xuất nghi ngờ hallucinate',
+              originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc.',
+              importedAt: new Date().toISOString(),
+              needsReview: true,
+              sourceChapterId: currentChapterId || undefined
+            });
+          } else {
+            itemsToAdd.push(itemPayload);
+          }
         }
       }
     });
 
-    if (itemsToAdd.length === 0) {
-      alert("Không có từ khóa mới hoặc chưa chọn từ khóa nào để lưu.");
+    if (itemsToAdd.length === 0 && pendingToAdd.length === 0) {
+      showToast({ message: "Không có từ khóa mới hoặc chưa chọn từ khóa nào để lưu.", type: 'warning' });
       return;
     }
 
     const updated = {
       ...activeProject,
       glossary: [...activeProject.glossary, ...itemsToAdd],
+      pendingGlossary: [...(activeProject.pendingGlossary || []), ...pendingToAdd]
     };
     onUpdateProject(updated);
-    setSuggestions([]); // Clear analysis after import
+    setSuggestions([]);
     setSelectedSuggestions({});
-    alert(`Đã thêm thành công ${itemsToAdd.length} nhân vật/thuật ngữ vào Từ điển của dự án!`);
-  };
 
-  // 2. Dịch thô Giai đoạn 1 (Raw Translation)
+    let msg = `Đã thêm thành công ${itemsToAdd.length} thuật ngữ vào Từ điển.`;
+    if (pendingToAdd.length > 0) {
+      msg += ` Có ${pendingToAdd.length} từ nghi ngờ AI nhận diện sai đã được chuyển vào hàng chờ kiểm duyệt.`;
+    }
+    showToast({ message: msg, type: 'success' });
+  }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast, currentChapterId]);
+
   const handleTranslateRaw = async () => {
     if (!sourceText.trim()) {
       setErrorMessage("Chưa nhập tiếng Trung gốc.");
@@ -170,9 +405,12 @@ export default function TranslatorWorkspace({
           text: sourceText,
           genre: activeProject.genre,
           tone: activeProject.tone,
-          glossary: activeProject.glossary,
+          description: activeProject.description,
+          glossary: isGlossaryApplied ? [] : activeProject.glossary,
           apiKeys,
-          model: selectedModel
+          model: selectedModel,
+          sourceChapterId: currentChapterId || undefined,
+          enableSegmentTranslation
         }),
       });
 
@@ -184,15 +422,15 @@ export default function TranslatorWorkspace({
       const data = await response.json();
       setRawTranslation(data.rawTranslation || "");
 
-      // Auto-detect and add new terms to project's glossary
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
+        const pendingDiscovered: PendingGlossaryItem[] = [];
         data.discoveredEntities.forEach((ent: any) => {
           const exists = activeProject.glossary.some(
-            (gItem) => gItem.chinese.trim() === ent.chinese.trim()
+            (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
           );
           if (!exists) {
-            newlyDiscovered.push({
+            const itemPayload: GlossaryItem = {
               id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
               chinese: ent.chinese.trim(),
               pinyin: ent.pinyin.trim(),
@@ -201,21 +439,45 @@ export default function TranslatorWorkspace({
               note: ent.note.trim(),
               sourceChapter: chapterTitle || "Mặt trận dịch đơn chương",
               sourceParagraph: sourceText.split('\n').find(p =>
-                  p.includes(ent.chinese.trim()) || p.replace(/\s+/g, '').includes(ent.chinese.replace(/\s+/g, '').trim())
+                p.includes(ent.chinese.trim()) || p.replace(/\s+/g, '').includes(ent.chinese.replace(/\s+/g, '').trim())
               )?.trim() || "",
+              sourceChapterId: currentChapterId || undefined,
               origin: 'scanned',
-              createdAt: new Date().toISOString()
-            });
+              createdAt: new Date().toISOString(),
+              needsReview: ent.needsReview
+            };
+
+            if (ent.needsReview) {
+              pendingDiscovered.push({
+                id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                chinese: ent.chinese.trim(),
+                pinyin: ent.pinyin.trim(),
+                vietnamese: ent.vietnamese.trim(),
+                type: ent.type,
+                note: ent.note.trim(),
+                reason: 'AI trích xuất nghi ngờ hallucinate',
+                originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
+                importedAt: new Date().toISOString(),
+                needsReview: true,
+                sourceChapterId: currentChapterId || undefined
+              });
+            } else {
+              newlyDiscovered.push(itemPayload);
+            }
           }
         });
 
-        if (newlyDiscovered.length > 0) {
+        if (newlyDiscovered.length > 0 || pendingDiscovered.length > 0) {
           const updatedGlossary = [...activeProject.glossary, ...newlyDiscovered];
+          const updatedPending = [...(activeProject.pendingGlossary || []), ...pendingDiscovered];
           onUpdateProject({
             ...activeProject,
             glossary: updatedGlossary,
+            pendingGlossary: updatedPending,
           });
-          setAutoDiscoveredTerms(newlyDiscovered);
+          if (newlyDiscovered.length > 0) {
+            setAutoDiscoveredTerms(newlyDiscovered);
+          }
         }
       }
     } catch (err: any) {
@@ -226,7 +488,6 @@ export default function TranslatorWorkspace({
     }
   };
 
-  // 3. Chuốt văn phong thuần Việt Giai đoạn 2 (Polish Translation)
   const handlePolishTranslation = async () => {
     if (!rawTranslation.trim()) {
       setErrorMessage("Vui lòng thực hiện dịch thô lần 1 trước khi chuốt văn phong.");
@@ -238,9 +499,6 @@ export default function TranslatorWorkspace({
 
     try {
       const response = await fetch('/api/polish-translation', {
-        // Wait, what's our server's endpoint for polish?
-        // In server.ts, we defined: app.post("/api/polish-translation", ...)
-        // Let's call /api/polish-translation instead of /api/polished-translation!
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -248,10 +506,14 @@ export default function TranslatorWorkspace({
           rawTranslation: rawTranslation,
           genre: activeProject.genre,
           tone: activeProject.tone,
-          glossary: activeProject.glossary,
+          description: activeProject.description,
+          glossary: isGlossaryApplied ? [] : activeProject.glossary,
           additionalInstructions: additionalInstructions,
           apiKeys,
-          model: selectedModel
+          model: selectedModel,
+          isExtractionEnabled,
+          sourceChapterId: currentChapterId || undefined,
+          enableSegmentTranslation
         }),
       });
 
@@ -261,16 +523,16 @@ export default function TranslatorWorkspace({
       }
 
       const data = await response.json();
-      setPolishedTranslation(data.polishedTranslation || "");
+      const polishedResult = data.polishedTranslation || "";
+      setPolishedTranslation(polishedResult);
 
-      // Xử lý nạp các từ vựng mới được phát hiện trong lượt rà soát bổ sung của bước biên tập
       if (data.newlyDiscoveredDuringPolish && Array.isArray(data.newlyDiscoveredDuringPolish) && data.newlyDiscoveredDuringPolish.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
         const updatedGlossary = [...activeProject.glossary];
 
         data.newlyDiscoveredDuringPolish.forEach((ent: any) => {
           const exists = updatedGlossary.some(
-            (gItem) => gItem.chinese.trim() === ent.chinese.trim()
+            (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
           );
           if (!exists) {
             const itemPayload: GlossaryItem = {
@@ -280,6 +542,7 @@ export default function TranslatorWorkspace({
               vietnamese: ent.vietnamese.trim(),
               type: ent.type,
               note: ent.note.trim(),
+              sourceChapterId: currentChapterId || undefined,
               origin: 'scanned',
               createdAt: new Date().toISOString()
             };
@@ -296,6 +559,38 @@ export default function TranslatorWorkspace({
           });
         }
       }
+
+      // Gọi QA Critique nếu được bật
+      if (enableAiQaCritique) {
+        setIsCheckingQa(true);
+        setQaIssues([]);
+        try {
+          const qaResponse = await fetch('/api/qa-critique', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sourceText: sourceText,
+              translatedText: polishedResult,
+              apiKeys,
+              model: selectedModel,
+              startKeyIndex: data.successKeyIndex ?? 0
+            })
+          });
+          if (qaResponse.ok) {
+            const qaData = await qaResponse.json();
+            setQaIssues(qaData.issues || []);
+            if (!qaData.isValid && qaData.issues?.length > 0) {
+              showToast({ message: `Phát hiện ${qaData.issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`, type: 'warning' });
+            } else {
+              showToast({ message: "Kiểm duyệt AI hoàn tất: Bản dịch đạt chuẩn, không phát hiện lỗi bỏ sót/thêm thắt/lặp lại.", type: 'success' });
+            }
+          }
+        } catch (qaErr) {
+          console.error("Lỗi gọi API QA Critique:", qaErr);
+        } finally {
+          setIsCheckingQa(false);
+        }
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message || "Lỗi kết nối máy chủ biên tập.");
@@ -304,15 +599,12 @@ export default function TranslatorWorkspace({
     }
   };
 
-  // Save current translated chapter to historical archives
   const handleSaveChapter = () => {
     if (!sourceText.trim()) {
-      alert("Không có nội dung để lưu.");
+      showToast({ message: "Không có nội dung để lưu.", type: 'warning' });
       return;
     }
     const finalTitle = chapterTitle.trim() || `Chương ${activeProject.chapters.length + 1}: Chưa đặt tên`;
-    
-    // Build paragraphs array from sourceText for parallel view
     const paragraphs = sourceText.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
     const translatedLines = polishedTranslation
       ? polishedTranslation.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0)
@@ -337,47 +629,69 @@ export default function TranslatorWorkspace({
     };
 
     onUpdateProject(updated);
-    alert(`Đã lưu trữ thành công chương: "${finalTitle}" vào bộ nhớ lưu trữ lịch sử dịch.`);
+    showToast({ message: `Đã lưu trữ thành công chương: "${finalTitle}" vào bộ nhớ lưu trữ lịch sử dịch.`, type: 'success' });
   };
 
   const handleApplyGlossaryToSource = () => {
     if (!sourceText.trim()) {
-      alert('Chưa có văn bản tiếng Trung gốc để áp dụng!');
+      showToast({ message: 'Chưa có văn bản tiếng Trung gốc để áp dụng!', type: 'warning' });
       return;
     }
     if (activeProject.glossary.length === 0) {
-      alert('Từ điển dự án đang trống!');
+      showToast({ message: 'Từ điển dự án đang trống!', type: 'warning' });
       return;
+    }
+
+    let baseText = sourceText;
+    if (isGlossaryApplied) {
+      baseText = originalSourceText;
+    } else {
+      setOriginalSourceText(sourceText);
     }
 
     setIsApplyingGlossaryToSource(true);
     setApplyGlossarySourceCount(null);
 
     setTimeout(() => {
-      // Sắp xếp từ dài trước để tránh thay nhầm substring
       const sortedGlossary = [...activeProject.glossary].sort(
         (a, b) => b.chinese.length - a.chinese.length
       );
 
-      let result = sourceText;
-      let replacedCount = 0;
+      const glossaryMap = new Map<string, string>();
+      const terms: string[] = [];
 
       sortedGlossary.forEach((item) => {
-        if (!item.chinese || !item.vietnamese) return;
-        const escaped = item.chinese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(escaped, 'g');
-        const before = result;
-        result = result.replace(regex, item.vietnamese);
-        if (result !== before) replacedCount++;
+        if (item.chinese && item.vietnamese) {
+          const cleanChinese = item.chinese.trim();
+          glossaryMap.set(cleanChinese, item.vietnamese.trim());
+          terms.push(cleanChinese);
+        }
       });
+
+      let result = baseText;
+      let replacedCount = 0;
+
+      if (terms.length > 0) {
+        const escapedTerms = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const pattern = new RegExp(escapedTerms.join('|'), 'g');
+        const matchedTerms = new Set<string>();
+
+        result = baseText.replace(pattern, (match) => {
+          matchedTerms.add(match);
+          return glossaryMap.get(match) || match;
+        });
+
+        replacedCount = matchedTerms.size;
+      }
 
       setSourceText(result);
       setApplyGlossarySourceCount(replacedCount);
       setIsApplyingGlossaryToSource(false);
+      setIsGlossaryApplied(true);
     }, 300);
   };
 
-  const handleCopyText = (text: string, type: 'raw' | 'polished') => {
+  const handleCopyText = useCallback((text: string, type: 'raw' | 'polished') => {
     if (!text) return;
     navigator.clipboard.writeText(text);
     if (type === 'raw') {
@@ -387,54 +701,112 @@ export default function TranslatorWorkspace({
       setCopiedPolished(true);
       setTimeout(() => setCopiedPolished(false), 2000);
     }
-  };
+  }, []);
 
-  const toggleCheck = (idx: number) => {
+  const toggleCheck = useCallback((idx: number) => {
     setSelectedSuggestions((prev) => ({
       ...prev,
       [idx]: !prev[idx],
     }));
-  };
+  }, []);
+  const handleLoadChapterById = useCallback(async (id: string) => {
+    const selectedChapMeta = activeProject.chapters.find(c => c.id === id);
+    if (selectedChapMeta) {
+      const selectedChap = await getChapterFromDB(id);
+      if (selectedChap) {
+        setCurrentChapterId(id);
+        setChapterTitle(selectedChap.title);
+        setSourceText(selectedChap.sourceText);
+        setOriginalSourceText(selectedChap.sourceText);
+        setIsGlossaryApplied(false);
+        setRawTranslation(selectedChap.rawTranslation || '');
+        setPolishedTranslation(selectedChap.polishedTranslation || '');
+        setSuggestions([]);
+        setSelectedSuggestions({});
+        setErrorMessage(null);
+        setAutoDiscoveredTerms([]);
+      }
+    }
+  }, [activeProject]);
 
+  const visibleGlossary = useMemo(() => {
+    let list = activeProject.glossary;
+    if (onlyShowMatching && deferredSourceText.trim()) {
+      list = list.filter(item =>
+        item.chinese && deferredSourceText.includes(item.chinese)
+      );
+    }
+    if (glossarySearch.trim()) {
+      const q = glossarySearch.toLowerCase();
+      list = list.filter(item =>
+        item.chinese.toLowerCase().includes(q) ||
+        item.vietnamese.toLowerCase().includes(q) ||
+        (item.pinyin && item.pinyin.toLowerCase().includes(q))
+      );
+    }
+    return list.slice(0, 100);
+  }, [activeProject.glossary, onlyShowMatching, deferredSourceText, glossarySearch]);
+
+  const untranslatedChapters = useMemo(() => {
+    return activeProject.chapters.filter(c =>
+      c.status !== 'completed'
+    );
+  }, [activeProject.chapters]);
   return (
     <div id="translator-workspace" className="space-y-4">
       {/* Active Project Card info */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-        <div id="project-workspace-info" className="space-y-1">
-          <span className="bg-indigo-500/20 text-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-500/35 uppercase tracking-wider">
-            Dự án: {activeProject.title}
-          </span>
-          <h2 className="text-base font-bold tracking-tight mt-1">
-            Không Gian Dịch Thuật Công Nghệ Cao
+      <div className="bg-gradient-to-r from-[#0c1220] via-[#111a2e] to-[#182747] text-white rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-800/80 shadow-xl shadow-indigo-950/10">
+        <div
+          id="project-workspace-info"
+          onClick={handleOpenEditModal}
+          className="space-y-1 cursor-pointer group/header hover:bg-white/5 p-2 rounded-lg transition-colors duration-200 flex-1"
+          title="Nhấp để chỉnh sửa thông tin truyện"
+        >
+          <div className="flex items-center gap-2">
+            <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-500/25 uppercase tracking-wider">
+              Dự án: {activeProject.title}
+            </span>
+            <Edit3 className="w-3 h-3 text-indigo-400 opacity-0 group-hover/header:opacity-100 transition-opacity" />
+          </div>
+          <h2 className="text-base font-extrabold tracking-tight mt-1 text-white">
+            Bàn Biên Dịch Trực Quan AI
           </h2>
           <p className="text-slate-400 text-xs">
-            Tận dụng Gemini để lưu truyền mượt mà ngữ điệu truyện chữ Trung sang thuần Việt.
+            Hệ thống dịch thuật song ngữ, tự động đồng bộ hóa từ điển và chuốt mịn văn phong.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 bg-white/5 border border-white/10 p-2.5 rounded-lg max-w-md">
+        <div
+          onClick={handleOpenEditModal}
+          className="flex flex-wrap items-center gap-4 bg-slate-900/50 border border-slate-800 p-2.5 rounded-xl max-w-md cursor-pointer hover:bg-slate-800/80 hover:border-slate-700 transition-all group/meta shadow-inner"
+          title="Nhấp để chỉnh sửa thông tin truyện"
+        >
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium">Thể loại:</span>
-            <span className="font-bold text-indigo-300">{activeProject.genre}</span>
+            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Thể loại</span>
+            <span className="font-bold text-indigo-400">{activeProject.genre}</span>
           </div>
-          <div className="h-6 w-[1px] bg-white/10"></div>
+          <div className="h-6 w-[1px] bg-slate-800"></div>
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium">Từ điển quy định:</span>
-            <span className="font-bold text-indigo-300">{activeProject.glossary.length} từ khóa</span>
+            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Từ điển</span>
+            <span className="font-bold text-indigo-400">{activeProject.glossary.length} từ</span>
           </div>
-          <div className="h-6 w-[1px] bg-white/10"></div>
+          <div className="h-6 w-[1px] bg-slate-800"></div>
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium">Tông giọng chủ đạo:</span>
-            <span className="font-bold text-indigo-300 line-clamp-1">{activeProject.tone}</span>
+            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Tông giọng</span>
+            <span className="font-bold text-indigo-400 line-clamp-1">{activeProject.tone}</span>
+          </div>
+          <div className="h-6 w-[1px] bg-slate-800"></div>
+          <div className="flex items-center justify-center text-indigo-400 group-hover/meta:text-indigo-300 transition-colors">
+            <Edit3 className="w-3.5 h-3.5" />
           </div>
         </div>
       </div>
 
       {errorMessage && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-lg flex items-start gap-2 text-xs">
-          <AlertCircle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+        <div className="bg-rose-950/40 border border-rose-900/50 text-rose-200 p-3.5 rounded-xl flex items-start gap-2.5 text-xs animate-slideUp">
+          <AlertCircle className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" />
           <div>
-            <p className="font-bold">Lưu ý hệ thống:</p>
+            <p className="font-bold text-rose-400">Lưu ý hệ thống:</p>
             <p>{errorMessage}</p>
           </div>
         </div>
@@ -442,7 +814,7 @@ export default function TranslatorWorkspace({
 
       {/* Grid workspace input vs processes */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        
+
         {/* Left column - Source space */}
         <div className="space-y-4 bg-white border border-slate-200 p-4 rounded-xl shadow-xs">
           <div className="flex items-center justify-between">
@@ -450,7 +822,7 @@ export default function TranslatorWorkspace({
               <span className="flex items-center justify-center w-4 h-4 rounded bg-slate-900 text-white text-[10px] font-bold">1</span>
               Nội Dung Tiếng Trung Gốc
             </h3>
-            
+
             {/* Presets selectors */}
             <div className="hidden sm:flex items-center gap-1 text-[11px]">
               <span className="text-slate-400 font-medium">Bản mẫu:</span>
@@ -596,28 +968,26 @@ export default function TranslatorWorkspace({
                 <span className="flex items-center justify-center w-4 h-4 rounded bg-indigo-650 text-white text-[10px] font-bold">2</span>
                 <span className="text-slate-900">Kết Quả AI Biên Tập</span>
               </h3>
-              
+
               {/* Stages toggles */}
               <div className="flex bg-slate-100 p-0.5 rounded">
                 <button
                   id="tab-toggle-raw"
                   onClick={() => setActiveStage('raw')}
-                  className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all pointer cursor-pointer ${
-                    activeStage === 'raw'
+                  className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all pointer cursor-pointer ${activeStage === 'raw'
                       ? 'bg-white text-slate-900 border border-slate-200/50 shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
-                  }`}
+                    }`}
                 >
                   Dịch thô (1)
                 </button>
                 <button
                   id="tab-toggle-polished"
                   onClick={() => setActiveStage('polished')}
-                  className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all pointer cursor-pointer ${
-                    activeStage === 'polished'
+                  className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all pointer cursor-pointer ${activeStage === 'polished'
                       ? 'bg-white text-slate-900 border border-slate-200/50 shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
-                  }`}
+                    }`}
                 >
                   Biên tập (2)
                 </button>
@@ -807,113 +1177,35 @@ export default function TranslatorWorkspace({
         </div>
       </div>
 
-      {/* Suggested entities container drawer-like/panel */}
-      {suggestions.length > 0 && (
-        <div id="entities-analysis-drawer" className="bg-slate-900 border border-slate-800 text-white rounded-xl p-4 space-y-3 shadow-md animate-slide-up">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 fill-current text-indigo-400" />
-                Kết Quả Gợi Ý Từ Điển Âm Hán Việt & Nhân Vật
-              </h4>
-              <p className="text-[11px] text-slate-400">
-                AI đã tự động phát hiện được {suggestions.length} danh từ riêng quan trọng. Hãy lọc và thêm vào bộ Quy định.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  const checkAll: Record<number, boolean> = {};
-                  suggestions.forEach((_, idx) => { checkAll[idx] = true; });
-                  setSelectedSuggestions(checkAll);
-                }}
-                className="text-[10px] font-bold text-slate-300 hover:text-white pointer cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-slate-300"
-              >
-                Chọn tất cả
-              </button>
-              <span className="text-slate-600">|</span>
-              <button
-                onClick={() => setSelectedSuggestions({})}
-                className="text-[10px] font-bold text-slate-300 hover:text-white pointer cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-slate-300"
-              >
-                Bỏ chọn
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
-            {suggestions.map((item, idx) => (
-              <div
-                key={idx}
-                onClick={() => toggleCheck(idx)}
-                className={`p-2 rounded border transition-all cursor-pointer flex items-start gap-2 ${
-                  selectedSuggestions[idx]
-                    ? 'bg-slate-850 border-indigo-500 text-white shadow-xs'
-                    : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!selectedSuggestions[idx]}
-                  onChange={() => {}} // handled by div click
-                  className="mt-0.5 rounded accent-indigo-600 shrink-0 cursor-pointer pointer-events-none"
-                />
-                <div className="text-[11px] space-y-0.5">
-                  <div className="flex items-center gap-1">
-                    <strong className="font-mono text-white tracking-wide">{item.chinese}</strong>
-                    <span className="text-slate-500 text-[9px]">({item.pinyin})</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Dịch: </span>
-                    <strong className="text-indigo-300">{item.vietnamese}</strong>
-                  </div>
-                  <div className="text-[9px] text-slate-500 line-clamp-1 italic">
-                    {item.note || `Thể loại: ${item.type}`}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-end pt-1">
-            <button
-              id="btn-import-suggestions"
-              onClick={handleImportSuggestions}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded transition-colors pointer"
-            >
-              Lưu các từ đã chọn vào Từ Điển Dự Án
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Matching Glossary items helper highlights */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
-        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-          <BookOpen className="w-3.5 h-3.5 text-slate-400" />
-          Từ điển đang kích hoạt có trong Dự án ({activeProject.glossary.length} từ)
-        </h3>
-        {activeProject.glossary.length === 0 ? (
-          <div className="text-xs text-slate-500 italic">
-            Bạn chưa khai báo từ điển nào cho chương truyện này. Thử nhấp nút &quot;Phân tích gợi ý nhân vật&quot; bên trên để tạo từ điển tự động!
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-            {activeProject.glossary.map((item) => (
-              <span
-                key={item.id}
-                className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-xs shadow-xs text-slate-600 font-sans"
-                title={`${item.chinese} -> ${item.vietnamese} (${item.note})`}
-              >
-                <code className="font-mono bg-slate-100 px-1 rounded text-red-600 font-bold text-[11px]">{item.chinese}</code>
-                <ChevronRight className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                <span className="font-bold text-indigo-950 bg-indigo-50/40 border border-indigo-100 px-1 py-0.2 rounded text-[11px]">{item.vietnamese}</span>
-                {item.type === 'character' && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Editing metadata modal */}
+      <ProjectMetadataModal
+        isOpen={isEditingMetadata}
+        onClose={() => setIsEditingMetadata(false)}
+        editTitle={editTitle}
+        setEditTitle={setEditTitle}
+        editAuthor={editAuthor}
+        setEditAuthor={setEditAuthor}
+        editGenre={editGenre}
+        setEditGenre={setEditGenre}
+        editTone={editTone}
+        setEditTone={setEditTone}
+        editDescription={editDescription}
+        setEditDescription={setEditDescription}
+        handleSaveMetadata={handleSaveMetadata}
+        importSection={
+          <ImportChaptersModal
+            importedFileName={importedFileName}
+            importFileRef={importFileRef}
+            handleImportRawFileChange={handleImportRawFileChange}
+            importMode={importMode}
+            setImportMode={setImportMode}
+            importSplitMethod={importSplitMethod}
+            handleToggleImportSplitMethod={handleToggleImportSplitMethod}
+            isParsingImportFile={isParsingImportFile}
+            parsedChaptersLength={parsedImportChapters.length}
+          />
+        }
+      />
     </div>
   );
 }
