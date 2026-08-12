@@ -22,6 +22,9 @@ interface TranslatorWorkspaceProps {
   selectedModel: string;
   loadedChapter?: Chapter | null;
   onClearLoadedChapter?: () => void;
+  warningParagraphMismatch: boolean;
+  enableAiQaCritique: boolean;
+  enableSegmentTranslation: boolean;
 }
 
 export default function TranslatorWorkspace({
@@ -31,6 +34,9 @@ export default function TranslatorWorkspace({
   selectedModel,
   loadedChapter,
   onClearLoadedChapter,
+  warningParagraphMismatch,
+  enableAiQaCritique,
+  enableSegmentTranslation,
 }: TranslatorWorkspaceProps) {
   const { showToast, showConfirm } = useNotifications();
   const [activeChapterIndex, setActiveChapterIndex] = useState<number>(0);
@@ -43,6 +49,8 @@ export default function TranslatorWorkspace({
   const [polishedTranslation, setPolishedTranslation] = useState('');
   const [additionalInstructions, setAdditionalInstructions] = useState('');
   const [chapterTitle, setChapterTitle] = useState('');
+  const [qaIssues, setQaIssues] = useState<any[]>([]);
+  const [isCheckingQa, setIsCheckingQa] = useState<boolean>(false);
 
   // Local states for optimized glossary helper filtering
   const [glossarySearch, setGlossarySearch] = useState('');
@@ -94,6 +102,7 @@ export default function TranslatorWorkspace({
     setSelectedSuggestions({});
     setErrorMessage(null);
     setAutoDiscoveredTerms([]);
+    setQaIssues([]);
     setChapterTitle(`Chương ${activeProject.chapters.length + 1}: `);
 
     setEditTitle(activeProject.title);
@@ -124,6 +133,7 @@ export default function TranslatorWorkspace({
       setSelectedSuggestions({});
       setErrorMessage(null);
       setAutoDiscoveredTerms([]);
+      setQaIssues([]);
       onClearLoadedChapter?.();
     }
   }, [loadedChapter]);
@@ -331,7 +341,7 @@ export default function TranslatorWorkspace({
         if (!isDuplicate) {
           const itemPayload = {
             ...s,
-            id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11),
             createdAt: new Date().toISOString(),
             sourceChapterId: currentChapterId || undefined
           };
@@ -399,7 +409,8 @@ export default function TranslatorWorkspace({
           glossary: isGlossaryApplied ? [] : activeProject.glossary,
           apiKeys,
           model: selectedModel,
-          sourceChapterId: currentChapterId || undefined
+          sourceChapterId: currentChapterId || undefined,
+          enableSegmentTranslation
         }),
       });
 
@@ -501,7 +512,8 @@ export default function TranslatorWorkspace({
           apiKeys,
           model: selectedModel,
           isExtractionEnabled,
-          sourceChapterId: currentChapterId || undefined
+          sourceChapterId: currentChapterId || undefined,
+          enableSegmentTranslation
         }),
       });
 
@@ -511,7 +523,8 @@ export default function TranslatorWorkspace({
       }
 
       const data = await response.json();
-      setPolishedTranslation(data.polishedTranslation || "");
+      const polishedResult = data.polishedTranslation || "";
+      setPolishedTranslation(polishedResult);
 
       if (data.newlyDiscoveredDuringPolish && Array.isArray(data.newlyDiscoveredDuringPolish) && data.newlyDiscoveredDuringPolish.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
@@ -544,6 +557,38 @@ export default function TranslatorWorkspace({
             ...activeProject,
             glossary: updatedGlossary
           });
+        }
+      }
+
+      // Gọi QA Critique nếu được bật
+      if (enableAiQaCritique) {
+        setIsCheckingQa(true);
+        setQaIssues([]);
+        try {
+          const qaResponse = await fetch('/api/qa-critique', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sourceText: sourceText,
+              translatedText: polishedResult,
+              apiKeys,
+              model: selectedModel,
+              startKeyIndex: data.successKeyIndex ?? 0
+            })
+          });
+          if (qaResponse.ok) {
+            const qaData = await qaResponse.json();
+            setQaIssues(qaData.issues || []);
+            if (!qaData.isValid && qaData.issues?.length > 0) {
+              showToast({ message: `Phát hiện ${qaData.issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`, type: 'warning' });
+            } else {
+              showToast({ message: "Kiểm duyệt AI hoàn tất: Bản dịch đạt chuẩn, không phát hiện lỗi bỏ sót/thêm thắt/lặp lại.", type: 'success' });
+            }
+          }
+        } catch (qaErr) {
+          console.error("Lỗi gọi API QA Critique:", qaErr);
+        } finally {
+          setIsCheckingQa(false);
         }
       }
     } catch (err: any) {
@@ -710,7 +755,7 @@ export default function TranslatorWorkspace({
   return (
     <div id="translator-workspace" className="space-y-4">
       {/* Active Project Card info */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+      <div className="bg-gradient-to-r from-[#0c1220] via-[#111a2e] to-[#182747] text-white rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-800/80 shadow-xl shadow-indigo-950/10">
         <div 
           id="project-workspace-info" 
           onClick={handleOpenEditModal}
@@ -718,39 +763,39 @@ export default function TranslatorWorkspace({
           title="Nhấp để chỉnh sửa thông tin truyện"
         >
           <div className="flex items-center gap-2">
-            <span className="bg-indigo-500/20 text-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-500/35 uppercase tracking-wider">
+            <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-500/25 uppercase tracking-wider">
               Dự án: {activeProject.title}
             </span>
             <Edit3 className="w-3 h-3 text-indigo-400 opacity-0 group-hover/header:opacity-100 transition-opacity" />
           </div>
-          <h2 className="text-base font-bold tracking-tight mt-1">
-            Không Gian Dịch Thuật Công Nghệ Cao
+          <h2 className="text-base font-extrabold tracking-tight mt-1 text-white">
+            Bàn Biên Dịch Trực Quan AI
           </h2>
           <p className="text-slate-400 text-xs">
-            Tận dụng Gemini để lưu truyền mượt mà ngữ điệu truyện chữ Trung sang thuần Việt.
+            Hệ thống dịch thuật song ngữ, tự động đồng bộ hóa từ điển và chuốt mịn văn phong.
           </p>
         </div>
 
         <div 
           onClick={handleOpenEditModal}
-          className="flex flex-wrap items-center gap-4 bg-white/5 border border-white/10 p-2.5 rounded-lg max-w-md cursor-pointer hover:bg-white/10 transition-colors group/meta"
+          className="flex flex-wrap items-center gap-4 bg-slate-900/50 border border-slate-800 p-2.5 rounded-xl max-w-md cursor-pointer hover:bg-slate-800/80 hover:border-slate-700 transition-all group/meta shadow-inner"
           title="Nhấp để chỉnh sửa thông tin truyện"
         >
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium">Thể loại:</span>
-            <span className="font-bold text-indigo-300">{activeProject.genre}</span>
+            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Thể loại</span>
+            <span className="font-bold text-indigo-400">{activeProject.genre}</span>
           </div>
-          <div className="h-6 w-[1px] bg-white/10"></div>
+          <div className="h-6 w-[1px] bg-slate-800"></div>
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium">Từ điển quy định:</span>
-            <span className="font-bold text-indigo-300">{activeProject.glossary.length} từ khóa</span>
+            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Từ điển</span>
+            <span className="font-bold text-indigo-400">{activeProject.glossary.length} từ</span>
           </div>
-          <div className="h-6 w-[1px] bg-white/10"></div>
+          <div className="h-6 w-[1px] bg-slate-800"></div>
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium">Tông giọng chủ đạo:</span>
-            <span className="font-bold text-indigo-300 line-clamp-1">{activeProject.tone}</span>
+            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Tông giọng</span>
+            <span className="font-bold text-indigo-400 line-clamp-1">{activeProject.tone}</span>
           </div>
-          <div className="h-6 w-[1px] bg-white/10"></div>
+          <div className="h-6 w-[1px] bg-slate-800"></div>
           <div className="flex items-center justify-center text-indigo-400 group-hover/meta:text-indigo-300 transition-colors">
             <Edit3 className="w-3.5 h-3.5" />
           </div>
@@ -758,10 +803,10 @@ export default function TranslatorWorkspace({
       </div>
 
       {errorMessage && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-lg flex items-start gap-2 text-xs">
-          <AlertCircle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+        <div className="bg-rose-950/40 border border-rose-900/50 text-rose-200 p-3.5 rounded-xl flex items-start gap-2.5 text-xs animate-slideUp">
+          <AlertCircle className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" />
           <div>
-            <p className="font-bold">Lưu ý hệ thống:</p>
+            <p className="font-bold text-rose-400">Lưu ý hệ thống:</p>
             <p>{errorMessage}</p>
           </div>
         </div>
@@ -805,6 +850,15 @@ export default function TranslatorWorkspace({
         isApplyingGlossaryToSource={isApplyingGlossaryToSource}
         applyGlossarySourceCount={applyGlossarySourceCount}
         glossaryLength={activeProject.glossary.length}
+        activeProject={activeProject}
+        onUpdateProject={onUpdateProject}
+        apiKeys={apiKeys}
+        selectedModel={selectedModel}
+        warningParagraphMismatch={warningParagraphMismatch}
+        enableAiQaCritique={enableAiQaCritique}
+        enableSegmentTranslation={enableSegmentTranslation}
+        qaIssues={qaIssues}
+        isCheckingQa={isCheckingQa}
       />
 
       <SuggestionsDrawer

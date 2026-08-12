@@ -44,6 +44,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmModal, setConfirmModal] = useState<ConfirmOptions | null>(null);
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
+  const toastIntervals = useRef<Map<string, any>>(new Map());
+
+  // Clean up all intervals on unmount
+  useEffect(() => {
+    return () => {
+      toastIntervals.current.forEach((intervalId) => clearInterval(intervalId));
+      toastIntervals.current.clear();
+    };
+  }, []);
 
   const showToast = useCallback((options: ToastOptions | string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -65,12 +74,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
         if (elapsed >= duration) {
           clearInterval(intervalId);
+          toastIntervals.current.delete(id);
           setToasts((prev) => prev.filter((t) => t.id !== id));
         }
       }, 50);
 
-      // Clean up interval on unmount/remove if needed
-      return () => clearInterval(intervalId);
+      toastIntervals.current.set(id, intervalId);
     }
   }, []);
 
@@ -90,6 +99,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const handleRemoveToast = (id: string) => {
+    const intervalId = toastIntervals.current.get(id);
+    if (intervalId) {
+      clearInterval(intervalId);
+      toastIntervals.current.delete(id);
+    }
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 

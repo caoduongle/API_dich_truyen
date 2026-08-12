@@ -2,11 +2,13 @@ import { Router, Request, Response, NextFunction } from "express";
 import {
   analyzeGlossary,
   analyzeGuidelines,
-  extractGlossary
+  extractGlossary,
+  quickTranslateTerm
 } from "../controllers/glossaryController.ts";
 import {
   translateRaw,
-  polishTranslation
+  polishTranslation,
+  qaCritique
 } from "../controllers/translationController.ts";
 import {
   alignChapter
@@ -63,10 +65,12 @@ function checkApiKeysFallback(req: Request, res: Response, next: NextFunction): 
 router.post("/analyze-glossary", validateModelMiddleware, checkApiKeysFallback, analyzeGlossary);
 router.post("/analyze-guidelines", validateModelMiddleware, checkApiKeysFallback, analyzeGuidelines);
 router.post("/extract-glossary", validateModelMiddleware, checkApiKeysFallback, extractGlossary);
+router.post("/quick-translate-term", validateModelMiddleware, checkApiKeysFallback, quickTranslateTerm);
 
 // Routes for Translation Tasks
 router.post("/translate-raw", validateModelMiddleware, checkApiKeysFallback, translateRaw);
 router.post("/polish-translation", validateModelMiddleware, checkApiKeysFallback, polishTranslation);
+router.post("/qa-critique", validateModelMiddleware, checkApiKeysFallback, qaCritique);
 
 // Routes for Bilingual alignment
 router.post("/align-chapter", validateModelMiddleware, checkApiKeysFallback, alignChapter);

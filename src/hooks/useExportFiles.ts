@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import JSZip from 'jszip';
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
 import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
@@ -15,6 +16,10 @@ export interface UseExportFilesProps {
 
   // Shared state updater
   addLog: (message: string, type?: LogEntry['type']) => void;
+
+  exportRangeEnabled: boolean;
+  exportRangeStart: number;
+  exportRangeEnd: number;
 }
 
 export function useExportFiles({
@@ -25,6 +30,9 @@ export function useExportFiles({
   apiKeys,
   selectedModel,
   addLog,
+  exportRangeEnabled,
+  exportRangeStart,
+  exportRangeEnd,
 }: UseExportFilesProps) {
   const { showToast } = useNotifications();
   const [isExportingTxt, setIsExportingTxt] = useState<boolean>(false);
@@ -52,8 +60,20 @@ export function useExportFiles({
         chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
       }
 
+      if (exportRangeEnabled) {
+        const startIdx = Math.max(0, exportRangeStart - 1);
+        const endIdx = Math.min(allChapters.length, exportRangeEnd);
+        const allowedIds = new Set(allChapters.slice(startIdx, endIdx).map(c => c.id));
+        chaptersToExport = chaptersToExport.filter(c => allowedIds.has(c.id));
+      }
+
       if (chaptersToExport.length === 0) {
-        showToast({ message: "Không tìm thấy chương nào thỏa mãn điều kiện lọc!", type: 'warning' });
+        showToast({
+          message: exportRangeEnabled
+            ? "Không tìm thấy chương nào trong phạm vi đã chọn thỏa điều kiện lọc!"
+            : "Không tìm thấy chương nào thỏa mãn điều kiện lọc!",
+          type: 'warning'
+        });
         setIsExportingTxt(false);
         return;
       }
@@ -67,6 +87,11 @@ export function useExportFiles({
       for (let i = 0; i < chaptersToExport.length; i += cap) {
         chaptersChunks.push(chaptersToExport.slice(i, i + cap));
       }
+
+      const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
+      const cleanTitle = sanitize(proj.title);
+
+      const zip = new JSZip();
 
       for (let chunkIdx = 0; chunkIdx < chaptersChunks.length; chunkIdx++) {
         const chunkMeta = chaptersChunks[chunkIdx];
@@ -144,25 +169,27 @@ export function useExportFiles({
 
         const firstChapter = validChunk[0];
         const lastChapter = validChunk[validChunk.length - 1];
-        const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
-        const cleanTitle = sanitize(proj.title);
         const startName = sanitize(firstChapter.title);
         const endName = sanitize(lastChapter.title);
 
         const suffix = exportMode === 'audio' ? '_AUDIO' : '_WEB';
         const filename = `${cleanTitle}_[${startName}]_den_[${endName}]${suffix}.txt`;
-        const blob = new Blob([fileContent], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        triggerDownload(url, filename);
-        URL.revokeObjectURL(url);
+        zip.file(filename, fileContent);
       }
-      addLog("ĐÃ HOÀN TẤT TẢI XUỐNG TOÀN BỘ CÁC TỆP .TXT VĂN BẢN CHẤT LƯỢNG CAO!", "success");
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const zipFilename = `${cleanTitle}_TXT_EXPORT.zip`;
+      triggerDownload(url, zipFilename);
+      URL.revokeObjectURL(url);
+
+      addLog("ĐÃ HOÀN TẤT ĐÓNG GÓI VÀ TẢI XUỐNG TỆP .ZIP CHỨA CÁC TỆP .TXT VĂN BẢN CHẤT LƯỢNG CAO!", "success");
     } catch (error: any) {
       addLog(`Lỗi khi xuất tệp: ${error.message || error}`, "error");
     } finally {
       setIsExportingTxt(false);
     }
-  }, [chaptersPerFile, exportScope, exportMode, addLog]);
+  }, [chaptersPerFile, exportScope, exportMode, addLog, exportRangeEnabled, exportRangeStart, exportRangeEnd]);
 
   const handleExportAlignJsonl = useCallback(async () => {
     setIsExportingTxt(true);
@@ -175,9 +202,21 @@ export function useExportFiles({
         setIsExportingTxt(false);
         return;
       }
-      const chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
+      let chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
+      if (exportRangeEnabled) {
+        const startIdx = Math.max(0, exportRangeStart - 1);
+        const endIdx = Math.min(allChapters.length, exportRangeEnd);
+        const allowedIds = new Set(allChapters.slice(startIdx, endIdx).map(c => c.id));
+        chaptersToExport = chaptersToExport.filter(c => allowedIds.has(c.id));
+      }
+
       if (chaptersToExport.length === 0) {
-        showToast({ message: "Không tìm thấy chương truyện nào đã được dịch thuật để gióng hàng!", type: 'warning' });
+        showToast({
+          message: exportRangeEnabled
+            ? "Không tìm thấy chương nào trong phạm vi đã chọn thỏa điều kiện lọc!"
+            : "Không tìm thấy chương truyện nào đã được dịch thuật để gióng hàng!",
+          type: 'warning'
+        });
         setIsExportingTxt(false);
         return;
       }
@@ -235,7 +274,7 @@ export function useExportFiles({
     } finally {
       setIsExportingTxt(false);
     }
-  }, [apiKeys, selectedModel, addLog]);
+  }, [apiKeys, selectedModel, addLog, exportRangeEnabled, exportRangeStart, exportRangeEnd]);
 
   return {
     isExportingTxt,

@@ -56,7 +56,13 @@ export function AppContent() {
     handleAddApiKey,
     handleUpdateKeyIndex,
     handleDeleteKeyIndex,
-    handleImportClipboardKeys
+    handleImportClipboardKeys,
+    warningParagraphMismatch,
+    setWarningParagraphMismatch,
+    enableAiQaCritique,
+    setEnableAiQaCritique,
+    enableSegmentTranslation,
+    setEnableSegmentTranslation
   } = useAIConfig();
 
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
@@ -107,41 +113,41 @@ export function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center font-sans">
-        <Cpu className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
-        <p className="text-sm font-bold text-slate-700">Đang khởi tạo cấu trúc dữ liệu an toàn (IndexedDB)...</p>
+      <div className="min-h-screen bg-[#080c16] flex flex-col items-center justify-center font-sans">
+        <Cpu className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
+        <p className="text-xs font-bold text-indigo-300 tracking-wide uppercase">Đang khởi tạo IndexedDB...</p>
       </div>
     );
   }
 
   return (
-    <div id="ai-story-translator-app" className="min-h-screen bg-[#f8fafc] flex flex-col font-sans text-slate-950 selection:bg-indigo-100 selection:text-indigo-900">
+    <div id="ai-story-translator-app" className="min-h-screen bg-[#080c16] flex flex-col font-sans text-slate-200 selection:bg-indigo-500/20 selection:text-indigo-205">
 
       {/* Platform Header */}
-      <header className="sticky top-0 z-50 h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 shrink-0 shadow-xs">
+      <header className="sticky top-0 z-55 h-14 bg-[#0e1424]/85 border-b border-slate-800/80 backdrop-blur-md flex items-center justify-between px-4 sm:px-6 shrink-0 shadow-lg">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center text-white shadow-sm">
+          <div className="w-8 h-8 bg-indigo-650 rounded-lg flex items-center justify-center text-white shadow-md shadow-indigo-900/30">
             <Languages className="w-4 h-4" />
           </div>
           <div>
-            <h1 className="text-xs sm:text-sm font-bold tracking-tight text-slate-900 flex items-center gap-1.5 leading-none">
+            <h1 className="text-xs sm:text-sm font-bold tracking-tight text-white flex items-center gap-1.5 leading-none">
               ZHONG-VIET AI TRANSLATOR
-              <span className="text-[10px] font-normal text-slate-400">v2.4.0 Professional</span>
+              <span className="text-[9px] font-medium text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded-full border border-slate-700/50">v2.4.0</span>
             </h1>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           {activeProject && (
-            <div className="hidden sm:flex items-center bg-slate-100 rounded-md px-2 py-1 gap-1.5 border border-slate-200/60">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Môi trường:</span>
-              <span className="text-xs font-semibold text-indigo-700">{activeProject.genre} / {activeProject.tone}</span>
+            <div className="hidden sm:flex items-center bg-slate-900/60 rounded-lg px-2.5 py-1 gap-1.5 border border-slate-800/80">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Ngữ điệu:</span>
+              <span className="text-xs font-semibold text-indigo-400">{activeProject.genre} / {activeProject.tone}</span>
             </div>
           )}
 
           <button
             onClick={() => setShowApiSettings(true)}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-white py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer transition-all shadow-sm"
+            className="flex items-center gap-1.5 bg-indigo-650 hover:bg-indigo-700 active:bg-indigo-800 text-white py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer transition-all shadow-md shadow-indigo-900/20 hover:scale-[1.02]"
           >
             <Settings className="w-3.5 h-3.5" />
             Cấu hình AI ({apiKeys.filter(k => k.trim()).length ? `${apiKeys.filter(k => k.trim()).length} Keys` : 'Hệ thống'})
@@ -150,14 +156,14 @@ export function AppContent() {
       </header>
 
       {/* Tab Navigation */}
-      <div className="bg-white border-b border-slate-200 sticky top-14 z-40">
+      <div className="bg-[#0b101f] border-b border-slate-800/80 sticky top-14 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between overflow-x-auto scrollbar-none py-0.5">
             <nav className="flex space-x-1 min-w-max">
               <button
                 onClick={() => switchTab('translate')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'translate' ? 'border-indigo-600 text-slate-950 font-extrabold' : 'border-transparent text-slate-500 hover:text-slate-800'
+                className={`flex items-center gap-2 px-3.5 py-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                  activeTab === 'translate' ? 'border-indigo-500 text-white font-extrabold glow-shadow' : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <BookOpenText className="w-3.5 h-3.5 shrink-0" />
@@ -166,29 +172,29 @@ export function AppContent() {
 
               <button
                 onClick={() => switchTab('auto-translate')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'auto-translate' ? 'border-indigo-600 text-slate-950 font-extrabold' : 'border-transparent text-slate-500 hover:text-slate-800'
+                className={`flex items-center gap-2 px-3.5 py-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                  activeTab === 'auto-translate' ? 'border-indigo-500 text-white font-extrabold glow-shadow' : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Cpu className={`w-3.5 h-3.5 shrink-0 text-indigo-600 ${isAutoTranslating ? 'animate-pulse' : ''}`} />
+                <Cpu className={`w-3.5 h-3.5 shrink-0 text-indigo-400 ${isAutoTranslating ? 'animate-pulse' : ''}`} />
                 Dịch Tự Động Toàn Bộ
               </button>
 
               <button
                 onClick={() => switchTab('glossary')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'glossary' ? 'border-indigo-600 text-slate-950 font-extrabold' : 'border-transparent text-slate-500 hover:text-slate-800'
+                className={`flex items-center gap-2 px-3.5 py-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                  activeTab === 'glossary' ? 'border-indigo-500 text-white font-extrabold glow-shadow' : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <Settings className="w-3.5 h-3.5 shrink-0" />
                 Từ Điển Nhân Vật
                 {activeProject && activeProject.glossary.length > 0 && (
-                  <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ml-1">
+                  <span className="bg-indigo-950/80 text-indigo-300 border border-indigo-800/50 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ml-1">
                     {activeProject.glossary.length}
                   </span>
                 )}
                 {activeProject && (activeProject.pendingGlossary || []).length > 0 && (
-                  <span className="bg-amber-50 text-amber-600 border border-amber-200 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ml-1">
+                  <span className="bg-amber-950/80 text-amber-300 border border-amber-800/50 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ml-1">
                     {(activeProject.pendingGlossary || []).length} chờ
                   </span>
                 )}
@@ -196,14 +202,14 @@ export function AppContent() {
 
               <button
                 onClick={() => switchTab('history')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'history' ? 'border-indigo-600 text-slate-950 font-extrabold' : 'border-transparent text-slate-500 hover:text-slate-800'
+                className={`flex items-center gap-2 px-3.5 py-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                  activeTab === 'history' ? 'border-indigo-500 text-white font-extrabold glow-shadow' : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <History className="w-3.5 h-3.5 shrink-0" />
                 Lịch Sử Chương Dịch
                 {activeProject && activeProject.chapters.length > 0 && (
-                  <span className="bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ml-1">
+                  <span className="bg-slate-905 bg-slate-900 text-slate-300 border border-slate-800 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ml-1">
                     {activeProject.chapters.length}
                   </span>
                 )}
@@ -211,8 +217,8 @@ export function AppContent() {
 
               <button
                 onClick={() => switchTab('projects')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'projects' ? 'border-indigo-600 text-slate-950 font-extrabold' : 'border-transparent text-slate-500 hover:text-slate-800'
+                className={`flex items-center gap-2 px-3.5 py-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                  activeTab === 'projects' ? 'border-indigo-500 text-white font-extrabold glow-shadow' : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <Folder className="w-3.5 h-3.5 shrink-0" />
@@ -221,9 +227,9 @@ export function AppContent() {
             </nav>
 
             {activeProject && (
-              <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500 shrink-0">
+              <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
                 <span>Bộ đang dịch: </span>
-                <strong className="text-slate-800 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-extrabold">
+                <strong className="text-white bg-slate-900 border border-slate-800/80 px-2 py-0.5 rounded font-extrabold">
                   {activeProject.title}
                 </strong>
               </div>
@@ -246,6 +252,9 @@ export function AppContent() {
                     selectedModel={selectedModel}
                     loadedChapter={loadedChapter}
                     onClearLoadedChapter={handleClearLoadedChapter}
+                    warningParagraphMismatch={warningParagraphMismatch}
+                    enableAiQaCritique={enableAiQaCritique}
+                    enableSegmentTranslation={enableSegmentTranslation}
                   />
                 </ErrorBoundary>
               )}
@@ -260,6 +269,8 @@ export function AppContent() {
                     apiKeys={apiKeys}
                     selectedModel={selectedModel}
                     onProcessingChange={setIsAutoTranslating}
+                    enableAiQaCritique={enableAiQaCritique}
+                    enableSegmentTranslation={enableSegmentTranslation}
                   />
                 </ErrorBoundary>
               )}
@@ -284,6 +295,8 @@ export function AppContent() {
                     onAddToPending={handleAddToPendingGlossary}
                     onConfirmPending={handleConfirmPendingItem}
                     onDiscardPending={handleDiscardPendingItem}
+                    activeProject={activeProject}
+                    onUpdateProject={handleUpdateProject}
                   />
                 </ErrorBoundary>
               )}
@@ -337,21 +350,18 @@ export function AppContent() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 py-6 mt-12 text-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-indigo-600/30 flex items-center justify-center text-white">
+      <footer className="bg-[#0b0e17] border-t border-slate-800/85 text-slate-400 py-8 mt-12 text-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6.5 h-6.5 rounded-lg bg-indigo-950 flex items-center justify-center border border-indigo-800/40">
               <Languages className="w-3.5 h-3.5 text-indigo-400" />
             </div>
-            <span className="font-bold text-slate-200 tracking-wider">ZHONG-VIET AI TRANSLATOR</span>
+            <span className="font-extrabold text-slate-300 tracking-wider uppercase text-[11px]">ZHONG-VIET AI TRANSLATOR</span>
           </div>
-          <div className="flex gap-6 text-slate-500 font-medium">
-            <span>Giản thể &amp; Phồn thể</span>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-slate-400 font-medium justify-center md:justify-end">
+            <span>Dịch Giản &amp; Phồn thể</span>
             <span>Glossary Manager v2.4</span>
-            <span>IndexedDB Engine Persistent Storage</span>
-          </div>
-          <div className="text-[10px] text-slate-500">
-            Machine Learning Powered Translation Panel. All Rights Reserved.
+            <span className="bg-slate-900 px-2 py-0.5 rounded text-[10px] text-indigo-400 border border-slate-800">IndexedDB Persistent Storage</span>
           </div>
         </div>
       </footer>
@@ -367,6 +377,12 @@ export function AppContent() {
           onUpdateKeyIndex={handleUpdateKeyIndex}
           onDeleteKeyIndex={handleDeleteKeyIndex}
           onImportClipboardKeys={handleImportClipboardKeys}
+          warningParagraphMismatch={warningParagraphMismatch}
+          setWarningParagraphMismatch={setWarningParagraphMismatch}
+          enableAiQaCritique={enableAiQaCritique}
+          setEnableAiQaCritique={setEnableAiQaCritique}
+          enableSegmentTranslation={enableSegmentTranslation}
+          setEnableSegmentTranslation={setEnableSegmentTranslation}
         />
       )}
     </div>

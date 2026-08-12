@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation } from "../services/geminiService.ts";
-import { safeParseJson } from "../utils/text.ts";
+import { generateWithRotation, sleep, isOverloadError } from "../services/geminiService.ts";
+import { safeParseJson, findSplitPoint } from "../utils/text.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
 import { validateAndSnapBackEntities, isHanEquivalent } from "../../shared/sinoNormalize.ts";
 import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts.ts";
@@ -130,6 +130,99 @@ function splitTextIntoChunks(text: string, maxChunkSize: number): string[] {
   return chunks;
 }
 
+async function callGlossaryAnalysisDirect(
+    text: string,
+    apiKeys: string[] | undefined,
+    model: string | undefined,
+    startKeyIndex: number,
+    systemInstruction: string,
+    schema: any
+): Promise<{ suggestions: any[]; successKeyIndex: number }> {
+  const rotationResult = await generateWithRotation(
+      apiKeys,
+      model,
+      systemInstruction,
+      text,
+      schema,
+      0.2,
+      startKeyIndex
+  );
+
+  const resultText = rotationResult.text;
+  if (!resultText) {
+    throw new Error("Kết quả phân tích bị trống rỗng (nghi ngờ vi phạm bộ lọc an toàn).");
+  }
+
+  const parsedResult = safeParseJson(resultText);
+  const suggestions = parsedResult && Array.isArray(parsedResult.suggestions) ? parsedResult.suggestions : [];
+  return {
+    suggestions,
+    successKeyIndex: rotationResult.successKeyIndex
+  };
+}
+
+async function analyzeGlossaryWithContentSplit(
+    text: string,
+    apiKeys: string[] | undefined,
+    model: string | undefined,
+    systemInstruction: string,
+    schema: any,
+    depth = 0,
+    startKeyIndex = 0
+): Promise<{ suggestions: any[]; successKeyIndex: number }> {
+  if (text.length < 300 || depth > 4) {
+    return callGlossaryAnalysisDirect(text, apiKeys, model, startKeyIndex, systemInstruction, schema);
+  }
+
+  if (depth > 0) {
+    await sleep(depth * 600);
+  }
+
+  try {
+    return await callGlossaryAnalysisDirect(text, apiKeys, model, startKeyIndex, systemInstruction, schema);
+  } catch (error: any) {
+    const errorMsg = (error.message || "").toLowerCase();
+    if (error.message && error.message.startsWith("ALL_KEYS_EXHAUSTED")) {
+      throw error;
+    }
+
+    const isSafetyOrEmpty = errorMsg.includes("safety") ||
+        errorMsg.includes("block") ||
+        errorMsg.includes("content") ||
+        errorMsg.includes("trống") ||
+        errorMsg.includes("empty") ||
+        errorMsg.includes("finishreason") ||
+        errorMsg.includes("filter") ||
+        errorMsg.includes("candidate");
+
+    if (isSafetyOrEmpty) {
+      console.warn(`[Divide & Conquer Glossary] Phát hiện lỗi ở Độ sâu ${depth}, đang chia nhỏ đoạn ${text.length} ký tự...`);
+
+      await sleep((depth + 1) * 750);
+
+      const splitIdx = findSplitPoint(text);
+      const part1 = text.substring(0, splitIdx).trim();
+      const part2 = text.substring(splitIdx).trim();
+
+      if (part1.length === 0 || part2.length === 0) {
+        throw error;
+      }
+
+      console.log(`[Divide & Conquer Glossary] Chia thành: Phần A (${part1.length} ký tự) & Phần B (${part2.length} ký tự)`);
+      const [res1, res2] = await Promise.all([
+        analyzeGlossaryWithContentSplit(part1, apiKeys, model, systemInstruction, schema, depth + 1, startKeyIndex),
+        analyzeGlossaryWithContentSplit(part2, apiKeys, model, systemInstruction, schema, depth + 1, startKeyIndex)
+      ]);
+
+      return {
+        suggestions: [...(res1.suggestions || []), ...(res2.suggestions || [])],
+        successKeyIndex: res2.successKeyIndex
+      };
+    }
+    throw error;
+  }
+}
+
 // 1. API: Phân tích trích xuất gợi ý thuật ngữ từ văn bản thô
 export async function analyzeGlossary(req: Request, res: Response): Promise<void> {
   try {
@@ -161,37 +254,19 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       required: ["suggestions"]
     };
 
-    let currentKeyIndex = startKeyIndex;
-    const allSuggestions: any[] = [];
+    const textToAnalyze = text.substring(0, totalAnalyzedLength);
 
-    for (let i = 0; i < chunksToProcess.length; i++) {
-      const chunk = chunksToProcess[i];
-      const prompt = `Phân tích đoạn truyện chữ sau và trích xuất danh sách thực thể${
-        chunksToProcess.length > 1 ? ` (Phần ${i + 1}/${chunksToProcess.length})` : ""
-      }:\n\n${chunk}`;
+    const result = await analyzeGlossaryWithContentSplit(
+        textToAnalyze,
+        apiKeys,
+        model,
+        systemInstruction,
+        schema,
+        0,
+        startKeyIndex
+    );
 
-      const rotationResult = await generateWithRotation(
-          apiKeys,
-          model,
-          systemInstruction,
-          prompt,
-          schema,
-          0.2,
-          currentKeyIndex
-      );
-
-      currentKeyIndex = rotationResult.successKeyIndex;
-      const resultText = rotationResult.text;
-      if (!resultText) {
-        throw new Error(`Không nhận được kết quả phân tích từ AI ở phần ${i + 1}.`);
-      }
-
-      const parsedResult = safeParseJson(resultText);
-      if (parsedResult && Array.isArray(parsedResult.suggestions)) {
-        const validated = validateAndSnapBackEntities(parsedResult.suggestions, text);
-        allSuggestions.push(...validated);
-      }
-    }
+    const allSuggestions = result.suggestions;
 
     // Loại bỏ trùng lặp dựa trên chữ Hán
     const uniqueSuggestions: any[] = [];
@@ -205,10 +280,12 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       }
     }
 
+    const validatedSuggestions = validateAndSnapBackEntities(uniqueSuggestions, text);
+
     const resolvedChapterId = sourceChapterId || chapterId;
-    let finalSuggestions = uniqueSuggestions;
+    let finalSuggestions = validatedSuggestions;
     if (resolvedChapterId) {
-      finalSuggestions = uniqueSuggestions.map((s: any) => ({
+      finalSuggestions = validatedSuggestions.map((s: any) => ({
         ...s,
         sourceChapterId: resolvedChapterId
       }));
@@ -216,7 +293,7 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
 
     res.json({
       suggestions: finalSuggestions,
-      successKeyIndex: currentKeyIndex,
+      successKeyIndex: result.successKeyIndex,
       ...(hasTruncatedChunks ? { truncated: true, originalLength: text.length, analyzedLength: totalAnalyzedLength } : {})
     });
   } catch (error: any) {
@@ -351,3 +428,59 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi trích xuất thuật ngữ." });
   }
 }
+
+// API: Dịch nhanh cụm từ bôi đen với ngữ cảnh
+export async function quickTranslateTerm(req: Request, res: Response): Promise<void> {
+  try {
+    const { term, contextText, apiKeys, model, startKeyIndex = 0 } = req.body;
+    if (!term || typeof term !== "string" || !term.trim()) {
+      res.status(400).json({ error: "Thuật ngữ bôi đen không hợp lệ." });
+      return;
+    }
+
+    const systemInstruction =
+        "Bạn là trợ lý dịch thuật Trung - Việt lão luyện tinh thông Hán học và văn học mạng (tiên hiệp, võ hiệp, ngôn tình, huyền huyễn, đô thị).\n" +
+        "Nhiệm vụ của bạn là phân tích từ hoặc cụm từ tiếng Trung được bôi đen và ngữ cảnh xung quanh của nó (nếu có), từ đó đề xuất định nghĩa từ điển phù hợp gồm:\n" +
+        "1. chinese: giữ nguyên từ tiếng Trung gốc.\n" +
+        "2. pinyin: phiên âm Hán-Việt chuẩn xác của cụm từ (ví dụ: '萧炎' -> 'Tiêu Viêm', '斗罗大陆' -> 'Đấu La Đại Lục', '斗破苍穹' -> 'Đấu Phá Thương Khung').\n" +
+        "3. vietnamese: gợi ý dịch thuần Việt hay hoặc giữ nguyên nghĩa Hán-Việt (ví dụ với nhân vật/địa danh).\n" +
+        "4. type: loại thuật ngữ ('character' nếu là tên người/nhân vật, 'location' nếu là địa danh/nơi chốn, 'term' nếu là chiêu thức/bí kíp/vật phẩm, 'phrase' nếu là thành ngữ/cụm từ phổ biến, 'other' cho loại khác).\n" +
+        "5. note: giải nghĩa ngắn gọn hoặc ghi chú vai trò của từ này trong ngữ cảnh.";
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        chinese: { type: Type.STRING },
+        pinyin: { type: Type.STRING },
+        vietnamese: { type: Type.STRING },
+        type: {
+          type: Type.STRING,
+          enum: ["character", "location", "term", "phrase", "other"]
+        },
+        note: { type: Type.STRING }
+      },
+      required: ["chinese", "pinyin", "vietnamese", "type", "note"]
+    };
+
+    const prompt = `Cụm từ bôi đen: "${term.trim()}"\n${contextText ? `Ngữ cảnh xung quanh: "... ${contextText.trim()} ..."` : ""}`;
+
+    const rotationResult = await generateWithRotation(
+        apiKeys,
+        model,
+        systemInstruction,
+        prompt,
+        schema,
+        0.1,
+        startKeyIndex
+    );
+    const resultText = rotationResult.text;
+    if (!resultText) throw new Error("Không nhận được kết quả từ AI.");
+
+    const parsed = safeParseJson(resultText);
+    res.json({ term: parsed, successKeyIndex: rotationResult.successKeyIndex });
+  } catch (error: any) {
+    console.error("Lỗi quick-translate-term:", error);
+    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích thuật ngữ." });
+  }
+}
+

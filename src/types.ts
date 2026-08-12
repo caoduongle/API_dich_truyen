@@ -85,6 +85,11 @@ export interface StoryProject {
         skipFailedChapters?: boolean;
         failedIds?: string[];
     };
+    glossaryScanQueueState?: {
+        failedIds?: string[];
+        lastScanRange?: { start: number; end: number } | null;
+    };
+    ignoredDuplicatePairs?: string[];
 }
 
 // ---- API Request/Response types ----

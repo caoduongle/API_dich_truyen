@@ -31,10 +31,10 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
   setIsAdding,
 }: GlossaryHeaderProps) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white border border-slate-200 p-4 rounded-xl shadow-xs">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-900/40 border border-slate-800 p-4 rounded-xl shadow-xl backdrop-blur-md">
       <div>
-        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-          <Sparkles className="w-4 h-4 text-indigo-650" />
+        <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+          <Sparkles className="w-4 h-4 text-indigo-400" />
           Từ Điển Quy Định Dự Án &amp; Kho Cẩm Nang
         </h2>
         <p className="text-xs text-slate-400">
@@ -47,7 +47,7 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
           id="btn-export-glossary-md"
           onClick={exportGlossaryToMd}
           disabled={glossaryLength === 0}
-          className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3 py-1.5 text-xs rounded transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-900/50 text-emerald-400 font-bold px-3 py-1.5 text-xs rounded-lg transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           title={glossaryLength === 0 ? 'Từ điển đang trống' : `Xuất ${glossaryLength} thuật ngữ ra file .md`}
         >
           <Download className="w-3.5 h-3.5" />
@@ -58,10 +58,10 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
           id="btn-filter-duplicates"
           onClick={handleOpenDuplicatePanel}
           disabled={glossaryLength < 2}
-          className={`flex items-center gap-1.5 font-bold px-3 py-1.5 text-xs rounded transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`flex items-center gap-1.5 font-bold px-3 py-1.5 text-xs rounded-lg transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
             showDuplicatePanel && duplicateGroupsLength > 0
-              ? 'bg-rose-100 hover:bg-rose-200 text-rose-700 border border-rose-200'
-              : 'bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200'
+              ? 'bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-900/50'
+              : 'bg-violet-950/40 hover:bg-violet-900/60 text-violet-400 border border-violet-900/50'
           }`}
           title="Quét và lọc các từ bị trùng tiếng Trung hoặc tiếng Việt trong từ điển"
         >
@@ -78,10 +78,10 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
           id="btn-merge-han-variants"
           onClick={handleOpenMergeHanPanel}
           disabled={glossaryLength < 2}
-          className={`flex items-center gap-1.5 font-bold px-3 py-1.5 text-xs rounded transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`flex items-center gap-1.5 font-bold px-3 py-1.5 text-xs rounded-lg transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
             showMergeHanPanel && mergeGroupsLength > 0
-              ? 'bg-amber-100 hover:bg-amber-250 text-amber-700 border border-amber-200'
-              : 'bg-amber-50 hover:bg-amber-100 text-amber-750 border border-amber-200'
+              ? 'bg-amber-950/40 hover:bg-amber-900/60 text-amber-400 border border-amber-900/50'
+              : 'bg-amber-950/20 hover:bg-amber-900/40 text-amber-500/80 border border-amber-900/30'
           }`}
           title="Quét các từ bị trùng do khác ký tự Phồn/Giản để gộp thành biến thể"
         >
@@ -100,7 +100,7 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
             setIsImporting(!isImporting);
             setIsAdding(false);
           }}
-          className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-3 py-1.5 text-xs rounded transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 bg-slate-950/40 hover:bg-slate-900/60 border border-slate-800 text-indigo-400 font-bold px-3 py-1.5 text-xs rounded-lg transition-all cursor-pointer"
         >
           <UploadCloud className="w-3.5 h-3.5" />
           Nhập file cẩm nang (.md)
@@ -112,7 +112,7 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
             setIsAdding(!isAdding);
             setIsImporting(false);
           }}
-          className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 text-xs rounded transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 text-xs rounded-lg transition-all cursor-pointer"
         >
           {isAdding ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
           {isAdding ? 'Hủy thêm mới' : 'Thêm từ mới'}

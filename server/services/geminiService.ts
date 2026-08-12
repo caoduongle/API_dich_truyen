@@ -14,6 +14,34 @@ export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve
 const nextAllowedTimeByKey = new Map<string, number>();
 const MIN_REQUEST_INTERVAL_MS = 4620;
 
+// --- DỌN DẸP BỘ NHỚ ĐỊNH KỲ CHO CÁC KHÓA HẾT HẠN / HẾT HOẠT ĐỘNG ---
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // Dọn dẹp mỗi 10 phút
+const STALE_THRESHOLD_MS = 30 * 60 * 1000;   // 30 phút không hoạt động
+
+const cleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, expiry] of blacklistedKeys) {
+    if (now > expiry) {
+      blacklistedKeys.delete(key);
+    }
+  }
+  for (const [key, nextAllowed] of nextAllowedTimeByKey) {
+    if (now - nextAllowed > STALE_THRESHOLD_MS) {
+      nextAllowedTimeByKey.delete(key);
+    }
+  }
+}, CLEANUP_INTERVAL_MS);
+
+if (cleanupInterval && typeof cleanupInterval.unref === 'function') {
+  cleanupInterval.unref();
+}
+
+// Exported for testing purposes
+export const _testMaps = {
+  blacklistedKeys,
+  nextAllowedTimeByKey
+};
+
 // --- OVERLOAD (503) RETRY & COOLDOWN ---
 const MAX_OVERLOAD_RETRIES = 2;
 const OVERLOAD_BASE_DELAY_MS = 3000;

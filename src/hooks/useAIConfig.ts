@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNotifications } from '../components/NotificationSystem';
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
 
@@ -26,8 +26,39 @@ export function useAIConfig() {
         return DEFAULT_MODEL_ID;
     });
 
-
     const [showApiSettings, setShowApiSettings] = useState(false);
+
+    const [warningParagraphMismatch, setWarningParagraphMismatch] = useState<boolean>(() => {
+        const stored = localStorage.getItem('warning_paragraph_mismatch');
+        return stored !== 'false';
+    });
+
+    const [enableAiQaCritique, setEnableAiQaCritique] = useState<boolean>(() => {
+        const stored = localStorage.getItem('enable_ai_qa_critique');
+        return stored === 'true';
+    });
+
+    const [enableSegmentTranslation, setEnableSegmentTranslation] = useState<boolean>(() => {
+        const stored = localStorage.getItem('enable_segment_translation');
+        return stored === 'true';
+    });
+
+    // Sync apiKeys to localStorage whenever they change
+    useEffect(() => {
+        localStorage.setItem('gemini_api_keys', JSON.stringify(apiKeys));
+    }, [apiKeys]);
+
+    useEffect(() => {
+        localStorage.setItem('warning_paragraph_mismatch', String(warningParagraphMismatch));
+    }, [warningParagraphMismatch]);
+
+    useEffect(() => {
+        localStorage.setItem('enable_ai_qa_critique', String(enableAiQaCritique));
+    }, [enableAiQaCritique]);
+
+    useEffect(() => {
+        localStorage.setItem('enable_segment_translation', String(enableSegmentTranslation));
+    }, [enableSegmentTranslation]);
 
     const handleSaveModel = useCallback((model: string) => {
         setSelectedModel(model);
@@ -35,28 +66,19 @@ export function useAIConfig() {
     }, []);
 
     const handleAddApiKey = useCallback(() => {
-        setApiKeys(prev => {
-            const updated = [...prev, ''];
-            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-            return updated;
-        });
+        setApiKeys(prev => [...prev, '']);
     }, []);
 
     const handleUpdateKeyIndex = useCallback((index: number, val: string) => {
         setApiKeys(prev => {
             const updated = [...prev];
             updated[index] = val;
-            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
             return updated;
         });
     }, []);
 
     const handleDeleteKeyIndex = useCallback((index: number) => {
-        setApiKeys(prev => {
-            const updated = prev.filter((_, idx) => idx !== index);
-            localStorage.setItem('gemini_api_keys', JSON.stringify(updated));
-            return updated;
-        });
+        setApiKeys(prev => prev.filter((_, idx) => idx !== index));
     }, []);
 
     const handleImportClipboardKeys = useCallback(async () => {
@@ -66,17 +88,15 @@ export function useAIConfig() {
             const keys = text
                 .split(/[\n,;]+/)
                 .map(k => k.trim())
-                .filter(k => k.length > 5 && k.startsWith('AIza'));
+                .filter(k => k.length > 5);
             if (keys.length > 0) {
                 setApiKeys(prev => {
                     const updated = [...prev, ...keys];
-                    const uniqueKeys = Array.from(new Set(updated));
-                    localStorage.setItem('gemini_api_keys', JSON.stringify(uniqueKeys));
-                    return uniqueKeys;
+                    return Array.from(new Set(updated));
                 });
                 showToast({ message: `Đã nhận diện thành công và nhập sỉ ${keys.length} API Keys!`, type: 'success' });
             } else {
-                showToast({ message: "Không tìm thấy dòng khóa hợp lệ (phải bắt đầu bằng AIza) trong clipboard.", type: 'warning' });
+                showToast({ message: "Không tìm thấy dòng khóa hợp lệ trong clipboard.", type: 'warning' });
             }
         } catch (_) {
             showToast({ message: "Lỗi truy xuất bộ nhớ Clipboard của trình duyệt. Bạn có thể tự dán thủ công.", type: 'error' });
@@ -92,6 +112,12 @@ export function useAIConfig() {
         handleAddApiKey,
         handleUpdateKeyIndex,
         handleDeleteKeyIndex,
-        handleImportClipboardKeys
+        handleImportClipboardKeys,
+        warningParagraphMismatch,
+        setWarningParagraphMismatch,
+        enableAiQaCritique,
+        setEnableAiQaCritique,
+        enableSegmentTranslation,
+        setEnableSegmentTranslation
     };
 }
