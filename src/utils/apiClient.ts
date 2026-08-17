@@ -1,4 +1,5 @@
 const SESSION_TOKEN_STORAGE_KEY = 'gemini_session_token';
+const AUTH_TOKEN_STORAGE_KEY = 'gemini_auth_token';
 
 let currentSessionToken: string | null = (() => {
   try {
@@ -8,9 +9,20 @@ let currentSessionToken: string | null = (() => {
   }
 })();
 
+let currentAuthToken: string | null = (() => {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || null;
+  } catch {
+    return null;
+  }
+})();
+
 let syncSessionCallback: (() => Promise<string | null>) | null = null;
 let isReSyncing = false;
 let pendingReSyncPromise: Promise<string | null> | null = null;
+
+type AuthRequiredListener = () => void;
+const authRequiredListeners = new Set<AuthRequiredListener>();
 
 export function getSessionToken(): string | null {
   return currentSessionToken;
@@ -29,6 +41,43 @@ export function setSessionToken(token: string | null): void {
   }
 }
 
+export function getAuthToken(): string | null {
+  return currentAuthToken;
+}
+
+export function setAuthToken(token: string | null): void {
+  currentAuthToken = token;
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Đăng ký lắng nghe sự kiện khi máy chủ yêu cầu xác thực mật khẩu.
+ */
+export function onAuthRequired(listener: AuthRequiredListener): () => void {
+  authRequiredListeners.add(listener);
+  return () => {
+    authRequiredListeners.delete(listener);
+  };
+}
+
+function notifyAuthRequired(): void {
+  authRequiredListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (err) {
+      console.error('[apiClient] Error in authRequired listener:', err);
+    }
+  });
+}
+
 /**
  * Đăng ký hàm callback đồng bộ lại session khi session bị hết hạn / server restart.
  */
@@ -37,21 +86,110 @@ export function registerSessionSyncCallback(fn: () => Promise<string | null>): v
 }
 
 /**
+ * Kiểm tra trạng thái xác thực của máy chủ.
+ */
+export async function checkAuthStatus(): Promise<{ authRequired: boolean; authenticated: boolean }> {
+  try {
+    const headers: Record<string, string> = {};
+    if (currentAuthToken) {
+      headers['X-Auth-Token'] = currentAuthToken;
+    }
+
+    const res = await fetch('/api/auth/status', {
+      method: 'GET',
+      headers,
+    });
+
+    if (!res.ok) {
+      return { authRequired: false, authenticated: true };
+    }
+
+    const data = await res.json();
+    return {
+      authRequired: !!data.authRequired,
+      authenticated: !!data.authenticated,
+    };
+  } catch (err) {
+    console.error('[apiClient] Failed to check auth status:', err);
+    return { authRequired: false, authenticated: true };
+  }
+}
+
+/**
+ * Đăng nhập máy chủ bằng mật khẩu.
+ */
+export async function loginWithPassword(password: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ password }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error || 'Mật khẩu không chính xác hoặc lỗi đăng nhập.',
+      };
+    }
+
+    if (data.authToken) {
+      setAuthToken(data.authToken);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Lỗi mạng khi kết nối tới máy chủ.',
+    };
+  }
+}
+
+/**
+ * Đăng xuất và thu hồi Auth Token.
+ */
+export async function logoutAuth(): Promise<void> {
+  if (currentAuthToken) {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Token': currentAuthToken,
+        },
+      });
+    } catch {
+      // Ignore network errors on logout
+    }
+  }
+  setAuthToken(null);
+}
+
+/**
  * Đồng bộ danh sách API keys lên máy chủ để lấy Session Token bảo mật.
  */
 export async function syncSessionKeysToServer(keys: string[]): Promise<string | null> {
   const cleanKeys = Array.isArray(keys)
-    ? keys.map(k => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
+    ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
     : [];
 
   if (cleanKeys.length === 0) {
     if (currentSessionToken) {
       try {
+        const headers: Record<string, string> = {
+          'X-Session-Token': currentSessionToken,
+        };
+        if (currentAuthToken) {
+          headers['X-Auth-Token'] = currentAuthToken;
+        }
         await fetch('/api/session-keys', {
           method: 'DELETE',
-          headers: {
-            'X-Session-Token': currentSessionToken,
-          },
+          headers,
         });
       } catch {
         // Ignore deletion errors
@@ -62,15 +200,26 @@ export async function syncSessionKeysToServer(keys: string[]): Promise<string | 
   }
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (currentAuthToken) {
+      headers['X-Auth-Token'] = currentAuthToken;
+    }
+
     const res = await fetch('/api/session-keys', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({ apiKeys: cleanKeys }),
     });
 
     if (!res.ok) {
+      if (res.status === 401) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.authRequired) {
+          notifyAuthRequired();
+        }
+      }
       console.warn('[apiClient] Failed to create session on server, HTTP:', res.status);
       return null;
     }
@@ -89,13 +238,14 @@ export async function syncSessionKeysToServer(keys: string[]): Promise<string | 
 
 /**
  * Helper fetch bảo mật cho toàn bộ các endpoint /api/*:
- * 1. Tự động đính kèm header X-Session-Token.
+ * 1. Tự động đính kèm header X-Auth-Token & X-Session-Token.
  * 2. Tự động loại bỏ mảng apiKeys khỏi JSON body để tránh lộ plaintext keys qua Network tab.
  * 3. Tự động re-sync session và thử lại (retry) 1 lần trong suốt nếu server trả về 401 sessionExpired.
+ * 4. Tự động thông báo yêu cầu mật khẩu nếu server trả về 401 authRequired.
  */
 export async function apiFetch(
   input: string | URL | Request,
-  init?: RequestInit & { skipSessionHeader?: boolean }
+  init?: RequestInit & { skipSessionHeader?: boolean; skipAuthHeader?: boolean }
 ): Promise<Response> {
   const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   const isApiRoute = urlStr.startsWith('/api/') || urlStr.includes('/api/');
@@ -113,6 +263,13 @@ export async function apiFetch(
       }
     } catch {
       // Keep original body if parsing fails
+    }
+  }
+
+  // Đính kèm X-Auth-Token nếu có
+  if (isApiRoute && !init?.skipAuthHeader && currentAuthToken) {
+    if (!headers.has('X-Auth-Token')) {
+      headers.set('X-Auth-Token', currentAuthToken);
     }
   }
 
@@ -135,12 +292,20 @@ export async function apiFetch(
 
   const response = await fetch(input, newInit);
 
-  // Nếu gặp lỗi 401 Session Expired và có callback sync, tự động phục hồi session và thử lại 1 lần
-  if (response.status === 401 && isApiRoute && syncSessionCallback) {
+  // Xử lý khi gặp 401
+  if (response.status === 401 && isApiRoute) {
     try {
       const clone = response.clone();
       const errData = await clone.json();
-      if (errData?.sessionExpired) {
+
+      // Trường hợp yêu cầu xác thực mật khẩu máy chủ
+      if (errData?.authRequired) {
+        notifyAuthRequired();
+        return response;
+      }
+
+      // Trường hợp session keys hết hạn -> tự động re-sync
+      if (errData?.sessionExpired && syncSessionCallback) {
         console.warn('[apiClient] Session token expired, automatically re-syncing from local keys...');
 
         // Đảm bảo chỉ 1 tiến trình re-sync chạy tại một thời điểm

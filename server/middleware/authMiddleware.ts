@@ -1,0 +1,65 @@
+import { Request, Response, NextFunction } from "express";
+import { authStore } from "../services/authStore.ts";
+
+const PUBLIC_API_PATHS = new Set([
+  "/auth/login",
+  "/auth/status",
+  "/health",
+  "/api/auth/login",
+  "/api/auth/status",
+  "/api/health",
+]);
+
+/**
+ * Middleware kiểm tra quyền truy cập vào toàn bộ các endpoint /api/*.
+ * Nếu server không cấu hình ACCESS_PASSWORD, cho phép toàn bộ request đi tiếp.
+ * Nếu server có cấu hình, yêu cầu Header X-Auth-Token hoặc Authorization: Bearer <token>.
+ */
+export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+  // 1. Nếu hệ thống không yêu cầu mật khẩu, cho phép đi tiếp
+  if (!authStore.isAuthRequired()) {
+    next();
+    return;
+  }
+
+  // 2. Cho phép các route public không cần token
+  const requestPath = req.path || req.originalUrl || "";
+  if (PUBLIC_API_PATHS.has(requestPath) || requestPath.endsWith("/auth/login") || requestPath.endsWith("/auth/status") || requestPath.endsWith("/health")) {
+    next();
+    return;
+  }
+
+  // 3. Đọc token từ header
+  const authHeader =
+    (req.headers["x-auth-token"] as string) ||
+    (req.headers["authorization"] as string) ||
+    (req.headers["x-access-password"] as string);
+
+  let token = "";
+  if (authHeader) {
+    if (authHeader.startsWith("Bearer ")) {
+      token = authHeader.substring(7).trim();
+    } else {
+      token = authHeader.trim();
+    }
+  }
+
+  if (!token) {
+    res.status(401).json({
+      error: "Yêu cầu mật khẩu truy cập máy chủ. Vui lòng đăng nhập.",
+      authRequired: true,
+    });
+    return;
+  }
+
+  const isValid = await authStore.validateAuthToken(token);
+  if (!isValid) {
+    res.status(401).json({
+      error: "Phiên đăng nhập máy chủ không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.",
+      authRequired: true,
+    });
+    return;
+  }
+
+  next();
+}

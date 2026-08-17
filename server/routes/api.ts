@@ -18,10 +18,25 @@ import {
   getSessionStatusHandler,
   deleteSessionHandler
 } from "../controllers/sessionController.ts";
+import {
+  getAuthStatusHandler,
+  loginHandler,
+  logoutHandler
+} from "../controllers/authController.ts";
+import { authMiddleware } from "../middleware/authMiddleware.ts";
 import { sessionStore } from "../services/sessionStore.ts";
 import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models.ts";
 
 const router = Router();
+
+// --- MIDDLEWARE: Xác thực quyền truy cập API (Authentication) ---
+// Nếu máy chủ có cấu hình ACCESS_PASSWORD, yêu cầu X-Auth-Token hợp lệ
+router.use(authMiddleware);
+
+// --- Auth Endpoints ---
+router.get("/auth/status", getAuthStatusHandler);
+router.post("/auth/login", loginHandler);
+router.post("/auth/logout", logoutHandler);
 
 // --- MIDDLEWARE: Kiểm tra model hợp lệ ---
 // Chỉ chấp nhận các giá trị model nằm trong whitelist (đồng bộ với AVAILABLE_MODELS frontend)

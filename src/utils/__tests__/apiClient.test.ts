@@ -3,6 +3,12 @@ import {
   apiFetch,
   getSessionToken,
   setSessionToken,
+  getAuthToken,
+  setAuthToken,
+  onAuthRequired,
+  checkAuthStatus,
+  loginWithPassword,
+  logoutAuth,
   registerSessionSyncCallback,
   syncSessionKeysToServer,
 } from '../apiClient';
@@ -21,6 +27,7 @@ describe('apiClient', () => {
     };
     (global as any).localStorage = storageMock;
     setSessionToken(null);
+    setAuthToken(null);
     registerSessionSyncCallback(() => Promise.resolve(null));
     vi.restoreAllMocks();
   });
@@ -29,62 +36,130 @@ describe('apiClient', () => {
     global.fetch = originalFetch;
   });
 
-  it('should store and retrieve session token from localStorage', () => {
-    expect(getSessionToken()).toBeNull();
-    setSessionToken('test-token-123');
-    expect(getSessionToken()).toBe('test-token-123');
-    expect(localStorage.getItem('gemini_session_token')).toBe('test-token-123');
+  describe('Session Token Management', () => {
+    it('should store and retrieve session token from localStorage', () => {
+      expect(getSessionToken()).toBeNull();
+      setSessionToken('test-token-123');
+      expect(getSessionToken()).toBe('test-token-123');
+      expect(localStorage.getItem('gemini_session_token')).toBe('test-token-123');
 
-    setSessionToken(null);
-    expect(getSessionToken()).toBeNull();
-    expect(localStorage.getItem('gemini_session_token')).toBeNull();
+      setSessionToken(null);
+      expect(getSessionToken()).toBeNull();
+      expect(localStorage.getItem('gemini_session_token')).toBeNull();
+    });
+
+    it('should sync keys to server via POST /api/session-keys and save token', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ sessionToken: 'mock-uuid-456', keyCount: 2 }),
+      });
+      global.fetch = fetchMock;
+
+      const token = await syncSessionKeysToServer(['AIzaSyKey1', 'AIzaSyKey2']);
+      expect(token).toBe('mock-uuid-456');
+      expect(getSessionToken()).toBe('mock-uuid-456');
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/session-keys',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ apiKeys: ['AIzaSyKey1', 'AIzaSyKey2'] }),
+        })
+      );
+    });
+
+    it('should remove session on server when empty keys provided', async () => {
+      setSessionToken('active-token-789');
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true }),
+      });
+      global.fetch = fetchMock;
+
+      const token = await syncSessionKeysToServer([]);
+      expect(token).toBeNull();
+      expect(getSessionToken()).toBeNull();
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/session-keys',
+        expect.objectContaining({
+          method: 'DELETE',
+          headers: expect.objectContaining({ 'X-Session-Token': 'active-token-789' }),
+        })
+      );
+    });
   });
 
-  it('should sync keys to server via POST /api/session-keys and save token', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ sessionToken: 'mock-uuid-456', keyCount: 2 }),
+  describe('Auth Token Management', () => {
+    it('should store and retrieve auth token from localStorage', () => {
+      expect(getAuthToken()).toBeNull();
+      setAuthToken('auth-secret-abc');
+      expect(getAuthToken()).toBe('auth-secret-abc');
+      expect(localStorage.getItem('gemini_auth_token')).toBe('auth-secret-abc');
+
+      setAuthToken(null);
+      expect(getAuthToken()).toBeNull();
+      expect(localStorage.getItem('gemini_auth_token')).toBeNull();
     });
-    global.fetch = fetchMock;
 
-    const token = await syncSessionKeysToServer(['AIzaSyKey1', 'AIzaSyKey2']);
-    expect(token).toBe('mock-uuid-456');
-    expect(getSessionToken()).toBe('mock-uuid-456');
+    it('checkAuthStatus should query /api/auth/status and report status', async () => {
+      setAuthToken('active-auth-token');
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ authRequired: true, authenticated: true }),
+      });
+      global.fetch = fetchMock;
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/session-keys',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({ apiKeys: ['AIzaSyKey1', 'AIzaSyKey2'] }),
-      })
-    );
-  });
-
-  it('should remove session on server when empty keys provided', async () => {
-    setSessionToken('active-token-789');
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ success: true }),
+      const status = await checkAuthStatus();
+      expect(status).toEqual({ authRequired: true, authenticated: true });
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/auth/status',
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'X-Auth-Token': 'active-auth-token' }),
+        })
+      );
     });
-    global.fetch = fetchMock;
 
-    const token = await syncSessionKeysToServer([]);
-    expect(token).toBeNull();
-    expect(getSessionToken()).toBeNull();
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/session-keys',
-      expect.objectContaining({
-        method: 'DELETE',
-        headers: { 'X-Session-Token': 'active-token-789' },
-      })
-    );
+    it('loginWithPassword should save authToken upon success', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, authToken: 'new-auth-token' }),
+      });
+      global.fetch = fetchMock;
+
+      const res = await loginWithPassword('correct-pass');
+      expect(res.success).toBe(true);
+      expect(getAuthToken()).toBe('new-auth-token');
+      expect(localStorage.getItem('gemini_auth_token')).toBe('new-auth-token');
+    });
+
+    it('logoutAuth should send logout request and clear local token', async () => {
+      setAuthToken('token-to-revoke');
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true }),
+      });
+      global.fetch = fetchMock;
+
+      await logoutAuth();
+      expect(getAuthToken()).toBeNull();
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/auth/logout',
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'X-Auth-Token': 'token-to-revoke' }),
+        })
+      );
+    });
   });
 
   describe('apiFetch', () => {
-    it('should attach X-Session-Token header and remove raw apiKeys from JSON body', async () => {
+    it('should attach X-Session-Token and X-Auth-Token headers and remove raw apiKeys from JSON body', async () => {
       setSessionToken('token-abc');
+      setAuthToken('auth-xyz');
 
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
@@ -107,13 +182,37 @@ describe('apiClient', () => {
       const headers = callArgs[1].headers;
       const body = JSON.parse(callArgs[1].body);
 
-      // Verify token is in header
+      // Verify headers
       expect(headers.get('X-Session-Token')).toBe('token-abc');
+      expect(headers.get('X-Auth-Token')).toBe('auth-xyz');
 
       // Verify apiKeys is completely omitted from body payload
       expect(body.apiKeys).toBeUndefined();
       expect(body.text).toBe('你好世界');
       expect(body.genre).toBe('Tiên Hiệp');
+    });
+
+    it('should trigger auth listener when 401 authRequired is returned', async () => {
+      const authListener = vi.fn();
+      const unsubscribe = onAuthRequired(authListener);
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        clone: () => ({
+          json: () => Promise.resolve({ error: 'Auth required', authRequired: true }),
+        }),
+        json: () => Promise.resolve({ error: 'Auth required', authRequired: true }),
+      });
+      global.fetch = fetchMock;
+
+      await apiFetch('/api/translate-raw', {
+        method: 'POST',
+        body: JSON.stringify({ text: '测试' }),
+      });
+
+      expect(authListener).toHaveBeenCalledTimes(1);
+      unsubscribe();
     });
 
     it('should automatically re-sync session and retry on 401 sessionExpired', async () => {

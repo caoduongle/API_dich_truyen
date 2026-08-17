@@ -1,4 +1,4 @@
-import React, { useState, startTransition, useCallback, memo } from 'react';
+import React, { useState, useEffect, startTransition, useCallback, memo } from 'react';
 import { Chapter } from './types';
 import { NotificationProvider } from './components/NotificationSystem';
 import ProjectList from './components/ProjectList';
@@ -7,10 +7,12 @@ import TranslatorWorkspace from './components/TranslatorWorkspace';
 import AutoTranslator from './components/AutoTranslator';
 import ChapterHistoryPanel from './components/ChapterHistoryPanel';
 import ApiSettings from './components/ApiSettings';
+import AuthModal from './components/AuthModal';
 import { useProjects } from './hooks/useProjects';
 import { useAIConfig } from './hooks/useAIConfig';
+import { checkAuthStatus, logoutAuth, onAuthRequired } from './utils/apiClient';
 import {
-  Languages, BookOpenText, Folder, Settings, Cpu, History, Sparkles
+  Languages, BookOpenText, Folder, Settings, Cpu, History, Sparkles, Lock, Unlock
 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -67,6 +69,29 @@ export function AppContent() {
 
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
   const [isAutoTranslating, setIsAutoTranslating] = useState<boolean>(false);
+
+  // Authentication State
+  const [authRequired, setAuthRequired] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    checkAuthStatus().then((status) => {
+      setAuthRequired(status.authRequired);
+      setIsAuthenticated(status.authenticated);
+      if (status.authRequired && !status.authenticated) {
+        setShowAuthModal(true);
+      }
+    });
+
+    const unsubscribe = onAuthRequired(() => {
+      setAuthRequired(true);
+      setIsAuthenticated(false);
+      setShowAuthModal(true);
+    });
+
+    return unsubscribe;
+  }, []);
 
   // Dùng startTransition: React ưu tiên giữ UI responsive, render tab mới như "background work"
   const switchTab = useCallback((tab: typeof activeTab) => {
@@ -137,12 +162,38 @@ export function AppContent() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {activeProject && (
             <div className="hidden sm:flex items-center bg-slate-900/60 rounded-lg px-2.5 py-1 gap-1.5 border border-slate-800/80">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Ngữ điệu:</span>
               <span className="text-xs font-semibold text-indigo-400">{activeProject.genre} / {activeProject.tone}</span>
             </div>
+          )}
+
+          {authRequired && (
+            <button
+              onClick={() => {
+                if (isAuthenticated) {
+                  if (window.confirm("Bạn có chắc chắn muốn đăng xuất khỏi máy chủ?")) {
+                    logoutAuth().then(() => {
+                      setIsAuthenticated(false);
+                      setShowAuthModal(true);
+                    });
+                  }
+                } else {
+                  setShowAuthModal(true);
+                }
+              }}
+              className={`flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer transition-all border ${
+                isAuthenticated
+                  ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/60 hover:bg-emerald-900/40'
+                  : 'bg-amber-950/40 text-amber-300 border-amber-800/60 hover:bg-amber-900/40 animate-pulse'
+              }`}
+              title={isAuthenticated ? "Máy chủ đã xác thực. Bấm để đăng xuất" : "Yêu cầu đăng nhập máy chủ"}
+            >
+              {isAuthenticated ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isAuthenticated ? 'Đã khóa máy chủ' : 'Chưa đăng nhập'}</span>
+            </button>
           )}
 
           <button
@@ -385,6 +436,17 @@ export function AppContent() {
           setEnableSegmentTranslation={setEnableSegmentTranslation}
         />
       )}
+
+      {/* Modal Mật Khẩu Truy Cập Máy Chủ */}
+      <AuthModal
+        isOpen={showAuthModal}
+        canDismiss={isAuthenticated}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={() => {
+          setIsAuthenticated(true);
+          setShowAuthModal(false);
+        }}
+      />
     </div>
   );
 }
