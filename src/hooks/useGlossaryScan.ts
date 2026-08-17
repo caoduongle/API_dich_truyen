@@ -4,6 +4,7 @@ import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../components/NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
+import { apiFetch } from '../utils/apiClient';
 
 export interface UseGlossaryScanProps {
   activeProject: StoryProject;
@@ -106,9 +107,8 @@ export function useGlossaryScan({
           addLog(`[Vòng ${loop}] Quét lọc Chương ${i + 1}/${scopedChaps.length}: ${chap.title}`, 'gemini');
 
           try {
-            const response = await fetch('/api/analyze-glossary', {
+            const response = await apiFetch('/api/analyze-glossary', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 text: `${chap.title}\n\n${chap.sourceText}`,
                 apiKeys,

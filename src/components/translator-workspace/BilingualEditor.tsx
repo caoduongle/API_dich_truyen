@@ -8,6 +8,7 @@ import { CHINESE_EXAMPLES } from '../../data/examples';
 import { useNotifications } from '../NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
 import { cleanChineseText } from '../../utils/textCleaner';
+import { apiFetch } from '../../utils/apiClient';
 
 export interface BilingualEditorProps {
   sourceText: string;
@@ -158,9 +159,8 @@ export const BilingualEditor = React.memo(function BilingualEditor({
     setQuickNote('');
 
     try {
-      const response = await fetch('/api/quick-translate-term', {
+      const response = await apiFetch('/api/quick-translate-term', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           term: selectedTerm,
           contextText: selectedContext,

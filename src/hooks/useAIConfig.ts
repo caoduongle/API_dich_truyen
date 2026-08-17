@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNotifications } from '../components/NotificationSystem';
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
+import { syncSessionKeysToServer, registerSessionSyncCallback } from '../utils/apiClient';
 
 export function useAIConfig() {
     const { showToast } = useNotifications();
@@ -43,9 +44,21 @@ export function useAIConfig() {
         return stored === 'true';
     });
 
-    // Sync apiKeys to localStorage whenever they change
+    const apiKeysRef = useRef(apiKeys);
+    apiKeysRef.current = apiKeys;
+
+    // Đăng ký callback phục hồi session cho apiClient
+    useEffect(() => {
+        registerSessionSyncCallback(async () => {
+            const currentKeys = apiKeysRef.current;
+            return await syncSessionKeysToServer(currentKeys);
+        });
+    }, []);
+
+    // Sync apiKeys to localStorage & Server Session whenever they change
     useEffect(() => {
         localStorage.setItem('gemini_api_keys', JSON.stringify(apiKeys));
+        syncSessionKeysToServer(apiKeys);
     }, [apiKeys]);
 
     useEffect(() => {

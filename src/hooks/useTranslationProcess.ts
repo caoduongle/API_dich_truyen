@@ -5,6 +5,7 @@ import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../components/NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
+import { apiFetch } from '../utils/apiClient';
 
 export interface UseTranslationProcessProps {
   activeProject: StoryProject;
@@ -223,9 +224,8 @@ export function useTranslationProcess({
       firstDraft = existingTranslation;
     } else {
       addLog(`${logPrefix} Đang gọi API dịch thô (Giai đoạn 1)...${hasProcessedText ? " (Sử dụng văn bản đã quét từ điển, không gửi kèm glossary)" : ""}`, "gemini");
-      const rawRes = await fetch('/api/translate-raw', {
+      const rawRes = await apiFetch('/api/translate-raw', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: hasProcessedText ? chapter.processedSourceText : chapter.sourceText,
           genre: projState.genre,
@@ -335,9 +335,8 @@ export function useTranslationProcess({
         addLog(`${logPrefix} [Rà soát từ điển] Kích hoạt rà soát thuật ngữ bị sót (chỉ chạy 1 lần/chương tại lượt polish đầu tiên).`, 'info');
       }
       addLog(`${logPrefix} Biên tập chuốt chữ Lần ${j}/${paramsRef.current.polishCycles}...${hasProcessedText ? " (Sử dụng văn bản đã quét từ điển, không gửi kèm glossary)" : ""}`, "gemini");
-      const polishRes = await fetch('/api/polish-translation', {
+      const polishRes = await apiFetch('/api/polish-translation', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceText: hasProcessedText ? chapter.processedSourceText : chapter.sourceText,
           rawTranslation: currentTextToPolish,
@@ -375,9 +374,8 @@ export function useTranslationProcess({
     if (paramsRef.current.enableAiQaCritique) {
       addLog(`${logPrefix} [Kiểm duyệt AI] Bắt đầu rà soát thẩm định chất lượng bản dịch...`, 'info');
       try {
-        const qaRes = await fetch('/api/qa-critique', {
+        const qaRes = await apiFetch('/api/qa-critique', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sourceText: chapter.sourceText,
             translatedText: currentTextToPolish,

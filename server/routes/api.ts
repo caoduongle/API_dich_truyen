@@ -13,6 +13,12 @@ import {
 import {
   alignChapter
 } from "../controllers/alignmentController.ts";
+import {
+  createSessionHandler,
+  getSessionStatusHandler,
+  deleteSessionHandler
+} from "../controllers/sessionController.ts";
+import { sessionStore } from "../services/sessionStore.ts";
 import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models.ts";
 
 const router = Router();
@@ -34,11 +40,49 @@ function validateModelMiddleware(req: Request, res: Response, next: NextFunction
   next();
 }
 
-// --- MIDDLEWARE: Chặn fallback dùng key server khi chưa được phép ---
-// Khi biến môi trường ALLOW_SERVER_KEY_FALLBACK !== 'true' (mặc định trong production),
-// nếu client không gửi apiKeys hợp lệ, trả lỗi 400 thay vì âm thầm dùng key server.
-function checkApiKeysFallback(req: Request, res: Response, next: NextFunction): void {
-  const { apiKeys } = req.body;
+// --- MIDDLEWARE: Giải mã API Keys từ Session Token hoặc Body ---
+// Hỗ trợ cả 2 chế độ:
+// 1. Session Token (Bảo mật cao): Đọc qua header X-Session-Token hoặc body sessionToken, lấy keys từ SessionStore.
+// 2. Direct Keys (Tương thích ngược): Đọc trực tiếp từ body.apiKeys.
+// Nếu không có keys hợp lệ và ALLOW_SERVER_KEY_FALLBACK !== 'true', trả lỗi 400 hoặc 401.
+async function resolveApiKeysMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const sessionToken =
+    (req.headers["x-session-token"] as string) ||
+    (req.body?.sessionToken as string);
+
+  // 1. Nếu client gửi sessionToken
+  if (sessionToken) {
+    const sessionKeys = await sessionStore.getSessionKeys(sessionToken);
+    if (sessionKeys && sessionKeys.length > 0) {
+      req.body = req.body || {};
+      req.body.apiKeys = sessionKeys;
+      next();
+      return;
+    }
+
+    // Nếu token gửi lên nhưng không tìm thấy trong sessionStore (hết hạn hoặc server restart)
+    // Kiểm tra xem client có gửi kèm apiKeys fallback không
+    const { apiKeys } = req.body || {};
+    const hasValidDirectKeys =
+      Array.isArray(apiKeys) &&
+      apiKeys.some((k: string) => typeof k === "string" && k.trim().length > 0);
+
+    if (hasValidDirectKeys) {
+      req.body.apiKeys = apiKeys.filter((k: string) => typeof k === "string" && k.trim().length > 0);
+      next();
+      return;
+    }
+
+    // Nếu không có direct keys, trả 401 báo session hết hạn để client tự động re-sync
+    res.status(401).json({
+      error: "Phiên làm việc API key đã hết hạn hoặc không tồn tại. Hệ thống sẽ tự động đồng bộ lại.",
+      sessionExpired: true,
+    });
+    return;
+  }
+
+  // 2. Nếu client gửi direct apiKeys
+  const { apiKeys } = req.body || {};
 
   if (Array.isArray(apiKeys) && apiKeys.length > MAX_API_KEYS_PER_REQUEST) {
     res.status(400).json({
@@ -47,38 +91,50 @@ function checkApiKeysFallback(req: Request, res: Response, next: NextFunction): 
     return;
   }
 
-  const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k: string) => typeof k === 'string' && k.trim().length > 0);
+  const hasValidKeys =
+    Array.isArray(apiKeys) &&
+    apiKeys.some((k: string) => typeof k === "string" && k.trim().length > 0);
 
-  if (!hasValidKeys) {
-    const allowFallback = process.env.ALLOW_SERVER_KEY_FALLBACK === 'true';
-    if (!allowFallback) {
-      res.status(400).json({
-        error: "Vui lòng cấu hình API key của bạn trong phần 'Cấu hình AI' trước khi sử dụng. Máy chủ đã tắt tính năng tự động dùng key mặc định."
-      });
-      return;
-    }
+  if (hasValidKeys) {
+    req.body.apiKeys = apiKeys.filter((k: string) => typeof k === "string" && k.trim().length > 0);
+    next();
+    return;
   }
+
+  // 3. Không có sessionToken lẫn direct keys: kiểm tra server fallback
+  const allowFallback = process.env.ALLOW_SERVER_KEY_FALLBACK === "true";
+  if (!allowFallback) {
+    res.status(400).json({
+      error: "Vui lòng cấu hình API key của bạn trong phần 'Cấu hình AI' trước khi sử dụng. Máy chủ đã tắt tính năng tự động dùng key mặc định."
+    });
+    return;
+  }
+
   next();
 }
 
-// Routes for Glossary & Guidelines Analysis
-router.post("/analyze-glossary", validateModelMiddleware, checkApiKeysFallback, analyzeGlossary);
-router.post("/analyze-guidelines", validateModelMiddleware, checkApiKeysFallback, analyzeGuidelines);
-router.post("/extract-glossary", validateModelMiddleware, checkApiKeysFallback, extractGlossary);
-router.post("/quick-translate-term", validateModelMiddleware, checkApiKeysFallback, quickTranslateTerm);
+// --- Session Management Endpoints ---
+router.post("/session-keys", createSessionHandler);
+router.get("/session-keys/status", getSessionStatusHandler);
+router.delete("/session-keys", deleteSessionHandler);
 
-// Routes for Translation Tasks
-router.post("/translate-raw", validateModelMiddleware, checkApiKeysFallback, translateRaw);
-router.post("/polish-translation", validateModelMiddleware, checkApiKeysFallback, polishTranslation);
-router.post("/qa-critique", validateModelMiddleware, checkApiKeysFallback, qaCritique);
+// --- Routes for Glossary & Guidelines Analysis ---
+router.post("/analyze-glossary", validateModelMiddleware, resolveApiKeysMiddleware, analyzeGlossary);
+router.post("/analyze-guidelines", validateModelMiddleware, resolveApiKeysMiddleware, analyzeGuidelines);
+router.post("/extract-glossary", validateModelMiddleware, resolveApiKeysMiddleware, extractGlossary);
+router.post("/quick-translate-term", validateModelMiddleware, resolveApiKeysMiddleware, quickTranslateTerm);
 
-// Routes for Bilingual alignment
-router.post("/align-chapter", validateModelMiddleware, checkApiKeysFallback, alignChapter);
+// --- Routes for Translation Tasks ---
+router.post("/translate-raw", validateModelMiddleware, resolveApiKeysMiddleware, translateRaw);
+router.post("/polish-translation", validateModelMiddleware, resolveApiKeysMiddleware, polishTranslation);
+router.post("/qa-critique", validateModelMiddleware, resolveApiKeysMiddleware, qaCritique);
 
-// Health check endpoint
+// --- Routes for Bilingual alignment ---
+router.post("/align-chapter", validateModelMiddleware, resolveApiKeysMiddleware, alignChapter);
+
+// --- Health check endpoint ---
 router.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 export default router;
-

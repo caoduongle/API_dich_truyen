@@ -5,6 +5,7 @@ import { Edit3, AlertCircle } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
+import { apiFetch } from '../utils/apiClient';
 
 // Sub-components
 import { ProjectMetadataModal } from './translator-workspace/ProjectMetadataModal';
@@ -288,9 +289,8 @@ export default function TranslatorWorkspace({
     setSelectedSuggestions({});
 
     try {
-      const response = await fetch('/api/analyze-glossary', {
+      const response = await apiFetch('/api/analyze-glossary', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: sourceText,
           apiKeys,
@@ -398,9 +398,8 @@ export default function TranslatorWorkspace({
     setActiveStage('raw');
 
     try {
-      const response = await fetch('/api/translate-raw', {
+      const response = await apiFetch('/api/translate-raw', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: sourceText,
           genre: activeProject.genre,
@@ -498,9 +497,8 @@ export default function TranslatorWorkspace({
     setActiveStage('polished');
 
     try {
-      const response = await fetch('/api/polish-translation', {
+      const response = await apiFetch('/api/polish-translation', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceText: sourceText,
           rawTranslation: rawTranslation,
@@ -565,9 +563,8 @@ export default function TranslatorWorkspace({
         setIsCheckingQa(true);
         setQaIssues([]);
         try {
-          const qaResponse = await fetch('/api/qa-critique', {
+          const qaResponse = await apiFetch('/api/qa-critique', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               sourceText: sourceText,
               translatedText: polishedResult,

@@ -5,6 +5,7 @@ import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../components/NotificationSystem';
+import { apiFetch } from '../utils/apiClient';
 
 export interface UseExportFilesProps {
   activeProject: StoryProject;
@@ -233,9 +234,8 @@ export function useExportFiles({
 
         const translatedText = (chap.polishedTranslation || chap.rawTranslation || "").trim();
         try {
-          const res = await fetch('/api/align-chapter', {
+          const res = await apiFetch('/api/align-chapter', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               sourceText: chap.sourceText,
               translatedText: translatedText,

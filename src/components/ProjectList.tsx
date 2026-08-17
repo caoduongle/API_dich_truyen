@@ -3,7 +3,8 @@ import { StoryProject, GlossaryItem, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { triggerDownload } from '../utils/download';
-import { parseTxtContent, parseEpubFile } from '../utils/fileParser.ts';
+import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
+import { apiFetch } from '../utils/apiClient';
 import JSZip from 'jszip';
 import { 
   Plus, Trash2, Folder, BookOpen, Clock, Tag, FileText, Upload, Download, 
@@ -345,9 +346,8 @@ p {
       const mdText = await file.text();
       
       // Perform API call to parse guidelines using Gemini on server
-      const response = await fetch('/api/analyze-guidelines', {
+      const response = await apiFetch('/api/analyze-guidelines', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: mdText,
           apiKeys,

@@ -1,16 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Request, Response } from "express";
 import { analyzeGlossary } from "../glossaryController";
-import * as geminiService from "../../services/geminiService";
-import { translationChunkCache } from "../../utils/chunkCache";
+import * as geminiService from "../../services/geminiService.ts";
+import { translationChunkCache } from "../../utils/chunkCache.ts";
 
-vi.mock("../../services/geminiService", async (importOriginal) => {
+vi.mock("../../services/geminiService.ts", async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
     ...actual,
     generateWithRotation: vi.fn(),
     sleep: vi.fn(() => Promise.resolve()),
-    isOverloadError: vi.fn((err: any) => err.message && err.message.includes("503")),
+    isOverloadError: vi.fn((err: any) => err?.message?.includes("503") || false),
+    isSafetyOrEmptyError: vi.fn((err: any) => actual.isSafetyOrEmptyError(err)),
   };
 });
 
@@ -22,6 +23,10 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(geminiService.generateWithRotation).mockReset();
+    vi.mocked(geminiService.sleep).mockImplementation(() => Promise.resolve());
+    vi.mocked(geminiService.isOverloadError).mockImplementation((err: any) => err?.message?.includes("503") || false);
+    vi.mocked(geminiService.isSafetyOrEmptyError).mockImplementation((err: any) => err?.message?.includes("safety") || err?.name === "SafetyFilterError" || false);
     translationChunkCache.clear();
     jsonMock = vi.fn();
     statusMock = vi.fn().mockReturnValue({ json: jsonMock });
@@ -59,7 +64,7 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
   });
 
   it("should throw ALL_KEYS_EXHAUSTED error immediately", async () => {
-    vi.mocked(geminiService.generateWithRotation).mockRejectedValue(new Error("ALL_KEYS_EXHAUSTED: all keys failed"));
+    vi.mocked(geminiService.generateWithRotation).mockRejectedValueOnce(new Error("ALL_KEYS_EXHAUSTED: all keys failed"));
 
     await analyzeGlossary(req as Request, res as Response);
 
@@ -72,8 +77,9 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
   });
 
   it("should trigger Divide & Conquer split when safety block error occurs on long text", async () => {
-    // text length must be >= 300 chars to allow splitting
-    const longText = "A".repeat(200) + "\n" + "B".repeat(200); // 401 chars
+    const p1 = "萧炎看着面前的古老卷轴，心中掀起惊涛骇浪。".repeat(10);
+    const p2 = "药老的身影从戒指中缓缓浮现，抚须微笑道。".repeat(10);
+    const longText = p1 + "\n\n" + p2;
 
     req.body.text = longText;
 
@@ -81,9 +87,9 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
       // First call fails with safety block
       .mockRejectedValueOnce(new Error("safety block error"))
       // Recursive call for part 1 succeeds
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "A", "vietnamese": "A_VN", "type": "character", "note": "Character A"}]}', successKeyIndex: 0 })
+      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "萧炎", "vietnamese": "Tiêu Viêm", "type": "character", "note": "Nhân vật chính"}]}', successKeyIndex: 0 })
       // Recursive call for part 2 succeeds
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "B", "vietnamese": "B_VN", "type": "character", "note": "Character B"}]}', successKeyIndex: 1 });
+      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "药老", "vietnamese": "Dược Lão", "type": "character", "note": "Sư phụ"}]}', successKeyIndex: 1 });
 
     await analyzeGlossary(req as Request, res as Response);
 
@@ -92,8 +98,8 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
     expect(jsonMock).toHaveBeenCalledWith(
       expect.objectContaining({
         suggestions: [
-          expect.objectContaining({ chinese: "A", vietnamese: "A_VN" }),
-          expect.objectContaining({ chinese: "B", vietnamese: "B_VN" }),
+          expect.objectContaining({ chinese: "萧炎", vietnamese: "Tiêu Viêm" }),
+          expect.objectContaining({ chinese: "药老", vietnamese: "Dược Lão" }),
         ],
         successKeyIndex: 1, // returns the successKeyIndex of the last recursive call
       })
@@ -101,7 +107,9 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
   });
 
   it("should bubble up non-safety general errors immediately without splitting", async () => {
-    const longText = "A".repeat(200) + "\n" + "B".repeat(200); // 401 chars
+    const p1 = "萧炎看着面前的古老卷轴，心中掀起惊涛骇浪。".repeat(10);
+    const p2 = "药老的身影从戒指中缓缓浮现，抚须微笑道。".repeat(10);
+    const longText = p1 + "\n\n" + p2;
     req.body.text = longText;
 
     vi.mocked(geminiService.generateWithRotation)
@@ -119,7 +127,9 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
   });
 
   it("should gracefully recover if one leaf part fails and return suggestions from successful parts", async () => {
-    const longText = "A".repeat(200) + "\n" + "B".repeat(200);
+    const p1 = "萧炎看着面前的古老卷轴，心中掀起惊涛骇浪。".repeat(10);
+    const p2 = "药老的身影从戒指中缓缓浮现，抚须微笑道。".repeat(10);
+    const longText = p1 + "\n\n" + p2;
 
     req.body.text = longText;
 
@@ -127,7 +137,7 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
       // First call fails with safety block
       .mockRejectedValueOnce(new Error("safety block error"))
       // Part 1 succeeds
-      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "A", "vietnamese": "A_VN", "type": "character", "note": "Character A"}]}', successKeyIndex: 0 })
+      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "萧炎", "vietnamese": "Tiêu Viêm", "type": "character", "note": "Nhân vật chính"}]}', successKeyIndex: 0 })
       // Part 2 fails with safety block at leaf
       .mockRejectedValueOnce(new Error("safety block error at leaf"));
 
@@ -136,7 +146,7 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
     expect(jsonMock).toHaveBeenCalledWith(
       expect.objectContaining({
         suggestions: [
-          expect.objectContaining({ chinese: "A", vietnamese: "A_VN" }),
+          expect.objectContaining({ chinese: "萧炎", vietnamese: "Tiêu Viêm" }),
         ],
       })
     );

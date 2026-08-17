@@ -5,6 +5,7 @@ import { useNotifications } from './NotificationSystem';
 import { getChaptersByProjectFromDB } from '../services/db';
 import { triggerDownload } from '../utils/download';
 import { isHanEquivalent } from '@shared/sinoNormalize';
+import { apiFetch } from '../utils/apiClient';
 
 // Sub-components
 import { GlossaryHeader } from './glossary-manager/GlossaryHeader';
@@ -497,9 +498,8 @@ function GlossaryManager({
 
     try {
       const mdText = await file.text();
-      const response = await fetch('/api/analyze-guidelines', {
+      const response = await apiFetch('/api/analyze-guidelines', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: mdText, apiKeys: apiKeys, model: selectedModel })
       });
       if (!response.ok) throw new Error("Lỗi phản hồi phân tích cẩm nang từ server.");
