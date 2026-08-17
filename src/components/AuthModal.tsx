@@ -50,6 +50,9 @@ export default function AuthModal({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="auth-modal-title"
       className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 backdrop-blur-xs p-4 animate-in fade-in duration-200"
       onClick={(e) => {
         if (canDismiss && onClose && e.target === e.currentTarget) {

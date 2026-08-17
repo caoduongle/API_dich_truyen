@@ -7,8 +7,8 @@ import { NotificationProvider } from './components/NotificationSystem';
 import { AIConfigProvider, useAIConfigContext } from './context/AIConfigContext';
 import { ProjectProvider, useProjectContext } from './context/ProjectContext';
 import { checkAuthStatus, logoutAuth } from './utils/apiClient';
-
 import { TabSkeleton } from './components/common/Skeleton';
+import { useHotkeys } from './hooks/useHotkeys';
 
 // Code splitting các tab nặng qua React.lazy để tối ưu hóa initial bundle parse time
 const TranslatorWorkspace = React.lazy(() => import('./components/TranslatorWorkspace'));
@@ -132,6 +132,17 @@ function AppContent() {
     setLoadedChapter(null);
   }, []);
 
+  // Phím tắt bàn phím toàn cục
+  useHotkeys('alt+1', () => switchTab('translate'));
+  useHotkeys('alt+2', () => switchTab('auto-translate'));
+  useHotkeys('alt+3', () => switchTab('glossary'));
+  useHotkeys('alt+4', () => switchTab('history'));
+  useHotkeys('alt+5', () => switchTab('projects'));
+  useHotkeys('alt+,', () => setShowApiSettings((prev) => !prev));
+  useHotkeys('escape', () => {
+    if (showApiSettings) setShowApiSettings(false);
+  });
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-ink flex flex-col items-center justify-center font-sans text-text-main">
@@ -206,8 +217,13 @@ function AppContent() {
       <div className="bg-parchment border-b border-parchment-2 sticky top-14 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between overflow-x-auto scrollbar-none py-0.5">
-            <nav className="flex space-x-1 min-w-max">
+            <nav role="tablist" aria-label="Phân vùng làm việc chính" className="flex space-x-1 min-w-max">
               <button
+                id="tab-translate"
+                role="tab"
+                aria-selected={activeTab === 'translate'}
+                aria-controls="panel-translate"
+                tabIndex={0}
                 onClick={() => switchTab('translate')}
                 className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
                   activeTab === 'translate' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
@@ -218,6 +234,11 @@ function AppContent() {
               </button>
 
               <button
+                id="tab-auto-translate"
+                role="tab"
+                aria-selected={activeTab === 'auto-translate'}
+                aria-controls="panel-auto-translate"
+                tabIndex={0}
                 onClick={() => switchTab('auto-translate')}
                 className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
                   activeTab === 'auto-translate' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
@@ -228,6 +249,11 @@ function AppContent() {
               </button>
 
               <button
+                id="tab-glossary"
+                role="tab"
+                aria-selected={activeTab === 'glossary'}
+                aria-controls="panel-glossary"
+                tabIndex={0}
                 onClick={() => switchTab('glossary')}
                 className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
                   activeTab === 'glossary' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
@@ -248,6 +274,11 @@ function AppContent() {
               </button>
 
               <button
+                id="tab-history"
+                role="tab"
+                aria-selected={activeTab === 'history'}
+                aria-controls="panel-history"
+                tabIndex={0}
                 onClick={() => switchTab('history')}
                 className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
                   activeTab === 'history' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
@@ -263,6 +294,11 @@ function AppContent() {
               </button>
 
               <button
+                id="tab-projects"
+                role="tab"
+                aria-selected={activeTab === 'projects'}
+                aria-controls="panel-projects"
+                tabIndex={0}
                 onClick={() => switchTab('projects')}
                 className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
                   activeTab === 'projects' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
@@ -290,7 +326,12 @@ function AppContent() {
         <React.Suspense fallback={<TabSkeleton />}>
           {activeProject ? (
             <>
-              <div className={activeTab !== 'translate' ? 'hidden' : ''}>
+              <div
+                id="panel-translate"
+                role="tabpanel"
+                aria-labelledby="tab-translate"
+                className={activeTab !== 'translate' ? 'hidden' : ''}
+              >
                 {visitedTabs.has('translate') && (
                   <ErrorBoundary fallbackTitle="Lỗi phân vùng: Mặt Trận Dịch Thuật">
                     <MemoTranslatorWorkspace
@@ -308,7 +349,12 @@ function AppContent() {
                 )}
               </div>
 
-              <div className={activeTab !== 'auto-translate' ? 'hidden' : ''}>
+              <div
+                id="panel-auto-translate"
+                role="tabpanel"
+                aria-labelledby="tab-auto-translate"
+                className={activeTab !== 'auto-translate' ? 'hidden' : ''}
+              >
                 {visitedTabs.has('auto-translate') && (
                   <ErrorBoundary fallbackTitle="Lỗi phân vùng: Dịch Tự Động Toàn Bộ">
                     <MemoAutoTranslator
@@ -324,7 +370,12 @@ function AppContent() {
                 )}
               </div>
 
-              <div className={activeTab !== 'glossary' ? 'hidden' : ''}>
+              <div
+                id="panel-glossary"
+                role="tabpanel"
+                aria-labelledby="tab-glossary"
+                className={activeTab !== 'glossary' ? 'hidden' : ''}
+              >
                 {visitedTabs.has('glossary') && (
                   <ErrorBoundary fallbackTitle="Lỗi phân vùng: Từ Điển Nhân Vật">
                     <GlossaryManager
@@ -349,7 +400,12 @@ function AppContent() {
                 )}
               </div>
 
-              <div className={activeTab !== 'projects' ? 'hidden' : ''}>
+              <div
+                id="panel-projects"
+                role="tabpanel"
+                aria-labelledby="tab-projects"
+                className={activeTab !== 'projects' ? 'hidden' : ''}
+              >
                 {visitedTabs.has('projects') && (
                   <ErrorBoundary fallbackTitle="Lỗi phân vùng: Quản Lý Truyện">
                     <MemoProjectList
@@ -367,7 +423,12 @@ function AppContent() {
                 )}
               </div>
 
-              <div className={activeTab !== 'history' ? 'hidden' : ''}>
+              <div
+                id="panel-history"
+                role="tabpanel"
+                aria-labelledby="tab-history"
+                className={activeTab !== 'history' ? 'hidden' : ''}
+              >
                 {visitedTabs.has('history') && (
                   <ErrorBoundary fallbackTitle="Lỗi phân vùng: Lịch Sử Chương Dịch">
                     <MemoChapterHistoryPanel
@@ -383,17 +444,19 @@ function AppContent() {
             </>
           ) : (
             <ErrorBoundary fallbackTitle="Lỗi phân vùng: Quản Lý Truyện (Không có Dự Án)">
-              <MemoProjectList
-                projects={projects}
-                activeProjectId={activeProjectId}
-                onSelectProject={handleSelectProjectAndSwitch}
-                onDeleteProject={handleDeleteProject}
-                onCreateProject={handleCreateProjectAndSwitch}
-                onUpdateProject={handleUpdateProject}
-                apiKeys={apiKeys}
-                selectedModel={selectedModel}
-                isLoading={isLoading}
-              />
+              <div id="panel-projects" role="tabpanel" aria-labelledby="tab-projects">
+                <MemoProjectList
+                  projects={projects}
+                  activeProjectId={activeProjectId}
+                  onSelectProject={handleSelectProjectAndSwitch}
+                  onDeleteProject={handleDeleteProject}
+                  onCreateProject={handleCreateProjectAndSwitch}
+                  onUpdateProject={handleUpdateProject}
+                  apiKeys={apiKeys}
+                  selectedModel={selectedModel}
+                  isLoading={isLoading}
+                />
+              </div>
             </ErrorBoundary>
           )}
         </React.Suspense>

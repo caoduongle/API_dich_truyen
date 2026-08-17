@@ -9,6 +9,7 @@ import { cleanChineseText } from '../../utils/textCleaner';
 import { QaCritiquePanel } from './QaCritiquePanel';
 import { QuickAddTermModal } from './QuickAddTermModal';
 import { ChapterSelectorToolbar } from './ChapterSelectorToolbar';
+import { useHotkeys } from '../../hooks/useHotkeys';
 
 export interface BilingualEditorProps {
   sourceText: string;
@@ -112,6 +113,22 @@ export const BilingualEditor = React.memo(function BilingualEditor({
 
   const [selectedTerm, setSelectedTerm] = useState('');
   const [selectedContext, setSelectedContext] = useState('');
+
+  // Hotkey Ctrl+Enter: Dịch thô hoặc Chuốt văn tùy theo tab đang chọn
+  useHotkeys('ctrl+enter', () => {
+    if (activeStage === 'raw' && sourceText.trim() && !isTranslating) {
+      handleTranslateRaw();
+    } else if (activeStage === 'polished' && rawTranslation.trim() && !isPolishing) {
+      handlePolishTranslation();
+    }
+  });
+
+  // Hotkey Ctrl+S: Lưu chương dịch hiện tại
+  useHotkeys('ctrl+s', () => {
+    if (sourceText.trim() && (rawTranslation.trim() || polishedTranslation.trim())) {
+      handleSaveChapter();
+    }
+  });
 
   const handleTextareaSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
     const textarea = e.currentTarget;
@@ -311,6 +328,7 @@ export const BilingualEditor = React.memo(function BilingualEditor({
             id="btn-translate-draft1"
             disabled={isTranslating || !sourceText}
             onClick={handleTranslateRaw}
+            aria-label="Dịch thô chương hiện tại (Ctrl+Enter)"
             className="w-full sm:flex-1 flex items-center justify-center gap-1.5 bg-draft hover:bg-[#4E5E75] text-white font-bold px-3 py-2.5 rounded-[2px] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-xs shadow-xs"
           >
             {isTranslating ? (
@@ -321,7 +339,8 @@ export const BilingualEditor = React.memo(function BilingualEditor({
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 text-white fill-current" />
-                Dịch thô (GĐ 1)
+                <span>Dịch thô (GĐ 1)</span>
+                <kbd className="hidden lg:inline-block text-[9px] bg-black/20 px-1 py-0.5 rounded-[2px] font-mono opacity-75">Ctrl+↵</kbd>
               </>
             )}
           </button>
@@ -507,6 +526,7 @@ export const BilingualEditor = React.memo(function BilingualEditor({
             id="btn-polish"
             disabled={isPolishing || !rawTranslation}
             onClick={handlePolishTranslation}
+            aria-label="Chuốt văn phong thuần Việt (Ctrl+Enter)"
             className="flex-1 flex items-center justify-center gap-1.5 bg-polish hover:bg-[#A03522] active:bg-[#8F2D1E] text-white font-bold px-3.5 py-2.5 rounded-[2px] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs glow-polish text-xs"
             title="Phục vụ chuốt văn phong thuần Việt trôi chảy (Dựa trên dịch thô)"
           >
@@ -518,7 +538,8 @@ export const BilingualEditor = React.memo(function BilingualEditor({
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5 text-white fill-current" />
-                Chuốt văn thuần Việt
+                <span>Chuốt văn thuần Việt</span>
+                <kbd className="hidden lg:inline-block text-[9px] bg-black/20 px-1 py-0.5 rounded-[2px] font-mono opacity-80">Ctrl+↵</kbd>
               </>
             )}
           </button>
@@ -527,11 +548,13 @@ export const BilingualEditor = React.memo(function BilingualEditor({
             id="btn-save"
             disabled={!sourceText || (!rawTranslation && !polishedTranslation)}
             onClick={handleSaveChapter}
+            aria-label="Lưu chương dịch vào lịch sử (Ctrl+S)"
             className="flex items-center justify-center gap-1.5 bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main border border-parchment-2 font-bold px-4 py-2.5 rounded-[2px] transition-colors cursor-pointer text-xs"
-            title="Lưu trữ chương đã biên dịch hoàn thiện này vào lịch sử truyện"
+            title="Lưu trữ chương đã biên dịch hoàn thiện này vào lịch sử truyện (Ctrl+S)"
           >
             <Save className="w-3.5 h-3.5 text-text-muted" />
-            Lưu chương dịch
+            <span>Lưu chương dịch</span>
+            <kbd className="hidden lg:inline-block text-[9px] bg-parchment-2 px-1 py-0.5 rounded-[2px] font-mono text-text-muted">Ctrl+S</kbd>
           </button>
         </div>
       </div>

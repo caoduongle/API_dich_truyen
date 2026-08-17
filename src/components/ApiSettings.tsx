@@ -53,6 +53,9 @@ export default function ApiSettings({
   return (
     /* Backdrop */
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="api-settings-title"
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-xs"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
@@ -66,7 +69,7 @@ export default function ApiSettings({
               <Cpu className="w-3.5 h-3.5 text-white" />
             </div>
             <div>
-              <h2 className="text-sm font-display font-bold text-text-main">Cấu hình AI &amp; Bản Thảo</h2>
+              <h2 id="api-settings-title" className="text-sm font-display font-bold text-text-main">Cấu hình AI &amp; Bản Thảo</h2>
               <p className="text-[11px] text-text-muted">
                 {validKeyCount > 0 ? (
                   <span className="text-text-muted font-medium flex items-center gap-1">
@@ -80,6 +83,7 @@ export default function ApiSettings({
           </div>
           <button
             onClick={onClose}
+            aria-label="Đóng bảng cấu hình AI"
             className="text-text-muted hover:text-text-main hover:bg-parchment-2 p-1.5 rounded-[2px] transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
