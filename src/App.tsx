@@ -24,8 +24,11 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 
 const MemoTranslatorWorkspace = React.memo(TranslatorWorkspace);
 const MemoAutoTranslator = React.memo(AutoTranslator);
+const MemoGlossaryManager = React.memo(GlossaryManager);
 const MemoProjectList = React.memo(ProjectList);
 const MemoChapterHistoryPanel = React.memo(ChapterHistoryPanel);
+
+const EMPTY_PENDING_GLOSSARY: never[] = [];
 
 function AppContent() {
   const {
@@ -272,9 +275,9 @@ function AppContent() {
                     {activeProject.glossary.length}
                   </span>
                 )}
-                {activeProject && (activeProject.pendingGlossary || []).length > 0 && (
+                {activeProject && (activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY).length > 0 && (
                   <span className="bg-amber-950/60 text-amber-300 border border-amber-800/50 text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] shrink-0 ml-1">
-                    {t('glossary.pendingCount', { count: (activeProject.pendingGlossary || []).length })}
+                    {t('glossary.pendingCount', { count: (activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY).length })}
                   </span>
                 )}
               </button>
@@ -384,10 +387,10 @@ function AppContent() {
               >
                 {visitedTabs.has('glossary') && (
                   <ErrorBoundary fallbackTitle="Lỗi phân vùng: Từ Điển Nhân Vật">
-                    <GlossaryManager
+                    <MemoGlossaryManager
                       projectId={activeProject.id}
                       glossary={activeProject.glossary}
-                      pendingGlossary={activeProject.pendingGlossary || []}
+                      pendingGlossary={activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY}
                       chapters={activeProject.chapters}
                       apiKeys={apiKeys}
                       selectedModel={selectedModel}

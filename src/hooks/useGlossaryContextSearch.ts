@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GlossaryItem, Chapter, ChapterMetadata } from '../types';
 import { getChaptersByProjectFromDB } from '../services/db';
 
@@ -10,7 +10,7 @@ export interface ContextMatchItem {
   paragraphIndex: number;
 }
 
-export function useGlossaryContextSearch(projectId: string, chapters: ChapterMetadata[] = [], glossary: GlossaryItem[] = []) {
+export function useGlossaryContextSearch(projectId: string, chapters: ChapterMetadata[] = [], _glossary: GlossaryItem[] = []) {
   const [fullChapters, setFullChapters] = useState<Chapter[]>([]);
   const [searchContextMatches, setSearchContextMatches] = useState<ContextMatchItem[]>([]);
   const [contextFilterType, setContextFilterType] = useState<'all' | 'source' | 'translation'>('all');
@@ -49,19 +49,28 @@ export function useGlossaryContextSearch(projectId: string, chapters: ChapterMet
           break;
         }
       }
+      if (results.length >= 3) break;
     }
     return results;
   }, [fullChapters]);
 
-  const scanOccurrences = useCallback((item: GlossaryItem) => {
-    if (!fullChapters || fullChapters.length === 0) {
+  const scanOccurrences = useCallback((itemOrZh: GlossaryItem | string, viTermParam?: string) => {
+    let zhTerm = '';
+    let viTerm = '';
+    if (typeof itemOrZh === 'object' && itemOrZh !== null) {
+      zhTerm = (itemOrZh.chinese || '').trim();
+      viTerm = (itemOrZh.vietnamese || '').trim();
+    } else if (typeof itemOrZh === 'string') {
+      zhTerm = itemOrZh.trim();
+      viTerm = (viTermParam || '').trim();
+    }
+
+    if (!zhTerm && !viTerm) {
       setSearchContextMatches([]);
       return;
     }
 
     const matches: ContextMatchItem[] = [];
-    const zhTerm = item.chinese.trim();
-    const viTerm = item.vietnamese.trim();
 
     fullChapters.forEach((chap) => {
       if (zhTerm && chap.sourceText) {
@@ -113,26 +122,6 @@ export function useGlossaryContextSearch(projectId: string, chapters: ChapterMet
     setSearchContextMatches(matches);
   }, [fullChapters]);
 
-  // Compute total occurrences of all glossary terms across all chapters
-  const chapterOccurrencesCount = useMemo(() => {
-    const counts: Record<string, number> = {};
-    if (!fullChapters || fullChapters.length === 0) return counts;
-
-    glossary.forEach((item) => {
-      const zh = item.chinese.trim();
-      if (!zh) return;
-      let total = 0;
-      fullChapters.forEach((chap) => {
-        if (chap.sourceText) {
-          const matched = chap.sourceText.split(zh).length - 1;
-          total += matched;
-        }
-      });
-      counts[item.id] = total;
-    });
-    return counts;
-  }, [fullChapters, glossary]);
-
   return {
     fullChapters,
     searchContextMatches,
@@ -141,6 +130,5 @@ export function useGlossaryContextSearch(projectId: string, chapters: ChapterMet
     setContextFilterType,
     findLiveContext,
     scanOccurrences,
-    chapterOccurrencesCount,
   };
 }

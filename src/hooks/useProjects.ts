@@ -42,6 +42,8 @@ const DEFAULT_PROJECTS: any[] = [
 function normalizeProject(project: any): StoryProject {
     return {
         ...project,
+        pendingGlossary: project.pendingGlossary || [],
+        ignoredDuplicatePairs: project.ignoredDuplicatePairs || [],
         chapters: (project.chapters || []).map((c: any) => {
             if ('sourceText' in c) {
                 return {
@@ -80,8 +82,9 @@ export function useProjects() {
         async function loadData() {
             const stored = await getProjectsFromDB();
             if (stored.length > 0) {
-                setProjects(stored);
-                setActiveProjectId(stored[0].id);
+                const normalized = stored.map(normalizeProject);
+                setProjects(normalized);
+                setActiveProjectId(normalized[0].id);
             } else {
                 for (const p of DEFAULT_PROJECTS) {
                     await saveProjectToDB(p);
@@ -101,23 +104,7 @@ export function useProjects() {
 
     const handleUpdateProject = useCallback(async (updatedProj: StoryProject) => {
         await saveProjectToDB(updatedProj);
-
-        const normalizedProj: StoryProject = {
-            ...updatedProj,
-            chapters: updatedProj.chapters.map(c => {
-                if ('sourceText' in c) {
-                    return {
-                        id: c.id,
-                        title: c.title,
-                        status: c.status || 'not_started',
-                        createdAt: c.createdAt,
-                        updatedAt: c.updatedAt
-                    };
-                }
-                return c as ChapterMetadata;
-            })
-        };
-
+        const normalizedProj = normalizeProject(updatedProj);
         setProjects(prev => prev.map(p => p.id === normalizedProj.id ? normalizedProj : p));
     }, [setProjects]);
 
@@ -173,25 +160,12 @@ export function useProjects() {
             id,
             glossary: newProjData.glossary || [],
             chapters: newProjData.chapters || [],
+            pendingGlossary: newProjData.pendingGlossary || [],
+            ignoredDuplicatePairs: newProjData.ignoredDuplicatePairs || [],
             createdAt: new Date().toISOString()
         };
         await saveProjectToDB(newProj);
-
-        const normalizedProj: StoryProject = {
-            ...newProj,
-            chapters: newProj.chapters.map(c => {
-                if ('sourceText' in c) {
-                    return {
-                        id: c.id,
-                        title: c.title,
-                        status: c.status || 'not_started',
-                        createdAt: c.createdAt,
-                        updatedAt: c.updatedAt
-                    };
-                }
-                return c as ChapterMetadata;
-            })
-        };
+        const normalizedProj = normalizeProject(newProj);
 
         setProjects(prev => [normalizedProj, ...prev]);
         setActiveProjectId(id);
