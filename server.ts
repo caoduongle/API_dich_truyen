@@ -39,12 +39,23 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server fully started and listening on http://localhost:${PORT}`);
     if (!process.env.REDIS_URL) {
       console.warn("[RateLimiter] Đang dùng in-memory rate limiter — CHỈ chính xác khi chạy 1 instance. Nếu scale nhiều instance, hãy cấu hình REDIS_URL để bật rate limiter phân tán.");
     }
   });
+
+  const shutdown = () => {
+    console.log("\n[Server] Shutting down server gracefully...");
+    server.close(() => {
+      console.log("[Server] HTTP server closed.");
+      process.exit(0);
+    });
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 startServer();

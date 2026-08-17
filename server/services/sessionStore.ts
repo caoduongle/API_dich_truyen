@@ -52,6 +52,16 @@ class SessionStore {
   }
 
   /**
+   * Dừng timer dọn dẹp bộ nhớ định kỳ (dùng khi shutdown máy chủ hoặc teardown tests)
+   */
+  stopCleanup(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+  }
+
+  /**
    * Tạo phiên làm việc mới lưu danh sách API keys và trả về session token.
    */
   async createSession(

@@ -55,10 +55,20 @@ if (cleanupInterval && typeof cleanupInterval.unref === 'function') {
   cleanupInterval.unref();
 }
 
+/**
+ * Dừng timer dọn dẹp bộ nhớ định kỳ (dùng khi shutdown máy chủ hoặc teardown tests)
+ */
+export function stopGeminiCleanup(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+  }
+}
+
 // Exported for testing purposes
 export const _testMaps = {
   blacklistedKeys,
-  nextAllowedTimeByKey
+  nextAllowedTimeByKey,
+  stopGeminiCleanup
 };
 
 // --- OVERLOAD (503) RETRY & COOLDOWN ---

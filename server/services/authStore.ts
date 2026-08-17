@@ -44,6 +44,16 @@ class AuthStore {
   }
 
   /**
+   * Dừng timer dọn dẹp bộ nhớ định kỳ (dùng khi shutdown máy chủ hoặc teardown tests)
+   */
+  stopCleanup(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+  }
+
+  /**
    * Kiểm tra xem hệ thống có đang bật chế độ bảo vệ mật khẩu hay không.
    */
   isAuthRequired(): boolean {

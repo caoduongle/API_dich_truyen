@@ -20,6 +20,13 @@ export class ChunkCache {
     }
   }
 
+  public stopCleanup(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+  }
+
   public generateKey(
     task: string,
     text: string,
