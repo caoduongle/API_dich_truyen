@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation } from "../../services/geminiService.ts";
-import { safeParseJson, LITERARY_TRANSLATION_FRAMING } from "../../utils/text.ts";
+import { generateWithRotation } from "../../services/geminiService";
+import { safeParseJson, LITERARY_TRANSLATION_FRAMING } from "../../utils/text";
 
 /**
  * POST /api/qa-critique

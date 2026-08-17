@@ -2,8 +2,8 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import apiRouter from "./server/routes/api.ts";
-import { createRateLimiter } from "./server/middleware/rateLimiter.ts";
+import apiRouter from "./server/routes/api";
+import { createRateLimiter } from "./server/middleware/rateLimiter";
 
 dotenv.config();
 

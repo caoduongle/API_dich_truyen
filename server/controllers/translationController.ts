@@ -2,6 +2,6 @@
  * Translation Controllers Re-export
  * Tách biệt các controller dịch thô (Phase 1), chuốt văn (Phase 2), và kiểm duyệt AI (QA Critique).
  */
-export * from "./translation/rawController.ts";
-export * from "./translation/polishController.ts";
-export * from "./translation/qaController.ts";
+export * from "./translation/rawController";
+export * from "./translation/polishController";
+export * from "./translation/qaController";

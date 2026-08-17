@@ -4,28 +4,28 @@ import {
   analyzeGuidelines,
   extractGlossary,
   quickTranslateTerm
-} from "../controllers/glossaryController.ts";
+} from "../controllers/glossaryController";
 import {
   translateRaw,
   polishTranslation,
   qaCritique
-} from "../controllers/translationController.ts";
+} from "../controllers/translationController";
 import {
   alignChapter
-} from "../controllers/alignmentController.ts";
+} from "../controllers/alignmentController";
 import {
   createSessionHandler,
   getSessionStatusHandler,
   deleteSessionHandler
-} from "../controllers/sessionController.ts";
+} from "../controllers/sessionController";
 import {
   getAuthStatusHandler,
   loginHandler,
   logoutHandler
-} from "../controllers/authController.ts";
-import { authMiddleware } from "../middleware/authMiddleware.ts";
-import { sessionStore } from "../services/sessionStore.ts";
-import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models.ts";
+} from "../controllers/authController";
+import { authMiddleware } from "../middleware/authMiddleware";
+import { sessionStore } from "../services/sessionStore";
+import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models";
 
 const router = Router();
 

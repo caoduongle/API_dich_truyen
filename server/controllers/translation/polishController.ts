@@ -1,10 +1,10 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService.ts";
-import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING } from "../../utils/text.ts";
-import { translationChunkCache } from "../../utils/chunkCache.ts";
-import { checkLeftoverGlossary } from "../glossaryController.ts";
-import { isHanEquivalent } from "../../../shared/sinoNormalize.ts";
+import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService";
+import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING } from "../../utils/text";
+import { translationChunkCache } from "../../utils/chunkCache";
+import { checkLeftoverGlossary } from "../glossaryController";
+import { isHanEquivalent } from "@shared/sinoNormalize";
 
 /**
  * Gọi trực tiếp tác vụ chuốt văn phong văn học Giai đoạn 2

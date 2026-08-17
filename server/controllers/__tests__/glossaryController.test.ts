@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Request, Response } from "express";
 import { analyzeGlossary } from "../glossaryController";
-import * as geminiService from "../../services/geminiService.ts";
-import { translationChunkCache } from "../../utils/chunkCache.ts";
+import * as geminiService from "../../services/geminiService";
+import { translationChunkCache } from "../../utils/chunkCache";
 
-vi.mock("../../services/geminiService.ts", async (importOriginal) => {
+vi.mock("../../services/geminiService", async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
     ...actual,

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { authStore } from "../services/authStore.ts";
+import { authStore } from "../services/authStore";
 
 const PUBLIC_API_PATHS = new Set([
   "/auth/login",

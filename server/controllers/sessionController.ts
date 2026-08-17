@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { sessionStore } from "../services/sessionStore.ts";
-import { MAX_API_KEYS_PER_REQUEST } from "../constants/models.ts";
+import { sessionStore } from "../services/sessionStore";
+import { MAX_API_KEYS_PER_REQUEST } from "../constants/models";
 
 /**
  * POST /api/session-keys

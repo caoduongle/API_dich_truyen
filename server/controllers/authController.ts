@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { authStore } from "../services/authStore.ts";
+import { authStore } from "../services/authStore";
 
 /**
  * GET /api/auth/status

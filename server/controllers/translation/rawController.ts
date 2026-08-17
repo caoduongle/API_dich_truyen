@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService.ts";
-import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING } from "../../utils/text.ts";
-import { translationChunkCache } from "../../utils/chunkCache.ts";
-import { validateAndSnapBackEntities, findCanonicalSubstring } from "../../../shared/sinoNormalize.ts";
+import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService";
+import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING } from "../../utils/text";
+import { translationChunkCache } from "../../utils/chunkCache";
+import { validateAndSnapBackEntities, findCanonicalSubstring } from "@shared/sinoNormalize";
 
 /**
  * Gọi trực tiếp tác vụ dịch thô Giai đoạn 1 từ Gemini API

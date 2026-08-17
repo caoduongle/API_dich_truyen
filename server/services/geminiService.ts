@@ -1,6 +1,6 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { safeParseJson, redactApiKey } from "../utils/text.ts";
-import { DEFAULT_MODEL_ID } from "../constants/models.ts";
+import { safeParseJson, redactApiKey } from "../utils/text";
+import { DEFAULT_MODEL_ID } from "../constants/models";
 
 const DEFAULT_SAFETY_SETTINGS = [
   {

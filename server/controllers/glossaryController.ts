@@ -1,11 +1,11 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError, SafetyFilterError } from "../services/geminiService.ts";
-import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, LITERARY_TRANSLATION_FRAMING } from "../utils/text.ts";
-import { translationChunkCache } from "../utils/chunkCache.ts";
-import { parseGlossaryFromMd } from "../utils/parser.ts";
-import { validateAndSnapBackEntities, isHanEquivalent } from "../../shared/sinoNormalize.ts";
-import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts.ts";
+import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError, SafetyFilterError } from "../services/geminiService";
+import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, LITERARY_TRANSLATION_FRAMING } from "../utils/text";
+import { translationChunkCache } from "../utils/chunkCache";
+import { parseGlossaryFromMd } from "../utils/parser";
+import { validateAndSnapBackEntities, isHanEquivalent } from "@shared/sinoNormalize";
+import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts";
 
 // --- GIỚI HẠN CẮT VĂN BẢN ĐẦU VÀO ---
 // Giới hạn ký tự gửi đến Gemini để tiết kiệm token/chi phí API.

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Request, Response, NextFunction } from "express";
-import { authStore } from "../../services/authStore.ts";
+import { authStore } from "../../services/authStore";
 import {
   getAuthStatusHandler,
   loginHandler,
   logoutHandler,
-} from "../authController.ts";
-import { authMiddleware } from "../../middleware/authMiddleware.ts";
+} from "../authController";
+import { authMiddleware } from "../../middleware/authMiddleware";
 
 describe("Auth Module: authStore, authController, and authMiddleware", () => {
   let req: Partial<Request>;

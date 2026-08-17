@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation } from "../services/geminiService.ts";
-import { safeParseJson, LITERARY_TRANSLATION_FRAMING } from "../utils/text.ts";
+import { generateWithRotation } from "../services/geminiService";
+import { safeParseJson, LITERARY_TRANSLATION_FRAMING } from "../utils/text";
 
 // 4. API: Gióng hàng đối sọc dữ liệu song ngữ xuất bản học liệu JSONL Fine-tuning
 export async function alignChapter(req: Request, res: Response): Promise<void> {
