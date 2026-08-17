@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback, useTransition } from 'react';
 import { 
   BookOpenText, Settings, History, Folder, Cpu, Languages, Lock, Unlock 
 } from 'lucide-react';
-import { useProjects } from './hooks/useProjects';
-import { useAIConfig } from './hooks/useAIConfig';
 import { Chapter, StoryProject } from './types';
 import { NotificationProvider } from './components/NotificationSystem';
+import { AIConfigProvider, useAIConfigContext } from './context/AIConfigContext';
+import { ProjectProvider, useProjectContext } from './context/ProjectContext';
 import { checkAuthStatus, logoutAuth } from './utils/apiClient';
 
 // Tách nhỏ các view nặng để tối ưu hóa re-render
@@ -43,7 +43,7 @@ function AppContent() {
     handleDiscardPendingItem,
     handleDeleteChapterHistory,
     handleResetChapters,
-  } = useProjects();
+  } = useProjectContext();
 
   const {
     apiKeys,
@@ -59,7 +59,7 @@ function AppContent() {
     handleUpdateKeyIndex,
     handleDeleteKeyIndex,
     handleImportClipboardKeys,
-  } = useAIConfig();
+  } = useAIConfigContext();
 
   const [activeTab, setActiveTab] = useState<'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects'>('translate');
   const [, startTransition] = useTransition();
@@ -447,7 +447,11 @@ function AppContent() {
 export default function App() {
   return (
     <NotificationProvider>
-      <AppContent />
+      <AIConfigProvider>
+        <ProjectProvider>
+          <AppContent />
+        </ProjectProvider>
+      </AIConfigProvider>
     </NotificationProvider>
   );
 }
