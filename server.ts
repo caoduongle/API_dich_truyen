@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import apiRouter from "./server/routes/api";
 import { createRateLimiter } from "./server/middleware/rateLimiter";
+import { metricsMiddleware } from "./server/middleware/metricsMiddleware";
 import { SERVER_CONFIG } from "@shared/constants";
 
 dotenv.config();
@@ -13,6 +14,9 @@ const app = express();
 app.set('trust proxy', process.env.TRUST_PROXY_HOPS ? Number(process.env.TRUST_PROXY_HOPS) : 1);
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : SERVER_CONFIG.DEFAULT_PORT;
+
+// Structured HTTP logging & metrics collection
+app.use(metricsMiddleware);
 
 // Hỗ trợ JSON Body dung lượng lớn cho các chương truyện dài
 app.use(express.json({ limit: SERVER_CONFIG.BODY_SIZE_LIMIT }));

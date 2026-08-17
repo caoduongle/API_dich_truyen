@@ -26,6 +26,7 @@ import {
 import { authMiddleware } from "../middleware/authMiddleware";
 import { sessionStore } from "../services/sessionStore";
 import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models";
+import { metricsService } from "../services/metricsService";
 
 const router = Router();
 
@@ -147,9 +148,34 @@ router.post("/qa-critique", validateModelMiddleware, resolveApiKeysMiddleware, q
 // --- Routes for Bilingual alignment ---
 router.post("/align-chapter", validateModelMiddleware, resolveApiKeysMiddleware, alignChapter);
 
-// --- Health check endpoint ---
-router.get("/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+// --- Health Check & System Diagnostics Endpoint ---
+router.get("/health", async (_req: Request, res: Response) => {
+  const activeSessions = await sessionStore.getActiveSessionCount();
+  const hasRedis = !!process.env.REDIS_URL;
+
+  res.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: metricsService.getFormattedUptime(),
+    uptimeSeconds: metricsService.getUptimeSeconds(),
+    environment: process.env.NODE_ENV || "development",
+    memory: metricsService.getMemoryUsage(),
+    redis: {
+      enabled: hasRedis,
+      mode: hasRedis ? "redis" : "in-memory",
+    },
+    sessions: {
+      activeCount: activeSessions,
+    },
+    models: {
+      supported: ALLOWED_MODEL_IDS,
+    },
+  });
+});
+
+// --- Performance Metrics Endpoint ---
+router.get("/metrics", (_req: Request, res: Response) => {
+  res.json(metricsService.getMetrics());
 });
 
 export default router;

@@ -62,6 +62,28 @@ class SessionStore {
   }
 
   /**
+   * Đếm số lượng session đang hoạt động
+   */
+  async getActiveSessionCount(): Promise<number> {
+    if (this.redisClient) {
+      try {
+        const keys = await this.redisClient.keys("session:*");
+        return keys.length;
+      } catch (_) {
+        return 0;
+      }
+    }
+    const now = Date.now();
+    let count = 0;
+    for (const [, data] of this.memorySessions) {
+      if (now <= data.expiresAt) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
    * Tạo phiên làm việc mới lưu danh sách API keys và trả về session token.
    */
   async createSession(
