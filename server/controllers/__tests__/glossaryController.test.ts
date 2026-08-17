@@ -117,4 +117,44 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
       })
     );
   });
+
+  it("should gracefully recover if one leaf part fails and return suggestions from successful parts", async () => {
+    const longText = "A".repeat(200) + "\n" + "B".repeat(200);
+
+    req.body.text = longText;
+
+    vi.mocked(geminiService.generateWithRotation)
+      // First call fails with safety block
+      .mockRejectedValueOnce(new Error("safety block error"))
+      // Part 1 succeeds
+      .mockResolvedValueOnce({ text: '{"suggestions": [{"chinese": "A", "vietnamese": "A_VN", "type": "character", "note": "Character A"}]}', successKeyIndex: 0 })
+      // Part 2 fails with safety block at leaf
+      .mockRejectedValueOnce(new Error("safety block error at leaf"));
+
+    await analyzeGlossary(req as Request, res as Response);
+
+    expect(jsonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        suggestions: [
+          expect.objectContaining({ chinese: "A", vietnamese: "A_VN" }),
+        ],
+      })
+    );
+  });
+
+  it("should gracefully return empty suggestions if the entire text is blocked by safety filter", async () => {
+    req.body.text = "Văn bản nhạy cảm bị chặn hoàn toàn bởi bộ lọc an toàn.";
+
+    vi.mocked(geminiService.generateWithRotation)
+      .mockRejectedValue(new geminiService.SafetyFilterError("safety block error"));
+
+    await analyzeGlossary(req as Request, res as Response);
+
+    expect(statusMock).not.toHaveBeenCalledWith(500);
+    expect(jsonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        suggestions: [],
+      })
+    );
+  });
 });

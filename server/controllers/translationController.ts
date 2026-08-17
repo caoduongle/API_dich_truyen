@@ -239,11 +239,24 @@ async function translateRawWithContentSplit(
   }
 
   if (estimateTokenCount(text) < 90 || depth > 4) {
-    const directRes = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description);
-    if (directRes.rawTranslation) {
-      translationChunkCache.set(cacheKey, { text: directRes.rawTranslation, discoveredEntities: directRes.discoveredEntities });
+    try {
+      const directRes = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description);
+      if (directRes.rawTranslation) {
+        translationChunkCache.set(cacheKey, { text: directRes.rawTranslation, discoveredEntities: directRes.discoveredEntities });
+      }
+      return directRes;
+    } catch (leafErr: any) {
+      if (depth > 0) {
+        console.warn(`[Raw Translation Leaf Fallback] Đoạn lá (depth ${depth}, ~${text.length} ký tự) bị lỗi/chặn bộ lọc. Kích hoạt cứu nguy:`, leafErr.message);
+        return {
+          rawTranslation: `[Chưa dịch được đoạn này do bộ lọc an toàn: ${text.substring(0, 40)}...]`,
+          discoveredEntities: [],
+          successKeyIndex: startKeyIndex,
+          isPartial: true
+        };
+      }
+      throw leafErr;
     }
-    return directRes;
   }
 
   // Sleep Backoff: Tránh gửi dồn dập các nhánh đệ quy song song cùng lúc
@@ -302,6 +315,15 @@ async function translateRawWithContentSplit(
       const parts = splitTextAdaptively(text, partsCount);
 
       if (parts.length <= 1) {
+        if (depth > 0) {
+          console.warn(`[Divide & Conquer Raw Fallback] Không thể chia nhỏ hơn tại depth ${depth}. Kích hoạt cứu nguy đoạn này.`);
+          return {
+            rawTranslation: `[Chưa dịch được đoạn này do bộ lọc an toàn: ${text.substring(0, 40)}...]`,
+            discoveredEntities: [],
+            successKeyIndex: startKeyIndex,
+            isPartial: true
+          };
+        }
         throw error;
       }
 
@@ -557,11 +579,23 @@ async function polishWithContentSplit(
   }
 
   if (estimateTokenCount(rawTranslation) < 100 || depth > 4) {
-    const directRes = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description);
-    if (directRes.polishedTranslation) {
-      translationChunkCache.set(cacheKey, { text: directRes.polishedTranslation });
+    try {
+      const directRes = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description);
+      if (directRes.polishedTranslation) {
+        translationChunkCache.set(cacheKey, { text: directRes.polishedTranslation });
+      }
+      return directRes;
+    } catch (leafErr: any) {
+      if (depth > 0) {
+        console.warn(`[Polish Leaf Fallback] Đoạn lá (depth ${depth}, ~${rawTranslation.length} ký tự) bị lỗi/chặn chuốt văn. Giữ lại bản dịch thô:`, leafErr.message);
+        return {
+          polishedTranslation: rawTranslation,
+          successKeyIndex: startKeyIndex,
+          isPartial: true
+        };
+      }
+      throw leafErr;
     }
-    return directRes;
   }
 
   if (depth > 0) {
@@ -591,6 +625,14 @@ async function polishWithContentSplit(
       const rawParts = splitTextAdaptively(rawTranslation, partsCount);
 
       if (rawParts.length <= 1) {
+        if (depth > 0) {
+          console.warn(`[Divide & Conquer Polish Fallback] Không thể chia nhỏ hơn tại depth ${depth}. Giữ nguyên bản dịch thô.`);
+          return {
+            polishedTranslation: rawTranslation,
+            successKeyIndex: startKeyIndex,
+            isPartial: true
+          };
+        }
         throw error;
       }
 
