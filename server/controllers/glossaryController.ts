@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation, sleep, isOverloadError } from "../services/geminiService.ts";
-import { safeParseJson, findSplitPoint } from "../utils/text.ts";
+import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../services/geminiService.ts";
+import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, LITERARY_TRANSLATION_FRAMING } from "../utils/text.ts";
+import { translationChunkCache } from "../utils/chunkCache.ts";
 import { parseGlossaryFromMd } from "../utils/parser.ts";
 import { validateAndSnapBackEntities, isHanEquivalent } from "../../shared/sinoNormalize.ts";
 import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts.ts";
@@ -30,6 +31,7 @@ export async function checkLeftoverGlossary(
     }
 
     const systemInstruction =
+        LITERARY_TRANSLATION_FRAMING +
         "Bạn là trợ lý rà soát thuật ngữ dịch thuật chuyên nghiệp Trung - Việt.\n" +
         "Nhiệm vụ của bạn là rà soát văn bản gốc tiếng Trung để tìm xem còn nhân vật, địa danh, chiêu thức bối cảnh nào bị bỏ sót hay chưa được cấu hình trong bảng từ điển được cung cấp không.\n" +
         "Lưu ý: Chỉ trích xuất từ bị sót CHƯA CÓ trong bảng từ điển được cung cấp. Nếu không bị sót từ nào, hãy trả về danh sách trống.\n" +
@@ -170,8 +172,22 @@ async function analyzeGlossaryWithContentSplit(
     depth = 0,
     startKeyIndex = 0
 ): Promise<{ suggestions: any[]; successKeyIndex: number }> {
-  if (text.length < 300 || depth > 4) {
-    return callGlossaryAnalysisDirect(text, apiKeys, model, startKeyIndex, systemInstruction, schema);
+  const cacheKey = translationChunkCache.generateKey("glossary", text, { model });
+  const cached = translationChunkCache.get(cacheKey);
+  if (cached && Array.isArray(cached.suggestions)) {
+    console.log(`[Cache Hit - Glossary] Tận dụng gợi ý thuật ngữ lưu đệm (${cached.suggestions.length} từ)`);
+    return {
+      suggestions: cached.suggestions,
+      successKeyIndex: startKeyIndex,
+    };
+  }
+
+  if (estimateTokenCount(text) < 180 || depth > 4) {
+    const directRes = await callGlossaryAnalysisDirect(text, apiKeys, model, startKeyIndex, systemInstruction, schema);
+    if (directRes.suggestions) {
+      translationChunkCache.set(cacheKey, { suggestions: directRes.suggestions });
+    }
+    return directRes;
   }
 
   if (depth > 0) {
@@ -179,44 +195,52 @@ async function analyzeGlossaryWithContentSplit(
   }
 
   try {
-    return await callGlossaryAnalysisDirect(text, apiKeys, model, startKeyIndex, systemInstruction, schema);
+    const directRes = await callGlossaryAnalysisDirect(text, apiKeys, model, startKeyIndex, systemInstruction, schema);
+    if (directRes.suggestions) {
+      translationChunkCache.set(cacheKey, { suggestions: directRes.suggestions });
+    }
+    return directRes;
   } catch (error: any) {
-    const errorMsg = (error.message || "").toLowerCase();
     if (error.message && error.message.startsWith("ALL_KEYS_EXHAUSTED")) {
-      throw error;
+      if (!isSafetyOrEmptyError(error)) {
+        throw error;
+      }
     }
 
-    const isSafetyOrEmpty = errorMsg.includes("safety") ||
-        errorMsg.includes("block") ||
-        errorMsg.includes("content") ||
-        errorMsg.includes("trống") ||
-        errorMsg.includes("empty") ||
-        errorMsg.includes("finishreason") ||
-        errorMsg.includes("filter") ||
-        errorMsg.includes("candidate");
-
-    if (isSafetyOrEmpty) {
-      console.warn(`[Divide & Conquer Glossary] Phát hiện lỗi ở Độ sâu ${depth}, đang chia nhỏ đoạn ${text.length} ký tự...`);
+    if (isSafetyOrEmptyError(error)) {
+      const partsCount = depth >= 2 ? 3 : 2;
+      console.warn(`[Divide & Conquer Adaptive Split Glossary] Phát hiện lỗi ở Độ sâu ${depth}, đang chia ${partsCount} phần (đoạn ${text.length} ký tự)...`);
 
       await sleep((depth + 1) * 750);
 
-      const splitIdx = findSplitPoint(text);
-      const part1 = text.substring(0, splitIdx).trim();
-      const part2 = text.substring(splitIdx).trim();
+      const parts = splitTextAdaptively(text, partsCount);
 
-      if (part1.length === 0 || part2.length === 0) {
+      if (parts.length <= 1) {
         throw error;
       }
 
-      console.log(`[Divide & Conquer Glossary] Chia thành: Phần A (${part1.length} ký tự) & Phần B (${part2.length} ký tự)`);
-      const [res1, res2] = await Promise.all([
-        analyzeGlossaryWithContentSplit(part1, apiKeys, model, systemInstruction, schema, depth + 1, startKeyIndex),
-        analyzeGlossaryWithContentSplit(part2, apiKeys, model, systemInstruction, schema, depth + 1, startKeyIndex)
-      ]);
+      console.log(`[Divide & Conquer Adaptive Split Glossary] Chia thành ${parts.length} phần: ${parts.map((p, idx) => `P${idx + 1}(${p.length} ký tự)`).join(' & ')}`);
+      const results = await Promise.all(
+        parts.map(async (part) => {
+          try {
+            return await analyzeGlossaryWithContentSplit(part, apiKeys, model, systemInstruction, schema, depth + 1, startKeyIndex);
+          } catch {
+            return {
+              suggestions: [],
+              successKeyIndex: startKeyIndex
+            };
+          }
+        })
+      );
+
+      const combinedSuggestions = results.flatMap(r => r.suggestions || []);
+      const lastSuccessKey = results[results.length - 1].successKeyIndex;
+
+      translationChunkCache.set(cacheKey, { suggestions: combinedSuggestions });
 
       return {
-        suggestions: [...(res1.suggestions || []), ...(res2.suggestions || [])],
-        successKeyIndex: res2.successKeyIndex
+        suggestions: combinedSuggestions,
+        successKeyIndex: lastSuccessKey
       };
     }
     throw error;
@@ -238,6 +262,7 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
     const totalAnalyzedLength = chunksToProcess.reduce((sum, chunk) => sum + chunk.length, 0);
 
     const systemInstruction =
+        LITERARY_TRANSLATION_FRAMING +
         "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
         "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung, trích xuất tất cả các tên nhân vật (characters), địa danh quan trọng (locations), bí kíp/vũ khí/thuật ngữ chuyên môn (terms) xuất hiện. " +
         buildEntityExtractionInstruction('analyze');
@@ -384,6 +409,7 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
     }
 
     const systemInstruction =
+        LITERARY_TRANSLATION_FRAMING +
         "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
         "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung và trích xuất tất cả tên nhân vật, địa danh, bí kíp/vũ khí/thuật ngữ chuyên môn. " +
         buildEntityExtractionInstruction('extract');
@@ -439,6 +465,7 @@ export async function quickTranslateTerm(req: Request, res: Response): Promise<v
     }
 
     const systemInstruction =
+        LITERARY_TRANSLATION_FRAMING +
         "Bạn là trợ lý dịch thuật Trung - Việt lão luyện tinh thông Hán học và văn học mạng (tiên hiệp, võ hiệp, ngôn tình, huyền huyễn, đô thị).\n" +
         "Nhiệm vụ của bạn là phân tích từ hoặc cụm từ tiếng Trung được bôi đen và ngữ cảnh xung quanh của nó (nếu có), từ đó đề xuất định nghĩa từ điển phù hợp gồm:\n" +
         "1. chinese: giữ nguyên từ tiếng Trung gốc.\n" +

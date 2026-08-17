@@ -2,9 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Request, Response } from "express";
 import { analyzeGlossary } from "../glossaryController";
 import * as geminiService from "../../services/geminiService";
+import { translationChunkCache } from "../../utils/chunkCache";
 
-vi.mock("../../services/geminiService", () => {
+vi.mock("../../services/geminiService", async (importOriginal) => {
+  const actual: any = await importOriginal();
   return {
+    ...actual,
     generateWithRotation: vi.fn(),
     sleep: vi.fn(() => Promise.resolve()),
     isOverloadError: vi.fn((err: any) => err.message && err.message.includes("503")),
@@ -19,6 +22,7 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    translationChunkCache.clear();
     jsonMock = vi.fn();
     statusMock = vi.fn().mockReturnValue({ json: jsonMock });
     req = {

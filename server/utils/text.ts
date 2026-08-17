@@ -1,3 +1,9 @@
+export const LITERARY_TRANSLATION_FRAMING =
+  "[BỐI CẢNH DỰ ÁN VÀ QUY ĐỊNH AN TOÀN]\n" +
+  "Bạn đang hỗ trợ dịch thuật văn học hợp pháp từ tiếng Trung sang tiếng Việt cho mục đích nghiên cứu, giáo dục và xuất bản văn học nghệ thuật. " +
+  "Nội dung tác phẩm là thế giới giả tưởng hư cấu (fiction), có thể chứa các mô tả về xung đột, chiến đấu, võ thuật, phép thuật hoặc các yếu tố kỳ ảo đặc trưng của thể loại văn học. " +
+  "Đây hoàn toàn là nội dung sáng tạo nghệ thuật hư cấu được phép theo quy định xuất bản.\n\n";
+
 export function getGenreStyleGuide(genre: string): string {
   const g = (genre || "").trim();
   if (g === "Tiên Hiệp" || g === "Võ Hiệp")
@@ -129,6 +135,160 @@ export function findSplitPoint(text: string): number {
   }
 
   return bestIdx !== -1 ? bestIdx : mid;
+}
+
+/**
+ * Ước lượng số lượng token thực tế cho các mô hình Gemini (SentencePiece BPE):
+ * - Ký tự Hán (Chinese / Hanzi): ~1.35 tokens / ký tự
+ * - Tiếng Việt / Latin có dấu: ~1.1 - 1.25 tokens / từ
+ * - Tiếng Anh / Ký tự ASCII / Số: ~4 ký tự / token
+ */
+export function estimateTokenCount(text: string): number {
+  if (!text) return 0;
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+
+  // Đếm ký tự chữ Hán (Hanzi / CJK Unified Ideographs)
+  const hanMatches = trimmed.match(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g);
+  const hanCount = hanMatches ? hanMatches.length : 0;
+
+  // Tách phần văn bản còn lại thành các từ
+  const nonHanText = trimmed.replace(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g, ' ');
+  const words = nonHanText.trim().split(/\s+/).filter(Boolean);
+
+  const nonHanTokens = words.reduce((acc, word) => {
+    if (word.length > 6) return acc + Math.ceil(word.length / 3.5);
+    return acc + 1.15;
+  }, 0);
+
+  return Math.ceil(hanCount * 1.35 + nonHanTokens);
+}
+
+/**
+ * Phân chia văn bản thích ứng (Token-aware Adaptive Split):
+ * - Ưu tiên phân tách theo khối đoạn văn (\n\n), sau đó tới dòng (\n), câu kết (. 。 ? ！ !), rồi khoảng trắng.
+ * - Cân bằng các phần dựa trên ước lượng Token thực tế thay vì độ dài ký tự thô.
+ * - Hỗ trợ chia thành 2 phần (depth < 2) hoặc 3 phần (depth >= 2) để cô lập nhanh phân đoạn bị bộ lọc chặn.
+ */
+export function splitTextAdaptively(text: string, partsCount: number = 2): string[] {
+  if (!text) return [];
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  
+  const totalTokens = estimateTokenCount(trimmed);
+  // Nếu dung lượng quá nhỏ (<60 tokens ≈ 45 chữ Hán), không bóc tách thêm để tránh vỡ ngữ nghĩa
+  if (partsCount <= 1 || totalTokens < 60) return [trimmed];
+
+  // 1. Thử chia theo đoạn văn kép \n\n
+  const doubleNewlineParagraphs = trimmed.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  if (doubleNewlineParagraphs.length >= partsCount) {
+    return partitionItems(doubleNewlineParagraphs, partsCount, "\n\n");
+  }
+
+  // 2. Thử chia theo từng dòng đơn \n
+  const singleNewlineLines = trimmed.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  if (singleNewlineLines.length >= partsCount) {
+    return partitionItems(singleNewlineLines, partsCount, "\n");
+  }
+
+  // 3. Fallback: Nếu là 1 đoạn văn liền dài, tìm điểm cắt theo dấu câu / khoảng trắng / vị trí
+  return splitLongParagraph(trimmed, partsCount);
+}
+
+function partitionItems(items: string[], targetParts: number, delimiter: string): string[] {
+  const itemTokens = items.map(item => estimateTokenCount(item));
+  const totalTokens = itemTokens.reduce((acc, count) => acc + count, 0);
+  const targetTokensPerChunk = totalTokens / targetParts;
+  
+  const result: string[] = [];
+  let currentGroup: string[] = [];
+  let currentTokens = 0;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const tokens = itemTokens[i];
+    currentGroup.push(item);
+    currentTokens += tokens;
+
+    const remainingPartsNeeded = targetParts - result.length;
+    const remainingItems = items.length - (i + 1);
+
+    // Nếu đã gom đủ số token lý tưởng hoặc số items còn lại vừa đủ cho các phần còn lại
+    if (
+      (currentTokens >= targetTokensPerChunk && remainingPartsNeeded > 1 && remainingItems >= remainingPartsNeeded - 1) ||
+      (remainingItems === remainingPartsNeeded - 1 && remainingPartsNeeded > 1)
+    ) {
+      result.push(currentGroup.join(delimiter).trim());
+      currentGroup = [];
+      currentTokens = 0;
+    }
+  }
+
+  if (currentGroup.length > 0) {
+    result.push(currentGroup.join(delimiter).trim());
+  }
+
+  return result.filter(r => r.length > 0);
+}
+
+function splitLongParagraph(text: string, targetParts: number): string[] {
+  if (targetParts === 2) {
+    const splitIdx = findSplitPoint(text);
+    const p1 = text.substring(0, splitIdx).trim();
+    const p2 = text.substring(splitIdx).trim();
+    if (p1 && p2) return [p1, p2];
+    return [text];
+  }
+
+  // targetParts >= 3 (chia 3)
+  const cuts: number[] = [];
+  const targets = [text.length * (1 / 3), text.length * (2 / 3)];
+
+  for (let t = 0; t < targets.length; t++) {
+    const targetIdx = Math.floor(targets[t]);
+    const range = Math.floor(text.length * 0.15);
+    let bestIdx = -1;
+    let minDiff = Infinity;
+
+    // Tìm dấu kết câu quanh target
+    for (let i = targetIdx - range; i <= targetIdx + range; i++) {
+      if (i <= 0 || i >= text.length) continue;
+      const ch = text[i];
+      if (ch === '.' || ch === '。' || ch === '?' || ch === '？' || ch === '!' || ch === '！' || ch === '…') {
+        const diff = Math.abs(i - targetIdx);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestIdx = i + 1;
+        }
+      }
+    }
+
+    // Tìm khoảng trắng / phẩy nếu không có dấu kết câu
+    if (bestIdx === -1) {
+      for (let i = targetIdx - range; i <= targetIdx + range; i++) {
+        if (i <= 0 || i >= text.length) continue;
+        const ch = text[i];
+        if (ch === ' ' || ch === '\t' || ch === ',' || ch === '，' || ch === ';' || ch === '；') {
+          const diff = Math.abs(i - targetIdx);
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestIdx = i + 1;
+          }
+        }
+      }
+    }
+
+    cuts.push(bestIdx !== -1 ? bestIdx : targetIdx);
+  }
+
+  // Đảm bảo cuts tăng dần
+  cuts.sort((a, b) => a - b);
+  const p1 = text.substring(0, cuts[0]).trim();
+  const p2 = text.substring(cuts[0], cuts[1]).trim();
+  const p3 = text.substring(cuts[1]).trim();
+
+  const parts = [p1, p2, p3].filter(p => p.length > 0);
+  return parts.length >= 2 ? parts : [text];
 }
 
 export function escapeRegex(str: string): string {

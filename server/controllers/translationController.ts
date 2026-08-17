@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
-import { generateWithRotation, sleep, isOverloadError } from "../services/geminiService.ts";
-import { safeParseJson, findSplitPoint, getGenreStyleGuide, escapeRegex } from "../utils/text.ts";
+import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../services/geminiService.ts";
+import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING } from "../utils/text.ts";
+import { translationChunkCache } from "../utils/chunkCache.ts";
 import { checkLeftoverGlossary } from "./glossaryController.ts";
 import { isHanEquivalent, validateAndSnapBackEntities, findCanonicalSubstring } from "../../shared/sinoNormalize.ts";
 
@@ -69,6 +70,7 @@ async function callRawTranslationDirect(
   }
 
   const systemInstruction =
+      LITERARY_TRANSLATION_FRAMING +
       "Bạn là hệ thống dịch thuật AI cao cấp chuyên dịch truyện chữ Trung Quốc sang tiếng Việt.\n" +
       "Nhiệm vụ của bạn là thực hiện dịch thô Giai đoạn 1 (Translation Draft 1) từ đoạn văn bản tiếng Trung được cung cấp.\n" +
       "YÊU CẦU QUAN TRỌNG NHẤT:\n" +
@@ -179,7 +181,6 @@ ${substitutedText}`;
   };
 }
 
-// Chia để trị tích hợp cơ chế thực thi song song kết hợp Giãn cách lũy tiến chống nghẽn Quota
 async function translateRawWithContentSplit(
     text: string,
     genre: string,
@@ -191,7 +192,18 @@ async function translateRawWithContentSplit(
     startKeyIndex: number = 0,
     description?: string,
     enableSegmentTranslation?: boolean
-): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number }> {
+): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number; isPartial?: boolean }> {
+  const cacheKey = translationChunkCache.generateKey("raw", text, { genre, tone, model, extra: description });
+  const cached = translationChunkCache.get(cacheKey);
+  if (cached && cached.text) {
+    console.log(`[Cache Hit - Phase 1] Tận dụng bản dịch lưu đệm (${cached.text.length} ký tự)`);
+    return {
+      rawTranslation: cached.text,
+      discoveredEntities: cached.discoveredEntities || [],
+      successKeyIndex: startKeyIndex,
+    };
+  }
+
   if (enableSegmentTranslation) {
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const translatedParagraphs: string[] = [];
@@ -217,15 +229,21 @@ async function translateRawWithContentSplit(
         discoveredEntitiesAll.push(...res.discoveredEntities);
       }
     }
+    const combinedTranslation = translatedParagraphs.join("\n\n");
+    translationChunkCache.set(cacheKey, { text: combinedTranslation, discoveredEntities: discoveredEntitiesAll });
     return {
-      rawTranslation: translatedParagraphs.join("\n\n"),
+      rawTranslation: combinedTranslation,
       discoveredEntities: discoveredEntitiesAll,
       successKeyIndex: currentKeyIdx
     };
   }
 
-  if (text.length < 150 || depth > 4) {
-    return callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description);
+  if (estimateTokenCount(text) < 90 || depth > 4) {
+    const directRes = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description);
+    if (directRes.rawTranslation) {
+      translationChunkCache.set(cacheKey, { text: directRes.rawTranslation, discoveredEntities: directRes.discoveredEntities });
+    }
+    return directRes;
   }
 
   // Sleep Backoff: Tránh gửi dồn dập các nhánh đệ quy song song cùng lúc
@@ -252,8 +270,10 @@ async function translateRawWithContentSplit(
         );
 
         if (plainResult.text && plainResult.text.trim().length > 0) {
+          const plainText = plainResult.text.trim();
+          translationChunkCache.set(cacheKey, { text: plainText, discoveredEntities: [] });
           return {
-            rawTranslation: plainResult.text.trim(),
+            rawTranslation: plainText,
             discoveredEntities: [],
             successKeyIndex: plainResult.successKeyIndex
           };
@@ -262,57 +282,76 @@ async function translateRawWithContentSplit(
 
       throw new Error("Bản dịch thu được bị trống rỗng (nghi ngờ vi phạm bộ lọc an toàn ngầm của Google).");
     }
+
+    translationChunkCache.set(cacheKey, { text: result.rawTranslation, discoveredEntities: result.discoveredEntities });
     return result;
   } catch (error: any) {
-    const errorMsg = (error.message || "").toLowerCase();
     if (error.message && error.message.startsWith("ALL_KEYS_EXHAUSTED")) {
-      const isSafetyOrEmptyExhausted = errorMsg.includes("safety") ||
-          errorMsg.includes("block") ||
-          errorMsg.includes("content") ||
-          errorMsg.includes("trống") ||
-          errorMsg.includes("empty") ||
-          errorMsg.includes("finishreason") ||
-          errorMsg.includes("filter") ||
-          errorMsg.includes("candidate") ||
-          errorMsg.includes("không nhận được");
-      if (!isSafetyOrEmptyExhausted) {
+      if (!isSafetyOrEmptyError(error)) {
         throw error;
       }
     }
 
-    const isSafetyOrEmpty = errorMsg.includes("safety") ||
-        errorMsg.includes("block") ||
-        errorMsg.includes("content") ||
-        errorMsg.includes("trống") ||
-        errorMsg.includes("empty") ||
-        errorMsg.includes("finishreason") ||
-        errorMsg.includes("filter") ||
-        errorMsg.includes("candidate") ||
-        errorMsg.includes("không nhận được");
-
-    if (isSafetyOrEmpty) {
-      console.warn(`[Divide & Conquer Split] Phát hiện vi phạm bộ lọc / lỗi rỗng tại Độ sâu ${depth}. Tiến hành giãn cách và chia nhỏ văn bản dài ${text.length} ký tự...`);
+    if (isSafetyOrEmptyError(error)) {
+      const partsCount = depth >= 2 ? 3 : 2;
+      console.warn(`[Divide & Conquer Adaptive Split] Phát hiện vi phạm bộ lọc / lỗi rỗng tại Độ sâu ${depth}. Tiến hành chia ${partsCount} phần (văn bản dài ${text.length} ký tự)...`);
 
       // Chờ hồi quota cục bộ trước khi bóc tách sâu hơn
       await sleep((depth + 1) * 750);
 
-      const splitIdx = findSplitPoint(text);
-      const part1 = text.substring(0, splitIdx).trim();
-      const part2 = text.substring(splitIdx).trim();
+      const parts = splitTextAdaptively(text, partsCount);
 
-      if (part1.length === 0 || part2.length === 0) {
+      if (parts.length <= 1) {
         throw error;
       }
 
-      console.log(`[Divide & Conquer Split] Chia thành: Phần A (${part1.length} ký tự) & Phần B (${part2.length} ký tự)`);
-      const [res1, res2] = await Promise.all([
-        translateRawWithContentSplit(part1, genre, tone, glossary, apiKeys, model, depth + 1, startKeyIndex, description),
-        translateRawWithContentSplit(part2, genre, tone, glossary, apiKeys, model, depth + 1, startKeyIndex, description)
-      ]);
+      console.log(`[Divide & Conquer Adaptive Split] Chia thành ${parts.length} phần: ${parts.map((p, idx) => `P${idx + 1}(${p.length} ký tự)`).join(' & ')}`);
+      const results = await Promise.all(
+        parts.map(async (part) => {
+          try {
+            return await translateRawWithContentSplit(
+              part,
+              genre,
+              tone,
+              glossary,
+              apiKeys,
+              model,
+              depth + 1,
+              startKeyIndex,
+              description
+            );
+          } catch (partErr: any) {
+            console.warn(`[Divide & Conquer Fallback] Đoạn (${part.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
+            return {
+              rawTranslation: `[Chưa dịch được đoạn này do bộ lọc an toàn: ${part.substring(0, 40)}...]`,
+              discoveredEntities: [],
+              successKeyIndex: startKeyIndex,
+              isPartial: true
+            };
+          }
+        })
+      );
+
+      const hasPartial = results.some(r => r.isPartial);
+      const allFailed = results.every(r => r.isPartial);
+
+      if (allFailed && depth === 0) {
+        throw error;
+      }
+
+      const mergedTranslation = results.map(r => r.rawTranslation).join("\n\n").trim();
+      const mergedEntities = results.flatMap(r => r.discoveredEntities || []);
+      const lastSuccessKey = results.findLast(r => !r.isPartial)?.successKeyIndex ?? results[results.length - 1].successKeyIndex;
+
+      if (!hasPartial) {
+        translationChunkCache.set(cacheKey, { text: mergedTranslation, discoveredEntities: mergedEntities });
+      }
+
       return {
-        rawTranslation: (res1.rawTranslation + "\n\n" + res2.rawTranslation).trim(),
-        discoveredEntities: [...(res1.discoveredEntities || []), ...(res2.discoveredEntities || [])],
-        successKeyIndex: res2.successKeyIndex
+        rawTranslation: mergedTranslation,
+        discoveredEntities: mergedEntities,
+        successKeyIndex: lastSuccessKey,
+        isPartial: hasPartial
       };
     }
     throw error;
@@ -405,6 +444,7 @@ async function callPolishDirect(
   }
 
   const systemInstruction =
+      LITERARY_TRANSLATION_FRAMING +
       "Bạn là biên tập văn học lâu năm chuyên chuốt văn phong truyện dịch chữ Trung - Việt.\n" +
       "Nhiệm vụ của bạn là nâng cấp bản dịch bằng cách tham khảo bản Dịch thô Giai đoạn 1 và dựa sát vào bản Gốc tiếng Trung đã thế từ điển để cho ra bản dịch mượt mà tinh tế nhất.\n\n" +
       "CÁC NGUYÊN TẮC BIÊN TẬP HOÀY MỸ:\n" +
@@ -470,7 +510,17 @@ async function polishWithContentSplit(
     startKeyIndex: number = 0,
     description?: string,
     enableSegmentTranslation?: boolean
-): Promise<{ polishedTranslation: string; successKeyIndex: number }> {
+): Promise<{ polishedTranslation: string; successKeyIndex: number; isPartial?: boolean }> {
+  const cacheKey = translationChunkCache.generateKey("polish", rawTranslation, { genre, tone, model, extra: additionalInstructions });
+  const cached = translationChunkCache.get(cacheKey);
+  if (cached && cached.text) {
+    console.log(`[Cache Hit - Phase 2] Tận dụng bản chuốt văn lưu đệm (${cached.text.length} ký tự)`);
+    return {
+      polishedTranslation: cached.text,
+      successKeyIndex: startKeyIndex,
+    };
+  }
+
   if (enableSegmentTranslation) {
     const srcLines = sourceText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const rawLines = rawTranslation.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -498,14 +548,20 @@ async function polishWithContentSplit(
       polishedParagraphs.push(res.polishedTranslation);
       currentKeyIdx = res.successKeyIndex;
     }
+    const combinedPolished = polishedParagraphs.join("\n\n");
+    translationChunkCache.set(cacheKey, { text: combinedPolished });
     return {
-      polishedTranslation: polishedParagraphs.join("\n\n"),
+      polishedTranslation: combinedPolished,
       successKeyIndex: currentKeyIdx
     };
   }
 
-  if (rawTranslation.length < 150 || depth > 4) {
-    return callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description);
+  if (estimateTokenCount(rawTranslation) < 100 || depth > 4) {
+    const directRes = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description);
+    if (directRes.polishedTranslation) {
+      translationChunkCache.set(cacheKey, { text: directRes.polishedTranslation });
+    }
+    return directRes;
   }
 
   if (depth > 0) {
@@ -517,63 +573,78 @@ async function polishWithContentSplit(
     if (!result.polishedTranslation || result.polishedTranslation.trim().length === 0) {
       throw new Error("Bản biên tập thu được trống rỗng (nghi ngờ vi phạm bộ lọc an toàn ngầm của Google).");
     }
+    translationChunkCache.set(cacheKey, { text: result.polishedTranslation });
     return result;
   } catch (error: any) {
-    const errorMsg = (error.message || "").toLowerCase();
     if (error.message && error.message.startsWith("ALL_KEYS_EXHAUSTED")) {
-      const isSafetyOrEmptyExhausted = errorMsg.includes("safety") ||
-          errorMsg.includes("block") ||
-          errorMsg.includes("content") ||
-          errorMsg.includes("trống") ||
-          errorMsg.includes("empty") ||
-          errorMsg.includes("finishreason") ||
-          errorMsg.includes("filter") ||
-          errorMsg.includes("candidate") ||
-          errorMsg.includes("không nhận được");
-      if (!isSafetyOrEmptyExhausted) {
+      if (!isSafetyOrEmptyError(error)) {
         throw error;
       }
     }
 
-    const isSafetyOrEmpty = errorMsg.includes("safety") ||
-        errorMsg.includes("block") ||
-        errorMsg.includes("content") ||
-        errorMsg.includes("trống") ||
-        errorMsg.includes("empty") ||
-        errorMsg.includes("finishreason") ||
-        errorMsg.includes("filter") ||
-        errorMsg.includes("candidate") ||
-        errorMsg.includes("không nhận được");
-
-    if (isSafetyOrEmpty) {
-      console.warn(`[Divide & Conquer Split Polish] Phát hiện vi phạm bộ lọc / lỗi rỗng biên tập ở Độ sâu ${depth}. Tiến hành chia nhỏ bản dịch thô...`);
+    if (isSafetyOrEmptyError(error)) {
+      const partsCount = depth >= 2 ? 3 : 2;
+      console.warn(`[Divide & Conquer Adaptive Split Polish] Phát hiện vi phạm bộ lọc / lỗi rỗng biên tập ở Độ sâu ${depth}. Tiến hành chia ${partsCount} phần bản dịch thô...`);
 
       await sleep((depth + 1) * 750);
 
-      const rawSplitIdx = findSplitPoint(rawTranslation);
-      const raw1 = rawTranslation.substring(0, rawSplitIdx).trim();
-      const raw2 = rawTranslation.substring(rawSplitIdx).trim();
+      const rawParts = splitTextAdaptively(rawTranslation, partsCount);
 
-      let src1 = "";
-      let src2 = "";
-      if (sourceText) {
-        const srcSplitIdx = findSplitPoint(sourceText);
-        src1 = sourceText.substring(0, srcSplitIdx).trim();
-        src2 = sourceText.substring(srcSplitIdx).trim();
-      }
-
-      if (raw1.length === 0 || raw2.length === 0) {
+      if (rawParts.length <= 1) {
         throw error;
       }
 
-      console.log(`[Divide & Conquer Split Polish] Chia bản thô: Phần A (${raw1.length} ký tự) & Phần B (${raw2.length} ký tự)`);
-      const [res1, res2] = await Promise.all([
-        polishWithContentSplit(src1, raw1, genre, tone, glossary, additionalInstructions, apiKeys, model, depth + 1, startKeyIndex, description),
-        polishWithContentSplit(src2, raw2, genre, tone, glossary, additionalInstructions, apiKeys, model, depth + 1, startKeyIndex, description)
-      ]);
+      let srcParts: string[] = [];
+      if (sourceText) {
+        srcParts = splitTextAdaptively(sourceText, rawParts.length);
+      }
+
+      console.log(`[Divide & Conquer Adaptive Split Polish] Chia bản thô thành ${rawParts.length} phần: ${rawParts.map((p, idx) => `P${idx + 1}(${p.length} ký tự)`).join(' & ')}`);
+      const results = await Promise.all(
+        rawParts.map(async (rawPart, idx) => {
+          try {
+            return await polishWithContentSplit(
+              srcParts[idx] || "",
+              rawPart,
+              genre,
+              tone,
+              glossary,
+              additionalInstructions,
+              apiKeys,
+              model,
+              depth + 1,
+              startKeyIndex,
+              description
+            );
+          } catch (partErr: any) {
+            console.warn(`[Divide & Conquer Polish Fallback] Đoạn thô (${rawPart.length} ký tự) bị lỗi chuốt văn:`, partErr.message);
+            return {
+              polishedTranslation: rawPart, // Giữ lại bản dịch thô nếu chuốt văn thất bại
+              successKeyIndex: startKeyIndex,
+              isPartial: true
+            };
+          }
+        })
+      );
+
+      const hasPartial = results.some(r => r.isPartial);
+      const allFailed = results.every(r => r.isPartial);
+
+      if (allFailed && depth === 0) {
+        throw error;
+      }
+
+      const combinedPolished = results.map(r => r.polishedTranslation).join("\n\n").trim();
+      const lastSuccessKey = results.findLast(r => !r.isPartial)?.successKeyIndex ?? results[results.length - 1].successKeyIndex;
+
+      if (!hasPartial) {
+        translationChunkCache.set(cacheKey, { text: combinedPolished });
+      }
+
       return {
-        polishedTranslation: (res1.polishedTranslation + "\n\n" + res2.polishedTranslation).trim(),
-        successKeyIndex: res2.successKeyIndex
+        polishedTranslation: combinedPolished,
+        successKeyIndex: lastSuccessKey,
+        isPartial: hasPartial
       };
     }
     throw error;
@@ -589,7 +660,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const { rawTranslation, discoveredEntities, successKeyIndex } = await translateRawWithContentSplit(
+    const { rawTranslation, discoveredEntities, successKeyIndex, isPartial } = await translateRawWithContentSplit(
         text,
         genre,
         tone,
@@ -610,7 +681,8 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
     res.json({
       rawTranslation: rawTranslation || "",
       discoveredEntities: finalEntities,
-      successKeyIndex
+      successKeyIndex,
+      isPartial: Boolean(isPartial)
     });
   } catch (error: any) {
     console.error("Lỗi dịch thô:", error);
@@ -660,7 +732,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
       });
     }
 
-    const { polishedTranslation, successKeyIndex } = await polishWithContentSplit(
+    const { polishedTranslation, successKeyIndex, isPartial } = await polishWithContentSplit(
         sourceText,
         rawTranslation,
         genre,
@@ -678,7 +750,8 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
     res.json({
       polishedTranslation: polishedTranslation || "",
       newlyDiscoveredDuringPolish,
-      successKeyIndex
+      successKeyIndex,
+      isPartial: Boolean(isPartial)
     });
   } catch (error: any) {
     console.error("Lỗi tối ưu văn phong:", error);
@@ -700,6 +773,7 @@ export async function qaCritique(req: Request, res: Response): Promise<void> {
     }
 
     const systemInstruction =
+        LITERARY_TRANSLATION_FRAMING +
         "Bạn là một chuyên gia kiểm định chất lượng (QA) dịch thuật Trung - Việt chuyên nghiệp.\n" +
         "Nhiệm vụ của bạn là kiểm tra xem bản dịch tiếng Việt có đầy đủ, chính xác so với văn bản gốc tiếng Trung hay không.\n" +
         "Hãy đối chiếu kỹ văn bản gốc tiếng Trung và bản dịch tiếng Việt để phát hiện các lỗi sau:\n" +

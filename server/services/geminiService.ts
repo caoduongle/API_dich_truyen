@@ -1,6 +1,25 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { safeParseJson, redactApiKey } from "../utils/text.ts";
 import { DEFAULT_MODEL_ID } from "../constants/models.ts";
+
+const DEFAULT_SAFETY_SETTINGS = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+];
 
 const blacklistedKeys = new Map<string, number>();
 const BLACKLIST_COOLDOWN_MS = 5 * 60 * 1000; // Thời gian ngắt mạch: 5 phút
@@ -54,6 +73,51 @@ let overloadCooldownUntil = 0;
 const MAX_OUTER_OVERLOAD_PASSES = 2;      // tối đa 2 lần quét lại TOÀN BỘ vòng key
 const OUTER_PASS_BASE_DELAY_MS = 6000;    // chờ giữa các lần quét toàn vòng
 const GLOBAL_OVERLOAD_DEADLINE_MS = 90000; // tổng thời gian chờ tối đa cho 1 request
+
+export class SafetyFilterError extends Error {
+  readonly isSafety = true;
+  readonly finishReason?: string;
+  readonly blockReason?: string;
+  readonly safetyRatings?: any[];
+
+  constructor(message: string, details?: { finishReason?: string; blockReason?: string; safetyRatings?: any[] }) {
+    super(message);
+    this.name = 'SafetyFilterError';
+    this.finishReason = details?.finishReason;
+    this.blockReason = details?.blockReason;
+    this.safetyRatings = details?.safetyRatings;
+  }
+}
+
+export const isSafetyOrEmptyError = (err: any): boolean => {
+  if (!err) return false;
+  if (err.isSafety === true || err.name === 'SafetyFilterError') return true;
+
+  const errorMsg = (err.message || String(err)).toLowerCase();
+  if (
+    errorMsg.includes("safety") ||
+    errorMsg.includes("safetyfiltererror") ||
+    errorMsg.includes("finishreason") ||
+    errorMsg.includes("block") ||
+    errorMsg.includes("filter") ||
+    errorMsg.includes("prohibited") ||
+    errorMsg.includes("recitation") ||
+    errorMsg.includes("trống") ||
+    errorMsg.includes("empty") ||
+    errorMsg.includes("candidate") ||
+    errorMsg.includes("không nhận được")
+  ) {
+    if (
+      (errorMsg.includes("429") || errorMsg.includes("rate limit") || errorMsg.includes("quota") || isOverloadError(err)) &&
+      !errorMsg.includes("finishreason") &&
+      !errorMsg.includes("safetyfiltererror")
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+};
 
 export const isOverloadError = (err: any): boolean => {
   const errStr = (err.message || String(err)).toLowerCase();
@@ -154,6 +218,7 @@ export async function generateWithRotation(
         const config: any = {
           systemInstruction,
           temperature: temperature !== undefined ? temperature : 0.3,
+          safetySettings: DEFAULT_SAFETY_SETTINGS,
         };
 
         const isGemma = model.toLowerCase().includes('gemma');
@@ -170,6 +235,7 @@ export async function generateWithRotation(
 
           // Loại bỏ thuộc tính không hỗ trợ để tránh xung đột endpoint nâng cao
           delete config.systemInstruction;
+          delete config.safetySettings;
 
           if (responseSchema) {
             finalPrompt += `\n\nQUAN TRỌNG: Chỉ trả về cấu trúc JSON thuần túy hợp lệ, TUYỆT ĐỐI KHÔNG gói trong mác \`\`\`json, KHÔNG chứa ký tự markdown #, KHÔNG kèm lời giải thích hay tiêu đề. Chỉ trả ra duy nhất chuỗi JSON bắt đầu bằng { và kết thúc bằng }.`;
@@ -189,10 +255,46 @@ export async function generateWithRotation(
               config
             });
 
+            const candidate = response.candidates?.[0];
+            const finishReason = candidate?.finishReason;
+            const promptFeedback = response.promptFeedback;
+
+            // 1. Kiểm tra bị chặn từ cấp độ Prompt
+            if (promptFeedback?.blockReason && promptFeedback.blockReason !== 'BLOCKED_REASON_UNSPECIFIED') {
+              throw new SafetyFilterError(
+                `Nội dung bị chặn từ cấp độ prompt bởi bộ lọc an toàn (Lý do: ${promptFeedback.blockReason})`,
+                {
+                  blockReason: promptFeedback.blockReason,
+                  safetyRatings: promptFeedback.safetyRatings,
+                }
+              );
+            }
+
+            // 2. Kiểm tra finishReason của Candidate
+            if (
+              finishReason === 'SAFETY' ||
+              finishReason === 'RECITATION' ||
+              finishReason === 'BLOCKLIST' ||
+              finishReason === 'PROHIBITED_CONTENT' ||
+              finishReason === 'SPII'
+            ) {
+              throw new SafetyFilterError(
+                `Nội dung bị chặn bởi bộ lọc an toàn của Gemini (FinishReason: ${finishReason})`,
+                {
+                  finishReason,
+                  safetyRatings: candidate?.safetyRatings,
+                }
+              );
+            }
+
             // Thành công → reset cooldown toàn cục (model đã hồi phục)
             overloadCooldownUntil = 0;
 
             let rawText = response.text ?? "";
+            if (!rawText && candidate?.content?.parts?.length) {
+              rawText = candidate.content.parts.map((p: any) => p.text || "").join("");
+            }
+
             if (isGemma) {
               rawText = rawText
                   .replace(/^```(?:json)?\s*/im, "")

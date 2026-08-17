@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { safeParseJson, findSplitPoint, escapeRegex, getGenreStyleGuide } from '../text';
+import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, escapeRegex, getGenreStyleGuide, LITERARY_TRANSLATION_FRAMING } from '../text';
 
 describe('text utils', () => {
   describe('safeParseJson', () => {
@@ -47,6 +47,51 @@ describe('text utils', () => {
     });
   });
 
+  describe('splitTextAdaptively', () => {
+    it('should return empty array for empty string', () => {
+      expect(splitTextAdaptively('')).toEqual([]);
+      expect(splitTextAdaptively('   ')).toEqual([]);
+    });
+
+    it('should return single chunk for short text (<100 chars)', () => {
+      const text = 'This is a short text.';
+      expect(splitTextAdaptively(text, 2)).toEqual([text]);
+    });
+
+    it('should split balanced paragraphs by double newline for 2 parts', () => {
+      const p1 = 'Paragraph one has sufficient length to trigger chunking logic.'.repeat(2);
+      const p2 = 'Paragraph two is equally descriptive and provides more content.'.repeat(2);
+      const p3 = 'Paragraph three concludes the introductory overview of the scene.'.repeat(2);
+      const p4 = 'Paragraph four wraps up all necessary details in the text block.'.repeat(2);
+      const text = [p1, p2, p3, p4].join('\n\n');
+
+      const parts = splitTextAdaptively(text, 2);
+      expect(parts.length).toBe(2);
+      expect(parts[0]).toContain(p1);
+      expect(parts[1]).toContain(p4);
+    });
+
+    it('should split into 3 parts when partsCount is 3', () => {
+      const p1 = 'Paragraph A is long enough for testing.'.repeat(3);
+      const p2 = 'Paragraph B contains intermediate context.'.repeat(3);
+      const p3 = 'Paragraph C has more textual description.'.repeat(3);
+      const p4 = 'Paragraph D carries further actions.'.repeat(3);
+      const p5 = 'Paragraph E concludes the testing sequence.'.repeat(3);
+      const text = [p1, p2, p3, p4, p5].join('\n\n');
+
+      const parts = splitTextAdaptively(text, 3);
+      expect(parts.length).toBe(3);
+    });
+
+    it('should split a long single paragraph into 3 parts along sentence punctuation', () => {
+      const text = 'Sở Phong nhìn về phía trước chân trời rực lửa. '.repeat(10) +
+                   'Một tiếng gầm vang dội từ sâu trong dãy núi cổ đại vọng lại! '.repeat(10) +
+                   'Vô số yêu thú kinh hãi bỏ chạy tứ tán tạo nên cảnh tượng hỗn loạn? '.repeat(10);
+      const parts = splitTextAdaptively(text, 3);
+      expect(parts.length).toBe(3);
+    });
+  });
+
   describe('escapeRegex', () => {
     it('should escape all regex special characters', () => {
       const special = '-\\^$*+?.()|[]{}';
@@ -78,6 +123,36 @@ describe('text utils', () => {
 
     it('should return fallback guide for unrecognized genre', () => {
       expect(getGenreStyleGuide('Khác')).toContain('dịch tự nhiên phù hợp');
+    });
+  });
+
+  describe('LITERARY_TRANSLATION_FRAMING', () => {
+    it('should contain legal literary and fiction framing disclaimer', () => {
+      expect(LITERARY_TRANSLATION_FRAMING).toContain('dịch thuật văn học hợp pháp');
+      expect(LITERARY_TRANSLATION_FRAMING).toContain('thế giới giả tưởng hư cấu');
+      expect(LITERARY_TRANSLATION_FRAMING).toContain('quy định xuất bản');
+    });
+  });
+
+  describe('estimateTokenCount', () => {
+    it('should return 0 for empty or blank text', () => {
+      expect(estimateTokenCount('')).toBe(0);
+      expect(estimateTokenCount('   ')).toBe(0);
+    });
+
+    it('should calculate accurate token count for Chinese text', () => {
+      const chineseText = '萧炎看着眼前的斗气大陆'; // 11 Hanzi characters
+      const tokens = estimateTokenCount(chineseText);
+      // 11 * 1.35 = 14.85 -> ceil = 15
+      expect(tokens).toBe(15);
+      expect(tokens).toBeGreaterThan(chineseText.length);
+    });
+
+    it('should calculate accurate token count for Vietnamese sentences', () => {
+      const vnText = 'Sở Phong nhìn về phía trước chân trời rực lửa'; // 9 words
+      const tokens = estimateTokenCount(vnText);
+      expect(tokens).toBeGreaterThanOrEqual(9);
+      expect(tokens).toBeLessThan(vnText.length);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation } from "../services/geminiService.ts";
-import { safeParseJson } from "../utils/text.ts";
+import { safeParseJson, LITERARY_TRANSLATION_FRAMING } from "../utils/text.ts";
 
 // 4. API: Gióng hàng đối sọc dữ liệu song ngữ xuất bản học liệu JSONL Fine-tuning
 export async function alignChapter(req: Request, res: Response): Promise<void> {
@@ -17,6 +17,7 @@ export async function alignChapter(req: Request, res: Response): Promise<void> {
     }
 
     const systemInstruction =
+        LITERARY_TRANSLATION_FRAMING +
         "Bạn là một chuyên gia đối dịch Trung - Việt nâng cao, chuyên gióng hàng (align) văn bản gốc tiếng Trung and bản dịch tiếng Việt của truyện/tiểu thuyết mạng sao cho ý nghĩa các cặp câu/đoạn khớp nhau hoàn toàn 100%.\n" +
         "Nhiệm vụ:\n" +
         "1. Phân tích văn bản gốc tiếng Trung và bản dịch tiếng Việt của chương truyện.\n" +

@@ -112,6 +112,7 @@ export interface TranslateRawRequest {
 export interface TranslateRawResponse {
     rawTranslation: string;
     discoveredEntities: Omit<GlossaryItem, 'id'>[];
+    isPartial?: boolean;
 }
 
 export interface PolishTranslationRequest {
@@ -126,4 +127,5 @@ export interface PolishTranslationRequest {
 export interface PolishTranslationResponse {
     polishedTranslation: string;
     newlyDiscoveredDuringPolish?: Omit<GlossaryItem, 'id'>[];
+    isPartial?: boolean;
 }

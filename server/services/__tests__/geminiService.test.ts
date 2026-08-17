@@ -39,4 +39,25 @@ describe("Gemini Service API Key Cleanup", () => {
     expect(_testMaps.nextAllowedTimeByKey.has("key_rate_stale")).toBe(false);
     expect(_testMaps.nextAllowedTimeByKey.has("key_rate_active")).toBe(true);
   });
+
+  it("should correctly identify SafetyFilterError and distinguish from rate limit errors", async () => {
+    const { SafetyFilterError, isSafetyOrEmptyError } = await import("../geminiService");
+
+    const safetyErr = new SafetyFilterError("Nội dung bị chặn bởi bộ lọc an toàn của Gemini", {
+      finishReason: "SAFETY",
+    });
+    expect(isSafetyOrEmptyError(safetyErr)).toBe(true);
+
+    const emptyErr = new Error("Bản dịch thu được bị trống rỗng (nghi ngờ vi phạm bộ lọc an toàn).");
+    expect(isSafetyOrEmptyError(emptyErr)).toBe(true);
+
+    const finishReasonErr = new Error("ALL_KEYS_EXHAUSTED: Lỗi cuối: FinishReason: RECITATION");
+    expect(isSafetyOrEmptyError(finishReasonErr)).toBe(true);
+
+    const rateLimitErr = new Error("429 Too Many Requests: content generation rate limit reached");
+    expect(isSafetyOrEmptyError(rateLimitErr)).toBe(false);
+
+    const overloadErr = new Error("503 Service Unavailable: model overloaded");
+    expect(isSafetyOrEmptyError(overloadErr)).toBe(false);
+  });
 });
