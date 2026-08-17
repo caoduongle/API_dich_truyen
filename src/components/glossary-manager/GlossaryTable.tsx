@@ -3,6 +3,7 @@ import { Edit2, Trash2, Check, X } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
 import { useVirtualList } from '../../hooks/useVirtualList';
 import { useNotifications } from '../NotificationSystem';
+import { SealStamp } from '../SealStamp';
 
 // Sleek single-row Inline Editor to fit inside virtualized row height
 interface InlineEditRowProps {
@@ -20,7 +21,7 @@ const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel
 
   return (
     <div 
-      className="col-span-12 grid grid-cols-12 gap-2 items-center px-3 h-full bg-indigo-950/20 border-b border-indigo-900/30" 
+      className="col-span-12 grid grid-cols-12 gap-2 items-center px-3 h-full bg-parchment-2 border-b border-parchment-2" 
       onClick={(e) => e.stopPropagation()}
     >
       <div className="col-span-3">
@@ -28,7 +29,7 @@ const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel
           type="text" 
           value={chinese} 
           onChange={(e) => setChinese(e.target.value)}
-          className="w-full px-2 py-0.5 text-slate-100 bg-slate-950 border border-slate-700/60 rounded text-xs focus:outline-none focus:border-indigo-500" 
+          className="w-full px-2 py-0.5 text-text-main bg-ink border border-parchment-2 rounded-[2px] text-xs font-serif focus:outline-none focus:border-polish" 
         />
       </div>
       <div className="col-span-2">
@@ -36,7 +37,7 @@ const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel
           type="text" 
           value={pinyin} 
           onChange={(e) => setPinyin(e.target.value)}
-          className="w-full px-2 py-0.5 text-slate-100 bg-slate-950 border border-slate-700/60 rounded text-xs focus:outline-none focus:border-indigo-500" 
+          className="w-full px-2 py-0.5 text-text-main bg-ink border border-parchment-2 rounded-[2px] text-xs focus:outline-none focus:border-polish" 
         />
       </div>
       <div className="col-span-3">
@@ -44,20 +45,20 @@ const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel
           type="text" 
           value={vietnamese} 
           onChange={(e) => setVietnamese(e.target.value)}
-          className="w-full px-2 py-0.5 text-slate-100 bg-slate-950 border border-slate-700/60 rounded text-xs focus:outline-none focus:border-indigo-500" 
+          className="w-full px-2 py-0.5 text-text-main bg-ink border border-parchment-2 rounded-[2px] text-xs focus:outline-none focus:border-polish" 
         />
       </div>
       <div className="col-span-2">
         <select 
           value={type} 
           onChange={(e) => setType(e.target.value as GlossaryType)}
-          className="w-full px-1 py-0.5 text-slate-100 bg-slate-950 border border-slate-700/60 rounded text-xs focus:outline-none cursor-pointer"
+          className="w-full px-1 py-0.5 text-text-main bg-ink border border-parchment-2 rounded-[2px] text-xs focus:outline-none cursor-pointer"
         >
-          <option value="character">Nhân vật</option>
-          <option value="location">Địa danh</option>
-          <option value="term">Bí kíp/Vật phẩm</option>
-          <option value="phrase">Thành ngữ</option>
-          <option value="other">Khác</option>
+          <option value="character" className="bg-parchment text-text-main">Nhân vật</option>
+          <option value="location" className="bg-parchment text-text-main">Địa danh</option>
+          <option value="term" className="bg-parchment text-text-main">Bí kíp/Vật phẩm</option>
+          <option value="phrase" className="bg-parchment text-text-main">Thành ngữ</option>
+          <option value="other" className="bg-parchment text-text-main">Khác</option>
         </select>
       </div>
       <div className="col-span-2 flex gap-1 justify-center">
@@ -69,13 +70,13 @@ const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel
             }
             onSave(item.id, chinese.trim(), pinyin.trim() || vietnamese.trim(), vietnamese.trim(), type, item.note);
           }}
-          className="p-1 bg-indigo-600 text-white hover:bg-indigo-700 rounded transition-colors cursor-pointer"
+          className="p-1 bg-polish text-white hover:bg-[#A03522] rounded-[2px] transition-colors cursor-pointer"
         >
           <Check className="w-3.5 h-3.5" />
         </button>
         <button 
           onClick={onCancel}
-          className="p-1 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded transition-colors cursor-pointer"
+          className="p-1 bg-ink text-text-muted hover:text-text-main rounded-[2px] transition-colors cursor-pointer border border-parchment-2"
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -108,8 +109,8 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
     <div
       style={style}
       onClick={() => onSelect(item)}
-      className={`grid grid-cols-12 items-center border-b border-slate-800/80 transition-colors cursor-pointer select-none text-xs hover:bg-slate-800/30 ${
-        isSelected ? 'bg-indigo-950/30 border-l-4 border-indigo-600' : ''
+      className={`grid grid-cols-12 items-center border-b border-parchment-2 transition-colors cursor-pointer select-none text-xs hover:bg-parchment-2/50 ${
+        isSelected ? 'bg-parchment-2 border-l-4 border-polish' : ''
       }`}
     >
       {isEditing ? (
@@ -117,29 +118,34 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
       ) : (
         <>
           <div className="col-span-3 px-3 py-2.5">
-            <span className="font-bold text-slate-200 font-mono tracking-wide block hover:underline truncate">
-              {item.chinese}
-            </span>
+            <div className="flex items-center gap-1.5 truncate">
+              <span className="font-bold text-text-main font-serif tracking-wide hover:underline truncate">
+                {item.chinese}
+              </span>
+              {(item.origin === 'guideline' || item.origin === 'manual') && (
+                <SealStamp character="確" className="shrink-0" />
+              )}
+            </div>
             <div className="mt-1">{getOriginBadge(item.origin)}</div>
           </div>
           
-          <div className="col-span-2 px-3 py-2.5 text-slate-400 truncate">{item.pinyin}</div>
+          <div className="col-span-2 px-3 py-2.5 text-text-muted truncate">{item.pinyin}</div>
           
-          <div className="col-span-3 px-3 py-2.5 text-indigo-300 font-bold bg-indigo-950/10 border-l-2 border-indigo-500/40 truncate">
+          <div className="col-span-3 px-3 py-2.5 text-text-main font-bold border-l border-parchment-2 truncate">
             {item.vietnamese}
           </div>
           
           <div className="col-span-2 px-3 py-2.5 truncate">
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${getBadgeColor(item.type)}`}>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-[2px] text-[10px] font-bold border ${getBadgeColor(item.type)}`}>
               {getTypeName(item.type)}
             </span>
           </div>
           
-          <div className="col-span-1 px-3 py-2.5 whitespace-nowrap text-slate-400 font-sans text-[11px]">
+          <div className="col-span-1 px-3 py-2.5 whitespace-nowrap text-text-muted font-sans text-[11px]">
             {item.createdAt ? (
-              <span className="font-semibold text-slate-300">{new Date(item.createdAt).toLocaleDateString('vi-VN')}</span>
+              <span className="font-semibold text-text-muted">{new Date(item.createdAt).toLocaleDateString('vi-VN')}</span>
             ) : (
-              <span className="text-slate-600 italic">--</span>
+              <span className="text-text-muted opacity-50 italic">--</span>
             )}
           </div>
           
@@ -147,7 +153,7 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
             <div className="flex items-center justify-center gap-1">
               <button 
                 onClick={() => onEdit(item)}
-                className="p-1 text-slate-400 hover:text-indigo-400 hover:bg-indigo-950/50 rounded transition-colors cursor-pointer" 
+                className="p-1 text-text-muted hover:text-text-main hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer" 
                 title="Sửa từ khóa này trực tiếp"
               >
                 <Edit2 className="w-3.5 h-3.5" />
@@ -165,7 +171,7 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
                     onDelete(item.id);
                   }
                 }}
-                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors cursor-pointer" 
+                className="p-1 text-text-muted hover:text-rose-400 hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer" 
                 title="Xóa từ"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -276,15 +282,15 @@ export const GlossaryTable = React.memo(function GlossaryTable({
   };
 
   return (
-    <div className="bg-slate-900/40 border border-slate-800/80 rounded-lg overflow-hidden shadow-2xs">
+    <div className="bg-parchment border border-parchment-2 rounded-md overflow-hidden shadow-xs">
       {filteredGlossary.length === 0 ? (
-        <div className="p-6 text-center text-slate-500 text-xs italic">
+        <div className="p-6 text-center text-text-muted text-xs italic">
           Không tìm thấy từ điển nào khớp với tiêu chuẩn tìm kiếm của bạn. Hãy tạo mới ở nút góc trên!
         </div>
       ) : (
         <div className="w-full text-left">
           {/* Header Row */}
-          <div className="bg-slate-950/60 border-b border-slate-800 grid grid-cols-12 items-center font-bold uppercase tracking-wider text-slate-400 text-[10px] py-2.5">
+          <div className="bg-ink border-b border-parchment-2 grid grid-cols-12 items-center font-bold uppercase tracking-wider text-text-muted text-[10px] py-2.5">
             <div className="col-span-3 px-3">Chữ Trung (Gốc)</div>
             <div className="col-span-2 px-3">Phiên âm</div>
             <div className="col-span-3 px-3">Bản dịch Việt</div>
@@ -301,7 +307,7 @@ export const GlossaryTable = React.memo(function GlossaryTable({
             onScroll={onScroll}
           >
             <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
-              {visibleItems.map(({ item, index, style }) => (
+              {visibleItems.map(({ item, style }) => (
                 <GlossaryTableRow
                   key={item.id}
                   item={item}
@@ -322,17 +328,17 @@ export const GlossaryTable = React.memo(function GlossaryTable({
           </div>
 
           {/* Pagination and count stats at bottom */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-800 bg-slate-950/20 bg-slate-950/30 text-xs">
-            <span className="text-slate-400 font-sans">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-parchment-2 bg-ink/40 text-xs">
+            <span className="text-text-muted font-sans">
               {pageSize === 'all' ? (
                 <>
-                  Hiển thị toàn bộ <strong className="text-slate-200">{totalItems}</strong> thuật ngữ trong danh sách ảo hóa.
+                  Hiển thị toàn bộ <strong className="text-text-main">{totalItems}</strong> thuật ngữ trong danh sách ảo hóa.
                 </>
               ) : (
                 <>
-                  Hiển thị từ <strong className="text-slate-200">{Math.min(totalItems, (safeCurrentPage - 1) * pageSize + 1)}</strong> đến{' '}
-                  <strong className="text-slate-200">{Math.min(totalItems, safeCurrentPage * pageSize)}</strong> trong tổng số{' '}
-                  <strong className="text-slate-200">{totalItems}</strong> thuật ngữ.
+                  Hiển thị từ <strong className="text-text-main">{Math.min(totalItems, (safeCurrentPage - 1) * pageSize + 1)}</strong> đến{' '}
+                  <strong className="text-text-main">{Math.min(totalItems, safeCurrentPage * pageSize)}</strong> trong tổng số{' '}
+                  <strong className="text-text-main">{totalItems}</strong> thuật ngữ.
                 </>
               )}
             </span>
@@ -343,14 +349,14 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                   <button
                     onClick={() => setCurrentPage(1)}
                     disabled={safeCurrentPage === 1}
-                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                    className="px-2 py-1 rounded-[2px] bg-ink border border-parchment-2 text-text-muted hover:text-text-main hover:bg-parchment-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
                     Đầu
                   </button>
                   <button
                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                     disabled={safeCurrentPage === 1}
-                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                    className="px-2 py-1 rounded-[2px] bg-ink border border-parchment-2 text-text-muted hover:text-text-main hover:bg-parchment-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
                     Trước
                   </button>
@@ -359,10 +365,10 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                     <button
                       key={pageNum}
                       onClick={() => setCurrentPage(pageNum)}
-                      className={`px-2.5 py-1 rounded border text-[11px] font-semibold transition-colors cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-[2px] border text-[11px] font-semibold transition-colors cursor-pointer ${
                         safeCurrentPage === pageNum
-                          ? 'bg-indigo-600 border-indigo-600 text-white'
-                          : 'bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800'
+                          ? 'bg-polish border-polish text-white shadow-xs'
+                          : 'bg-ink border border-parchment-2 text-text-muted hover:text-text-main hover:bg-parchment-2'
                       }`}
                     >
                       {pageNum}
@@ -372,20 +378,20 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                   <button
                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                     disabled={safeCurrentPage === totalPages}
-                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                    className="px-2 py-1 rounded-[2px] bg-ink border border-parchment-2 text-text-muted hover:text-text-main hover:bg-parchment-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
                     Sau
                   </button>
                   <button
                     onClick={() => setCurrentPage(totalPages)}
                     disabled={safeCurrentPage === totalPages}
-                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                    className="px-2 py-1 rounded-[2px] bg-ink border border-parchment-2 text-text-muted hover:text-text-main hover:bg-parchment-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
                     Cuối
                   </button>
                 </div>
 
-                <div className="flex items-center gap-1.5 border-l border-slate-800 pl-2 ml-1 text-slate-400 font-sans text-[11px]">
+                <div className="flex items-center gap-1.5 border-l border-parchment-2 pl-2 ml-1 text-text-muted font-sans text-[11px]">
                   <span>Đi đến:</span>
                   <input
                     type="text"
@@ -393,7 +399,7 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                     onChange={handlePageInputChange}
                     onKeyDown={handlePageInputKeyDown}
                     onBlur={handlePageInputSubmit}
-                    className="w-10 px-1 py-0.5 text-center bg-slate-950 border border-slate-700/80 rounded font-bold text-slate-200 text-[11px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                    className="w-10 px-1 py-0.5 text-center bg-ink border border-parchment-2 rounded-[2px] font-bold text-text-main text-[11px] focus:outline-none focus:border-polish transition-colors"
                   />
                   <span>/ {totalPages}</span>
                 </div>

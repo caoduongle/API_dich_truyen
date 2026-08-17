@@ -21,20 +21,20 @@ export const QueueStatusPanel = React.memo(function QueueStatusPanel({
   const effectiveBatchEnd = Math.min(currentChapterIndex + concurrency, chaptersQueue.length);
 
   return (
-    <div className="bg-slate-900/40 border border-slate-800/80 p-4 rounded-xl shadow-xs space-y-3">
+    <div className="bg-parchment border border-parchment-2 p-4 rounded-md shadow-xs space-y-3">
       <div className="flex justify-between items-center">
-        <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-          <ListOrdered className="w-4 h-4 text-indigo-400" /> Trạng thái vận chuyển hàng đợi ({processedCount}/{chaptersQueue.length})
+        <span className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5">
+          <ListOrdered className="w-4 h-4 text-polish" /> Trạng thái vận chuyển hàng đợi ({processedCount}/{chaptersQueue.length})
           {concurrency > 1 && currentChapterIndex >= 0 && currentChapterIndex < chaptersQueue.length && (
-            <span className="text-[10px] font-normal text-indigo-400 ml-1">
+            <span className="text-[10px] font-normal text-polish ml-1">
               | Lô: chương {currentChapterIndex + 1}–{effectiveBatchEnd} ({concurrency} luồng)
             </span>
           )}
         </span>
-        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded font-extrabold text-slate-300">{progressPercent}% Hoàn thành</span>
+        <span className="text-[10px] bg-ink border border-parchment-2 px-2 py-0.5 rounded-[2px] font-bold text-text-main">{progressPercent}% Hoàn thành</span>
       </div>
-      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700/50">
-        <div className="bg-indigo-500 h-2 rounded-full transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
+      <div className="w-full bg-ink rounded-full h-2 overflow-hidden border border-parchment-2">
+        <div className="bg-polish h-2 rounded-full transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-24 overflow-y-auto pt-1 text-[10px]">
@@ -44,10 +44,10 @@ export const QueueStatusPanel = React.memo(function QueueStatusPanel({
             : idx === currentChapterIndex;
           const isDone = idx < currentChapterIndex;
           return (
-            <div key={chap.id} className={`p-1.5 rounded border flex items-center justify-between ${isCurrent ? 'border-indigo-500/50 bg-indigo-950/30 text-indigo-300 font-bold animate-pulse' : isDone ? 'border-emerald-800/50 bg-emerald-950/20 text-emerald-300' : 'border-slate-800 bg-slate-950/40 text-slate-500'}`}>
+            <div key={chap.id} className={`p-1.5 rounded-[2px] border flex items-center justify-between ${isCurrent ? 'border-polish bg-polish/15 text-polish font-bold animate-pulse' : isDone ? 'border-parchment-2 bg-ink text-text-muted' : 'border-parchment-2 bg-ink/40 text-text-muted opacity-60'}`}>
               <span className="truncate flex-1" title={chap.title}>{chap.title}</span>
-              {isDone && <Check className="w-3 h-3 text-emerald-400 shrink-0 ml-1" />}
-              {isCurrent && <RefreshCwIcon className="w-2.5 h-2.5 animate-spin text-indigo-400 shrink-0 ml-1" />}
+              {isDone && <Check className="w-3 h-3 text-polish shrink-0 ml-1" />}
+              {isCurrent && <RefreshCwIcon className="w-2.5 h-2.5 animate-spin text-polish shrink-0 ml-1" />}
             </div>
           );
         })}

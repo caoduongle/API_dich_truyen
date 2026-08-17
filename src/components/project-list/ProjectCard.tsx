@@ -1,7 +1,7 @@
 import React from 'react';
 import { StoryProject } from '../../types';
 import {
-  Folder, BookOpen, Clock, Tag, FileText, Download, Edit3, Trash2, Sparkles, Calendar
+  BookOpen, Tag, Download, Edit3, Trash2, Sparkles, Calendar
 } from 'lucide-react';
 import { useNotifications } from '../NotificationSystem';
 
@@ -55,17 +55,17 @@ export function ProjectCard({
     <div
       id={`project-card-${proj.id}`}
       onClick={() => onSelect(proj.id)}
-      className={`p-5 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
+      className={`p-5 rounded-md border transition-all cursor-pointer relative flex flex-col justify-between ${
         isActive
-          ? 'border-indigo-600 bg-indigo-950/20 shadow-xs ring-4 ring-indigo-500/15'
-          : 'border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 hover:shadow-xs'
+          ? 'border-polish bg-parchment shadow-md ring-1 ring-polish/30'
+          : 'border-parchment-2 bg-parchment hover:border-text-muted hover:shadow-xs'
       }`}
     >
       <div>
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <span className="text-xl">{getGenreEmoji(proj.genre)}</span>
-            <span className="bg-slate-950 text-slate-300 border border-slate-800 text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-md">
+            <span className="bg-ink text-text-muted border border-parchment-2 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-[2px]">
               {proj.genre}
             </span>
           </div>
@@ -77,7 +77,7 @@ export function ProjectCard({
                 e.stopPropagation();
                 onExportJson(proj);
               }}
-              className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              className="text-text-muted hover:text-text-main p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer"
               title="Sao lưu lưu trữ truyện về máy tính (.json)"
             >
               <Download className="w-3.5 h-3.5" />
@@ -86,7 +86,7 @@ export function ProjectCard({
             {/* Edit Button */}
             <button
               onClick={(e) => onEdit(e, proj)}
-              className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              className="text-text-muted hover:text-text-main p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer"
               title="Chỉnh sửa thông tin môi trường và bộ truyện"
             >
               <Edit3 className="w-3.5 h-3.5" />
@@ -108,7 +108,7 @@ export function ProjectCard({
                     onDelete(proj.id);
                   }
                 }}
-                className="text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-950/40 transition-colors cursor-pointer"
+                className="text-text-muted hover:text-rose-400 p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer"
                 title="Xóa truyện"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -118,47 +118,47 @@ export function ProjectCard({
         </div>
 
         <div className="mt-3.5 space-y-0.5">
-          <h3 className="text-sm font-extrabold text-slate-200 line-clamp-1">
+          <h3 className="text-sm font-display font-bold text-text-main line-clamp-1">
             {proj.title}
           </h3>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
-            Tác giả: <span className="text-slate-300 font-sans">{proj.author}</span>
+          <p className="text-[10px] text-text-muted font-bold uppercase tracking-wide">
+            Tác giả: <span className="text-text-main font-sans">{proj.author}</span>
           </p>
         </div>
 
         {proj.description && (
-          <p className="mt-3 text-xs text-slate-400 line-clamp-2 leading-relaxed">
+          <p className="mt-3 text-xs text-text-muted line-clamp-2 leading-relaxed">
             {proj.description}
           </p>
         )}
       </div>
 
-      <div className="mt-5 pt-3 border-t border-slate-800/80 space-y-2 text-[11px] text-slate-400">
+      <div className="mt-5 pt-3 border-t border-parchment-2 space-y-2 text-[11px] text-text-muted">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <BookOpen className="w-3.5 h-3.5 text-polish shrink-0" />
             <span>Tổng số chương dịch:</span>
           </div>
-          <strong className="text-slate-200 font-extrabold">{proj.chapters.length} chương</strong>
+          <strong className="text-text-main font-bold">{proj.chapters.length} chương</strong>
         </div>
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <Tag className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <Tag className="w-3.5 h-3.5 text-text-muted shrink-0" />
             <span>Bảng từ điển (Glossary):</span>
           </div>
-          <strong className="text-slate-200 font-extrabold">{proj.glossary.length} từ</strong>
+          <strong className="text-text-main font-bold">{proj.glossary.length} từ</strong>
         </div>
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <Sparkles className="w-3.5 h-3.5 text-text-muted shrink-0" />
             <span>Phong cách:</span>
           </div>
-          <strong className="text-slate-300 font-bold truncate max-w-[120px]" title={proj.tone}>{proj.tone}</strong>
+          <strong className="text-text-main font-semibold truncate max-w-[120px]" title={proj.tone}>{proj.tone}</strong>
         </div>
 
-        <div className="flex items-center justify-between text-[10px] text-slate-400/80 pt-1">
+        <div className="flex items-center justify-between text-[10px] text-text-muted pt-1">
           <div className="flex items-center gap-1">
             <Calendar className="w-3 h-3" />
             <span>Ngày khởi tạo:</span>
@@ -170,12 +170,12 @@ export function ProjectCard({
         {progress.total > 0 && (
           <div className="pt-2 space-y-1">
             <div className="flex justify-between text-[10px]">
-              <span className="text-slate-400">Tiến trình dịch</span>
-              <span className="font-bold text-indigo-400">{progress.done}/{progress.total} chương ({progress.pct}%)</span>
+              <span className="text-text-muted">Tiến trình dịch</span>
+              <span className="font-bold text-polish">{progress.done}/{progress.total} chương ({progress.pct}%)</span>
             </div>
-            <div className="w-full h-1.5 bg-slate-950 border border-slate-800/60 rounded-full overflow-hidden">
+            <div className="w-full h-1.5 bg-ink border border-parchment-2 rounded-full overflow-hidden">
               <div
-                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                className="h-full bg-polish rounded-full transition-all duration-500"
                 style={{ width: progress.pct + '%' }}
               />
             </div>
@@ -183,17 +183,17 @@ export function ProjectCard({
         )}
 
         {proj.chapters.length > 0 && (
-          <div className="flex gap-1.5 pt-2 border-t border-slate-800/60">
+          <div className="flex gap-1.5 pt-2 border-t border-parchment-2">
             <button
               onClick={(e) => { e.stopPropagation(); onExportText(proj, 'vietnamese'); }}
-              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-emerald-950/20 hover:bg-emerald-900/20 text-emerald-400 border border-emerald-900/40 rounded-md transition cursor-pointer"
+              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-ink hover:bg-parchment-2 text-text-main border border-parchment-2 rounded-[2px] transition cursor-pointer"
               title="Xuất bản dịch tiếng Việt (.txt)"
             >
               ↓ Bản Việt (.txt)
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onExportText(proj, 'bilingual'); }}
-              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-indigo-950/20 hover:bg-indigo-900/20 text-indigo-300 border border-indigo-900/40 rounded-md transition cursor-pointer"
+              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-ink hover:bg-parchment-2 text-text-main border border-parchment-2 rounded-[2px] transition cursor-pointer"
               title="Xuất song ngữ Trung-Việt (.txt)"
             >
               ↓ Song ngữ (.txt)
@@ -201,7 +201,7 @@ export function ProjectCard({
             <button
               disabled={isExportingEpub}
               onClick={(e) => { e.stopPropagation(); onExportEpub(proj); }}
-              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-amber-950/20 hover:bg-amber-900/20 text-amber-400 border border-amber-900/40 rounded-md transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-ink hover:bg-parchment-2 text-polish border border-parchment-2 rounded-[2px] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title="Đóng gói và xuất file sách điện tử (.epub) để đọc trên điện thoại/Kindle"
             >
               {isExportingEpub ? 'Đang xuất...' : '↓ Sách EPUB'}
@@ -211,7 +211,7 @@ export function ProjectCard({
       </div>
 
       {isActive && (
-        <div className="absolute top-4 right-14 bg-indigo-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded tracking-wider uppercase">
+        <div className="absolute top-4 right-14 bg-polish text-white text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] tracking-wider uppercase">
           ĐANG DỊCH
         </div>
       )}

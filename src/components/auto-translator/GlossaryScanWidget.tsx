@@ -23,61 +23,61 @@ interface GlossaryScanWidgetProps {
 }
 
 export function GlossaryScanWidget({
-                                       isVisible,
-                                       isMinimized,
-                                       setIsMinimized,
-                                       setIsVisible,
-                                       isScanning,
-                                       currentScanningChapterIndex,
-                                       totalScanChapters,
-                                       scanningProgress,
-                                       currentExtractionLoop,
-                                       extractionLoops,
-                                       scanFoundCount,
-                                       currentScanningChapterTitle,
-                                       selectedModel,
-                                       onToggleScan,
-                                       failedIds,
-                                       onRetryFailedGlossaryChapters,
-                                       activeProject,
-                                   }: GlossaryScanWidgetProps) {
+    isVisible,
+    isMinimized,
+    setIsMinimized,
+    setIsVisible,
+    isScanning,
+    currentScanningChapterIndex,
+    totalScanChapters,
+    scanningProgress,
+    currentExtractionLoop,
+    extractionLoops,
+    scanFoundCount,
+    currentScanningChapterTitle,
+    selectedModel,
+    onToggleScan,
+    failedIds,
+    onRetryFailedGlossaryChapters,
+    activeProject,
+}: GlossaryScanWidgetProps) {
     if (!isVisible) return null;
 
     return (
         <div
-            className={`fixed bottom-4 left-4 z-50 bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 rounded-xl shadow-2xl shadow-amber-950/20 transition-all duration-300 overflow-hidden flex flex-col ${
+            className={`fixed bottom-4 left-4 z-50 bg-parchment border border-parchment-2 rounded-md shadow-2xl transition-all duration-300 overflow-hidden flex flex-col ${
                 isMinimized ? 'w-72 sm:w-80 h-12' : 'w-80 sm:w-96 max-h-[400px] h-auto'
             }`}
         >
-            <div className="bg-amber-600/90 border-b border-amber-500/30 text-white px-4 py-2.5 flex items-center justify-between shrink-0 select-none">
+            <div className="bg-ink border-b border-parchment-2 text-text-main px-4 py-2.5 flex items-center justify-between shrink-0 select-none">
                 <div className="flex items-center gap-2 text-xs font-bold truncate">
                     {isScanning ? (
                         <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-            </span>
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                        </span>
                     ) : (
-                        <span className="h-2 w-2 rounded-full bg-amber-200"></span>
+                        <span className="h-2 w-2 rounded-full bg-text-muted"></span>
                     )}
                     <span className="truncate">
-            {isScanning
-                ? `Đang quét: ${currentScanningChapterIndex}/${totalScanChapters} chương`
-                : `Hoàn tất: ${currentScanningChapterIndex}/${totalScanChapters} chương`}
-          </span>
+                        {isScanning
+                            ? `Đang quét: ${currentScanningChapterIndex}/${totalScanChapters} chương`
+                            : `Hoàn tất: ${currentScanningChapterIndex}/${totalScanChapters} chương`}
+                    </span>
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
                     <button
                         type="button"
                         onClick={() => setIsMinimized(!isMinimized)}
-                        className="p-1 hover:bg-amber-700 rounded transition-colors text-amber-100 hover:text-white cursor-pointer"
+                        className="p-1 hover:bg-parchment-2 rounded-[2px] transition-colors text-text-muted hover:text-text-main cursor-pointer"
                     >
                         {isMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
                     </button>
                     <button
                         type="button"
                         onClick={() => setIsVisible(false)}
-                        className="p-1 hover:bg-amber-700 rounded transition-colors text-amber-100 hover:text-rose-300 cursor-pointer"
+                        className="p-1 hover:bg-parchment-2 rounded-[2px] transition-colors text-text-muted hover:text-rose-400 cursor-pointer"
                     >
                         <X className="w-3.5 h-3.5" />
                     </button>
@@ -85,49 +85,49 @@ export function GlossaryScanWidget({
             </div>
 
             {!isMinimized ? (
-                <div className="p-4 space-y-4 overflow-y-auto flex-1 text-slate-200">
+                <div className="p-4 space-y-4 overflow-y-auto flex-1 text-text-main">
                     <div className="space-y-1.5">
                         <div className="flex justify-between text-xs font-bold">
-                            <span className="text-slate-400">Tiến trình quét:</span>
-                            <span className="text-amber-400 font-extrabold bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">{scanningProgress}%</span>
+                            <span className="text-text-muted">Tiến trình quét:</span>
+                            <span className="text-amber-400 font-bold bg-ink border border-parchment-2 px-1.5 py-0.5 rounded-[2px]">{scanningProgress}%</span>
                         </div>
-                        <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden border border-slate-700/50">
+                        <div className="w-full bg-ink rounded-full h-2 overflow-hidden border border-parchment-2">
                             <div
-                                className="bg-gradient-to-r from-amber-400 to-amber-600 h-full transition-all duration-500"
+                                className="bg-amber-500 h-full transition-all duration-500"
                                 style={{ width: `${scanningProgress}%` }}
                             ></div>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/60 text-[11px]">
+                    <div className="grid grid-cols-2 gap-3 bg-ink p-2.5 rounded-[2px] border border-parchment-2 text-[11px]">
                         <div className="space-y-0.5">
-              <span className="text-slate-400 font-normal flex items-center gap-1">
-                <RefreshCw className="w-3.5 h-3.5 text-amber-500" />
-                Vòng lặp:
-              </span>
-                            <strong className="text-slate-200 font-bold block">{currentExtractionLoop} / {extractionLoops}</strong>
+                            <span className="text-text-muted font-normal flex items-center gap-1">
+                                <RefreshCw className="w-3.5 h-3.5 text-amber-500" />
+                                Vòng lặp:
+                            </span>
+                            <strong className="text-text-main font-bold block">{currentExtractionLoop} / {extractionLoops}</strong>
                         </div>
                         <div className="space-y-0.5">
-              <span className="text-slate-400 font-normal flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                Từ mới tìm thấy:
-              </span>
+                            <span className="text-text-muted font-normal flex items-center gap-1">
+                                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                                Từ mới tìm thấy:
+                            </span>
                             <strong className="text-amber-400 font-bold block">{scanFoundCount} thuật ngữ</strong>
                         </div>
                     </div>
 
                     {currentScanningChapterTitle && (
-                        <div className="bg-amber-950/10 border border-amber-800/40 p-2.5 rounded-lg text-xs space-y-1">
-              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
-                {isScanning ? 'Đang quét:' : 'Chương cuối:'}
-              </span>
-                            <p className="font-extrabold text-slate-100 truncate">{currentScanningChapterTitle}</p>
-                            <p className="text-[10px] text-slate-400">Mô hình: {selectedModel}</p>
+                        <div className="bg-ink border border-parchment-2 p-2.5 rounded-[2px] text-xs space-y-1">
+                            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
+                                {isScanning ? 'Đang quét:' : 'Chương cuối:'}
+                            </span>
+                            <p className="font-bold text-text-main truncate">{currentScanningChapterTitle}</p>
+                            <p className="text-[10px] text-text-muted">Mô hình: {selectedModel}</p>
                         </div>
                     )}
 
                     {failedIds && failedIds.length > 0 && (
-                        <div className="bg-rose-950/20 border border-rose-900/40 p-3 rounded-lg space-y-2 animate-in slide-in-from-top-2 duration-200">
+                        <div className="bg-rose-950/20 border border-rose-900/40 p-3 rounded-[2px] space-y-2 animate-in slide-in-from-top-2 duration-200">
                             <div className="flex items-center gap-2">
                                 <span className="flex h-1.5 w-1.5 relative shrink-0">
                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
@@ -137,7 +137,7 @@ export function GlossaryScanWidget({
                                     Phát hiện {failedIds.length} chương lỗi khi quét
                                 </span>
                             </div>
-                            <p className="text-[10px] text-rose-300/90 font-normal leading-normal max-h-16 overflow-y-auto bg-slate-950/40 p-2 rounded border border-rose-900/30 custom-scrollbar">
+                            <p className="text-[10px] text-rose-300 font-normal leading-normal max-h-16 overflow-y-auto bg-ink p-2 rounded-[2px] border border-rose-900/30 custom-scrollbar">
                                 {failedIds.map((fid) => {
                                     const chap = activeProject.chapters.find(c => c.id === fid);
                                     return chap ? chap.title : fid;
@@ -147,7 +147,7 @@ export function GlossaryScanWidget({
                                 type="button"
                                 onClick={onRetryFailedGlossaryChapters}
                                 disabled={isScanning}
-                                className={`w-full py-1.5 bg-rose-600 hover:bg-rose-600 text-white rounded-lg text-[11px] font-extrabold shadow-sm flex items-center justify-center gap-1 transition-all ${
+                                className={`w-full py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-[2px] text-[11px] font-bold shadow-xs flex items-center justify-center gap-1 transition-all ${
                                     isScanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                                 }`}
                             >
@@ -156,34 +156,34 @@ export function GlossaryScanWidget({
                         </div>
                     )}
 
-                    <div className="pt-2 border-t border-slate-800">
+                    <div className="pt-2 border-t border-parchment-2">
                         {isScanning ? (
                             <button
                                 type="button"
                                 onClick={onToggleScan}
-                                className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-extrabold shadow-sm flex items-center justify-center gap-1.5 cursor-pointer focus:outline-none"
+                                className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer focus:outline-none"
                             >
                                 <Square className="w-3.5 h-3.5 fill-white" />
                                 Dừng quét ngay
                             </button>
                         ) : (
-                            <div className="text-center text-xs font-bold text-emerald-400 flex items-center justify-center gap-1.5 py-1">
-                                <Check className="w-4 h-4" />
+                            <div className="text-center text-xs font-bold text-polish flex items-center justify-center gap-1.5 py-1">
+                                <Check className="w-4 h-4 text-polish" />
                                 Quét hoàn tất — {scanFoundCount} thuật ngữ mới
                             </div>
                         )}
                     </div>
                 </div>
             ) : (
-                <div className="px-4 h-12 flex items-center justify-between text-xs font-medium">
-          <span className="truncate flex items-center gap-1.5 font-bold text-slate-200">
-            {isScanning ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
-            ) : (
-                <Check className="w-3.5 h-3.5 text-emerald-500" />
-            )}
-              <span>Quét: {currentScanningChapterIndex}/{totalScanChapters} ({scanningProgress}%) · {scanFoundCount} từ</span>
-          </span>
+                <div className="px-4 h-12 flex items-center justify-between text-xs font-medium text-text-main">
+                    <span className="truncate flex items-center gap-1.5 font-bold text-text-main">
+                        {isScanning ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                        ) : (
+                            <Check className="w-3.5 h-3.5 text-polish" />
+                        )}
+                        <span>Quét: {currentScanningChapterIndex}/{totalScanChapters} ({scanningProgress}%) · {scanFoundCount} từ</span>
+                    </span>
                     <div className="flex items-center gap-2 shrink-0">
                         {isScanning && (
                             <button
@@ -195,7 +195,7 @@ export function GlossaryScanWidget({
                         )}
                         <button
                             onClick={() => setIsMinimized(false)}
-                            className="text-amber-400 hover:text-amber-300 font-bold hover:underline ml-1 cursor-pointer"
+                            className="text-amber-400 hover:underline ml-1 cursor-pointer font-bold"
                         >
                             Mở rộng
                         </button>

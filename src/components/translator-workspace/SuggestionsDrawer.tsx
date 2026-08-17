@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, ChevronRight } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { GlossaryItem } from '../../types';
 
 export interface SuggestionsDrawerProps {
@@ -20,14 +20,14 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
   if (suggestions.length === 0) return null;
 
   return (
-    <div id="entities-analysis-drawer" className="bg-slate-900 border border-slate-800 text-white rounded-xl p-4 space-y-3 shadow-md animate-slideUp">
+    <div id="entities-analysis-drawer" className="bg-parchment border border-parchment-2 text-text-main rounded-md p-4 space-y-3 shadow-xs animate-slideUp">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 fill-current text-indigo-400" />
+          <h4 className="text-xs font-bold text-polish uppercase tracking-wider flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-polish" />
             Kết Quả Gợi Ý Từ Điển Âm Hán Việt &amp; Nhân Vật
           </h4>
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-text-muted">
             AI đã tự động phát hiện được {suggestions.length} danh từ riêng quan trọng. Hãy lọc và thêm vào bộ Quy định.
           </p>
         </div>
@@ -38,14 +38,14 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
               suggestions.forEach((_, idx) => { checkAll[idx] = true; });
               setSelectedSuggestions(checkAll);
             }}
-            className="text-[10px] font-bold text-slate-300 hover:text-white pointer cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-slate-300"
+            className="text-[10px] font-bold text-text-muted hover:text-text-main cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-text-main"
           >
             Chọn tất cả
           </button>
-          <span className="text-slate-600">|</span>
+          <span className="text-text-muted">|</span>
           <button
             onClick={() => setSelectedSuggestions({})}
-            className="text-[10px] font-bold text-slate-300 hover:text-white pointer cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-slate-300"
+            className="text-[10px] font-bold text-text-muted hover:text-text-main cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-text-main"
           >
             Bỏ chọn
           </button>
@@ -57,28 +57,28 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
           <div
             key={idx}
             onClick={() => toggleCheck(idx)}
-            className={`p-2 rounded border transition-all cursor-pointer flex items-start gap-2 ${
+            className={`p-2 rounded-[2px] border transition-all cursor-pointer flex items-start gap-2 ${
               selectedSuggestions[idx]
-                ? 'bg-slate-800 border-indigo-500 text-white shadow-xs'
-                : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
+                ? 'bg-ink border-polish text-text-main shadow-xs'
+                : 'bg-ink/50 border-parchment-2 text-text-muted hover:border-text-muted'
             }`}
           >
             <input
               type="checkbox"
               checked={!!selectedSuggestions[idx]}
-              onChange={() => {}} // handled by div click
-              className="mt-0.5 rounded accent-indigo-600 shrink-0 cursor-pointer pointer-events-none"
+              onChange={() => {}}
+              className="mt-0.5 rounded-[2px] accent-polish shrink-0 cursor-pointer pointer-events-none"
             />
             <div className="text-[11px] space-y-0.5">
               <div className="flex items-center gap-1">
-                <strong className="font-mono text-white tracking-wide">{item.chinese}</strong>
-                <span className="text-slate-500 text-[9px]">({item.pinyin})</span>
+                <strong className="font-serif text-polish tracking-wide">{item.chinese}</strong>
+                <span className="text-text-muted text-[9px]">({item.pinyin})</span>
               </div>
               <div>
-                <span className="text-slate-500">Dịch: </span>
-                <strong className="text-indigo-300">{item.vietnamese}</strong>
+                <span className="text-text-muted">Dịch: </span>
+                <strong className="text-text-main font-semibold">{item.vietnamese}</strong>
               </div>
-              <div className="text-[9px] text-slate-500 text-slate-500 line-clamp-1 italic">
+              <div className="text-[9px] text-text-muted line-clamp-1 italic">
                 {item.note || `Thể loại: ${item.type}`}
               </div>
             </div>
@@ -90,7 +90,7 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
         <button
           id="btn-import-suggestions"
           onClick={handleImportSuggestions}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded transition-colors pointer cursor-pointer"
+          className="bg-polish hover:bg-[#A03522] text-white font-bold text-xs px-3 py-1.5 rounded-[2px] transition-colors cursor-pointer shadow-xs"
         >
           Lưu các từ đã chọn vào Từ Điển Dự Án
         </button>

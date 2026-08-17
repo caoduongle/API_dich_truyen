@@ -1,76 +1,82 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght=400;500;650;700;800&family=JetBrains+Mono:wght=400;500;650;700&family=Space+Grotesk:wght=400;500;650;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Be+Vietnam+Pro:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --font-display: "Space Grotesk", sans-serif;
+  --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Fraunces", serif;
+  --font-zh: "Noto Serif SC", serif;
+
+  --color-ink: #14100D;           /* nền chính, thay #080c16 */
+  --color-parchment: #1F1914;     /* panel/card, thay slate-950 */
+  --color-parchment-2: #2A241D;   /* border/divider, thay slate-800 */
+  --color-text-main: #DCD1BC;     /* text chính, thay text trắng/slate-200 */
+  --color-text-muted: #786F5E;    /* text phụ, thay slate-400/slate-500 */
+  --color-draft: #3D4A5C;         /* accent giai đoạn 1 - Dịch thô, thay indigo-400 */
+  --color-polish: #B8402C;        /* accent giai đoạn 2 - Biên tập, thay emerald-500 */
 }
 
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
-  background-color: #080c16;
-  color: #cbd5e1;
+  background-color: var(--color-ink);
+  color: var(--color-text-main);
+  font-family: var(--font-sans);
 }
 
 /* KÍCH HOẠT VÀ TỐI ƯU THANH CUỘN MƯỢT MÀ TOÀN TRANG TRÊN FIREFOX */
 html {
   scroll-behavior: smooth;
   scrollbar-width: thin;
-  scrollbar-color: #1e293b #080c16;
+  scrollbar-color: #2A241D #14100D;
 }
 
-/* ĐỊNH DẠNG THANH CUỘN ĐẬM RÕ, DỄ BẤM KÉO CHO CHROME, EDGE, SAFARI */
+/* ĐỊNH DẠNG THANH CUỘN CHO CHROME, EDGE, SAFARI THEO TÔNG BẢN THẢO CỔ TRANG */
 ::-webkit-scrollbar {
-  width: 8px; /* Tiết kiệm diện tích hơn */
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
-/* Định dạng máng trượt (nền của thanh kéo) */
 ::-webkit-scrollbar-track {
-  background: #080c16;
-  border-radius: 9999px;
+  background: #14100D;
+  border-radius: 4px;
 }
 
-/* Định dạng con chạy (Thành kéo chính để người dùng bám chuột) */
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 9999px;
-  border: 2px solid #080c16;
+  background: #2A241D;
+  border-radius: 4px;
+  border: 1px solid #1F1914;
   transition: background-color 0.2s ease;
 }
 
-/* Trạng thái khi người dùng di chuột vào thanh kéo (Hover) */
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #3F372C;
   cursor: grab;
 }
 
-/* Trạng thái khi người dùng đang bấm giữ chuột để kéo (Active) */
 ::-webkit-scrollbar-thumb:active {
-  background: #475569;
+  background: #54493B;
   cursor: grabbing;
 }
 
 /* LỚP ẨN THANH CUỘN NHƯNG VẪN CHO PHÉP TRƯỢT */
 .scrollbar-none {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 .scrollbar-none::-webkit-scrollbar {
-  display: none; /* Chrome, Safari và Opera */
+  display: none;
 }
 
-/* HIỆU ỨNG ANIMATIONS MƯỢT MÀ */
+/* HIỆU ỨNG ANIMATIONS */
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 @keyframes slideUp {
-  from { transform: translateY(12px); opacity: 0; }
+  from { transform: translateY(8px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
 
@@ -79,25 +85,10 @@ html {
 }
 
 .animate-slideUp {
-  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.glow-shadow {
-  box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.15), 0 8px 20px -6px rgba(99, 102, 241, 0.1);
-}
-
-.glow-shadow-emerald {
-  box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.15), 0 8px 20px -6px rgba(16, 185, 129, 0.1);
-}
-
-.glow-shadow-indigo {
-  box-shadow: 0 0 20px 0 rgba(79, 70, 229, 0.2);
-}
-
-/* Custom glassmorphism classes */
-.glass-panel {
-  background: rgba(18, 24, 38, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+/* GLOW POLISH - Ánh sáng đỏ chu sa tinh tế cho giai đoạn biên tập */
+.glow-polish {
+  box-shadow: 0 0 20px -4px rgba(184, 64, 44, 0.18);
 }

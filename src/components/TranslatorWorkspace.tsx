@@ -752,55 +752,55 @@ export default function TranslatorWorkspace({
   return (
     <div id="translator-workspace" className="space-y-4">
       {/* Active Project Card info */}
-      <div className="bg-gradient-to-r from-[#0c1220] via-[#111a2e] to-[#182747] text-white rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-800/80 shadow-xl shadow-indigo-950/10">
+      <div className="bg-parchment text-text-main rounded-md p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-parchment-2 shadow-xs">
         <div
           id="project-workspace-info"
           onClick={handleOpenEditModal}
-          className="space-y-1 cursor-pointer group/header hover:bg-white/5 p-2 rounded-lg transition-colors duration-200 flex-1"
+          className="space-y-1 cursor-pointer group/header hover:bg-ink/30 p-2 rounded-[2px] transition-colors duration-200 flex-1"
           title="Nhấp để chỉnh sửa thông tin truyện"
         >
           <div className="flex items-center gap-2">
-            <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-500/25 uppercase tracking-wider">
+            <span className="bg-polish/15 text-polish text-[10px] font-bold px-2 py-0.5 rounded-[2px] border border-polish/30 uppercase tracking-wider">
               Dự án: {activeProject.title}
             </span>
-            <Edit3 className="w-3 h-3 text-indigo-400 opacity-0 group-hover/header:opacity-100 transition-opacity" />
+            <Edit3 className="w-3 h-3 text-polish opacity-0 group-hover/header:opacity-100 transition-opacity" />
           </div>
-          <h2 className="text-base font-extrabold tracking-tight mt-1 text-white">
-            Bàn Biên Dịch Trực Quan AI
+          <h2 className="text-base font-display font-bold tracking-tight mt-1 text-text-main">
+            Bàn Biên Soạn Bản Thảo Song Ngữ
           </h2>
-          <p className="text-slate-400 text-xs">
-            Hệ thống dịch thuật song ngữ, tự động đồng bộ hóa từ điển và chuốt mịn văn phong.
+          <p className="text-text-muted text-xs">
+            Hệ thống dịch thuật song ngữ, đối soát từ điển chuẩn xác và chuốt mịn văn phong chu sa.
           </p>
         </div>
 
         <div
           onClick={handleOpenEditModal}
-          className="flex flex-wrap items-center gap-4 bg-slate-900/50 border border-slate-800 p-2.5 rounded-xl max-w-md cursor-pointer hover:bg-slate-800/80 hover:border-slate-700 transition-all group/meta shadow-inner"
+          className="flex flex-wrap items-center gap-4 bg-ink/50 border border-parchment-2 p-2.5 rounded-[2px] max-w-md cursor-pointer hover:bg-ink/80 transition-all group/meta"
           title="Nhấp để chỉnh sửa thông tin truyện"
         >
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Thể loại</span>
-            <span className="font-bold text-indigo-400">{activeProject.genre}</span>
+            <span className="text-text-muted block font-medium text-[10px] uppercase tracking-wider">Thể loại</span>
+            <span className="font-bold text-text-main">{activeProject.genre}</span>
           </div>
-          <div className="h-6 w-[1px] bg-slate-800"></div>
+          <div className="h-6 w-[1px] bg-parchment-2"></div>
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Từ điển</span>
-            <span className="font-bold text-indigo-400">{activeProject.glossary.length} từ</span>
+            <span className="text-text-muted block font-medium text-[10px] uppercase tracking-wider">Từ điển</span>
+            <span className="font-bold text-polish">{activeProject.glossary.length} từ</span>
           </div>
-          <div className="h-6 w-[1px] bg-slate-800"></div>
+          <div className="h-6 w-[1px] bg-parchment-2"></div>
           <div className="text-xs">
-            <span className="text-slate-400 block font-medium text-[10px] uppercase tracking-wider">Tông giọng</span>
-            <span className="font-bold text-indigo-400 line-clamp-1">{activeProject.tone}</span>
+            <span className="text-text-muted block font-medium text-[10px] uppercase tracking-wider">Tông giọng</span>
+            <span className="font-bold text-text-main line-clamp-1">{activeProject.tone}</span>
           </div>
-          <div className="h-6 w-[1px] bg-slate-800"></div>
-          <div className="flex items-center justify-center text-indigo-400 group-hover/meta:text-indigo-300 transition-colors">
+          <div className="h-6 w-[1px] bg-parchment-2"></div>
+          <div className="flex items-center justify-center text-polish group-hover/meta:scale-110 transition-transform">
             <Edit3 className="w-3.5 h-3.5" />
           </div>
         </div>
       </div>
 
       {errorMessage && (
-        <div className="bg-rose-950/40 border border-rose-900/50 text-rose-200 p-3.5 rounded-xl flex items-start gap-2.5 text-xs animate-slideUp">
+        <div className="bg-rose-950/20 border border-rose-900/40 text-rose-300 p-3.5 rounded-[2px] flex items-start gap-2.5 text-xs animate-slideUp">
           <AlertCircle className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" />
           <div>
             <p className="font-bold text-rose-400">Lưu ý hệ thống:</p>

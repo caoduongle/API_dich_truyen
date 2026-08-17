@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { StoryProject, GlossaryItem, Chapter } from '../types';
+import { StoryProject, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { triggerDownload } from '../utils/download';
@@ -7,7 +7,7 @@ import { useEpubExport } from '../hooks/useEpubExport';
 import { ProjectCard } from './project-list/ProjectCard';
 import { ProjectFormModal } from './project-list/ProjectFormModal';
 import { 
-  Folder, Upload, Plus
+  Folder, Upload
 } from 'lucide-react';
 
 interface ProjectListProps {
@@ -101,101 +101,89 @@ export default function ProjectList({
 
     const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    triggerDownload(url, `${proj.title.replace(/[\s\/:*?"<>|]+/g, '_')}_${mode}.txt`);
+    const modeSuffix = mode === 'bilingual' ? 'song_ngu' : 'tieng_viet';
+    triggerDownload(url, `${proj.title.replace(/[\s\/:*?"<>|]+/g, '_')}_${modeSuffix}.txt`);
     URL.revokeObjectURL(url);
   };
 
-  // Import project JSON from disk
-  const handleImportProjectJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Import full project from exported JSON file
+  const handleImportProjectJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const raw = event.target?.result as string;
-        const imported = JSON.parse(raw);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
 
-        if (!imported.title) {
-          showToast({ message: 'Tệp JSON không hợp lệ, không tìm thấy tên tiểu thuyết (title).', type: 'error' });
-          return;
-        }
-
-        const projectPayload: StoryProject = {
-          ...imported,
-          id: 'proj_' + Date.now(),
-          createdAt: imported.createdAt || new Date().toISOString(),
-          glossary: Array.isArray(imported.glossary) ? imported.glossary : [],
-          pendingGlossary: Array.isArray(imported.pendingGlossary) ? imported.pendingGlossary : [],
-          chapters: Array.isArray(imported.chapters) ? imported.chapters : [],
-        };
-
-        onCreateProject(projectPayload);
-        showToast({ message: `Nhập khẩu dự án thành công! Thêm bộ truyện "${projectPayload.title}" với ${projectPayload.chapters.length} chương và ${projectPayload.glossary.length} từ điển.`, type: 'success' });
-      } catch (err: any) {
-        showToast({ message: 'Lỗi giải mã cấu trúc dữ liệu tệp JSON: ' + err.message, type: 'error' });
+      if (!data.title) {
+        throw new Error('Tệp JSON không đúng cấu trúc dự án của ứng dụng.');
       }
-    };
-    reader.readAsText(file);
-    
-    if (importJsonInputRef.current) {
-      importJsonInputRef.current.value = '';
-    }
-  };
 
-  const handleSaveProjectForm = (payload: {
-    title: string;
-    author: string;
-    genre: string;
-    tone: string;
-    description: string;
-    chapters: Chapter[];
-    glossary: GlossaryItem[];
-  }) => {
-    if (editingProjectId && onUpdateProject) {
-      const existingProj = projects.find((p) => p.id === editingProjectId);
-      if (existingProj) {
-        const updatedProj: StoryProject = {
-          ...existingProj,
-          title: payload.title,
-          author: payload.author,
-          genre: payload.genre,
-          tone: payload.tone,
-          description: payload.description,
-          chapters: [...existingProj.chapters, ...payload.chapters],
-          glossary: [...existingProj.glossary, ...payload.glossary],
-        };
-        onUpdateProject(updatedProj);
-        showToast({ message: `Đã cập nhật thông tin truyện "${payload.title}" thành công!`, type: 'success' });
+      const importedChapters: Chapter[] = (data.chapters || []).map((c: any, idx: number) => ({
+        id: c.id || `chap_${Date.now()}_${idx}`,
+        title: c.title || `Chương ${idx + 1}`,
+        sourceText: c.sourceText || '',
+        processedSourceText: c.processedSourceText || '',
+        rawTranslation: c.rawTranslation || '',
+        polishedTranslation: c.polishedTranslation || '',
+        paragraphs: c.paragraphs || [],
+        translatedLines: c.translatedLines || [],
+        status: c.status || 'not_started',
+        createdAt: c.createdAt || new Date().toISOString(),
+      }));
+
+      const newProjPayload = {
+        title: data.title,
+        author: data.author || 'Khuyết danh',
+        genre: data.genre || 'Tiên Hiệp',
+        tone: data.tone || 'Dịch thuần Việt mượt mà',
+        description: data.description || '',
+        chapters: importedChapters,
+        glossary: data.glossary || [],
+        pendingGlossary: data.pendingGlossary || [],
+      };
+
+      onCreateProject(newProjPayload);
+      showToast({ message: `Đã khôi phục thành công truyện "${data.title}" (${importedChapters.length} chương)!`, type: 'success' });
+    } catch (err: any) {
+      console.error(err);
+      showToast({ message: 'Lỗi khi nhập tệp sao lưu JSON: ' + err.message, type: 'error' });
+    } finally {
+      if (importJsonInputRef.current) {
+        importJsonInputRef.current.value = '';
       }
-    } else {
-      onCreateProject({
-        title: payload.title,
-        author: payload.author,
-        genre: payload.genre,
-        tone: payload.tone,
-        description: payload.description,
-        chapters: payload.chapters,
-        glossary: payload.glossary,
-        pendingGlossary: [],
-      });
     }
-
-    setEditingProjectId(null);
-    setIsCreating(false);
   };
 
   const handleStartEditProject = (e: React.MouseEvent, proj: StoryProject) => {
     e.stopPropagation();
     setEditingProjectId(proj.id);
     setIsCreating(true);
+  };
 
-    setTimeout(() => {
-      const formElement = document.getElementById('form-create-project');
-      if (formElement) {
-        formElement.scrollIntoView({ behavior: 'smooth' });
+  const handleSaveProjectForm = (payload: any) => {
+    if (editingProjectId && onUpdateProject) {
+      const existing = projects.find((p) => p.id === editingProjectId);
+      if (existing) {
+        onUpdateProject({
+          ...existing,
+          title: payload.title,
+          author: payload.author,
+          genre: payload.genre,
+          tone: payload.tone,
+          description: payload.description,
+          chapters: payload.chapters.length > 0 ? payload.chapters : existing.chapters,
+          glossary: payload.glossary.length > 0 ? [...existing.glossary, ...payload.glossary] : existing.glossary,
+        });
+        showToast({ message: 'Đã cập nhật thông tin dự án!', type: 'success' });
       }
-    }, 100);
+    } else {
+      onCreateProject(payload);
+      showToast({ message: 'Đã khởi tạo thành công tiểu thuyết mới!', type: 'success' });
+    }
+
+    setIsCreating(false);
+    setEditingProjectId(null);
   };
 
   const currentEditingProject = editingProjectId
@@ -205,13 +193,13 @@ export default function ProjectList({
   return (
     <div id="project-list-root-container" className="space-y-6">
       {/* Outer Quick Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/40 border border-slate-800/80 p-5 rounded-2xl shadow-xs">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs">
         <div className="space-y-1">
-          <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
-            <Folder className="w-4 h-4 text-indigo-400 animate-pulse" />
+          <h2 className="text-sm font-display font-bold text-text-main uppercase tracking-wider flex items-center gap-2">
+            <Folder className="w-4 h-4 text-polish animate-pulse" />
             Giám Sát & Quản Lý Dự Án Truyện
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-text-muted">
             Tạo truyện mới, nhập tệp truyện thô (.txt, .epub), phân tích tệp hướng dẫn dịch (.md) để trích xuất từ điển thông minh, và lưu trữ dữ liệu bền vững về máy tính của bạn.
           </p>
         </div>
@@ -227,10 +215,10 @@ export default function ProjectList({
           <button
             id="btn-import-project-json"
             onClick={() => importJsonInputRef.current?.click()}
-            className="flex items-center gap-1.5 border border-slate-800 hover:bg-slate-800 hover:text-slate-200 text-slate-300 font-semibold px-3 py-1.5 text-xs rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 border border-parchment-2 bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main font-semibold px-3 py-1.5 text-xs rounded-[2px] transition-colors cursor-pointer"
             title="Đọc tệp tin .json lưu ở máy tính để dịch tiếp"
           >
-            <Upload className="w-3.5 h-3.5" />
+            <Upload className="w-3.5 h-3.5 text-polish" />
             Nạp tệp sao lưu (.json)
           </button>
 
@@ -244,7 +232,7 @@ export default function ProjectList({
                 setIsCreating(true);
               }
             }}
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-1.5 text-xs rounded-lg shadow-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-polish hover:bg-[#A03522] text-white font-bold px-4 py-1.5 text-xs rounded-[2px] shadow-xs transition-colors cursor-pointer glow-polish"
           >
             {isCreating ? 'Hủy' : 'Tạo truyện mới'}
           </button>
@@ -267,7 +255,7 @@ export default function ProjectList({
 
       {/* Grid displays projects */}
       <div className="space-y-3">
-        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+        <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest">
           Tiểu thuyết hiện hữu trong hệ thống
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

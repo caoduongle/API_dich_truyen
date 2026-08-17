@@ -97,34 +97,34 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
   };
 
   return (
-    <div className="bg-slate-900/60 border border-amber-500/20 p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs hover:border-amber-500/40 transition-colors">
+    <div className="bg-ink border border-amber-800/40 p-3 rounded-md flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs hover:border-amber-700/80 transition-colors">
       <div className="flex-1 space-y-2">
         {item.needsReview ? (
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-[10px] text-rose-300 bg-rose-950/20 border border-rose-900/40 px-2.5 py-1 rounded-md font-medium" title="Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.">
+            <div className="flex items-center gap-1.5 text-[10px] text-rose-300 bg-rose-950/20 border border-rose-900/40 px-2.5 py-1 rounded-[2px] font-medium" title="Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.">
               <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
               <span><strong>AI Cảnh báo:</strong> Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.</span>
             </div>
 
             {/* Fuzzy match suggestions */}
             {isLoading ? (
-              <div className="text-[10px] text-slate-400 italic flex items-center gap-1.5 pl-1.5 animate-pulse">
-                <span className="w-2.5 h-2.5 rounded-full border border-slate-300 border-t-transparent animate-spin inline-block" />
+              <div className="text-[10px] text-text-muted italic flex items-center gap-1.5 pl-1.5 animate-pulse">
+                <span className="w-2.5 h-2.5 rounded-full border border-text-muted border-t-transparent animate-spin inline-block" />
                 Đang tìm kiếm gợi ý từ chương gốc...
               </div>
             ) : hasSearched ? (
               candidates.length > 0 ? (
-                <div className="text-[10.5px] bg-slate-950/40 border border-slate-800 rounded-lg p-2 space-y-1.5 pl-2.5 animate-fadeIn">
-                  <div className="font-bold text-slate-400 text-[9.5px] uppercase tracking-wider">Cụm từ tương tự tìm thấy trong chương gốc:</div>
+                <div className="text-[10.5px] bg-parchment border border-parchment-2 rounded-[2px] p-2 space-y-1.5 pl-2.5 animate-fadeIn">
+                  <div className="font-bold text-text-muted text-[9.5px] uppercase tracking-wider">Cụm từ tương tự tìm thấy trong chương gốc:</div>
                   <div className="flex flex-wrap gap-2 items-center">
                     {candidates.map((cand, idx) => (
-                      <div key={idx} className="inline-flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-slate-200 shadow-3xs">
-                        <span className="font-mono font-bold text-indigo-300">[{cand.text}]</span>
+                      <div key={idx} className="inline-flex items-center gap-1.5 bg-ink border border-parchment-2 rounded-[2px] px-2 py-0.5 text-text-main shadow-xs">
+                        <span className="font-serif font-bold text-polish">[{cand.text}]</span>
                         <span className="text-[9.5px] text-emerald-400 font-bold">({cand.similarity}%)</span>
                         <button
                           type="button"
                           onClick={() => handleApplyCandidate(cand.text)}
-                          className="bg-indigo-950/30 hover:bg-indigo-900/40 text-indigo-300 text-[9px] font-bold px-1.5 py-0.5 rounded cursor-pointer transition-colors border border-indigo-900/40"
+                          className="bg-polish/20 hover:bg-polish/30 text-polish text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] cursor-pointer transition-colors border border-polish/40"
                         >
                           Dùng cụm này
                         </button>
@@ -133,13 +133,13 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
                   </div>
                 </div>
               ) : (
-                <div className="text-[10px] text-slate-400 bg-slate-950/20 border border-slate-800 rounded-lg p-2 flex items-center justify-between pl-2.5 animate-fadeIn">
+                <div className="text-[10px] text-text-muted bg-parchment border border-parchment-2 rounded-[2px] p-2 flex items-center justify-between pl-2.5 animate-fadeIn">
                   <span>Không tìm được gợi ý tự động</span>
                   {chapterText && (
                     <button
                       type="button"
                       onClick={() => setIsModalOpen(true)}
-                      className="text-indigo-400 hover:text-indigo-300 text-[10px] font-bold underline cursor-pointer"
+                      className="text-polish hover:underline text-[10px] font-bold cursor-pointer"
                     >
                       Xem toàn văn chương gốc
                     </button>
@@ -149,7 +149,7 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
             ) : null}
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 text-[10px] text-amber-300 bg-amber-950/20 border border-amber-900/40 px-2.5 py-1 rounded-md font-medium">
+          <div className="flex items-center gap-1.5 text-[10px] text-amber-300 bg-amber-950/20 border border-amber-800/40 px-2.5 py-1 rounded-[2px] font-medium">
             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
             <span><strong>Lọc trùng:</strong> {item.reason}</span>
           </div>
@@ -157,67 +157,67 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
           <div>
-            <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Tiếng Trung *</span>
+            <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Tiếng Trung *</span>
             <input type="text" value={item.chinese} onChange={(e) => handleUpdateReviewItem(item.id, { chinese: e.target.value })}
-                   className="w-full text-xs font-bold font-mono bg-slate-950 border border-slate-700/80 focus:border-amber-500 rounded px-2 py-1 text-slate-200 outline-none" />
+                   className="w-full text-xs font-bold font-serif bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-2 py-1 text-text-main outline-none" />
           </div>
           <div>
-            <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Phiên âm</span>
+            <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Phiên âm</span>
             <input type="text" value={item.pinyin} onChange={(e) => handleUpdateReviewItem(item.id, { pinyin: e.target.value })}
-                   className="w-full text-xs bg-slate-950 border border-slate-700/80 focus:border-amber-500 rounded px-2 py-1 text-slate-200 outline-none" />
+                   className="w-full text-xs bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-2 py-1 text-text-main outline-none" />
           </div>
           <div>
-            <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Dịch Việt *</span>
+            <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Dịch Việt *</span>
             <input type="text" value={item.vietnamese} onChange={(e) => handleUpdateReviewItem(item.id, { vietnamese: e.target.value })}
-                   className="w-full text-xs font-bold bg-slate-950 border border-slate-700/80 focus:border-amber-500 rounded px-2 py-1 text-indigo-300 outline-none" />
+                   className="w-full text-xs font-bold bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-2 py-1 text-text-main outline-none" />
           </div>
           <div>
-            <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Phân loại</span>
+            <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Phân loại</span>
             <select value={item.type} onChange={(e) => handleUpdateReviewItem(item.id, { type: e.target.value as GlossaryType })}
-                    className="w-full text-xs bg-slate-950 border border-slate-700/80 focus:border-amber-500 rounded px-1 py-1 text-slate-200 outline-none cursor-pointer">
-              <option value="character">Nhân vật</option>
-              <option value="location">Địa danh</option>
-              <option value="term">Bí kíp/Vật phẩm</option>
-              <option value="phrase">Thành ngữ</option>
-              <option value="other">Thuật ngữ khác</option>
+                    className="w-full text-xs bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-1 py-1 text-text-main outline-none cursor-pointer">
+              <option value="character" className="bg-parchment text-text-main">Nhân vật</option>
+              <option value="location" className="bg-parchment text-text-main">Địa danh</option>
+              <option value="term" className="bg-parchment text-text-main">Bí kíp/Vật phẩm</option>
+              <option value="phrase" className="bg-parchment text-text-main">Thành ngữ</option>
+              <option value="other" className="bg-parchment text-text-main">Thuật ngữ khác</option>
             </select>
           </div>
         </div>
         <div>
-          <span className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Chỉ dẫn ngữ cảnh / Vai trò</span>
+          <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Chỉ dẫn ngữ cảnh / Vai trò</span>
           <input type="text" placeholder="Ghi chú thêm thông tin..." value={item.note}
                  onChange={(e) => handleUpdateReviewItem(item.id, { note: e.target.value })}
-                 className="w-full text-xs bg-slate-950 border border-slate-700/80 focus:border-amber-500 rounded px-2 py-1 text-slate-200 outline-none" />
+                 className="w-full text-xs bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-2 py-1 text-text-main outline-none" />
         </div>
       </div>
       <div className="flex md:flex-col gap-1.5 shrink-0 justify-end md:justify-center">
         <button onClick={() => handleAcceptReviewItem(item.id)}
-                className="flex-1 md:w-32 bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2.5 py-1.5 text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-3xs">
+                className="flex-1 md:w-32 bg-polish hover:bg-[#A03522] text-white rounded-[2px] px-2.5 py-1.5 text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs">
           <CheckCircle className="w-3.5 h-3.5" /> Xác nhận từ
         </button>
         <button onClick={() => handleDiscardReviewItem(item.id)}
-                className="flex-1 md:w-32 bg-slate-800 text-slate-300 hover:bg-rose-950/20 hover:text-rose-400 border border-slate-700/50 rounded px-2.5 py-1.5 text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer">
+                className="flex-1 md:w-32 bg-ink text-text-muted hover:bg-rose-950/20 hover:text-rose-400 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer">
           <X className="w-3.5 h-3.5" /> Loại bỏ
         </button>
       </div>
 
       {/* Full raw text modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-scale-up max-h-[90vh] flex flex-col">
-            <div className="border-b border-slate-800 p-4 flex items-center justify-between">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-indigo-400">
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-parchment border border-parchment-2 text-text-main rounded-md w-full max-w-2xl overflow-hidden shadow-2xl animate-scale-up max-h-[90vh] flex flex-col">
+            <div className="border-b border-parchment-2 p-4 flex items-center justify-between bg-ink/40">
+              <h3 className="text-sm font-bold font-display uppercase tracking-wider text-text-main">
                 Toàn văn chương gốc tiếng Trung
               </h3>
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                className="text-text-muted hover:text-text-main p-1 hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto flex-1 text-slate-300 text-xs leading-relaxed whitespace-pre-wrap select-text selection:bg-indigo-500/30">
+            <div className="p-6 overflow-y-auto flex-1 text-text-main text-xs font-serif leading-relaxed whitespace-pre-wrap select-text">
               {chapterText}
             </div>
           </div>
@@ -239,15 +239,15 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
   if (reviewQueue.length === 0) return null;
 
   return (
-    <div id="review-queue-section" className="bg-slate-900/40 border border-amber-500/20 rounded-xl p-4 md:p-5 space-y-4 shadow-sm animate-fadeIn">
-      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+    <div id="review-queue-section" className="bg-parchment border border-amber-800/40 rounded-md p-4 md:p-5 space-y-4 shadow-xs animate-fadeIn">
+      <div className="flex items-center justify-between border-b border-parchment-2 pb-2.5">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />
           <div>
-            <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+            <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
               Mục Rà Soát Từ Trùng Lặp / Lặp Nghĩa ({reviewQueue.length} từ cần xử lý)
             </h4>
-            <p className="text-[11px] text-amber-400/80">
+            <p className="text-[11px] text-text-muted">
               Những từ khóa này đã bị chặn khỏi việc nạp rộng rãi do trùng nghĩa hoặc trùng lặp giữa các dòng. Hãy tùy chỉnh rồi ấn Xác nhận!
             </p>
           </div>
@@ -265,7 +265,7 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
               setReviewQueue([]);
             }
           }}
-          className="bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 text-rose-300 text-[10px] font-extrabold px-2.5 py-1 rounded transition-colors cursor-pointer uppercase tracking-wider"
+          className="bg-ink hover:bg-parchment-2 border border-parchment-2 text-rose-400 text-[10px] font-bold px-2.5 py-1 rounded-[2px] transition-colors cursor-pointer uppercase tracking-wider"
         >
           Bỏ qua tất cả
         </button>

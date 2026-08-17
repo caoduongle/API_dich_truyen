@@ -43,24 +43,24 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
   const safeEnd = Math.max(safeStart, Math.min(exportRangeEnd, totalChapters));
 
   return (
-    <div id="export-txt-card" className="space-y-4 bg-slate-900/40 border border-slate-800/80 p-5 rounded-xl shadow-xs">
-      <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
-        <FileText className="w-4 h-4 text-emerald-500" /> Sản xuất tập tin kết quả sau dịch
+    <div id="export-txt-card" className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs">
+      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-2">
+        <FileText className="w-4 h-4 text-polish" /> Sản xuất tập tin kết quả sau dịch
       </h3>
 
       <div className="space-y-1.5">
         <div className="grid grid-cols-3 gap-1.5">
-          <button type="button" onClick={() => handleExportModeChange('web')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'web' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+          <button type="button" onClick={() => handleExportModeChange('web')} className={`py-2 px-1 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'web' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>
             <span className="text-[11px] font-bold">Web Truyện</span>
-            <span className="text-[8px] text-slate-500 font-normal mt-0.5">Giữ tiêu đề (≤20 ch.)</span>
+            <span className="text-[8px] text-text-muted font-normal mt-0.5">Giữ tiêu đề (≤20 ch.)</span>
           </button>
-          <button type="button" onClick={() => handleExportModeChange('audio')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'audio' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+          <button type="button" onClick={() => handleExportModeChange('audio')} className={`py-2 px-1 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'audio' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>
             <span className="text-[11px] font-bold">Làm Audio</span>
-            <span className="text-[8px] text-slate-500 font-normal mt-0.5">Xóa tiêu đề (≤10 ch.)</span>
+            <span className="text-[8px] text-text-muted font-normal mt-0.5">Xóa tiêu đề (≤10 ch.)</span>
           </button>
-          <button type="button" onClick={() => handleExportModeChange('align_jsonl')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'align_jsonl' ? 'border-indigo-600/60 bg-indigo-950/20 text-indigo-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+          <button type="button" onClick={() => handleExportModeChange('align_jsonl')} className={`py-2 px-1 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'align_jsonl' ? 'border-draft bg-draft/20 text-text-main font-bold' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>
             <span className="text-[11px] font-bold">Gióng hàng FT</span>
-            <span className="text-[8px] text-slate-500 font-normal mt-0.5">JSONL Song ngữ</span>
+            <span className="text-[8px] text-text-muted font-normal mt-0.5">JSONL Song ngữ</span>
           </button>
         </div>
       </div>
@@ -69,42 +69,42 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
         <>
           <div className="space-y-1.5 pt-1">
             <div className="flex justify-between items-center text-xs">
-              <span className="font-bold text-slate-300">Gom chương mỗi tệp:</span>
-              <span className="bg-emerald-600/20 border border-emerald-500/20 text-emerald-300 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold">{chaptersPerFile} chương / file</span>
+              <span className="font-bold text-text-main">Gom chương mỗi tệp:</span>
+              <span className="bg-ink border border-parchment-2 text-polish rounded-[2px] px-2.5 py-0.5 text-[10px] font-bold">{chaptersPerFile} chương / file</span>
             </div>
             <div className="flex items-center gap-3">
-              <input type="range" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Number(e.target.value))} className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
-              <input type="number" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Math.min(maxLimit, Math.max(1, Number(e.target.value))))} className="w-12 text-center text-xs border border-slate-700/60 rounded bg-slate-950 py-0.5 font-bold text-slate-200 focus:outline-none focus:border-emerald-500" />
+              <input type="range" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Number(e.target.value))} className="flex-1 h-1.5 bg-ink rounded-lg appearance-none cursor-pointer accent-polish" />
+              <input type="number" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Math.min(maxLimit, Math.max(1, Number(e.target.value))))} className="w-12 text-center text-xs border border-parchment-2 rounded-[2px] bg-ink py-0.5 font-bold text-text-main focus:outline-none focus:border-polish" />
             </div>
           </div>
 
           <div className="space-y-1.5 pt-1">
-            <label className="text-xs font-bold text-slate-300 block">Lọc phạm vi xuất:</label>
+            <label className="text-xs font-bold text-text-main block">Lọc phạm vi xuất:</label>
             <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <button type="button" onClick={() => setExportScope('translated')} className={`py-1.5 px-2 rounded-lg text-xs font-bold border cursor-pointer ${exportScope === 'translated' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>Chỉ chương đã dịch</button>
-              <button type="button" onClick={() => setExportScope('all')} className={`py-1.5 px-2 rounded-lg text-xs font-bold border cursor-pointer ${exportScope === 'all' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>Toàn bộ dự án</button>
+              <button type="button" onClick={() => setExportScope('translated')} className={`py-1.5 px-2 rounded-[2px] text-xs font-bold border cursor-pointer ${exportScope === 'translated' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>Chỉ chương đã dịch</button>
+              <button type="button" onClick={() => setExportScope('all')} className={`py-1.5 px-2 rounded-[2px] text-xs font-bold border cursor-pointer ${exportScope === 'all' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>Toàn bộ dự án</button>
             </div>
           </div>
         </>
       ) : (
-        <div className="bg-indigo-950/20 border border-indigo-800/40 p-3 rounded-lg text-[10px] text-indigo-300 leading-relaxed">• Mỗi chương trích một file `.jsonl` độc lập.<br />• Khớp sọc đối nghĩa Trung-Việt 100% làm học liệu huấn luyện tinh chỉnh AI.</div>
+        <div className="bg-draft/15 border border-draft/30 p-3 rounded-[2px] text-[10px] text-text-main leading-relaxed">• Mỗi chương trích một file `.jsonl` độc lập.<br />• Khớp sọc đối nghĩa Trung-Việt 100% làm học liệu huấn luyện tinh chỉnh AI.</div>
       )}
 
       {/* Giới hạn phân đoạn vùng chương xuất */}
-      <div className="space-y-2.5 pt-3 border-t border-slate-800/60">
+      <div className="space-y-2.5 pt-3 border-t border-parchment-2">
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
-            <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-              <ListOrdered className="w-3.5 h-3.5 text-emerald-500" /> Giới hạn phạm vi chương xuất
+            <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
+              <ListOrdered className="w-3.5 h-3.5 text-polish" /> Giới hạn phạm vi chương xuất
             </span>
-            <span className="text-[10px] text-slate-500 font-normal mt-0.5">
+            <span className="text-[10px] text-text-muted font-normal mt-0.5">
               Chỉ xuất các chương trong khoảng đã chọn
             </span>
           </div>
           <button
             type="button"
             onClick={() => setExportRangeEnabled(!exportRangeEnabled)}
-            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-250 focus:outline-none ${exportRangeEnabled ? 'bg-emerald-600' : 'bg-slate-800'}`}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${exportRangeEnabled ? 'bg-polish' : 'bg-parchment-2'}`}
           >
             <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${exportRangeEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
           </button>
@@ -114,7 +114,7 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
           <div className="space-y-3 animate-in slide-in-from-top-1 duration-200">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase block">Từ số</label>
+                <label className="text-[10px] font-bold text-text-muted uppercase block">Từ số</label>
                 <input
                   type="number"
                   min={1}
@@ -125,30 +125,30 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
                     setExportRangeStart(v);
                     if (v > exportRangeEnd) setExportRangeEnd(v);
                   }}
-                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full text-center text-sm font-bold border border-parchment-2 rounded-[2px] bg-ink py-1.5 text-text-main focus:outline-none focus:border-polish"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase block">Đến số</label>
+                <label className="text-[10px] font-bold text-text-muted uppercase block">Đến số</label>
                 <input
                   type="number"
                   min={exportRangeStart}
                   max={totalChapters}
                   value={exportRangeEnd}
                   onChange={e => setExportRangeEnd(Math.max(exportRangeStart, Math.min(totalChapters, Number(e.target.value))))}
-                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full text-center text-sm font-bold border border-parchment-2 rounded-[2px] bg-ink py-1.5 text-text-main focus:outline-none focus:border-polish"
                 />
               </div>
             </div>
-            <div className="bg-emerald-950/30 border border-emerald-900/50 rounded-lg px-3 py-2 text-[11px] text-emerald-300 flex items-center justify-between">
-              <span>Số chương trong phạm vi:</span>
-              <strong className="text-emerald-400 font-extrabold">{totalChapters > 0 ? (safeEnd - safeStart + 1) : 0} chương</strong>
+            <div className="bg-ink border border-parchment-2 rounded-[2px] px-3 py-2 text-[11px] text-text-main flex items-center justify-between">
+              <span className="text-text-muted">Số chương trong phạm vi:</span>
+              <strong className="text-polish font-bold">{totalChapters > 0 ? (safeEnd - safeStart + 1) : 0} chương</strong>
             </div>
           </div>
         )}
       </div>
 
-      <button onClick={exportMode === 'align_jsonl' ? handleExportAlignJsonl : handleExportTxt} disabled={isExportingTxt} className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-extrabold shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer">
+      <button onClick={exportMode === 'align_jsonl' ? handleExportAlignJsonl : handleExportTxt} disabled={isExportingTxt} className="w-full py-2.5 bg-polish hover:bg-[#A03522] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-[2px] text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer glow-polish">
         {isExportingTxt ? "Đang xử lý kết xuất..." : exportMode === 'align_jsonl' ? "Bắt đầu gióng hàng & tải .JSONL" : "Bắt đầu xuất tải tệp .TXT sỉ"}
       </button>
     </div>

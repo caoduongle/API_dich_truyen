@@ -58,7 +58,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const id = Math.random().toString(36).substring(2, 9);
     const opts: ToastOptions = typeof options === 'string' ? { message: options } : options;
     const type = opts.type || 'info';
-    const duration = opts.duration ?? (opts.onUndo ? 6000 : 4000); // 6s for undoable toasts, 4s for normal
+    const duration = opts.duration ?? (opts.onUndo ? 6000 : 4000);
 
     setToasts((prev) => [...prev, { ...opts, id, type, duration, progress: 100 }]);
 
@@ -123,43 +123,43 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       {children}
 
       {/* Floating Toasts Stack */}
-      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
         <AnimatePresence>
           {toasts.map((toast) => {
             const isUndoable = !!toast.onUndo;
             return (
               <motion.div
                 key={toast.id}
-                initial={{ opacity: 0, y: 30, scale: 0.9 }}
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.15 } }}
-                className={`pointer-events-auto relative overflow-hidden rounded-xl border p-4 shadow-xl backdrop-blur-md flex gap-3.5 items-start ${
+                exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+                className={`pointer-events-auto relative overflow-hidden rounded-[3px] border p-3.5 shadow-2xl flex gap-3 items-start bg-parchment text-text-main ${
                   toast.type === 'success'
-                    ? 'bg-emerald-50/95 border-emerald-200 text-emerald-900'
+                    ? 'border-polish/50'
                     : toast.type === 'warning'
-                    ? 'bg-amber-50/95 border-amber-200 text-amber-900'
+                    ? 'border-amber-800/60'
                     : toast.type === 'error'
-                    ? 'bg-rose-50/95 border-rose-200 text-rose-900'
-                    : 'bg-white/95 border-slate-200 text-slate-900'
+                    ? 'border-rose-800/60'
+                    : 'border-parchment-2'
                 }`}
               >
                 {/* Icon */}
                 <div className="mt-0.5 shrink-0">
-                  {toast.type === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
-                  {toast.type === 'warning' && <AlertTriangle className="w-5 h-5 text-amber-500" />}
-                  {toast.type === 'error' && <AlertCircle className="w-5 h-5 text-rose-500" />}
-                  {toast.type === 'info' && <Info className="w-5 h-5 text-indigo-500" />}
+                  {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-polish" />}
+                  {toast.type === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-400" />}
+                  {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400" />}
+                  {toast.type === 'info' && <Info className="w-4 h-4 text-text-muted" />}
                 </div>
 
                 {/* Message & Actions */}
-                <div className="flex-1 min-w-0 space-y-2">
-                  <p className="text-xs font-semibold leading-relaxed font-sans pr-2">
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <p className="text-xs font-medium leading-relaxed font-sans pr-2 text-text-main">
                     {toast.message}
                   </p>
                   {isUndoable && (
                     <button
                       onClick={() => handleUndo(toast)}
-                      className="inline-flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-wide text-indigo-600 hover:text-indigo-800 transition-colors pointer"
+                      className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-polish hover:underline transition-colors cursor-pointer"
                     >
                       <RotateCcw className="w-3 h-3" />
                       {toast.undoLabel || 'Hoàn tác'}
@@ -170,23 +170,23 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 {/* Close Button */}
                 <button
                   onClick={() => handleRemoveToast(toast.id)}
-                  className="text-slate-400 hover:text-slate-600 rounded p-0.5 transition-colors shrink-0 cursor-pointer"
+                  className="text-text-muted hover:text-text-main rounded p-0.5 transition-colors shrink-0 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
 
                 {/* Progress bar countdown */}
                 {toast.duration && toast.duration > 0 && (
-                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-100/50">
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-parchment-2">
                     <div
                       className={`h-full transition-all duration-75 ${
                         toast.type === 'success'
-                          ? 'bg-emerald-500'
+                          ? 'bg-polish'
                           : toast.type === 'warning'
                           ? 'bg-amber-500'
                           : toast.type === 'error'
                           ? 'bg-rose-500'
-                          : 'bg-indigo-600'
+                          : 'bg-draft'
                       }`}
                       style={{ width: `${toast.progress}%` }}
                     />
@@ -208,65 +208,65 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => handleConfirmResolve(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-[2px]"
+              className="absolute inset-0 bg-black/85 backdrop-blur-xs"
             />
 
             {/* Modal Box */}
             <motion.div
-              initial={{ scale: 0.95, y: 15, opacity: 0 }}
+              initial={{ scale: 0.95, y: 10, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.95, y: 15, opacity: 0 }}
-              transition={{ type: 'spring', duration: 0.35 }}
-              className="relative bg-white border border-slate-200 rounded-2xl max-w-md w-full shadow-2xl p-6 overflow-hidden pointer-events-auto space-y-4"
+              exit={{ scale: 0.95, y: 10, opacity: 0 }}
+              transition={{ type: 'spring', duration: 0.3 }}
+              className="relative bg-parchment border border-parchment-2 rounded-md max-w-md w-full shadow-2xl p-6 overflow-hidden pointer-events-auto space-y-4"
             >
               {/* Top Warning/Info Header Bar */}
-              <div className="flex gap-4 items-start">
+              <div className="flex gap-3.5 items-start">
                 <div
-                  className={`p-2.5 rounded-xl shrink-0 ${
+                  className={`p-2 rounded-[3px] shrink-0 border ${
                     confirmModal.type === 'danger'
-                      ? 'bg-rose-50 text-rose-600'
+                      ? 'bg-polish/10 border-polish/40 text-polish'
                       : confirmModal.type === 'warning'
-                      ? 'bg-amber-50 text-amber-600'
-                      : 'bg-indigo-50 text-indigo-600'
+                      ? 'bg-amber-950/30 border-amber-800/50 text-amber-400'
+                      : 'bg-ink border-parchment-2 text-text-main'
                   }`}
                 >
                   {confirmModal.type === 'danger' ? (
-                    <AlertCircle className="w-6 h-6" />
+                    <AlertCircle className="w-5 h-5" />
                   ) : confirmModal.type === 'warning' ? (
-                    <AlertTriangle className="w-6 h-6" />
+                    <AlertTriangle className="w-5 h-5" />
                   ) : (
-                    <Info className="w-6 h-6" />
+                    <Info className="w-5 h-5" />
                   )}
                 </div>
 
-                <div className="space-y-1.5 flex-1">
-                  <h3 className="text-base font-extrabold text-slate-900 leading-snug">
+                <div className="space-y-1 flex-1">
+                  <h3 className="text-sm font-display font-bold text-text-main leading-snug">
                     {confirmModal.title}
                   </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
+                  <p className="text-xs text-text-muted leading-relaxed">
                     {confirmModal.message}
                   </p>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-3 justify-end pt-2">
+              <div className="flex gap-2.5 justify-end pt-2">
                 <button
                   type="button"
                   onClick={() => handleConfirmResolve(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs font-medium text-text-muted hover:text-text-main bg-ink hover:bg-parchment-2 border border-parchment-2 rounded-[2px] transition-colors cursor-pointer"
                 >
                   {confirmModal.cancelText || 'Hủy'}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleConfirmResolve(true)}
-                  className={`px-4 py-2 text-xs font-bold text-white rounded-xl shadow-sm transition-colors cursor-pointer ${
+                  className={`px-4 py-1.5 text-xs font-bold text-white rounded-[2px] shadow-xs transition-colors cursor-pointer ${
                     confirmModal.type === 'danger'
-                      ? 'bg-rose-600 hover:bg-rose-700'
+                      ? 'bg-polish hover:bg-[#A03522]'
                       : confirmModal.type === 'warning'
-                      ? 'bg-amber-500 hover:bg-amber-600'
-                      : 'bg-indigo-600 hover:bg-indigo-700'
+                      ? 'bg-amber-600 hover:bg-amber-700'
+                      : 'bg-draft hover:bg-[#4E5E75]'
                   }`}
                 >
                   {confirmModal.confirmText || 'Xác nhận'}

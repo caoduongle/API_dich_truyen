@@ -21,16 +21,16 @@ export const TerminalConsole = React.memo(function TerminalConsole({ logs, onCle
     }, [logs]);
 
     return (
-        <div className="bg-[#0b0f19] rounded-2xl border border-slate-800/80 overflow-hidden flex flex-col h-[280px] shadow-lg shadow-indigo-950/5">
-            <div className="bg-[#0e1424] text-slate-400 px-4 py-2.5 flex justify-between items-center text-xs border-b border-slate-800/80 shrink-0">
-        <span className="font-mono text-[10px] text-slate-400 uppercase tracking-widest flex items-center gap-2">
-          <code className="w-2 h-2 rounded-full bg-emerald-500 block animate-pulse shadow-sm shadow-emerald-500/50"></code>
-          Nhật Ký Tiến Trình Biên Dịch
-        </span>
+        <div className="bg-ink rounded-md border border-parchment-2 overflow-hidden flex flex-col h-[280px] shadow-xs">
+            <div className="bg-parchment text-text-main px-4 py-2.5 flex justify-between items-center text-xs border-b border-parchment-2 shrink-0">
+                <span className="font-mono text-[10px] text-text-muted uppercase tracking-widest flex items-center gap-2">
+                    <code className="w-2 h-2 rounded-full bg-polish block animate-pulse shadow-xs"></code>
+                    Nhật Ký Tiến Trình Bản Thảo
+                </span>
                 <button
                     type="button"
                     onClick={onClear}
-                    className="text-[10px] font-bold text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                    className="text-[10px] font-bold text-text-muted hover:text-text-main transition-colors cursor-pointer"
                 >
                     Xóa log
                 </button>
@@ -38,26 +38,26 @@ export const TerminalConsole = React.memo(function TerminalConsole({ logs, onCle
 
             <div
                 ref={containerRef}
-                className="p-4 overflow-y-auto flex-1 font-mono text-[11px] leading-relaxed space-y-1.5 bg-[#070b13] scrollbar-none"
+                className="p-4 overflow-y-auto flex-1 font-mono text-[11px] leading-relaxed space-y-1.5 bg-ink scrollbar-none"
             >
                 {logs.length === 0 ? (
-                    <div className="text-slate-600 italic py-16 text-center">
+                    <div className="text-text-muted italic py-16 text-center">
                         Hệ thống log đang trống. Bấm nút bắt đầu để theo dõi tiến trình chạy nền.
                     </div>
                 ) : (
                     logs.map((log, idx) => {
                         const typeColor = log.type === 'error'
-                            ? 'text-rose-500 font-bold'
+                            ? 'text-rose-400 font-bold'
                             : log.type === 'success'
-                                ? 'text-emerald-400 font-bold'
+                                ? 'text-polish font-bold'
                                 : log.type === 'warn'
                                     ? 'text-amber-400 font-semibold'
                                     : log.type === 'gemini'
-                                        ? 'text-indigo-400'
-                                        : 'text-slate-300';
+                                        ? 'text-text-main font-semibold'
+                                        : 'text-text-muted';
                         return (
-                            <div key={idx} className="flex gap-2 items-start hover:bg-white/[0.02] py-0.5 rounded px-1 transition-all">
-                                <span className="text-slate-600 shrink-0 select-none">[{log.timestamp}]</span>
+                            <div key={idx} className="flex gap-2 items-start hover:bg-parchment/40 py-0.5 rounded-[2px] px-1 transition-all">
+                                <span className="text-text-muted shrink-0 select-none">[{log.timestamp}]</span>
                                 <p className={`${typeColor} flex-1 whitespace-pre-wrap`}>{log.message}</p>
                             </div>
                         );

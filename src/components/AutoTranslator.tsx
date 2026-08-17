@@ -208,23 +208,23 @@ export default function AutoTranslator({
   return (
     <div id="auto-translator" className="space-y-6">
       {/* Banner tổng quan tham số */}
-      <div className="bg-gradient-to-r from-[#0c1220] via-[#111a2e] to-[#182747] text-white rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-800/80 shadow-xl shadow-indigo-950/10">
+      <div className="bg-parchment text-text-main rounded-md p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border border-parchment-2 shadow-xs">
         <div className="space-y-1">
-          <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-bold px-2.5 py-0.5 rounded border border-indigo-500/25 uppercase tracking-wider">Hệ thống dịch hàng loạt</span>
-          <h2 className="text-base font-extrabold tracking-tight mt-1 flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-indigo-400" />
+          <span className="bg-polish/15 text-polish text-[10px] font-bold px-2.5 py-0.5 rounded-[2px] border border-polish/30 uppercase tracking-wider">Hệ thống biên dịch hàng loạt</span>
+          <h2 className="text-base font-display font-bold tracking-tight mt-1 flex items-center gap-2 text-text-main">
+            <Cpu className="w-5 h-5 text-polish" />
             Biên Dịch Tự Động &amp; Trích Thuật Ngữ Sỉ
           </h2>
-          <p className="text-slate-400 text-xs">Hệ thống dịch tuần tự song song, tự động phát hiện và nạp từ điển gối đầu.</p>
+          <p className="text-text-muted text-xs">Hệ thống dịch tuần tự song song, tự động phát hiện và nạp từ điển gối đầu chuẩn xác.</p>
         </div>
 
-        <div className="bg-slate-900/50 border border-slate-800 p-3.5 rounded-xl text-xs grid grid-cols-2 gap-x-4 gap-y-2 max-w-sm shrink-0">
-          <div className="text-slate-400 font-semibold">Mô hình AI</div>
-          <div className="text-indigo-400 font-extrabold text-right">{selectedModel}</div>
-          <div className="text-slate-400 font-semibold">Tông xưng hô</div>
-          <div className="text-indigo-400 font-extrabold text-right line-clamp-1">{activeProject.tone}</div>
-          <div className="text-slate-400 font-semibold text-xs leading-none">Chương chưa dịch</div>
-          <div className="text-yellow-500 font-extrabold text-right text-xs leading-none">{totalUntranslatedChapters} / {totalChapters} chap</div>
+        <div className="bg-ink/60 border border-parchment-2 p-3.5 rounded-[2px] text-xs grid grid-cols-2 gap-x-4 gap-y-2 max-w-sm shrink-0">
+          <div className="text-text-muted font-medium">Mô hình AI</div>
+          <div className="text-text-main font-bold text-right font-mono text-[11px]">{selectedModel}</div>
+          <div className="text-text-muted font-medium">Tông xưng hô</div>
+          <div className="text-text-main font-semibold text-right line-clamp-1">{activeProject.tone}</div>
+          <div className="text-text-muted font-medium text-xs leading-none">Chương chưa dịch</div>
+          <div className="text-amber-400 font-bold text-right text-xs leading-none">{totalUntranslatedChapters} / {totalChapters} chap</div>
         </div>
       </div>
 
@@ -262,7 +262,7 @@ export default function AutoTranslator({
 
           {/* Failed chapters section */}
           {activeProject.translationQueueState?.failedIds && activeProject.translationQueueState.failedIds.length > 0 && (
-            <div className="bg-rose-950/20 border border-rose-900/40 p-4 rounded-xl space-y-2.5 animate-in slide-in-from-top-2 duration-200 shadow-lg">
+            <div className="bg-rose-950/20 border border-rose-900/40 p-4 rounded-md space-y-2.5 animate-in slide-in-from-top-2 duration-200 shadow-xs">
               <div className="flex items-center gap-2">
                 <span className="flex h-2 w-2 relative shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
@@ -272,7 +272,7 @@ export default function AutoTranslator({
                   Phát hiện {activeProject.translationQueueState.failedIds.length} chương lỗi
                 </span>
               </div>
-              <p className="text-[11px] text-rose-300/90 font-normal leading-relaxed max-h-24 overflow-y-auto bg-slate-950/40 p-2.5 rounded-lg border border-rose-900/30 custom-scrollbar">
+              <p className="text-[11px] text-rose-300 font-normal leading-relaxed max-h-24 overflow-y-auto bg-ink p-2.5 rounded-[2px] border border-rose-900/30 custom-scrollbar">
                 {activeProject.translationQueueState.failedIds.map((fid) => {
                   const chap = activeProject.chapters.find(c => c.id === fid);
                   return chap ? chap.title : fid;
@@ -282,7 +282,7 @@ export default function AutoTranslator({
                 type="button"
                 onClick={handleRetryFailedChapters}
                 disabled={isProcessing}
-                className={`w-full py-2.5 bg-rose-600 hover:bg-rose-600 text-white rounded-lg text-xs font-extrabold shadow-md shadow-rose-500/10 flex items-center justify-center gap-1.5 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}`}
+                className={`w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 Dịch lại các chương lỗi này
               </button>
@@ -358,9 +358,9 @@ export default function AutoTranslator({
       {/* Modal xem chi tiết diff sourceText vs processedSourceText */}
       {isDiffModalOpen && (
         isLoadingDiffChapters ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-            <div className="bg-[#0f1424] border border-slate-800 rounded-2xl p-6 text-center shadow-2xl max-w-sm w-full">
-              <p className="text-xs font-bold text-indigo-400 animate-pulse">Đang tải dữ liệu so sánh từ IndexedDB...</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs p-4 animate-fadeIn">
+            <div className="bg-parchment border border-parchment-2 rounded-md p-6 text-center shadow-2xl max-w-sm w-full">
+              <p className="text-xs font-bold text-polish animate-pulse">Đang tải dữ liệu so sánh từ IndexedDB...</p>
             </div>
           </div>
         ) : fullChaptersForDiff.length > 0 ? (
@@ -372,12 +372,12 @@ export default function AutoTranslator({
             onClose={() => setIsDiffModalOpen(false)}
           />
         ) : (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-            <div className="bg-[#0f1424] border border-slate-800 rounded-2xl p-6 text-center shadow-2xl space-y-4 max-w-sm w-full">
-              <p className="text-xs font-bold text-slate-300">Chưa có chương nào áp dụng từ điển để so sánh!</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs p-4 animate-fadeIn">
+            <div className="bg-parchment border border-parchment-2 rounded-md p-6 text-center shadow-2xl space-y-4 max-w-sm w-full">
+              <p className="text-xs font-bold text-text-muted">Chưa có chương nào áp dụng từ điển để so sánh!</p>
               <button
                 onClick={() => setIsDiffModalOpen(false)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-md shadow-indigo-500/10"
+                className="px-4 py-2 bg-polish hover:bg-[#A03522] text-white text-xs font-bold rounded-[2px] cursor-pointer transition-colors shadow-xs"
               >
                 Đóng
               </button>

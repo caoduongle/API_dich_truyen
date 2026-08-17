@@ -25,13 +25,13 @@ export const ImportChaptersModal = React.memo(function ImportChaptersModal({
   parsedChaptersLength,
 }: ImportChaptersModalProps) {
   return (
-    <div className="border-t border-slate-800 pt-4 space-y-3">
-      <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 uppercase tracking-wider">
-        <FileText className="w-4 h-4 text-indigo-400" />
+    <div className="border-t border-parchment-2 pt-4 space-y-3">
+      <h4 className="text-xs font-bold text-text-main flex items-center gap-1.5 uppercase tracking-wider">
+        <FileText className="w-4 h-4 text-polish" />
         Nhập thêm / Thay thế File truyện gốc (.txt, .epub)
       </h4>
       
-      <div className="flex flex-wrap items-center gap-4 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+      <div className="flex flex-wrap items-center gap-4 bg-ink p-3.5 rounded-[2px] border border-parchment-2">
         <div className="flex items-center gap-3">
           <input
             type="file"
@@ -43,12 +43,12 @@ export const ImportChaptersModal = React.memo(function ImportChaptersModal({
           <button
             type="button"
             onClick={() => importFileRef.current?.click()}
-            className="flex items-center gap-1.5 bg-indigo-500/20 hover:bg-indigo-500/35 text-indigo-300 border border-indigo-500/35 text-xs font-semibold px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+            className="flex items-center gap-1.5 bg-parchment hover:bg-parchment-2 text-text-main border border-parchment-2 text-xs font-semibold px-3 py-1.5 rounded-[2px] cursor-pointer transition-colors"
           >
-            <Upload className="w-3.5 h-3.5" />
+            <Upload className="w-3.5 h-3.5 text-polish" />
             Chọn File mới
           </button>
-          <span className="text-xs text-slate-400 truncate max-w-[150px]" title={importedFileName}>
+          <span className="text-xs text-text-muted truncate max-w-[150px]" title={importedFileName}>
             {importedFileName || "Chưa chọn tệp"}
           </span>
         </div>
@@ -56,26 +56,26 @@ export const ImportChaptersModal = React.memo(function ImportChaptersModal({
         {importedFileName && (
           <div className="flex items-center gap-4 ml-auto">
             <div className="flex items-center gap-3 text-xs">
-              <span className="text-slate-400 font-medium">Chế độ nhập:</span>
-              <label className="flex items-center gap-1.5 cursor-pointer font-bold text-indigo-300">
+              <span className="text-text-muted font-medium">Chế độ nhập:</span>
+              <label className="flex items-center gap-1.5 cursor-pointer font-bold text-text-main">
                 <input
                   type="radio"
                   name="importMode"
                   value="append"
                   checked={importMode === 'append'}
                   onChange={() => setImportMode('append')}
-                  className="accent-indigo-500 cursor-pointer"
+                  className="accent-polish cursor-pointer"
                 />
                 Nhập thêm (Append)
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer font-bold text-rose-400" title="Thay thế hoàn toàn các chương cũ của truyện bằng file mới">
+              <label className="flex items-center gap-1.5 cursor-pointer font-bold text-polish" title="Thay thế hoàn toàn các chương cũ của truyện bằng file mới">
                 <input
                   type="radio"
                   name="importMode"
                   value="replace"
                   checked={importMode === 'replace'}
                   onChange={() => setImportMode('replace')}
-                  className="accent-indigo-500 cursor-pointer"
+                  className="accent-polish cursor-pointer"
                 />
                 Thay thế (Replace)
               </label>
@@ -86,24 +86,24 @@ export const ImportChaptersModal = React.memo(function ImportChaptersModal({
 
       {/* Splitting mechanism settings for TXT */}
       {importedFileName && importedFileName.endsWith('.txt') && (
-        <div className="bg-slate-950 border border-slate-800 p-2.5 rounded-lg space-y-1 text-xs">
-          <span className="font-bold text-slate-400 block">Cơ chế tự động phân chia chương văn bản:</span>
+        <div className="bg-ink border border-parchment-2 p-2.5 rounded-[2px] space-y-1 text-xs">
+          <span className="font-bold text-text-muted block">Cơ chế tự động phân chia chương văn bản:</span>
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-300">
+            <label className="flex items-center gap-1.5 cursor-pointer font-medium text-text-main">
               <input
                 type="radio"
                 checked={importSplitMethod === 'regex'}
                 onChange={() => handleToggleImportSplitMethod('regex')}
-                className="accent-indigo-500 cursor-pointer"
+                className="accent-polish cursor-pointer"
               />
               Tìm theo tên chương (&quot;Chương x&quot;)
             </label>
-            <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-300">
+            <label className="flex items-center gap-1.5 cursor-pointer font-medium text-text-main">
               <input
                 type="radio"
                 checked={importSplitMethod === 'chunk'}
                 onChange={() => handleToggleImportSplitMethod('chunk')}
-                className="accent-indigo-500 cursor-pointer"
+                className="accent-polish cursor-pointer"
               />
               Chia đều mỗi 8,000 ký tự
             </label>
@@ -113,15 +113,15 @@ export const ImportChaptersModal = React.memo(function ImportChaptersModal({
 
       {/* Parsing status */}
       {isParsingImportFile ? (
-        <div className="flex items-center gap-1.5 text-xs text-slate-400 pt-1">
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+        <div className="flex items-center gap-1.5 text-xs text-text-muted pt-1">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-polish" />
           <span>Đang bóc tách giải nén và phân tích cấu trúc...</span>
         </div>
       ) : parsedChaptersLength > 0 ? (
-        <div className="bg-emerald-500/10 text-emerald-300 text-xs p-2.5 rounded-lg border border-emerald-500/20 flex items-start gap-1.5 animate-fadeIn">
-          <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+        <div className="bg-polish/10 text-text-main text-xs p-2.5 rounded-[2px] border border-polish/30 flex items-start gap-1.5 animate-fadeIn">
+          <Check className="w-4 h-4 text-polish shrink-0 mt-0.5" />
           <div>
-            <span className="font-bold block text-emerald-200">Giải tích tệp hoàn tất!</span>
+            <span className="font-bold block text-polish">Giải tích tệp hoàn tất!</span>
             <span>Phát hiện thành công <strong>{parsedChaptersLength} chương</strong>. Sẽ được {importMode === 'replace' ? 'thay thế hoàn toàn cho' : 'nhập thêm vào sau'} danh sách chương hiện tại của truyện.</span>
           </div>
         </div>
