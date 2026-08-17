@@ -1,6 +1,15 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { safeParseJson, redactApiKey } from "../utils/text";
 import { DEFAULT_MODEL_ID } from "../constants/models";
+import { AI_SERVICE_CONFIG } from "@shared/constants";
+
+const {
+  MIN_REQUEST_INTERVAL_PER_KEY_MS: MIN_REQUEST_INTERVAL_MS,
+  BLACKLIST_COOLDOWN_MS,
+  MAX_OVERLOAD_RETRIES,
+  CLEANUP_INTERVAL_MS,
+  STALE_KEY_THRESHOLD_MS: STALE_THRESHOLD_MS,
+} = AI_SERVICE_CONFIG;
 
 const DEFAULT_SAFETY_SETTINGS = [
   {
@@ -22,21 +31,13 @@ const DEFAULT_SAFETY_SETTINGS = [
 ];
 
 const blacklistedKeys = new Map<string, number>();
-const BLACKLIST_COOLDOWN_MS = 5 * 60 * 1000; // Thời gian ngắt mạch: 5 phút
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // --- RATE LIMITER THEO TỪNG API KEY ---
-// Mỗi API key có mốc thời gian riêng (nextAllowedTime) để đảm bảo mỗi key
-// tuân thủ giới hạn ~13 req/phút (4620ms/req). Khi có N key, N request
-// song song sử dụng các key khác nhau sẽ KHÔNG bị chặn lẫn nhau.
 const nextAllowedTimeByKey = new Map<string, number>();
-const MIN_REQUEST_INTERVAL_MS = 4620;
 
 // --- DỌN DẸP BỘ NHỚ ĐỊNH KỲ CHO CÁC KHÓA HẾT HẠN / HẾT HOẠT ĐỘNG ---
-const CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // Dọn dẹp mỗi 10 phút
-const STALE_THRESHOLD_MS = 30 * 60 * 1000;   // 30 phút không hoạt động
-
 const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, expiry] of blacklistedKeys) {
@@ -72,7 +73,6 @@ export const _testMaps = {
 };
 
 // --- OVERLOAD (503) RETRY & COOLDOWN ---
-const MAX_OVERLOAD_RETRIES = 2;
 const OVERLOAD_BASE_DELAY_MS = 3000;
 
 // overloadCooldownUntil TOÀN CỤC (không theo key) vì lỗi 503/overload

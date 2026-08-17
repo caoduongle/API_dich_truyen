@@ -5,11 +5,11 @@ import {
   handleDBUpgrade,
   migrateLegacyProjects,
 } from './dbMigration';
+import { STORAGE_CONFIG } from '@shared/constants';
 
 export { PROJECTS_STORE, CHAPTERS_STORE };
 
-const DB_NAME = 'ai-story-translator-db';
-const DB_VERSION = 3;
+const { DB_NAME, DB_VERSION, NEAR_LIMIT_PERCENT, NEAR_LIMIT_MIN_BYTES } = STORAGE_CONFIG;
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -48,7 +48,7 @@ export const estimateStorageUsage = async (): Promise<StorageUsageEstimate | nul
       const quota = estimate.quota || 0;
       const percentUsed = quota > 0 ? Math.round((usage / quota) * 1000) / 10 : 0;
       const remainingBytes = quota - usage;
-      const isNearLimit = percentUsed >= 80 || (quota > 0 && remainingBytes < 100 * 1024 * 1024);
+      const isNearLimit = percentUsed >= NEAR_LIMIT_PERCENT || (quota > 0 && remainingBytes < NEAR_LIMIT_MIN_BYTES);
 
       return {
         usage,

@@ -6,6 +6,7 @@ import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
 import { apiFetch } from '../utils/apiClient';
+import { GLOSSARY_LIMITS } from '@shared/constants';
 
 // Sub-components
 import { ProjectMetadataModal } from './translator-workspace/ProjectMetadataModal';
@@ -741,7 +742,7 @@ export default function TranslatorWorkspace({
         (item.pinyin && item.pinyin.toLowerCase().includes(q))
       );
     }
-    return list.slice(0, 100);
+    return list.slice(0, GLOSSARY_LIMITS.WORKSPACE_GLOSSARY_VISIBLE_LIMIT);
   }, [activeProject.glossary, onlyShowMatching, deferredSourceText, glossarySearch]);
 
   const untranslatedChapters = useMemo(() => {

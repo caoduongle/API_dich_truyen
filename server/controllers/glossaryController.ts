@@ -6,13 +6,9 @@ import { translationChunkCache } from "../utils/chunkCache";
 import { parseGlossaryFromMd } from "../utils/parser";
 import { validateAndSnapBackEntities, isHanEquivalent } from "@shared/sinoNormalize";
 import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts";
+import { GLOSSARY_LIMITS } from "@shared/constants";
 
-// --- GIỚI HẠN CẮT VĂN BẢN ĐẦU VÀO ---
-// Giới hạn ký tự gửi đến Gemini để tiết kiệm token/chi phí API.
-// analyzeGlossary cần nhiều ngữ cảnh hơn (trích xuất nhân vật/địa danh),
-// analyzeGuidelines chỉ cần phần hướng dẫn phong cách (thường ở đầu file).
-const MAX_CHARS_FOR_GLOSSARY_ANALYSIS = 8000;
-const MAX_CHARS_FOR_GUIDELINES_ANALYSIS = 4000;
+const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
 
 // Rà soát thuật ngữ sót sau giai đoạn dịch thô
 export async function checkLeftoverGlossary(

@@ -4,6 +4,7 @@ import { History, BookOpen, Clock, Trash2, RotateCcw } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { useVirtualList } from '../hooks/useVirtualList';
+import { UI_CONFIG } from '@shared/constants';
 
 interface ChapterHistoryPanelProps {
   activeProject: StoryProject;
@@ -28,9 +29,9 @@ export default function ChapterHistoryPanel({
 
   const { visibleItems, totalHeight, onScroll } = useVirtualList<ChapterMetadata>({
     items: chapters,
-    itemHeight: 72,
-    containerHeight: 400,
-    overscan: 10
+    itemHeight: UI_CONFIG.VIRTUAL_LIST_ITEM_HEIGHT,
+    containerHeight: UI_CONFIG.VIRTUAL_LIST_CONTAINER_HEIGHT,
+    overscan: UI_CONFIG.VIRTUAL_LIST_OVERSCAN
   });
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import Redis from "ioredis";
+import { SERVER_CONFIG } from "@shared/constants";
 
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 phút
-const RATE_LIMIT_MAX_REQUESTS = 60;     // Tối đa 60 requests / phút / IP
+const { RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_REQUESTS } = SERVER_CONFIG;
 
 export function createRateLimiter() {
   const redisUrl = process.env.REDIS_URL;
