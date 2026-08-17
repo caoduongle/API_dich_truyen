@@ -6,6 +6,7 @@ import { triggerDownload } from '../utils/download';
 import { useEpubExport } from '../hooks/useEpubExport';
 import { ProjectCard } from './project-list/ProjectCard';
 import { ProjectFormModal } from './project-list/ProjectFormModal';
+import { SkeletonProjectCard } from './common/Skeleton';
 import { 
   Folder, Upload
 } from 'lucide-react';
@@ -19,6 +20,7 @@ interface ProjectListProps {
   onUpdateProject?: (project: StoryProject) => void;
   apiKeys: string[];
   selectedModel: string;
+  isLoading?: boolean;
 }
 
 export default function ProjectList({
@@ -30,6 +32,7 @@ export default function ProjectList({
   onUpdateProject,
   apiKeys,
   selectedModel,
+  isLoading = false,
 }: ProjectListProps) {
   const { showToast } = useNotifications();
   const { isExportingEpub, handleExportEpub } = useEpubExport();
@@ -259,27 +262,35 @@ export default function ProjectList({
           Tiểu thuyết hiện hữu trong hệ thống
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map((proj) => {
-            const isActive = proj.id === activeProjectId;
-            const progress = projectProgressMap.get(proj.id);
+          {isLoading ? (
+            <>
+              <SkeletonProjectCard />
+              <SkeletonProjectCard />
+              <SkeletonProjectCard />
+            </>
+          ) : (
+            projects.map((proj) => {
+              const isActive = proj.id === activeProjectId;
+              const progress = projectProgressMap.get(proj.id);
 
-            return (
-              <ProjectCard
-                key={proj.id}
-                proj={proj}
-                isActive={isActive}
-                onSelect={onSelectProject}
-                onEdit={handleStartEditProject}
-                onDelete={onDeleteProject}
-                onExportJson={handleExportProjectJson}
-                onExportText={handleExportText}
-                onExportEpub={handleExportEpub}
-                isExportingEpub={isExportingEpub === proj.id}
-                canDelete={projects.length > 1}
-                progress={progress}
-              />
-            );
-          })}
+              return (
+                <ProjectCard
+                  key={proj.id}
+                  proj={proj}
+                  isActive={isActive}
+                  onSelect={onSelectProject}
+                  onEdit={handleStartEditProject}
+                  onDelete={onDeleteProject}
+                  onExportJson={handleExportProjectJson}
+                  onExportText={handleExportText}
+                  onExportEpub={handleExportEpub}
+                  isExportingEpub={isExportingEpub === proj.id}
+                  canDelete={projects.length > 1}
+                  progress={progress}
+                />
+              );
+            })
+          )}
         </div>
       </div>
     </div>

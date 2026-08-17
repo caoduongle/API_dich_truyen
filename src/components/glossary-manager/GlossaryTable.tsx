@@ -4,6 +4,7 @@ import { GlossaryItem, GlossaryType } from '../../types';
 import { useVirtualList } from '../../hooks/useVirtualList';
 import { useNotifications } from '../NotificationSystem';
 import { SealStamp } from '../SealStamp';
+import { SkeletonBlock } from '../common/Skeleton';
 
 // Sleek single-row Inline Editor to fit inside virtualized row height
 interface InlineEditRowProps {
@@ -199,6 +200,7 @@ export interface GlossaryTableProps {
   pageSize: number | 'all';
   currentPage: number;
   setCurrentPage: React.Dispatch<React.SetStateAction<number>>;
+  isLoading?: boolean;
 }
 
 export const GlossaryTable = React.memo(function GlossaryTable({
@@ -216,6 +218,7 @@ export const GlossaryTable = React.memo(function GlossaryTable({
   pageSize,
   currentPage,
   setCurrentPage,
+  isLoading = false,
 }: GlossaryTableProps) {
   const containerHeight = 550;
   const itemHeight = 56;
@@ -245,7 +248,12 @@ export const GlossaryTable = React.memo(function GlossaryTable({
 
   const handlePageInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      handlePageInputSubmit();
+      const pageNum = parseInt(pageInput, 10);
+      if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+        setCurrentPage(pageNum);
+      } else {
+        setPageInput(safeCurrentPage.toString());
+      }
     }
   };
 
@@ -283,7 +291,28 @@ export const GlossaryTable = React.memo(function GlossaryTable({
 
   return (
     <div className="bg-parchment border border-parchment-2 rounded-md overflow-hidden shadow-xs">
-      {filteredGlossary.length === 0 ? (
+      {isLoading ? (
+        <div className="p-4 space-y-2">
+          <div className="bg-ink border-b border-parchment-2 grid grid-cols-12 items-center font-bold uppercase tracking-wider text-text-muted text-[10px] py-2.5">
+            <div className="col-span-3 px-3">Chữ Trung (Gốc)</div>
+            <div className="col-span-2 px-3">Phiên âm</div>
+            <div className="col-span-3 px-3">Bản dịch Việt</div>
+            <div className="col-span-2 px-3">Phân loại</div>
+            <div className="col-span-1 px-3">Ngày thêm</div>
+            <div className="col-span-1 px-3 text-center">Thao tác</div>
+          </div>
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="grid grid-cols-12 gap-2 items-center px-3 py-3 border-b border-parchment-2/40 animate-pulse">
+              <div className="col-span-3"><SkeletonBlock className="h-4 w-3/4" /></div>
+              <div className="col-span-2"><SkeletonBlock className="h-4 w-2/3" /></div>
+              <div className="col-span-3"><SkeletonBlock className="h-4 w-4/5" /></div>
+              <div className="col-span-2"><SkeletonBlock className="h-5 w-16 rounded" /></div>
+              <div className="col-span-1"><SkeletonBlock className="h-3 w-12" /></div>
+              <div className="col-span-1"><SkeletonBlock className="h-4 w-6 ml-auto" /></div>
+            </div>
+          ))}
+        </div>
+      ) : filteredGlossary.length === 0 ? (
         <div className="p-6 text-center text-text-muted text-xs italic">
           Không tìm thấy từ điển nào khớp với tiêu chuẩn tìm kiếm của bạn. Hãy tạo mới ở nút góc trên!
         </div>

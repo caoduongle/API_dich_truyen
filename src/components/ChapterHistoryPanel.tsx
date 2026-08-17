@@ -5,6 +5,7 @@ import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { useVirtualList } from '../hooks/useVirtualList';
 import { UI_CONFIG } from '@shared/constants';
+import { SkeletonBlock } from './common/Skeleton';
 
 interface ChapterHistoryPanelProps {
   activeProject: StoryProject;
@@ -246,7 +247,23 @@ export default function ChapterHistoryPanel({
               (() => {
                 const chap = selectedChapterDetails;
                 if (!chap || chap.id !== selectedHistoryChapterId)
-                  return <p className="text-text-muted text-xs animate-pulse py-12 text-center">Đang tải dữ liệu chương...</p>;
+                  return (
+                    <div className="space-y-4 animate-fade-in">
+                      <div className="border-b border-parchment-2 pb-3 flex justify-between items-start">
+                        <div className="space-y-2 w-1/2">
+                          <SkeletonBlock className="h-5 w-3/4" />
+                          <SkeletonBlock className="h-3 w-1/3" />
+                        </div>
+                        <SkeletonBlock className="h-8 w-28 rounded" />
+                      </div>
+                      <div className="space-y-3 pt-2">
+                        <SkeletonBlock className="h-4 w-full" />
+                        <SkeletonBlock className="h-4 w-5/6" />
+                        <SkeletonBlock className="h-4 w-4/5" />
+                        <SkeletonBlock className="h-32 w-full rounded mt-4" />
+                      </div>
+                    </div>
+                  );
                 return (
                   <div className="space-y-4">
                     {/* Header */}
