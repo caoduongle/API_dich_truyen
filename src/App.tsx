@@ -9,6 +9,8 @@ import { ProjectProvider, useProjectContext } from './context/ProjectContext';
 import { checkAuthStatus, logoutAuth } from './utils/apiClient';
 import { TabSkeleton } from './components/common/Skeleton';
 import { useHotkeys } from './hooks/useHotkeys';
+import { I18nProvider, useTranslation } from './i18n/I18nContext';
+import { LanguageSelector } from './components/common/LanguageSelector';
 
 // Code splitting các tab nặng qua React.lazy để tối ưu hóa initial bundle parse time
 const TranslatorWorkspace = React.lazy(() => import('./components/TranslatorWorkspace'));
@@ -62,6 +64,7 @@ function AppContent() {
     handleDeleteKeyIndex,
     handleImportClipboardKeys,
   } = useAIConfigContext();
+  const { t } = useTranslation();
 
   const [activeTab, setActiveTab] = useState<'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects'>('translate');
   const [, startTransition] = useTransition();
@@ -163,7 +166,7 @@ function AppContent() {
           </div>
           <div>
             <h1 className="text-xs sm:text-sm font-display font-semibold tracking-wide text-text-main flex items-center gap-1.5 leading-none">
-              ZHONG-VIET AI TRANSLATOR
+              {t('common.appTitle')}
               <span className="text-[9px] font-mono text-text-muted bg-parchment-2 px-1.5 py-0.5 rounded-[2px] border border-parchment-2">v2.4.0</span>
             </h1>
           </div>
@@ -176,6 +179,9 @@ function AppContent() {
               <span className="text-xs font-medium text-text-main">{activeProject.genre} / {activeProject.tone}</span>
             </div>
           )}
+
+          {/* Language Selector */}
+          <LanguageSelector />
 
           {authRequired && (
             <button
@@ -208,7 +214,7 @@ function AppContent() {
             className="flex items-center gap-1.5 bg-polish hover:bg-[#A03522] active:bg-[#8F2D1E] text-white py-1.5 px-3 rounded-[3px] text-xs font-semibold cursor-pointer transition-all shadow-xs"
           >
             <Settings className="w-3.5 h-3.5" />
-            Cấu hình AI ({apiKeys.filter(k => k.trim()).length ? `${apiKeys.filter(k => k.trim()).length} Keys` : 'Hệ thống'})
+            {t('nav.aiConfig')} ({apiKeys.filter(k => k.trim()).length ? `${apiKeys.filter(k => k.trim()).length} ${t('common.keys')}` : t('common.system')})
           </button>
         </div>
       </header>
@@ -230,7 +236,7 @@ function AppContent() {
                 }`}
               >
                 <BookOpenText className="w-3.5 h-3.5 shrink-0" />
-                Mặt Trận Dịch Thuật
+                {t('nav.translate')}
               </button>
 
               <button
@@ -245,7 +251,7 @@ function AppContent() {
                 }`}
               >
                 <Cpu className={`w-3.5 h-3.5 shrink-0 ${isAutoTranslating ? 'text-polish animate-pulse' : 'text-text-muted'}`} />
-                Dịch Tự Động Toàn Bộ
+                {t('nav.autoTranslate')}
               </button>
 
               <button
@@ -260,7 +266,7 @@ function AppContent() {
                 }`}
               >
                 <Settings className="w-3.5 h-3.5 shrink-0" />
-                Từ Điển Nhân Vật
+                {t('nav.glossary')}
                 {activeProject && activeProject.glossary.length > 0 && (
                   <span className="bg-parchment-2 text-text-main border border-parchment-2 text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] shrink-0 ml-1">
                     {activeProject.glossary.length}
@@ -268,7 +274,7 @@ function AppContent() {
                 )}
                 {activeProject && (activeProject.pendingGlossary || []).length > 0 && (
                   <span className="bg-amber-950/60 text-amber-300 border border-amber-800/50 text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] shrink-0 ml-1">
-                    {(activeProject.pendingGlossary || []).length} chờ
+                    {t('glossary.pendingCount', { count: (activeProject.pendingGlossary || []).length })}
                   </span>
                 )}
               </button>
@@ -285,7 +291,7 @@ function AppContent() {
                 }`}
               >
                 <History className="w-3.5 h-3.5 shrink-0" />
-                Lịch Sử Chương Dịch
+                {t('nav.history')}
                 {activeProject && activeProject.chapters.length > 0 && (
                   <span className="bg-parchment-2 text-text-main border border-parchment-2 text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] shrink-0 ml-1">
                     {activeProject.chapters.length}
@@ -305,13 +311,13 @@ function AppContent() {
                 }`}
               >
                 <Folder className="w-3.5 h-3.5 shrink-0" />
-                Quản Lý Truyện ({projects.length})
+                {t('nav.projects')} ({projects.length})
               </button>
             </nav>
 
             {activeProject && (
               <div className="hidden sm:flex items-center gap-1.5 text-xs text-text-muted shrink-0">
-                <span>Bộ đang dịch: </span>
+                <span>{t('nav.currentBook')}: </span>
                 <strong className="text-text-main font-display bg-ink border border-parchment-2 px-2.5 py-0.5 rounded-[2px] font-bold">
                   {activeProject.title}
                 </strong>
@@ -515,12 +521,14 @@ function AppContent() {
 
 export default function App() {
   return (
-    <NotificationProvider>
-      <AIConfigProvider>
-        <ProjectProvider>
-          <AppContent />
-        </ProjectProvider>
-      </AIConfigProvider>
-    </NotificationProvider>
+    <I18nProvider>
+      <NotificationProvider>
+        <AIConfigProvider>
+          <ProjectProvider>
+            <AppContent />
+          </ProjectProvider>
+        </AIConfigProvider>
+      </NotificationProvider>
+    </I18nProvider>
   );
 }
