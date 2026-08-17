@@ -1,23 +1,24 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, startTransition } from 'react';
-import { GlossaryItem, GlossaryType, PendingGlossaryItem, Chapter, ChapterMetadata, StoryProject } from '../types';
-import { Search, Calendar, Info } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue } from 'react';
+import { GlossaryItem, GlossaryType, PendingGlossaryItem, ChapterMetadata, StoryProject } from '../types';
 import { useNotifications } from './NotificationSystem';
-import { getChaptersByProjectFromDB } from '../services/db';
 import { triggerDownload } from '../utils/download';
 import { isHanEquivalent } from '@shared/sinoNormalize';
 import { apiFetch } from '../utils/apiClient';
+import { useGlossaryDuplicates, computeDuplicateGroups, computeMergeHanGroups } from '../hooks/useGlossaryDuplicates';
+import { useGlossaryContextSearch } from '../hooks/useGlossaryContextSearch';
+
+// Re-export duplicate helper functions for backward compatibility
+export { computeDuplicateGroups, computeMergeHanGroups };
 
 // Sub-components
 import { GlossaryHeader } from './glossary-manager/GlossaryHeader';
 import { AddGlossaryForm } from './glossary-manager/AddGlossaryForm';
 import { ImportGuidelinesModal } from './glossary-manager/ImportGuidelinesModal';
 import { ReviewQueuePanel } from './glossary-manager/ReviewQueuePanel';
-import { DuplicatePanel, DuplicateGroupEdit } from './glossary-manager/DuplicatePanel';
+import { DuplicatePanel } from './glossary-manager/DuplicatePanel';
 import { GlossaryTable } from './glossary-manager/GlossaryTable';
 import { GlossaryDetailSidebar } from './glossary-manager/GlossaryDetailSidebar';
-import { MergeHanPanel, MergeHanGroup } from './glossary-manager/MergeHanPanel';
-import { canonicalizeHan } from '@shared/sinoNormalize';
-
+import { MergeHanPanel } from './glossary-manager/MergeHanPanel';
 
 interface GlossaryManagerProps {
   projectId: string;
@@ -38,81 +39,6 @@ interface GlossaryManagerProps {
   onUpdateProject?: (updated: StoryProject) => void;
 }
 
-export function computeDuplicateGroups(
-  glossary: GlossaryItem[], 
-  projectId: string = '', 
-  ignoredDuplicatePairs: string[] = []
-): DuplicateGroupEdit[] {
-  const n = glossary.length;
-  if (n < 2) return [];
-
-  const ignoredPairs = new Set<string>(ignoredDuplicatePairs);
-
-  const parent = Array.from({ length: n }, (_, i) => i);
-  function find(x: number): number {
-    if (parent[x] !== x) parent[x] = find(parent[x]);
-    return parent[x];
-  }
-  function union(a: number, b: number) { parent[find(a)] = find(b); }
-
-  const cleanCh = glossary.map(item => item.chinese.replace(/\s+/g, '').trim().toLowerCase());
-  const cleanVi = glossary.map(item => item.vietnamese.replace(/\s+/g, '').trim().toLowerCase());
-
-  function buildBuckets(keys: string[]): Map<string, number[]> {
-    const buckets = new Map<string, number[]>();
-    for (let i = 0; i < n; i++) {
-      const key = keys[i];
-      if (!key) continue;
-      const arr = buckets.get(key);
-      if (arr) arr.push(i); else buckets.set(key, [i]);
-    }
-    return buckets;
-  }
-
-  const chBuckets = buildBuckets(cleanCh);
-  const viBuckets = buildBuckets(cleanVi);
-
-  function unionBuckets(buckets: Map<string, number[]>) {
-    buckets.forEach((indices) => {
-      if (indices.length < 2) return;
-      for (let a = 0; a < indices.length; a++) {
-        for (let b = a + 1; b < indices.length; b++) {
-          const i = indices[a], j = indices[b];
-          const idI = glossary[i].id, idJ = glossary[j].id;
-          if (ignoredPairs.has(`${idI}-${idJ}`) || ignoredPairs.has(`${idJ}-${idI}`)) continue;
-          union(i, j);
-        }
-      }
-    });
-  }
-
-  unionBuckets(chBuckets);
-  unionBuckets(viBuckets);
-
-  const inChDup = new Set<number>();
-  chBuckets.forEach((indices) => { if (indices.length > 1) indices.forEach(i => inChDup.add(i)); });
-  const inViDup = new Set<number>();
-  viBuckets.forEach((indices) => { if (indices.length > 1) indices.forEach(i => inViDup.add(i)); });
-
-  const groupMap = new Map<number, number[]>();
-  for (let i = 0; i < n; i++) {
-    const root = find(i);
-    if (!groupMap.has(root)) groupMap.set(root, []);
-    groupMap.get(root)!.push(i);
-  }
-
-  const result: DuplicateGroupEdit[] = [];
-  groupMap.forEach((indices, root) => {
-    if (indices.length < 2) return;
-    const items = indices.map(idx => ({ ...glossary[idx] }));
-    const hasSameCh = indices.some(i => inChDup.has(i));
-    const hasSameVi = indices.some(i => inViDup.has(i));
-    const reason = hasSameCh && hasSameVi ? 'Trùng cả tiếng Trung lẫn tiếng Việt' : hasSameCh ? 'Trùng tiếng Trung gốc' : 'Trùng bản dịch tiếng Việt';
-    result.push({ groupId: `dup_${root}_${Date.now()}`, reason, items });
-  });
-  return result;
-}
-
 function GlossaryManager({
   projectId,
   glossary,
@@ -130,19 +56,46 @@ function GlossaryManager({
   activeProject,
   onUpdateProject,
 }: GlossaryManagerProps) {
-  const { showToast, showConfirm } = useNotifications();
-  const [fullChapters, setFullChapters] = useState<Chapter[]>([]);
+  const { showToast } = useNotifications();
 
-  useEffect(() => {
-    async function loadFullChapters() {
-      if (projectId) {
-        const full = await getChaptersByProjectFromDB(projectId);
-        setFullChapters(full);
-      }
-    }
-    loadFullChapters();
-  }, [projectId, chapters]);
+  // Custom Hooks
+  const {
+    fullChapters,
+    searchContextMatches,
+    setSearchContextMatches,
+    contextFilterType,
+    setContextFilterType,
+    findLiveContext,
+    scanOccurrences,
+  } = useGlossaryContextSearch(projectId, chapters, glossary);
 
+  const {
+    showDuplicatePanel,
+    setShowDuplicatePanel,
+    duplicateGroups,
+    setDuplicateGroups,
+    showMergeHanPanel,
+    setShowMergeHanPanel,
+    mergeHanGroups,
+    setMergeHanGroups,
+    handleOpenDuplicatePanel,
+    handleOpenMergeHanPanel,
+    handleConfirmMergeHan,
+    handleUpdateDupItem,
+    handleConfirmDupGroup,
+    handleIgnoreDupGroup,
+    handleDeleteDupItem,
+  } = useGlossaryDuplicates({
+    projectId,
+    glossary,
+    activeProject,
+    onUpdateProject,
+    onUpdateGlossaryItem,
+    onDeleteGlossaryItem,
+    onMergeGlossaryItems,
+  });
+
+  // Migrate legacy ignored dups if needed
   useEffect(() => {
     if (!activeProject || !onUpdateProject) return;
 
@@ -188,10 +141,13 @@ function GlossaryManager({
   const [isImporting, setIsImporting] = useState(false);
   const [mdFileName, setMdFileName] = useState('');
   const [isAnalyzingMd, setIsAnalyzingMd] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<GlossaryItem | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const mdInputRef = useRef<HTMLInputElement>(null);
 
   const [reviewQueue, setReviewQueue] = useState<Array<GlossaryItem & { reason: string }>>([]);
 
-  // Load pending glossary items that need review into the reviewQueue state dynamically
+  // Load pending glossary items that need review into the reviewQueue state
   useEffect(() => {
     if (pendingGlossary && pendingGlossary.length > 0) {
       const needsReviewItems = pendingGlossary
@@ -218,241 +174,6 @@ function GlossaryManager({
       });
     }
   }, [pendingGlossary]);
-  const [selectedItem, setSelectedItem] = useState<GlossaryItem | null>(null);
-
-  const [searchContextMatches, setSearchContextMatches] = useState<Array<{
-    chapterId: string;
-    chapterTitle: string;
-    textType: 'source' | 'raw' | 'polished';
-    paragraphText: string;
-    paragraphIndex: number;
-  }>>([]);
-  const [contextFilterType, setContextFilterType] = useState<'all' | 'source' | 'translation'>('all');
-  const mdInputRef = useRef<HTMLInputElement>(null);
-
-  const [showDuplicatePanel, setShowDuplicatePanel] = useState(false);
-  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroupEdit[]>([]);
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  const duplicateGroupsRef = useRef(duplicateGroups);
-  useEffect(() => { duplicateGroupsRef.current = duplicateGroups; }, [duplicateGroups]);
-
-  const handleOpenDuplicatePanel = () => {
-    const projId = projectId || 'default_project';
-    setShowDuplicatePanel(true);
-    setDuplicateGroups([]);
-    startTransition(() => {
-      const groups = computeDuplicateGroups(glossary, projId, activeProject?.ignoredDuplicatePairs || []);
-      setDuplicateGroups(groups);
-      if (groups.length === 0) {
-        showToast({ message: 'Tuyệt vời! Không tìm thấy từ ngữ nào bị trùng lặp trong từ điển của bạn.', type: 'success' });
-        setShowDuplicatePanel(false);
-      }
-    });
-  };
-
-  const [showMergeHanPanel, setShowMergeHanPanel] = useState(false);
-  const [mergeHanGroups, setMergeHanGroups] = useState<MergeHanGroup[]>([]);
-
-  const handleOpenMergeHanPanel = () => {
-    setShowMergeHanPanel(true);
-    setMergeHanGroups([]);
-    
-    startTransition(() => {
-      // Group glossary entries by canonicalizeHan(entry.chinese)
-      const groupsMap = new Map<string, GlossaryItem[]>();
-      glossary.forEach(item => {
-        if (!item.chinese) return;
-        const canon = canonicalizeHan(item.chinese);
-        const existing = groupsMap.get(canon) || [];
-        existing.push(item);
-        groupsMap.set(canon, existing);
-      });
-
-      const groups: MergeHanGroup[] = [];
-      let groupCounter = 0;
-      groupsMap.forEach((items, canon) => {
-        const uniqueChinese = new Set(items.map(it => it.chinese.trim()));
-        if (uniqueChinese.size > 1) {
-          groups.push({
-            groupId: `merge_${groupCounter++}_${Date.now()}`,
-            canonical: canon,
-            items
-          });
-        }
-      });
-
-      setMergeHanGroups(groups);
-      if (groups.length === 0) {
-        showToast({ message: 'Không tìm thấy các từ trùng lặp do lệch Phồn/Giản thể trong từ điển của bạn.', type: 'success' });
-        setShowMergeHanPanel(false);
-      }
-    });
-  };
-
-  const handleConfirmMergeHan = useCallback(async (
-    groupId: string,
-    primaryId: string,
-    mergedPayload: Partial<GlossaryItem>,
-    idsToDelete: string[]
-  ) => {
-    if (!onMergeGlossaryItems) return;
-
-    onMergeGlossaryItems(primaryId, mergedPayload, idsToDelete);
-
-    // Remove group from panel suggestions
-    setMergeHanGroups(prev => prev.filter(g => g.groupId !== groupId));
-    showToast({ message: 'Đã gộp thành công các biến thể và đồng bộ vào từ điển!', type: 'success' });
-  }, [onMergeGlossaryItems, showToast]);
-
-  const handleUpdateDupItem = useCallback((groupId: string, itemId: string, field: keyof GlossaryItem, value: string) => {
-    setDuplicateGroups(prev => prev.map(group => {
-      if (group.groupId !== groupId) return group;
-      return {
-        ...group,
-        items: group.items.map(item =>
-          item.id === itemId ? { ...item, [field]: value } : item
-        )
-      };
-    }));
-  }, []);
-
-  const findLiveContext = useCallback((chineseTerm: string): Array<{
-    chapterTitle: string;
-    sourceLine: string;
-    translationLine: string;
-  }> => {
-    const clean = chineseTerm.replace(/\s+/g, '').trim();
-    const results: Array<{ chapterTitle: string; sourceLine: string; translationLine: string }> = [];
-
-    for (const chap of fullChapters) {
-      const srcLines = chap.sourceText.split('\n');
-      const transLines = (chap.polishedTranslation || chap.rawTranslation || '').split('\n');
- 
-      for (let i = 0; i < srcLines.length; i++) {
-        const line = srcLines[i].trim();
-        if (!line) continue;
-        if (line.includes(chineseTerm.trim()) || line.replace(/\s+/g, '').includes(clean)) {
-          results.push({
-            chapterTitle: chap.title,
-            sourceLine: line,
-            translationLine: transLines[i]?.trim() || ''
-          });
-          break;
-        }
-      }
-    }
-    return results;
-  }, [fullChapters]);
-
-  const handleConfirmDupGroup = useCallback((groupId: string) => {
-    const group = duplicateGroupsRef.current.find(g => g.groupId === groupId);
-    if (!group) return;
-
-    group.items.forEach(editedItem => {
-      const original = glossary.find(g => g.id === editedItem.id);
-      if (!original) return;
-      const hasChanged =
-        original.chinese !== editedItem.chinese ||
-        original.pinyin !== editedItem.pinyin ||
-        original.vietnamese !== editedItem.vietnamese ||
-        original.type !== editedItem.type ||
-        original.note !== editedItem.note;
-      if (hasChanged) {
-        onUpdateGlossaryItem(editedItem.id, editedItem);
-      }
-    });
-
-    setDuplicateGroups(prev => prev.filter(g => g.groupId !== groupId));
-  }, [glossary, onUpdateGlossaryItem]);
-
-  const handleIgnoreDupGroup = useCallback((groupId: string) => {
-    const group = duplicateGroupsRef.current.find(g => g.groupId === groupId);
-    if (!group) return;
-
-    if (!activeProject || !onUpdateProject) return;
-
-    const currentIgnored = activeProject.ignoredDuplicatePairs || [];
-    const newIgnored = [...currentIgnored];
-
-    for (let i = 0; i < group.items.length; i++) {
-      for (let j = i + 1; j < group.items.length; j++) {
-        newIgnored.push(`${group.items[i].id}-${group.items[j].id}`);
-      }
-    }
-
-    onUpdateProject({
-      ...activeProject,
-      ignoredDuplicatePairs: newIgnored
-    });
-    setDuplicateGroups(prev => prev.filter(g => g.groupId !== groupId));
-  }, [activeProject, onUpdateProject]);
-
-  const handleDeleteDupItem = useCallback(async (groupId: string, itemId: string) => {
-    const confirmed = await showConfirm({
-      title: 'Xóa mục từ điển',
-      message: 'Bạn có chắc muốn xóa từ điển này khỏi hệ thống?',
-      confirmText: 'Xác nhận xóa',
-      cancelText: 'Hủy',
-      type: 'danger'
-    });
-    if (!confirmed) return;
-    onDeleteGlossaryItem(itemId);
-    setDuplicateGroups(prev => prev.map(group => {
-      if (group.groupId !== groupId) return group;
-      const remaining = group.items.filter(i => i.id !== itemId);
-      return { ...group, items: remaining };
-    }).filter(group => group.items.length > 1));
-  }, [onDeleteGlossaryItem, showConfirm]);
-
-  const scanOccurrences = (item: GlossaryItem) => {
-    if (!fullChapters || fullChapters.length === 0) {
-      setSearchContextMatches([]);
-      return;
-    }
-
-    const matches: Array<{
-      chapterId: string;
-      chapterTitle: string;
-      textType: 'source' | 'raw' | 'polished';
-      paragraphText: string;
-      paragraphIndex: number;
-    }> = [];
-
-    const zhTerm = item.chinese.trim();
-    const viTerm = item.vietnamese.trim();
-
-    fullChapters.forEach((chap) => {
-      if (zhTerm && chap.sourceText) {
-        const paragraphs = chap.sourceText.split('\n');
-        paragraphs.forEach((pText, idx) => {
-          if (pText.includes(zhTerm)) {
-            matches.push({ chapterId: chap.id, chapterTitle: chap.title, textType: 'source', paragraphText: pText.trim(), paragraphIndex: idx + 1 });
-          }
-        });
-      }
-
-      if (viTerm && chap.rawTranslation) {
-        const paragraphs = chap.rawTranslation.split('\n');
-        paragraphs.forEach((pText, idx) => {
-          if (pText.toLowerCase().includes(viTerm.toLowerCase())) {
-            matches.push({ chapterId: chap.id, chapterTitle: chap.title, textType: 'raw', paragraphText: pText.trim(), paragraphIndex: idx + 1 });
-          }
-        });
-      }
-
-      if (viTerm && chap.polishedTranslation) {
-        const paragraphs = chap.polishedTranslation.split('\n');
-        paragraphs.forEach((pText, idx) => {
-          if (pText.toLowerCase().includes(viTerm.toLowerCase())) {
-            matches.push({ chapterId: chap.id, chapterTitle: chap.title, textType: 'polished', paragraphText: pText.trim(), paragraphIndex: idx + 1 });
-          }
-        });
-      }
-    });
-
-    setSearchContextMatches(matches);
-  };
 
   const handleSelectItem = useCallback((item: GlossaryItem) => {
     setSelectedItem(item);
@@ -474,7 +195,7 @@ function GlossaryManager({
     } else {
       setSelectedItem(null);
     }
-  }, [selectedItem, fullChapters, glossary]);
+  }, [selectedItem, fullChapters, glossary, scanOccurrences, setSearchContextMatches]);
 
   const handleAddFormSave = useCallback((fields: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }, force?: boolean) => {
     onAddGlossaryItem({
@@ -606,7 +327,6 @@ function GlossaryManager({
       return;
     }
 
-    // Check if this item is from pendingGlossary (persistent)
     const isFromPending = pendingGlossary.some(p => p.id === reviewId);
     if (isFromPending) {
       if (onConfirmPending) {
@@ -619,7 +339,6 @@ function GlossaryManager({
         });
       }
     } else {
-      // Normal MD import review item
       onAddGlossaryItem({
         chinese: item.chinese.trim(),
         pinyin: item.pinyin.trim() || item.vietnamese.trim(),
@@ -631,7 +350,7 @@ function GlossaryManager({
       });
     }
     setReviewQueue(prev => prev.filter(r => r.id !== reviewId));
-  }, [reviewQueue, onAddGlossaryItem, pendingGlossary, onConfirmPending]);
+  }, [reviewQueue, onAddGlossaryItem, pendingGlossary, onConfirmPending, showToast]);
 
   const handleDiscardReviewItem = useCallback((reviewId: string) => {
     const isFromPending = pendingGlossary.some(p => p.id === reviewId);
@@ -700,7 +419,7 @@ function GlossaryManager({
     const url = URL.createObjectURL(blob);
     triggerDownload(url, `tu-dien-du-an-${Date.now()}.md`);
     URL.revokeObjectURL(url);
-  }, [glossary]);
+  }, [glossary, showToast]);
 
   const startEdit = useCallback((item: GlossaryItem) => {
     setEditingId(item.id);
@@ -725,6 +444,26 @@ function GlossaryManager({
       case 'guideline': return <span className="bg-emerald-950/30 text-emerald-400 border border-emerald-900/40 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Cẩm nang</span>;
       case 'scanned':  return <span className="bg-amber-950/30 text-amber-400 border border-amber-900/45 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">AI Quét</span>;
       default:         return <span className="bg-slate-800 text-slate-300 border border-slate-700/50 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Thủ công</span>;
+    }
+  }, []);
+
+  const getBadgeColor = useCallback((type: GlossaryType) => {
+    switch (type) {
+      case 'character': return 'bg-indigo-950/40 text-indigo-300 border-indigo-900/40';
+      case 'location':  return 'bg-blue-950/40 text-blue-300 border-blue-900/40';
+      case 'term':      return 'bg-amber-950/40 text-amber-300 border-amber-900/40';
+      case 'phrase':    return 'bg-purple-950/40 text-purple-300 border-purple-900/40';
+      default:          return 'bg-slate-800/40 text-slate-300 border-slate-700/40';
+    }
+  }, []);
+
+  const getTypeName = useCallback((type: GlossaryType) => {
+    switch (type) {
+      case 'character': return 'Nhân vật';
+      case 'location':  return 'Địa danh';
+      case 'term':      return 'Bí kíp/Vật phẩm';
+      case 'phrase':    return 'Thành ngữ';
+      default:          return 'Khác';
     }
   }, []);
 
@@ -753,26 +492,6 @@ function GlossaryManager({
       return matchesSearch && matchesType && matchesOrigin && matchesDate;
     });
   }, [glossary, deferredSearchTerm, selectedType, selectedOrigin, searchDate]);
-
-  const getBadgeColor = useCallback((type: GlossaryType) => {
-    switch (type) {
-      case 'character': return 'bg-indigo-950/40 text-indigo-300 border-indigo-900/40';
-      case 'location':  return 'bg-blue-950/40 text-blue-300 border-blue-900/40';
-      case 'term':      return 'bg-amber-950/40 text-amber-300 border-amber-900/40';
-      case 'phrase':    return 'bg-purple-950/40 text-purple-300 border-purple-900/40';
-      default:          return 'bg-slate-800/40 text-slate-300 border-slate-700/40';
-    }
-  }, []);
-
-  const getTypeName = useCallback((type: GlossaryType) => {
-    switch (type) {
-      case 'character': return 'Nhân vật';
-      case 'location':  return 'Địa danh';
-      case 'term':      return 'Bí kíp/Vật phẩm';
-      case 'phrase':    return 'Thành ngữ';
-      default:          return 'Khác';
-    }
-  }, []);
 
   const highlightWordInText = useCallback((text: string, word: string) => {
     if (!word || !text) return text;
@@ -871,87 +590,8 @@ function GlossaryManager({
         onConfirmMerge={handleConfirmMergeHan}
       />
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        <div className={`space-y-4 transition-all duration-300 ${selectedItem ? 'lg:col-span-7' : 'lg:col-span-12'}`}>
-          {/* Filter and Search Bar */}
-          <div className="flex flex-col xl:flex-row gap-2 bg-slate-900/40 border border-slate-800/80 p-2.5 rounded-lg shadow-2xs">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-450" />
-              <input
-                id="input-search-glossary"
-                type="text"
-                placeholder="Tìm kiếm từ tiếng Trung, Hán Việt hoặc bản dịch..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-750/80 rounded text-xs focus:outline-none focus:border-indigo-550 text-slate-100"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 justify-between xl:justify-end shrink-0">
-              <div className="flex items-center gap-1 bg-slate-950 border border-slate-750/85 rounded px-2 py-1 shadow-3xs">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                <input
-                  type="date"
-                  value={searchDate}
-                  onChange={(e) => setSearchDate(e.target.value)}
-                  className="text-xs bg-transparent text-slate-200 focus:outline-none cursor-pointer font-sans h-5"
-                  title="Tìm kiếm từ vựng chính xác theo ngày thêm vào hệ thống"
-                />
-                {searchDate && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchDate('')}
-                    className="text-slate-400 hover:text-rose-455 font-bold text-xs pl-1"
-                    title="Xóa bộ lọc ngày"
-                  >
-                    &times;
-                  </button>
-                )}
-              </div>
-
-              <select
-                value={selectedOrigin}
-                onChange={(e) => setSelectedOrigin(e.target.value)}
-                className="bg-slate-950 border border-slate-750/80 rounded text-xs px-2 py-1.5 text-slate-350 focus:outline-none cursor-pointer h-8"
-              >
-                <option value="all">Mọi nguồn gốc</option>
-                <option value="guideline">Từ file cẩm nang (.md)</option>
-                <option value="scanned">Từ truyện AI quét</option>
-                <option value="manual">Nhập thủ công bằng tay</option>
-              </select>
-
-              <select
-                id="select-filter-type"
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-                className="bg-slate-950 border border-slate-750/80 rounded text-xs px-2 py-1.5 text-slate-350 focus:outline-none cursor-pointer h-8"
-              >
-                <option value="all">Tất cả thể loại</option>
-                <option value="character">Nhân vật</option>
-                <option value="location">Địa danh</option>
-                <option value="term">Bí kíp / Vật phẩm</option>
-                <option value="phrase">Thành ngữ / Cụm từ</option>
-                <option value="other">Thuật ngữ khác</option>
-              </select>
-
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setPageSize(val === 'all' ? 'all' : Number(val));
-                }}
-                className="bg-slate-950 border border-slate-750/80 rounded text-xs px-2 py-1.5 text-slate-350 focus:outline-none cursor-pointer h-8"
-              >
-                <option value="all">Hiện tất cả</option>
-                <option value={10}>Hiện 10 từ/trang</option>
-                <option value={30}>Hiện 30 từ/trang</option>
-                <option value={50}>Hiện 50 từ/trang</option>
-                <option value={100}>Hiện 100 từ/trang</option>
-              </select>
-            </div>
-          </div>
-
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className={selectedItem ? "lg:col-span-7" : "lg:col-span-12"}>
           <GlossaryTable
             filteredGlossary={filteredGlossary}
             selectedItem={selectedItem}
@@ -970,144 +610,20 @@ function GlossaryManager({
           />
         </div>
 
-        <GlossaryDetailSidebar
-          selectedItem={selectedItem}
-          setSelectedItem={setSelectedItem}
-          handleDetailSave={handleDetailSave}
-          searchContextMatches={searchContextMatches}
-          contextFilterType={contextFilterType}
-          setContextFilterType={setContextFilterType}
-          filteredMatches={filteredMatches}
-          highlightWordInText={highlightWordInText}
-        />
+        {selectedItem && (
+          <GlossaryDetailSidebar
+            selectedItem={selectedItem}
+            setSelectedItem={setSelectedItem}
+            handleDetailSave={handleDetailSave}
+            searchContextMatches={searchContextMatches}
+            contextFilterType={contextFilterType}
+            setContextFilterType={setContextFilterType}
+            filteredMatches={filteredMatches}
+            highlightWordInText={highlightWordInText}
+          />
+        )}
       </div>
-
-      <div className="bg-indigo-950/20 border border-indigo-800/40 rounded-lg p-3 flex gap-2 items-start shadow-xs">
-        <Info className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
-        <div className="text-[11px] text-indigo-200 leading-relaxed font-sans">
-          <strong className="block text-indigo-100 mb-0.5">Mẹo xưng hô nhân vật linh hoạt:</strong>
-          Đặc biệt đối với nhân vật nữ hoặc thầy trò quân nhân, bạn hãy điền ghi chú cột reference: <code className="bg-slate-950/80 border border-indigo-900/40 px-1 rounded font-mono text-rose-455 font-semibold">nhân vật nữ, kêu bằng nàng, có xưng hô đệ tử/sư tôn...</code>. AI sẽ xử lý ngữ cảnh này để cải thiện chất lượng dịch thô!
-        </div>
-      </div>
-
-      {pendingGlossary.filter(p => !p.needsReview).length > 0 && onConfirmPending && onDiscardPending && (
-        <div className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-          <div className="bg-amber-950/15 border-b border-amber-900/20 px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertTriangleIcon className="w-4 h-4 text-amber-500 animate-pulse" />
-              <h3 className="text-sm font-bold text-slate-200">Hàng Chờ Kiểm Duyệt Trùng Lặp</h3>
-              <span className="bg-amber-950/30 text-amber-400 border border-amber-900/40 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                {pendingGlossary.filter(p => !p.needsReview).length} mục
-              </span>
-            </div>
-            <p className="text-[11px] text-amber-400/80 hidden sm:block">
-              Các thuật ngữ bị trùng lặp khi nhập. Xem xét và xác nhận hoặc loại bỏ.
-            </p>
-          </div>
-          <div className="p-4 space-y-2 max-h-72 overflow-y-auto bg-slate-950/20">
-            {pendingGlossary.filter(p => !p.needsReview).map((pending) => (
-              <div key={pending.id}
-                   className="bg-amber-950/5 border border-amber-900/20 rounded-lg p-3 flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="font-mono font-bold text-amber-400 text-sm">{pending.chinese}</span>
-                    <span className="text-slate-500 text-xs">→</span>
-                    <span className="font-semibold text-slate-200 text-sm">{pending.vietnamese}</span>
-                    {pending.pinyin && <span className="text-slate-500 text-[10px]">({pending.pinyin})</span>}
-                    <span className="text-[10px] bg-amber-950/25 text-amber-400 border border-amber-900/45 px-1.5 py-0.5 rounded font-semibold">
-                      {pending.reason}
-                    </span>
-                  </div>
-                  {pending.note && <p className="text-xs text-slate-450 italic">{pending.note}</p>}
-                  {pending.originalValue && (
-                    <p className="text-[10px] text-amber-500 mt-0.5">
-                      ⚠ Đã có: {pending.originalValue}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => onConfirmPending(pending.id)}
-                    className="flex items-center gap-1 py-1 px-2.5 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-900/20 border border-emerald-800/40 rounded text-xs font-semibold transition cursor-pointer"
-                    title="Xác nhận thêm vào từ điển"
-                  >
-                    <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-500" /> Xác nhận
-                  </button>
-                  <button
-                    onClick={() => onDiscardPending(pending.id)}
-                    className="flex items-center gap-1 py-1 px-2 text-slate-500 hover:bg-rose-950/25 hover:text-rose-455 rounded text-xs font-semibold transition cursor-pointer"
-                    title="Loại bỏ"
-                  >
-                    <XIcon className="w-3.5 h-3.5" /> Bỏ qua
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
-  );
-}
-
-function AlertTriangleIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  );
-}
-
-function CheckCircleIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  );
-}
-
-function XIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
   );
 }
 
