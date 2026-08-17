@@ -67,17 +67,17 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
 
   return (
     <div className="space-y-4 bg-[#0f1524] border border-slate-800/80 p-5 rounded-2xl shadow-xl animate-fadeIn">
-      <h3 className="text-xs font-extrabold text-slate-350 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800/60 pb-3">
+      <h3 className="text-xs font-extrabold text-slate-300 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800/60 pb-3">
         <Sliders className="w-4 h-4 text-indigo-400" /> Tham số dịch tự động
       </h3>
 
       <div className="space-y-1.5">
-        <label className="text-xs font-bold text-slate-450 text-slate-400 block">Chế độ dịch tự động</label>
+        <label className="text-xs font-bold text-slate-400 text-slate-400 block">Chế độ dịch tự động</label>
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={() => setAutoTranslateMode('resume')}
-            className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'resume' ? 'border-indigo-600/65 bg-indigo-950/40 text-indigo-300 font-extrabold shadow-md' : 'border-slate-850 border-slate-800 text-slate-400 hover:bg-slate-800/30'}`}
+            className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'resume' ? 'border-indigo-600/65 bg-indigo-950/40 text-indigo-300 font-extrabold shadow-md' : 'border-slate-800 border-slate-800 text-slate-400 hover:bg-slate-800/30'}`}
           >
             <span className="text-[11px] flex items-center gap-1"><Play className="w-3 h-3 text-indigo-400 fill-indigo-400" /> Dịch tiếp tục</span>
             <span className="text-[9px] text-slate-500 font-normal mt-0.5">({totalUntranslatedChapters} chương)</span>
@@ -86,7 +86,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
           <button
             type="button"
             onClick={() => setAutoTranslateMode('from_scratch')}
-            className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'from_scratch' ? 'border-indigo-600/65 bg-indigo-950/40 text-indigo-300 font-extrabold shadow-md' : 'border-slate-850 border-slate-800 text-slate-400 hover:bg-slate-800/30'}`}
+            className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'from_scratch' ? 'border-indigo-600/65 bg-indigo-950/40 text-indigo-300 font-extrabold shadow-md' : 'border-slate-800 border-slate-800 text-slate-400 hover:bg-slate-800/30'}`}
           >
             <span className="text-[11px] flex items-center gap-1"><RefreshCwIcon className="w-3 h-3 text-indigo-400" /> Dịch từ đầu</span>
             <span className="text-[9px] text-slate-500 font-normal mt-0.5">({totalChapters} chương)</span>
@@ -99,7 +99,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
             <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5"><ListOrdered className="w-3.5 h-3.5 text-indigo-400" /> Giới hạn phạm vi chương</span>
-            <span className="text-[10px] text-slate-550 text-slate-500 font-normal mt-0.5">Dịch một phân khúc chương nhất định</span>
+            <span className="text-[10px] text-slate-500 text-slate-500 font-normal mt-0.5">Dịch một phân khúc chương nhất định</span>
           </div>
           <button
             type="button"
@@ -136,7 +136,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
                   max={totalChapters}
                   value={rangeEnd}
                   onChange={e => setRangeEnd(Math.max(rangeStart, Math.min(totalChapters, Number(e.target.value))))}
-                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-105 text-slate-100 focus:outline-none focus:border-indigo-500"
+                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 text-slate-100 focus:outline-none focus:border-indigo-500"
                 />
               </div>
             </div>
@@ -150,7 +150,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
 
       <div className="flex justify-between items-center text-xs pt-1">
         <label className="font-bold text-slate-300 flex items-center gap-1.5"><Layers className="w-3.5 h-3.5 text-indigo-400" /> Lượt chuốt văn học:</label>
-        <span className="bg-indigo-950/80 border border-indigo-850 border-indigo-800/40 text-indigo-300 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold">{polishCycles} vòng</span>
+        <span className="bg-indigo-950/80 border border-indigo-800 border-indigo-800/40 text-indigo-300 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold">{polishCycles} vòng</span>
       </div>
 
       <div className="flex items-center gap-2 pt-1">
@@ -159,7 +159,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
             key={n}
             type="button"
             onClick={() => setPolishCycles(n)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${polishCycles === n ? 'bg-indigo-650 border-indigo-650 text-white' : 'border-slate-800 bg-[#161f30] text-slate-400 hover:text-slate-200'}`}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${polishCycles === n ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-800 bg-[#161f30] text-slate-400 hover:text-slate-200'}`}
           >
             {n}
           </button>
@@ -172,7 +172,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
             <span className="font-bold text-slate-300 flex items-center gap-1">⚡ Dịch song song:</span>
             <span className="text-[10px] text-slate-500 font-normal mt-0.5">Số chương dịch cùng lúc (1 = tuần tự)</span>
           </div>
-          <span className="bg-indigo-950/80 border border-indigo-805 border-indigo-800/40 text-indigo-300 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold">{concurrency} luồng</span>
+          <span className="bg-indigo-950/80 border border-indigo-800 border-indigo-800/40 text-indigo-300 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold">{concurrency} luồng</span>
         </div>
         <div className="flex items-center gap-2">
           {[1, 2, 3, 4, 5].map(n => (
@@ -180,14 +180,14 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
               key={n}
               type="button"
               onClick={() => setConcurrency(n)}
-              className={`flex-1 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${concurrency === n ? 'bg-indigo-650 border-indigo-650 text-white' : 'border-slate-800 bg-[#161f30] text-slate-400 hover:text-slate-200'}`}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${concurrency === n ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-800 bg-[#161f30] text-slate-400 hover:text-slate-200'}`}
             >
               {n}
             </button>
           ))}
         </div>
         {concurrency > 1 && (
-          <p className="text-[10px] text-amber-300 bg-amber-955/20 border border-amber-900/50 rounded px-2.5 py-2 leading-relaxed">
+          <p className="text-[10px] text-amber-300 bg-amber-950/20 border border-amber-900/50 rounded px-2.5 py-2 leading-relaxed">
             ⚠️ Dịch song song đẩy nhanh tiến độ nhưng có thể làm giảm nhất quán của từ điển giữa các chương dịch song hành. Khuyên dùng 2-3 luồng.
           </p>
         )}
@@ -207,7 +207,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
       <div className="pt-3 pb-1 flex items-center justify-between border-t border-slate-800/60 mt-2">
         <div className="flex flex-col pr-2">
           <span className="text-xs font-bold text-slate-300">Tự động bỏ qua chương lỗi</span>
-          <span className="text-[10px] text-slate-550 text-slate-500 font-normal">Bỏ qua chương lỗi và tiếp tục tiến trình</span>
+          <span className="text-[10px] text-slate-500 text-slate-500 font-normal">Bỏ qua chương lỗi và tiếp tục tiến trình</span>
         </div>
         <button
           type="button"
@@ -221,7 +221,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
       <div className="pt-3 pb-1 flex items-center justify-between border-t border-slate-800/60 mt-1">
         <div className="flex flex-col pr-2">
           <span className="text-xs font-bold text-slate-300">Rà soát từ mới khi dịch</span>
-          <span className="text-[10px] text-slate-550 text-slate-500 font-normal">Tự động bóc tách từ vựng gối đầu</span>
+          <span className="text-[10px] text-slate-500 text-slate-500 font-normal">Tự động bóc tách từ vựng gối đầu</span>
         </div>
         <button
           type="button"
@@ -243,8 +243,8 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
         )}
 
         <div className="flex gap-2">
-          <button type="button" onClick={handleResetQueue} className="flex-1 py-1.5 rounded-lg border border-slate-750 text-slate-300 hover:bg-slate-800/40 cursor-pointer text-xs font-bold transition-colors">Reset hàng đợi</button>
-          <button type="button" onClick={triggerExportDownload} className="flex-1 py-1.5 rounded-lg border border-slate-750 text-slate-300 hover:bg-slate-800/40 cursor-pointer text-xs font-bold flex items-center justify-center gap-1 transition-colors"><Download className="w-3.5 h-3.5" /> Sao lưu JSON</button>
+          <button type="button" onClick={handleResetQueue} className="flex-1 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/40 cursor-pointer text-xs font-bold transition-colors">Reset hàng đợi</button>
+          <button type="button" onClick={triggerExportDownload} className="flex-1 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800/40 cursor-pointer text-xs font-bold flex items-center justify-center gap-1 transition-colors"><Download className="w-3.5 h-3.5" /> Sao lưu JSON</button>
         </div>
       </div>
     </div>

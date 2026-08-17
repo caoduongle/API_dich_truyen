@@ -29,7 +29,7 @@ export const DiscoveredTermsPanel = React.memo(function DiscoveredTermsPanel({
             className="inline-flex items-center gap-1.5 bg-slate-950 border border-emerald-900/60 rounded px-2 py-0.5 text-xs shadow-3xs font-semibold"
             title={`Ghi chú: ${item.note || 'Không có'}`}
           >
-            <code className="text-rose-450 font-bold font-mono text-[10px]">{item.chinese}</code>
+            <code className="text-rose-400 font-bold font-mono text-[10px]">{item.chinese}</code>
             <ChevronRight className="w-2.5 h-2.5 text-emerald-600" />
             <span className="text-indigo-300 font-extrabold">{item.vietnamese}</span>
             <span className="text-[9px] bg-emerald-950 text-emerald-400 px-1 rounded">

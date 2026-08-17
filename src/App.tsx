@@ -146,12 +146,12 @@ export function AppContent() {
   }
 
   return (
-    <div id="ai-story-translator-app" className="min-h-screen bg-[#080c16] flex flex-col font-sans text-slate-200 selection:bg-indigo-500/20 selection:text-indigo-205">
+    <div id="ai-story-translator-app" className="min-h-screen bg-[#080c16] flex flex-col font-sans text-slate-200 selection:bg-indigo-500/20 selection:text-indigo-200">
 
       {/* Platform Header */}
       <header className="sticky top-0 z-55 h-14 bg-[#0e1424]/85 border-b border-slate-800/80 backdrop-blur-md flex items-center justify-between px-4 sm:px-6 shrink-0 shadow-lg">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-indigo-650 rounded-lg flex items-center justify-center text-white shadow-md shadow-indigo-900/30">
+          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-md shadow-indigo-900/30">
             <Languages className="w-4 h-4" />
           </div>
           <div>
@@ -198,7 +198,7 @@ export function AppContent() {
 
           <button
             onClick={() => setShowApiSettings(true)}
-            className="flex items-center gap-1.5 bg-indigo-650 hover:bg-indigo-700 active:bg-indigo-800 text-white py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer transition-all shadow-md shadow-indigo-900/20 hover:scale-[1.02]"
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer transition-all shadow-md shadow-indigo-900/20 hover:scale-[1.02]"
           >
             <Settings className="w-3.5 h-3.5" />
             Cấu hình AI ({apiKeys.filter(k => k.trim()).length ? `${apiKeys.filter(k => k.trim()).length} Keys` : 'Hệ thống'})
@@ -260,7 +260,7 @@ export function AppContent() {
                 <History className="w-3.5 h-3.5 shrink-0" />
                 Lịch Sử Chương Dịch
                 {activeProject && activeProject.chapters.length > 0 && (
-                  <span className="bg-slate-905 bg-slate-900 text-slate-300 border border-slate-800 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ml-1">
+                  <span className="bg-slate-900 bg-slate-900 text-slate-300 border border-slate-800 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ml-1">
                     {activeProject.chapters.length}
                   </span>
                 )}

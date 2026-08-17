@@ -204,7 +204,7 @@ export default function ChapterHistoryPanel({
                                 </span>
                               )}
                               {chap.status === 'not_started' && (
-                                <span className="bg-slate-850 text-slate-400 border border-slate-800 text-[9px] font-bold px-1.5 py-0.5 rounded">
+                                <span className="bg-slate-800 text-slate-400 border border-slate-800 text-[9px] font-bold px-1.5 py-0.5 rounded">
                                   🈷 Bản gốc
                                 </span>
                               )}
@@ -260,7 +260,7 @@ export default function ChapterHistoryPanel({
                         {chap.status !== 'not_started' && (
                           <button
                             onClick={() => handleResetSingleToSource(chap.id)}
-                            className="text-xs font-semibold border border-amber-600/60 hover:bg-amber-650/20 text-amber-400 px-3 py-1.5 rounded-xl cursor-pointer transition-colors flex items-center gap-1"
+                            className="text-xs font-semibold border border-amber-600/60 hover:bg-amber-600/20 text-amber-400 px-3 py-1.5 rounded-xl cursor-pointer transition-colors flex items-center gap-1"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
                             Reset về bản gốc
@@ -275,7 +275,7 @@ export default function ChapterHistoryPanel({
                               showToast({ message: "Không tìm thấy dữ liệu chương!", type: 'error' });
                             }
                           }}
-                          className="text-xs font-semibold border border-indigo-600/60 hover:bg-indigo-650/20 text-indigo-400 px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
+                          className="text-xs font-semibold border border-indigo-600/60 hover:bg-indigo-600/20 text-indigo-400 px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
                         >
                           Mở chỉnh sửa lại
                         </button>
@@ -300,7 +300,7 @@ export default function ChapterHistoryPanel({
                               ? 'bg-indigo-600 text-white shadow-md'
                               : available
                               ? 'text-slate-400 hover:text-slate-200'
-                              : 'text-slate-650 cursor-not-allowed'
+                              : 'text-slate-600 cursor-not-allowed'
                           }`}
                         >
                           {label}
@@ -316,7 +316,7 @@ export default function ChapterHistoryPanel({
                           Văn bản tiếng Trung gốc
                         </span>
                         {chap.sourceText ? (
-                          <p className="text-sm font-sans leading-relaxed text-slate-350 whitespace-pre-wrap">
+                          <p className="text-sm font-sans leading-relaxed text-slate-300 whitespace-pre-wrap">
                             {chap.sourceText}
                           </p>
                         ) : (

@@ -53,7 +53,7 @@ export function DriveProgressWidget({
                 <div className="flex items-center gap-2 text-xs font-bold truncate">
                     {isProcessing ? (
                         <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-450 opacity-75"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
                     ) : (
@@ -72,14 +72,14 @@ export function DriveProgressWidget({
                     <button
                         type="button"
                         onClick={() => setIsMinimized(!isMinimized)}
-                        className="p-1 hover:bg-slate-850 rounded transition-colors text-slate-400 hover:text-white cursor-pointer"
+                        className="p-1 hover:bg-slate-800 rounded transition-colors text-slate-400 hover:text-white cursor-pointer"
                     >
                         {isMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
                     </button>
                     <button
                         type="button"
                         onClick={() => setIsVisible(false)}
-                        className="p-1 hover:bg-slate-850 rounded transition-colors text-slate-400 hover:text-rose-400 cursor-pointer"
+                        className="p-1 hover:bg-slate-800 rounded transition-colors text-slate-400 hover:text-rose-400 cursor-pointer"
                     >
                         <X className="w-3.5 h-3.5" />
                     </button>
@@ -97,7 +97,7 @@ export function DriveProgressWidget({
                         </div>
                         <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden border border-slate-700/50">
                             <div
-                                className="bg-gradient-to-r from-indigo-550 to-indigo-650 h-full transition-all duration-500"
+                                className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full transition-all duration-500"
                                 style={{ width: `${totalQueueLength > 0 ? (processedCount / totalQueueLength) * 100 : 0}%` }}
                             ></div>
                         </div>
@@ -115,7 +115,7 @@ export function DriveProgressWidget({
                         </div>
                         <div className="space-y-0.5">
               <span className="text-slate-400 font-normal flex items-center gap-1">
-                <Zap className="w-3.5 h-3.5 text-amber-450 animate-pulse" />
+                <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
                 Request còn lại:
               </span>
                             <strong className="text-slate-200 font-bold block truncate">
@@ -156,12 +156,12 @@ export function DriveProgressWidget({
                             className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 cursor-pointer"
                             title="Tải tệp lưu trữ backup cấu trúc truyện dạng .JSON"
                         >
-                            <Save className="w-4 h-4 text-slate-350" />
+                            <Save className="w-4 h-4 text-slate-300" />
                         </button>
                     </div>
                 </div>
             ) : (
-                <div className="px-4 h-12 flex items-center justify-between text-xs font-medium text-slate-350">
+                <div className="px-4 h-12 flex items-center justify-between text-xs font-medium text-slate-300">
           <span className="truncate flex items-center gap-1.5 font-bold text-slate-200">
             {isProcessing ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
@@ -175,14 +175,14 @@ export function DriveProgressWidget({
                         {isProcessing && (
                             <button
                                 onClick={onStop}
-                                className="p-1 text-rose-450 hover:bg-rose-950/40 rounded transition-colors cursor-pointer"
+                                className="p-1 text-rose-400 hover:bg-rose-950/40 rounded transition-colors cursor-pointer"
                             >
-                                <Square className="w-3.5 h-3.5 fill-rose-550" />
+                                <Square className="w-3.5 h-3.5 fill-rose-500" />
                             </button>
                         )}
                         <button
                             onClick={() => setIsMinimized(false)}
-                            className="text-indigo-450 hover:text-indigo-350 font-bold hover:underline ml-1 cursor-pointer"
+                            className="text-indigo-400 hover:text-indigo-300 font-bold hover:underline ml-1 cursor-pointer"
                         >
                             Mở rộng
                         </button>

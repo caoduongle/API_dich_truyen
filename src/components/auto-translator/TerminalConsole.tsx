@@ -54,7 +54,7 @@ export const TerminalConsole = React.memo(function TerminalConsole({ logs, onCle
                                     ? 'text-amber-400 font-semibold'
                                     : log.type === 'gemini'
                                         ? 'text-indigo-400'
-                                        : 'text-slate-350';
+                                        : 'text-slate-300';
                         return (
                             <div key={idx} className="flex gap-2 items-start hover:bg-white/[0.02] py-0.5 rounded px-1 transition-all">
                                 <span className="text-slate-600 shrink-0 select-none">[{log.timestamp}]</span>

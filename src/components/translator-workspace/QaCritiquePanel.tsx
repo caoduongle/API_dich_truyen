@@ -22,7 +22,7 @@ export function QaCritiquePanel({
     <>
       {/* Mismatch Warning Alert */}
       {isMismatch && (
-        <div className="bg-amber-955/20 border border-amber-900/45 text-amber-300 p-3.5 rounded-xl flex items-start gap-2.5 text-xs animate-slideDown">
+        <div className="bg-amber-950/20 border border-amber-900/45 text-amber-300 p-3.5 rounded-xl flex items-start gap-2.5 text-xs animate-slideDown">
           <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
           <div>
             <p className="font-bold text-amber-400">Cảnh báo lệch đoạn văn bản:</p>
@@ -44,7 +44,7 @@ export function QaCritiquePanel({
 
       {/* QA Issues Found */}
       {enableAiQaCritique && !isCheckingQa && qaIssues.length > 0 && (
-        <div className="bg-[#1c0e12]/80 border border-rose-900/45 text-rose-350 p-3.5 rounded-xl space-y-2 text-xs animate-slideDown shadow-lg">
+        <div className="bg-[#1c0e12]/80 border border-rose-900/45 text-rose-300 p-3.5 rounded-xl space-y-2 text-xs animate-slideDown shadow-lg">
           <div className="flex items-center gap-1.5 font-extrabold text-rose-400">
             <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
             <span>AI Phát Hiện Lỗi Kiểm Duyệt QA ({qaIssues.length})</span>

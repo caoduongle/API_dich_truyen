@@ -31,7 +31,7 @@ export const ImportChaptersModal = React.memo(function ImportChaptersModal({
         Nhập thêm / Thay thế File truyện gốc (.txt, .epub)
       </h4>
       
-      <div className="flex flex-wrap items-center gap-4 bg-slate-950 p-3.5 rounded-xl border border-slate-805">
+      <div className="flex flex-wrap items-center gap-4 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
         <div className="flex items-center gap-3">
           <input
             type="file"

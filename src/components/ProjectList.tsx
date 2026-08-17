@@ -227,7 +227,7 @@ export default function ProjectList({
           <button
             id="btn-import-project-json"
             onClick={() => importJsonInputRef.current?.click()}
-            className="flex items-center gap-1.5 border border-slate-800 hover:bg-slate-850 hover:text-slate-200 text-slate-300 font-semibold px-3 py-1.5 text-xs rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 border border-slate-800 hover:bg-slate-800 hover:text-slate-200 text-slate-300 font-semibold px-3 py-1.5 text-xs rounded-lg transition-colors cursor-pointer"
             title="Đọc tệp tin .json lưu ở máy tính để dịch tiếp"
           >
             <Upload className="w-3.5 h-3.5" />
@@ -244,7 +244,7 @@ export default function ProjectList({
                 setIsCreating(true);
               }
             }}
-            className="flex items-center gap-1.5 bg-indigo-650 hover:bg-indigo-755 text-white font-bold px-4 py-1.5 text-xs rounded-lg shadow-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-1.5 text-xs rounded-lg shadow-sm transition-colors cursor-pointer"
           >
             {isCreating ? 'Hủy' : 'Tạo truyện mới'}
           </button>
@@ -267,7 +267,7 @@ export default function ProjectList({
 
       {/* Grid displays projects */}
       <div className="space-y-3">
-        <h3 className="text-xs font-bold text-slate-455 uppercase tracking-widest">
+        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
           Tiểu thuyết hiện hữu trong hệ thống
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

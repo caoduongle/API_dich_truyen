@@ -136,7 +136,7 @@ export function QuickAddTermModal({
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
             </span>
-            <span className="text-xs text-slate-350">
+            <span className="text-xs text-slate-300">
               Bôi đen: <strong className="font-mono text-rose-400 bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-900/30">{selectedTerm}</strong>
             </span>
           </div>
@@ -151,7 +151,7 @@ export function QuickAddTermModal({
             <button
               type="button"
               onClick={handleTriggerQuickAdd}
-              className="flex items-center gap-1.5 bg-indigo-650 hover:bg-indigo-700 active:bg-indigo-850 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-md shadow-indigo-950/20 cursor-pointer"
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-md shadow-indigo-950/20 cursor-pointer"
             >
               <Sparkles className="w-3 h-3 text-white fill-current animate-pulse" />
               Tra cứu &amp; Thêm nhanh
@@ -239,7 +239,7 @@ export function QuickAddTermModal({
                 </button>
                 <button
                   type="submit"
-                  className="bg-indigo-650 hover:bg-indigo-700 active:bg-indigo-850 text-white px-4 py-1.5 text-xs font-bold rounded-lg transition shadow-md shadow-indigo-950/20 cursor-pointer"
+                  className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-1.5 text-xs font-bold rounded-lg transition shadow-md shadow-indigo-950/20 cursor-pointer"
                 >
                   Lưu vào từ điển
                 </button>

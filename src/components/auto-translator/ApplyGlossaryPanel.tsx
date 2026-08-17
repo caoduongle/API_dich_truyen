@@ -37,7 +37,7 @@ export const ApplyGlossaryPanel = React.memo(function ApplyGlossaryPanel({
   return (
     <div id="apply-glossary-card" className="space-y-4 bg-slate-900/40 border border-slate-800/80 p-5 rounded-xl shadow-xs">
       <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
-        <BookOpen className="w-4 h-4 text-amber-555" /> Áp dụng từ điển vào raw
+        <BookOpen className="w-4 h-4 text-amber-500" /> Áp dụng từ điển vào raw
       </h3>
       <p className="text-[11px] text-slate-400">Thay thế trước các từ tiếng Trung trong <strong>văn bản gốc</strong> của chương được chọn bằng bản dịch từ từ điển. Khi dịch tự động sẽ ưu tiên dùng văn bản đã xử lý này.</p>
 
@@ -66,7 +66,7 @@ export const ApplyGlossaryPanel = React.memo(function ApplyGlossaryPanel({
                   setApplyGlossaryRangeStart(v);
                   if (v > applyGlossaryRangeEnd) setApplyGlossaryRangeEnd(v);
                 }}
-                className="w-full text-center text-sm font-extrabold border border-slate-700/60 rounded-lg bg-slate-950 py-1.5 text-amber-400 focus:outline-none focus:border-amber-550"
+                className="w-full text-center text-sm font-extrabold border border-slate-700/60 rounded-lg bg-slate-950 py-1.5 text-amber-400 focus:outline-none focus:border-amber-500"
               />
             </div>
             <div className="space-y-1">
@@ -75,7 +75,7 @@ export const ApplyGlossaryPanel = React.memo(function ApplyGlossaryPanel({
                 type="number" min={applyGlossaryRangeStart} max={totalChapters}
                 value={applyGlossaryRangeEnd}
                 onChange={e => setApplyGlossaryRangeEnd(Math.max(applyGlossaryRangeStart, Math.min(totalChapters, Number(e.target.value))))}
-                className="w-full text-center text-sm font-extrabold border border-slate-700/60 rounded-lg bg-slate-950 py-1.5 text-amber-400 focus:outline-none focus:border-amber-555"
+                className="w-full text-center text-sm font-extrabold border border-slate-700/60 rounded-lg bg-slate-950 py-1.5 text-amber-400 focus:outline-none focus:border-amber-500"
               />
             </div>
             <div className="col-span-2 bg-amber-950/10 border border-amber-800/20 rounded-lg px-3 py-1.5 text-[11px] text-amber-300 flex items-center justify-between">
@@ -95,7 +95,7 @@ export const ApplyGlossaryPanel = React.memo(function ApplyGlossaryPanel({
           <button
             type="button"
             onClick={onViewDetails}
-            className="flex items-center gap-1 text-amber-300 hover:text-amber-250 font-bold shrink-0 border border-amber-800/40 bg-amber-900/10 px-2 py-0.5 rounded cursor-pointer transition-colors"
+            className="flex items-center gap-1 text-amber-300 hover:text-amber-200 font-bold shrink-0 border border-amber-800/40 bg-amber-900/10 px-2 py-0.5 rounded cursor-pointer transition-colors"
           >
             <Eye className="w-3 h-3" /> Xem chi tiết
           </button>

@@ -33,9 +33,9 @@ export const BulkScanConfigPanel = React.memo(function BulkScanConfigPanel({
   return (
     <div id="bulk-glossary-extract-card" className="space-y-4 bg-slate-900/40 border border-slate-800/80 p-5 rounded-xl shadow-xs">
       <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
-        <Database className="w-4 h-4 text-amber-555" /> Rà soát &amp; Lọc thuật ngữ sỉ
+        <Database className="w-4 h-4 text-amber-500" /> Rà soát &amp; Lọc thuật ngữ sỉ
       </h3>
-      <p className="text-[11px] text-slate-450">Quét sỉ toàn tập truyện để tự động bóc tách, chuẩn hóa danh xưng danh riêng phương Tây/Trung Hoa cổ phong đưa thẳng vào bộ quy tắc.</p>
+      <p className="text-[11px] text-slate-400">Quét sỉ toàn tập truyện để tự động bóc tách, chuẩn hóa danh xưng danh riêng phương Tây/Trung Hoa cổ phong đưa thẳng vào bộ quy tắc.</p>
 
       {/* Phạm vi chương rà soát */}
       <div className="space-y-2 pt-1">
@@ -64,7 +64,7 @@ export const BulkScanConfigPanel = React.memo(function BulkScanConfigPanel({
                   setScanRangeStart(v);
                   if (v > scanRangeEnd) setScanRangeEnd(v);
                 }}
-                className="w-full text-center text-sm font-extrabold border border-slate-700/60 rounded-lg bg-slate-950 py-1.5 text-amber-400 focus:outline-none focus:border-amber-550 disabled:opacity-50"
+                className="w-full text-center text-sm font-extrabold border border-slate-700/60 rounded-lg bg-slate-950 py-1.5 text-amber-400 focus:outline-none focus:border-amber-500 disabled:opacity-50"
               />
             </div>
             <div className="space-y-1">
@@ -74,7 +74,7 @@ export const BulkScanConfigPanel = React.memo(function BulkScanConfigPanel({
                 value={scanRangeEnd}
                 disabled={isScanningGlossary}
                 onChange={e => setScanRangeEnd(Math.max(scanRangeStart, Math.min(totalChapters, Number(e.target.value))))}
-                className="w-full text-center text-sm font-extrabold border border-slate-700/60 rounded-lg bg-slate-950 py-1.5 text-amber-400 focus:outline-none focus:border-amber-555 disabled:opacity-50"
+                className="w-full text-center text-sm font-extrabold border border-slate-700/60 rounded-lg bg-slate-950 py-1.5 text-amber-400 focus:outline-none focus:border-amber-500 disabled:opacity-50"
               />
             </div>
             <div className="col-span-2 bg-amber-950/10 border border-amber-800/20 rounded-lg px-3 py-1.5 text-[11px] text-amber-300 flex items-center justify-between">
@@ -97,7 +97,7 @@ export const BulkScanConfigPanel = React.memo(function BulkScanConfigPanel({
               type="button"
               disabled={isScanningGlossary}
               onClick={() => setExtractionLoops(n)}
-              className={`flex-1 py-1.5 rounded-md text-xs font-bold border cursor-pointer transition-colors ${extractionLoops === n ? 'bg-amber-600 border-amber-600 text-white' : 'border-slate-800 bg-slate-950 text-slate-400 hover:bg-slate-850 hover:text-slate-200 disabled:opacity-50'}`}
+              className={`flex-1 py-1.5 rounded-md text-xs font-bold border cursor-pointer transition-colors ${extractionLoops === n ? 'bg-amber-600 border-amber-600 text-white' : 'border-slate-800 bg-slate-950 text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50'}`}
             >
               {n}
             </button>

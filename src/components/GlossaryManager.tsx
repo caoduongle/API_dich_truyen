@@ -501,7 +501,7 @@ function GlossaryManager({
           <>
             {parts.map((part, i) => (
                 part.toLowerCase() === word.toLowerCase() ? (
-                    <mark key={i} className="bg-amber-550/20 text-amber-300 font-extrabold px-1 rounded shadow-3xs border border-amber-500/35">
+                    <mark key={i} className="bg-amber-500/20 text-amber-300 font-extrabold px-1 rounded shadow-3xs border border-amber-500/35">
                       {part}
                     </mark>
                 ) : (

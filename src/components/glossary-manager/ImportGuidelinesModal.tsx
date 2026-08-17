@@ -25,14 +25,14 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <h3 className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
-            <FileText className="w-4 h-4 text-indigo-450" />
+            <FileText className="w-4 h-4 text-indigo-400" />
             Đồng bộ hóa thuật ngữ từ Cẩm Nang Markdown
           </h3>
           <p className="text-xs text-slate-400">
             Hãy tải lên tệp cẩm nang dịch (.md). Trí tuệ nhân tạo sẽ tự động Sàng lọc cấu trúc các bảng từ khóa, sau đó thực hiện rà soát chuyên nghiệp loại bỏ tuyệt đối các từ ngữ bị trùng khớp.
           </p>
         </div>
-        <button onClick={() => setIsImporting(false)} className="text-slate-500 hover:text-slate-350 cursor-pointer">
+        <button onClick={() => setIsImporting(false)} className="text-slate-500 hover:text-slate-300 cursor-pointer">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -44,7 +44,7 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
         <UploadCloud className="w-8 h-8 text-slate-600 group-hover:text-indigo-400 transition-colors" />
         <div className="text-xs font-medium text-slate-400">
           {mdFileName ? (
-            <span className="text-indigo-350 font-bold block">{mdFileName} (Nhấp phát nữa để đổi tệp)</span>
+            <span className="text-indigo-300 font-bold block">{mdFileName} (Nhấp phát nữa để đổi tệp)</span>
           ) : (
             <span>Kéo thả tệp cẩm nang truyện (.md) tại đây hoặc <strong className="text-indigo-400 font-bold">Nhấp để mở thư mục tìm kiếm</strong></span>
           )}

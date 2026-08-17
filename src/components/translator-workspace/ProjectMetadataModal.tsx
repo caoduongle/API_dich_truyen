@@ -37,7 +37,7 @@ export const ProjectMetadataModal = React.memo(function ProjectMetadataModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-955 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+    <div className="fixed inset-0 bg-slate-950 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
       <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-scale-up max-h-[95vh] overflow-y-auto custom-scrollbar">
         <div className="border-b border-slate-800 p-4 flex items-center justify-between sticky top-0 bg-slate-900 z-10">
           <h3 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2 text-indigo-400">
@@ -74,7 +74,7 @@ export const ProjectMetadataModal = React.memo(function ProjectMetadataModal({
                 placeholder="Ví dụ: Thiên Tàm Thổ Đậu, Ngã Thất Tây Hồng Thị..."
                 value={editAuthor}
                 onChange={(e) => setEditAuthor(e.target.value)}
-                className="w-full text-xs bg-slate-955 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50"
+                className="w-full text-xs bg-slate-950 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50"
               />
             </div>
 
@@ -83,7 +83,7 @@ export const ProjectMetadataModal = React.memo(function ProjectMetadataModal({
               <select
                 value={editGenre}
                 onChange={(e) => setEditGenre(e.target.value)}
-                className="w-full text-xs bg-slate-955 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                className="w-full text-xs bg-slate-950 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
               >
                 <option value="Tiên Hiệp">Tiên Hiệp (Giả tưởng bay bổng, tu tiên, tiên giới)</option>
                 <option value="Võ Hiệp">Võ Hiệp (Kiếm hiệp truyền thống, ân oán giang hồ)</option>
@@ -105,7 +105,7 @@ export const ProjectMetadataModal = React.memo(function ProjectMetadataModal({
               <select
                 value={editTone}
                 onChange={(e) => setEditTone(e.target.value)}
-                className="w-full text-xs bg-slate-955 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                className="w-full text-xs bg-slate-950 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
               >
                 <option value="Dịch thuần Việt mượt mà">Thuần Việt mượt mà (Ưu tiên câu từ lưu loát tự nhiên Việt Nam)</option>
                 <option value="Trang nghiêm cổ phong">Cổ phong trang nghiêm (Từ ngữ đậm chất Hán Việt, sang quý)</option>
@@ -126,7 +126,7 @@ export const ProjectMetadataModal = React.memo(function ProjectMetadataModal({
               placeholder="Ghi chú về văn phong, cốt truyện hoặc cách xưng hô chung..."
               value={editDescription}
               onChange={(e) => setEditDescription(e.target.value)}
-              className="w-full text-xs bg-slate-955 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 resize-none"
+              className="w-full text-xs bg-slate-950 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 resize-none"
             />
           </div>
 

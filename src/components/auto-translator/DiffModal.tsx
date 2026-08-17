@@ -82,7 +82,7 @@ export const DiffModal = React.memo(function DiffModal({
       const key = `««TERM_${idx}»»`;
       result = result.replace(new RegExp(regexEscaped, 'g'), key);
       // Nội dung hiển thị trong <mark> cũng phải được escape
-      placeholder[key] = `<mark class="bg-amber-550/20 text-amber-300 border border-amber-500/35 rounded px-0.5 font-bold">${escapedVietnamese}</mark>`;
+      placeholder[key] = `<mark class="bg-amber-500/20 text-amber-300 border border-amber-500/35 rounded px-0.5 font-bold">${escapedVietnamese}</mark>`;
     });
     Object.entries(placeholder).forEach(([k, v]) => {
       result = result.replace(new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), v);
@@ -99,7 +99,7 @@ export const DiffModal = React.memo(function DiffModal({
           <div className="flex items-center gap-2">
             <Eye className="w-4 h-4 text-amber-500" />
             <h2 className="text-sm font-bold text-slate-200">Kiểm tra thay thế từ điển vào văn bản gốc</h2>
-            <span className="text-[10px] bg-amber-950/20 text-amber-450 border border-amber-800/40 px-2 py-0.5 rounded-full font-bold">{processedChapters.length} chương đã xử lý</span>
+            <span className="text-[10px] bg-amber-950/20 text-amber-400 border border-amber-800/40 px-2 py-0.5 rounded-full font-bold">{processedChapters.length} chương đã xử lý</span>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer">
             <X className="w-4 h-4 text-slate-400" />
@@ -118,7 +118,7 @@ export const DiffModal = React.memo(function DiffModal({
                 className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
                   idx === safeIdx
                     ? 'bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-950/20'
-                    : 'border-slate-850 text-slate-450 hover:bg-slate-850 hover:text-slate-200'
+                    : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
                 }`}
               >
                 {c.title.length > 20 ? c.title.slice(0, 20) + '…' : c.title}
@@ -134,8 +134,8 @@ export const DiffModal = React.memo(function DiffModal({
             <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-2 pb-1.5">
               {replacedTerms.map(item => (
                 <span key={item.id} className="inline-flex items-center gap-1 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-[11px] font-semibold">
-                  <code className="text-rose-455 font-bold font-mono text-[10px]">{item.chinese}</code>
-                  <ChevronRight className="w-2.5 h-2.5 text-amber-550" />
+                  <code className="text-rose-400 font-bold font-mono text-[10px]">{item.chinese}</code>
+                  <ChevronRight className="w-2.5 h-2.5 text-amber-500" />
                   <span className="text-amber-300 font-bold">{item.vietnamese}</span>
                 </span>
               ))}
@@ -153,7 +153,7 @@ export const DiffModal = React.memo(function DiffModal({
             <pre
               ref={diffLeftScrollRef}
               onScroll={handleDiffLeftScroll}
-              className="flex-1 overflow-y-auto p-4 text-xs text-slate-350 font-mono leading-relaxed whitespace-pre-wrap break-words scrollbar-none"
+              className="flex-1 overflow-y-auto p-4 text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap break-words scrollbar-none"
             >
               {chap.sourceText}
             </pre>
@@ -162,7 +162,7 @@ export const DiffModal = React.memo(function DiffModal({
           {/* Cột phải: processedSourceText có highlight */}
           <div className="flex flex-col overflow-hidden bg-slate-950/40">
             <div className="px-4 py-2 bg-amber-950/10 border-b border-amber-900/20 shrink-0">
-              <span className="text-[11px] font-bold text-amber-405 uppercase tracking-wider">● Đã áp dụng từ điển (processedSourceText)</span>
+              <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">● Đã áp dụng từ điển (processedSourceText)</span>
             </div>
             <div
               ref={diffRightScrollRef}
@@ -177,7 +177,7 @@ export const DiffModal = React.memo(function DiffModal({
         <div className="px-5 py-3 border-t border-slate-800 shrink-0 flex justify-end bg-slate-950/20">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-750 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
+            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
           >
             Đóng
           </button>

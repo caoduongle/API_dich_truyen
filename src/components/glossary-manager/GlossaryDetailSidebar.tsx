@@ -34,7 +34,7 @@ const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: De
   return (
     <div className="bg-slate-900/40 p-4 rounded-xl border border-slate-800 space-y-3">
       <h4 className="text-[11px] font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1">
-        <Edit2 className="w-3.5 h-3.5 text-indigo-450" /> Chỉnh sửa nhanh thuật ngữ
+        <Edit2 className="w-3.5 h-3.5 text-indigo-400" /> Chỉnh sửa nhanh thuật ngữ
       </h4>
 
       <div className="grid grid-cols-2 gap-3">
@@ -77,7 +77,7 @@ const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: De
       </div>
 
       <button type="button" onClick={handleSave}
-              className="w-full bg-indigo-600 hover:bg-indigo-550 text-white py-2 rounded-lg text-xs font-bold shadow-md shadow-indigo-500/10 transition-all cursor-pointer flex items-center justify-center gap-1.5">
+              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg text-xs font-bold shadow-md shadow-indigo-500/10 transition-all cursor-pointer flex items-center justify-center gap-1.5">
         <Save className="w-3.5 h-3.5" />
         Cập nhật thay đổi từ khóa
       </button>
@@ -112,11 +112,11 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
     <div className="lg:col-span-5 bg-slate-900/40 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-5 animate-in slide-in-from-right duration-300 lg:sticky lg:top-32 max-h-[calc(100vh-10rem)] overflow-y-auto custom-scrollbar">
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="space-y-0.5">
-          <span className="text-[10px] bg-indigo-950/60 text-indigo-350 border border-indigo-900/40 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+          <span className="text-[10px] bg-indigo-950/60 text-indigo-300 border border-indigo-900/40 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
             Bảng chi tiết &amp; Tra cứu ngữ cảnh
           </span>
           <h3 className="text-sm font-extrabold text-slate-200 flex items-center gap-1.5 truncate max-w-[250px]" title={`${selectedItem.chinese} → ${selectedItem.vietnamese}`}>
-            <BookOpen className="w-4 h-4 text-indigo-405" />
+            <BookOpen className="w-4 h-4 text-indigo-400" />
             {selectedItem.chinese} → {selectedItem.vietnamese}
           </h3>
         </div>
@@ -128,7 +128,7 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
       </div>
 
       {/* Khối hiển thị chi tiết mốc thời gian ghi nhận từ vựng */}
-      <div className="text-[11px] text-slate-400 bg-slate-950/40 border border-slate-850 p-3.5 rounded-xl space-y-1.5">
+      <div className="text-[11px] text-slate-400 bg-slate-950/40 border border-slate-800 p-3.5 rounded-xl space-y-1.5">
         <div className="flex justify-between">
           <span className="text-slate-500">Nguồn gốc nạp:</span>
           <span className="font-bold text-slate-300">
@@ -137,7 +137,7 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
         </div>
         <div className="flex justify-between">
           <span className="text-slate-500">Thời điểm khởi tạo:</span>
-          <span className="font-bold text-indigo-350">
+          <span className="font-bold text-indigo-300">
             {selectedItem.createdAt ? new Date(selectedItem.createdAt).toLocaleString('vi-VN') : 'Trước phiên bản v2.4'}
           </span>
         </div>
@@ -145,7 +145,7 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
 
       {selectedItem.sourceChapter && (
         <div className="bg-amber-950/20 border border-amber-900/40 rounded-xl p-3.5 text-[11px] text-amber-300 space-y-1 animate-fadeIn">
-          <div className="flex items-center gap-1.5 font-extrabold text-amber-450 uppercase tracking-wider text-[10px]">
+          <div className="flex items-center gap-1.5 font-extrabold text-amber-400 uppercase tracking-wider text-[10px]">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
             Nguồn gốc trích lọc tự động từ AI Filter
           </div>
@@ -167,7 +167,7 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
 
       {/* Context Checker / Occurrence Locator */}
       <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-t border-slate-850 pt-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-t border-slate-800 pt-4">
           <div className="flex items-center gap-1">
             <Hash className="w-4 h-4 text-emerald-400" />
             <span className="text-xs font-bold text-slate-300">
@@ -177,7 +177,7 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
 
           <div className="flex items-center gap-1 text-[10px]">
             <span className="text-slate-500">Xem:</span>
-            <div className="inline-flex bg-slate-950/60 rounded-xl p-0.5 border border-slate-850">
+            <div className="inline-flex bg-slate-950/60 rounded-xl p-0.5 border border-slate-800">
               <button onClick={() => setContextFilterType('all')}
                       className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${contextFilterType === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500'}`}>
                 Mọi tệp
@@ -197,7 +197,7 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
         </div>
 
         {filteredMatches.length === 0 ? (
-          <div className="p-4 bg-slate-950/20 rounded-xl text-center text-slate-500 text-xs italic border border-slate-850">
+          <div className="p-4 bg-slate-950/20 rounded-xl text-center text-slate-500 text-xs italic border border-slate-800">
             Từ khóa '{selectedItem.chinese}' hoặc '{selectedItem.vietnamese}' chưa tìm thấy đoạn văn nào trùng khớp ở tệp sách hiện hữu.
           </div>
         ) : (
@@ -207,7 +207,7 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
               const targetWord = isSource ? selectedItem.chinese : selectedItem.vietnamese;
               return (
                 <div key={idx}
-                     className="p-3 rounded-xl border border-slate-850 hover:border-slate-700 hover:bg-slate-900/30 transition-all text-xs space-y-1.5 bg-slate-900/10">
+                     className="p-3 rounded-xl border border-slate-800 hover:border-slate-700 hover:bg-slate-900/30 transition-all text-xs space-y-1.5 bg-slate-900/10">
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="font-extrabold text-indigo-300 bg-indigo-950/50 border border-indigo-900/30 px-1.5 py-0.5 rounded truncate max-w-[190px]" title={match.chapterTitle}>
                       {match.chapterTitle}
@@ -215,8 +215,8 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
                     <div className="flex items-center gap-1.5 shrink-0 text-slate-500">
                       <span>Dòng #{match.paragraphIndex}</span>
                       <span className={`px-1.5 py-0.5 rounded-sm text-[9px] font-bold border ${
-                        match.textType === 'source' ? 'bg-rose-950/40 text-rose-450 border-rose-900/30 font-mono' :
-                          match.textType === 'polished' ? 'bg-emerald-950/40 text-emerald-450 border-emerald-900/30' : 'bg-amber-950/40 text-amber-450 border-amber-900/30'
+                        match.textType === 'source' ? 'bg-rose-950/40 text-rose-400 border-rose-900/30 font-mono' :
+                          match.textType === 'polished' ? 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30' : 'bg-amber-950/40 text-amber-400 border-amber-900/30'
                       }`}>
                         {match.textType === 'source' ? 'Gốc Trung' : match.textType === 'polished' ? 'Chuốt' : 'Dịch Thô'}
                       </span>

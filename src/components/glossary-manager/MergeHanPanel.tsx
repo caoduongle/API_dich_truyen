@@ -158,10 +158,10 @@ export function MergeHanPanel({
           return (
             <div
               key={group.groupId}
-              className="bg-slate-950/40 border border-slate-850 hover:border-amber-900/40 rounded-xl overflow-hidden shadow-lg transition-colors grid grid-cols-1 lg:grid-cols-12"
+              className="bg-slate-950/40 border border-slate-800 hover:border-amber-900/40 rounded-xl overflow-hidden shadow-lg transition-colors grid grid-cols-1 lg:grid-cols-12"
             >
               {/* Left Column: Select Primary */}
-              <div className="lg:col-span-7 p-4 border-r border-slate-850 space-y-3 bg-slate-950/20">
+              <div className="lg:col-span-7 p-4 border-r border-slate-800 space-y-3 bg-slate-950/20">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                   Chọn dạng chữ chính (Primary Form)
                 </span>
@@ -176,14 +176,14 @@ export function MergeHanPanel({
                         className={`p-3 border rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-all ${
                           isPrimary
                             ? 'bg-amber-950/30 border-amber-900/50 shadow-md shadow-amber-500/5'
-                            : 'bg-slate-900/10 border-slate-850 hover:bg-slate-900/30 hover:border-slate-800'
+                            : 'bg-slate-900/10 border-slate-800 hover:bg-slate-900/30 hover:border-slate-800'
                         }`}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-slate-200 text-sm">{item.chinese}</span>
                             <span className="text-slate-500 text-xs">→</span>
-                            <span className="font-semibold text-slate-350 text-xs">{item.vietnamese}</span>
+                            <span className="font-semibold text-slate-300 text-xs">{item.vietnamese}</span>
                             <span className="text-[9px] bg-slate-900 text-slate-400 border border-slate-800 px-1.5 py-0.5 rounded font-mono">
                               {item.type}
                             </span>
@@ -264,11 +264,11 @@ export function MergeHanPanel({
                       value={payload.note || ''}
                       onChange={(e) => handleUpdateField(group.groupId, 'note', e.target.value)}
                       rows={2}
-                      className="w-full text-xs bg-slate-950/60 border border-slate-800 focus:border-amber-500/80 rounded-lg px-2.5 py-1.5 text-slate-350 outline-none transition-colors resize-none"
+                      className="w-full text-xs bg-slate-950/60 border border-slate-800 focus:border-amber-500/80 rounded-lg px-2.5 py-1.5 text-slate-300 outline-none transition-colors resize-none"
                     />
                   </div>
 
-                  <div className="bg-slate-950/60 border border-slate-850 rounded-lg p-2.5 flex items-start gap-1.5">
+                  <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 flex items-start gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
                     <div className="text-[10px] text-slate-400 leading-tight">
                       Từ chính: <strong className="font-mono text-slate-300">{primaryItem.chinese}</strong>.
@@ -278,7 +278,7 @@ export function MergeHanPanel({
                   </div>
                 </div>
 
-                <div className="flex gap-2 border-t border-slate-850 pt-3">
+                <div className="flex gap-2 border-t border-slate-800 pt-3">
                   <button
                     onClick={() => handleMergeSubmit(group.groupId)}
                     className="flex-1 flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg py-2 text-xs font-bold transition-all cursor-pointer shadow-md shadow-amber-500/10 border border-amber-600/10"

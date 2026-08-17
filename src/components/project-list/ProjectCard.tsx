@@ -57,7 +57,7 @@ export function ProjectCard({
       onClick={() => onSelect(proj.id)}
       className={`p-5 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
         isActive
-          ? 'border-indigo-600 bg-indigo-950/20 shadow-xs ring-4 ring-indigo-550/15'
+          ? 'border-indigo-600 bg-indigo-950/20 shadow-xs ring-4 ring-indigo-500/15'
           : 'border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 hover:shadow-xs'
       }`}
     >
@@ -77,7 +77,7 @@ export function ProjectCard({
                 e.stopPropagation();
                 onExportJson(proj);
               }}
-              className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-850 transition-colors cursor-pointer"
+              className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
               title="Sao lưu lưu trữ truyện về máy tính (.json)"
             >
               <Download className="w-3.5 h-3.5" />
@@ -86,7 +86,7 @@ export function ProjectCard({
             {/* Edit Button */}
             <button
               onClick={(e) => onEdit(e, proj)}
-              className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-850 transition-colors cursor-pointer"
+              className="text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
               title="Chỉnh sửa thông tin môi trường và bộ truyện"
             >
               <Edit3 className="w-3.5 h-3.5" />
@@ -108,7 +108,7 @@ export function ProjectCard({
                     onDelete(proj.id);
                   }
                 }}
-                className="text-slate-400 hover:text-rose-455 p-1.5 rounded-lg hover:bg-rose-955/40 transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-950/40 transition-colors cursor-pointer"
                 title="Xóa truyện"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -122,7 +122,7 @@ export function ProjectCard({
             {proj.title}
           </h3>
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
-            Tác giả: <span className="text-slate-350 font-sans">{proj.author}</span>
+            Tác giả: <span className="text-slate-300 font-sans">{proj.author}</span>
           </p>
         </div>
 
@@ -133,7 +133,7 @@ export function ProjectCard({
         )}
       </div>
 
-      <div className="mt-5 pt-3 border-t border-slate-800/80 space-y-2 text-[11px] text-slate-450">
+      <div className="mt-5 pt-3 border-t border-slate-800/80 space-y-2 text-[11px] text-slate-400">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
             <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -170,7 +170,7 @@ export function ProjectCard({
         {progress.total > 0 && (
           <div className="pt-2 space-y-1">
             <div className="flex justify-between text-[10px]">
-              <span className="text-slate-405">Tiến trình dịch</span>
+              <span className="text-slate-400">Tiến trình dịch</span>
               <span className="font-bold text-indigo-400">{progress.done}/{progress.total} chương ({progress.pct}%)</span>
             </div>
             <div className="w-full h-1.5 bg-slate-950 border border-slate-800/60 rounded-full overflow-hidden">

@@ -59,7 +59,7 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
             onClick={() => toggleCheck(idx)}
             className={`p-2 rounded border transition-all cursor-pointer flex items-start gap-2 ${
               selectedSuggestions[idx]
-                ? 'bg-slate-850 border-indigo-500 text-white shadow-xs'
+                ? 'bg-slate-800 border-indigo-500 text-white shadow-xs'
                 : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
             }`}
           >
@@ -78,7 +78,7 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
                 <span className="text-slate-500">Dịch: </span>
                 <strong className="text-indigo-300">{item.vietnamese}</strong>
               </div>
-              <div className="text-[9px] text-slate-505 text-slate-500 line-clamp-1 italic">
+              <div className="text-[9px] text-slate-500 text-slate-500 line-clamp-1 italic">
                 {item.note || `Thể loại: ${item.type}`}
               </div>
             </div>

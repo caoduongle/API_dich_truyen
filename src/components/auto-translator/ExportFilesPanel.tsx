@@ -50,15 +50,15 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
 
       <div className="space-y-1.5">
         <div className="grid grid-cols-3 gap-1.5">
-          <button type="button" onClick={() => handleExportModeChange('web')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'web' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-350 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}>
+          <button type="button" onClick={() => handleExportModeChange('web')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'web' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
             <span className="text-[11px] font-bold">Web Truyện</span>
             <span className="text-[8px] text-slate-500 font-normal mt-0.5">Giữ tiêu đề (≤20 ch.)</span>
           </button>
-          <button type="button" onClick={() => handleExportModeChange('audio')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'audio' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-350 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}>
+          <button type="button" onClick={() => handleExportModeChange('audio')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'audio' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
             <span className="text-[11px] font-bold">Làm Audio</span>
             <span className="text-[8px] text-slate-500 font-normal mt-0.5">Xóa tiêu đề (≤10 ch.)</span>
           </button>
-          <button type="button" onClick={() => handleExportModeChange('align_jsonl')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'align_jsonl' ? 'border-indigo-650/60 bg-indigo-950/20 text-indigo-350 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}>
+          <button type="button" onClick={() => handleExportModeChange('align_jsonl')} className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'align_jsonl' ? 'border-indigo-600/60 bg-indigo-950/20 text-indigo-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
             <span className="text-[11px] font-bold">Gióng hàng FT</span>
             <span className="text-[8px] text-slate-500 font-normal mt-0.5">JSONL Song ngữ</span>
           </button>
@@ -74,15 +74,15 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
             </div>
             <div className="flex items-center gap-3">
               <input type="range" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Number(e.target.value))} className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
-              <input type="number" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Math.min(maxLimit, Math.max(1, Number(e.target.value))))} className="w-12 text-center text-xs border border-slate-700/60 rounded bg-slate-950 py-0.5 font-bold text-slate-200 focus:outline-none focus:border-emerald-555" />
+              <input type="number" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Math.min(maxLimit, Math.max(1, Number(e.target.value))))} className="w-12 text-center text-xs border border-slate-700/60 rounded bg-slate-950 py-0.5 font-bold text-slate-200 focus:outline-none focus:border-emerald-500" />
             </div>
           </div>
 
           <div className="space-y-1.5 pt-1">
             <label className="text-xs font-bold text-slate-300 block">Lọc phạm vi xuất:</label>
             <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <button type="button" onClick={() => setExportScope('translated')} className={`py-1.5 px-2 rounded-lg text-xs font-bold border cursor-pointer ${exportScope === 'translated' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-350 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}>Chỉ chương đã dịch</button>
-              <button type="button" onClick={() => setExportScope('all')} className={`py-1.5 px-2 rounded-lg text-xs font-bold border cursor-pointer ${exportScope === 'all' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-350 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'}`}>Toàn bộ dự án</button>
+              <button type="button" onClick={() => setExportScope('translated')} className={`py-1.5 px-2 rounded-lg text-xs font-bold border cursor-pointer ${exportScope === 'translated' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>Chỉ chương đã dịch</button>
+              <button type="button" onClick={() => setExportScope('all')} className={`py-1.5 px-2 rounded-lg text-xs font-bold border cursor-pointer ${exportScope === 'all' ? 'border-emerald-600/60 bg-emerald-950/20 text-emerald-300 font-extrabold' : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>Toàn bộ dự án</button>
             </div>
           </div>
         </>
@@ -125,7 +125,7 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
                     setExportRangeStart(v);
                     if (v > exportRangeEnd) setExportRangeEnd(v);
                   }}
-                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-555"
+                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
                 />
               </div>
               <div className="space-y-1">
@@ -136,7 +136,7 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
                   max={totalChapters}
                   value={exportRangeEnd}
                   onChange={e => setExportRangeEnd(Math.max(exportRangeStart, Math.min(totalChapters, Number(e.target.value))))}
-                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-555"
+                  className="w-full text-center text-sm font-extrabold border border-slate-800 rounded-lg bg-[#161f30] py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
                 />
               </div>
             </div>

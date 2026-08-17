@@ -46,7 +46,7 @@ const DuplicateGroupCard = React.memo(function DuplicateGroupCard({
         <div className="flex gap-2">
           <button
             onClick={() => onConfirm(group.groupId)}
-            className="flex items-center gap-1.5 bg-violet-700 hover:bg-violet-650 text-white rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all cursor-pointer shadow-md shadow-violet-500/10"
+            className="flex items-center gap-1.5 bg-violet-700 hover:bg-violet-600 text-white rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all cursor-pointer shadow-md shadow-violet-500/10"
             title="Lưu tất cả thay đổi và đóng nhóm này"
           >
             <Check className="w-3.5 h-3.5" />
@@ -81,7 +81,7 @@ const DuplicateGroupCard = React.memo(function DuplicateGroupCard({
                 <div className="space-y-1.5">
                   <button
                     onClick={() => toggleContext(item.id)}
-                    className="flex items-center gap-1 text-[10px] font-bold text-amber-450 bg-amber-950/40 border border-amber-900/40 rounded-lg px-2.5 py-1.5 hover:bg-amber-900/60 transition-colors cursor-pointer"
+                    className="flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-950/40 border border-amber-900/40 rounded-lg px-2.5 py-1.5 hover:bg-amber-900/60 transition-colors cursor-pointer"
                   >
                     <Search className="w-3 h-3" />
                     {expandedContextIds.has(item.id) ? 'Ẩn ngữ cảnh' : 'Xem ngữ cảnh'}
@@ -102,8 +102,8 @@ const DuplicateGroupCard = React.memo(function DuplicateGroupCard({
                       <div className="space-y-2 max-w-[300px]">
                         {hits.map((hit, hi) => (
                           <div key={hi} className="bg-slate-950/60 border border-amber-900/30 rounded-lg p-2 space-y-1">
-                            <div className="text-[9px] font-extrabold text-amber-455 uppercase truncate">{hit.chapterTitle}</div>
-                            <div className="text-[10px] text-slate-300 font-mono leading-tight bg-slate-950/50 rounded px-1.5 py-1 border border-slate-850 line-clamp-2" title={hit.sourceLine}>
+                            <div className="text-[9px] font-extrabold text-amber-400 uppercase truncate">{hit.chapterTitle}</div>
+                            <div className="text-[10px] text-slate-300 font-mono leading-tight bg-slate-950/50 rounded px-1.5 py-1 border border-slate-800 line-clamp-2" title={hit.sourceLine}>
                               {hit.sourceLine}
                             </div>
                             {hit.translationLine && (
@@ -162,7 +162,7 @@ const DuplicateGroupCard = React.memo(function DuplicateGroupCard({
 
             <button
               onClick={() => onDeleteItem(group.groupId, item.id)}
-              className="self-center sm:self-start mt-3 sm:mt-4.5 p-1.5 text-slate-550 hover:text-rose-455 hover:bg-rose-955/40 rounded-md transition-colors cursor-pointer shrink-0"
+              className="self-center sm:self-start mt-3 sm:mt-4.5 p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded-md transition-colors cursor-pointer shrink-0"
               title="Xóa từ điển này khỏi dự án"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -221,7 +221,7 @@ export const DuplicatePanel = React.memo(function DuplicatePanel({
         </div>
         <button
           onClick={() => { setShowDuplicatePanel(false); setDuplicateGroups([]); }}
-          className="text-violet-550 hover:text-violet-400 p-1 rounded-md hover:bg-violet-950/40 transition-colors cursor-pointer"
+          className="text-violet-500 hover:text-violet-400 p-1 rounded-md hover:bg-violet-950/40 transition-colors cursor-pointer"
           title="Đóng bảng lọc trùng"
         >
           <X className="w-4 h-4" />
@@ -243,7 +243,7 @@ export const DuplicatePanel = React.memo(function DuplicatePanel({
         ))}
       </div>
 
-      <div className="flex justify-end pt-1 border-t border-slate-850">
+      <div className="flex justify-end pt-1 border-t border-slate-800">
         <button
           onClick={async () => {
             const confirmed = await showConfirm({
@@ -258,7 +258,7 @@ export const DuplicatePanel = React.memo(function DuplicatePanel({
               setDuplicateGroups([]);
             }
           }}
-          className="text-[11px] text-slate-400 hover:text-rose-455 font-semibold px-3 py-1.5 rounded-lg hover:bg-rose-955/40 transition-colors cursor-pointer"
+          className="text-[11px] text-slate-400 hover:text-rose-400 font-semibold px-3 py-1.5 rounded-lg hover:bg-rose-950/40 transition-colors cursor-pointer"
         >
           Đóng tất cả không lưu
         </button>

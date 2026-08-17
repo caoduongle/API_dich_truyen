@@ -58,14 +58,14 @@ export default function ApiSettings({
       <div className="relative w-full max-w-lg mx-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl shadow-indigo-950/25 flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-850 shrink-0 bg-slate-950/20">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 shrink-0 bg-slate-950/20">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-indigo-650 rounded-lg flex items-center justify-center shadow-sm">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
               <Cpu className="w-4 h-4 text-white" />
             </div>
             <div>
               <h2 className="text-sm font-extrabold text-slate-200">Cấu hình AI</h2>
-              <p className="text-[11px] text-slate-450">
+              <p className="text-[11px] text-slate-400">
                 {validKeyCount > 0 ? (
                   <span className="text-slate-400 font-semibold flex items-center gap-1">
                     <Key className="w-3 h-3 text-indigo-400" /> Đã cấu hình {validKeyCount} key
@@ -90,19 +90,19 @@ export default function ApiSettings({
           {/* Model selector */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5 text-indigo-405" />
+              <Cpu className="w-3.5 h-3.5 text-indigo-400" />
               Mô hình AI
             </label>
             <select
               value={selectedModel}
               onChange={e => onSaveModel(e.target.value)}
-              className="w-full text-sm border border-slate-750/80 bg-slate-950 rounded-lg px-3 py-2 text-slate-200 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-650 cursor-pointer"
+              className="w-full text-sm border border-slate-700/80 bg-slate-950 rounded-lg px-3 py-2 text-slate-200 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-600 cursor-pointer"
             >
               {AVAILABLE_MODELS.map(m => (
                 <option key={m.id} value={m.id}>{m.label}</option>
               ))}
             </select>
-            <p className="text-[11px] text-slate-450">
+            <p className="text-[11px] text-slate-400">
               Áp dụng ngay lập tức cho tất cả tính năng dịch thuật.
             </p>
           </div>
@@ -110,7 +110,7 @@ export default function ApiSettings({
           {/* Cài đặt chất lượng & Kiểm duyệt */}
           <div className="space-y-3 pt-3 border-t border-slate-800/60">
             <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5 text-indigo-405" />
+              <Cpu className="w-3.5 h-3.5 text-indigo-400" />
               Chất lượng & Kiểm duyệt dịch thuật
             </label>
 
@@ -163,14 +163,14 @@ export default function ApiSettings({
           {/* API Keys */}
           <div className="space-y-2 border-t border-slate-800/60 pt-3">
             <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Key className="w-3.5 h-3.5 text-indigo-405" />
+              <Key className="w-3.5 h-3.5 text-indigo-400" />
               Gemini API Keys ({validKeyCount} / {apiKeys.length})
             </label>
 
             {apiKeys.length === 0 ? (
               <div className="bg-amber-950/15 border border-amber-800/40 rounded-xl p-4 text-center space-y-1">
-                <Key className="w-6 h-6 text-amber-450 mx-auto animate-pulse" />
-                <p className="text-xs font-semibold text-amber-350">Chưa có key nào</p>
+                <Key className="w-6 h-6 text-amber-400 mx-auto animate-pulse" />
+                <p className="text-xs font-semibold text-amber-300">Chưa có key nào</p>
                 <p className="text-[11px] text-amber-400/80">Thêm ít nhất một Gemini API Key để bắt đầu dịch.</p>
               </div>
             ) : (
@@ -193,14 +193,14 @@ export default function ApiSettings({
                       </div>
                       <button
                         onClick={() => toggleReveal(idx)}
-                        className="text-slate-450 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                        className="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                         title={isRevealed ? 'Ẩn key' : 'Hiện key'}
                       >
                         {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
                       <button
                         onClick={() => onDeleteKeyIndex(idx)}
-                        className="text-slate-455 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-955/40 transition-colors cursor-pointer shrink-0"
+                        className="text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-950/40 transition-colors cursor-pointer shrink-0"
                         title="Xóa key này"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -229,14 +229,14 @@ export default function ApiSettings({
               </button>
             </div>
 
-            <p className="text-[11px] text-slate-450 leading-relaxed">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
               Hỗ trợ nhiều keys để hệ thống tự xoay vòng, tránh giới hạn tốc độ khi dịch hàng loạt. Mỗi dòng / dấu phẩy là một key.
             </p>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-850 shrink-0 flex justify-end bg-slate-950/20">
+        <div className="px-5 py-3 border-t border-slate-800 shrink-0 flex justify-end bg-slate-950/20">
           <button
             onClick={onClose}
             className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold px-5 py-2 rounded-lg transition-colors cursor-pointer shadow-sm"

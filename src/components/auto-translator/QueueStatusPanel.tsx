@@ -31,10 +31,10 @@ export const QueueStatusPanel = React.memo(function QueueStatusPanel({
             </span>
           )}
         </span>
-        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded font-extrabold text-slate-350">{progressPercent}% Hoàn thành</span>
+        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded font-extrabold text-slate-300">{progressPercent}% Hoàn thành</span>
       </div>
       <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700/50">
-        <div className="bg-indigo-550 h-2 rounded-full transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
+        <div className="bg-indigo-500 h-2 rounded-full transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-24 overflow-y-auto pt-1 text-[10px]">
@@ -44,9 +44,9 @@ export const QueueStatusPanel = React.memo(function QueueStatusPanel({
             : idx === currentChapterIndex;
           const isDone = idx < currentChapterIndex;
           return (
-            <div key={chap.id} className={`p-1.5 rounded border flex items-center justify-between ${isCurrent ? 'border-indigo-500/50 bg-indigo-950/30 text-indigo-300 font-bold animate-pulse' : isDone ? 'border-emerald-800/50 bg-emerald-950/20 text-emerald-350' : 'border-slate-800 bg-slate-950/40 text-slate-500'}`}>
+            <div key={chap.id} className={`p-1.5 rounded border flex items-center justify-between ${isCurrent ? 'border-indigo-500/50 bg-indigo-950/30 text-indigo-300 font-bold animate-pulse' : isDone ? 'border-emerald-800/50 bg-emerald-950/20 text-emerald-300' : 'border-slate-800 bg-slate-950/40 text-slate-500'}`}>
               <span className="truncate flex-1" title={chap.title}>{chap.title}</span>
-              {isDone && <Check className="w-3 h-3 text-emerald-450 shrink-0 ml-1" />}
+              {isDone && <Check className="w-3 h-3 text-emerald-400 shrink-0 ml-1" />}
               {isCurrent && <RefreshCwIcon className="w-2.5 h-2.5 animate-spin text-indigo-400 shrink-0 ml-1" />}
             </div>
           );

@@ -57,7 +57,7 @@ export function GlossaryScanWidget({
               <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
             </span>
                     ) : (
-                        <span className="h-2 w-2 rounded-full bg-amber-250"></span>
+                        <span className="h-2 w-2 rounded-full bg-amber-200"></span>
                     )}
                     <span className="truncate">
             {isScanning
@@ -91,7 +91,7 @@ export function GlossaryScanWidget({
                             <span className="text-slate-400">Tiến trình quét:</span>
                             <span className="text-amber-400 font-extrabold bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">{scanningProgress}%</span>
                         </div>
-                        <div className="w-full bg-slate-850 rounded-full h-2.5 overflow-hidden border border-slate-700/50">
+                        <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden border border-slate-700/50">
                             <div
                                 className="bg-gradient-to-r from-amber-400 to-amber-600 h-full transition-all duration-500"
                                 style={{ width: `${scanningProgress}%` }}
@@ -147,7 +147,7 @@ export function GlossaryScanWidget({
                                 type="button"
                                 onClick={onRetryFailedGlossaryChapters}
                                 disabled={isScanning}
-                                className={`w-full py-1.5 bg-rose-650 hover:bg-rose-600 text-white rounded-lg text-[11px] font-extrabold shadow-sm flex items-center justify-center gap-1 transition-all ${
+                                className={`w-full py-1.5 bg-rose-600 hover:bg-rose-600 text-white rounded-lg text-[11px] font-extrabold shadow-sm flex items-center justify-center gap-1 transition-all ${
                                     isScanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                                 }`}
                             >
@@ -156,7 +156,7 @@ export function GlossaryScanWidget({
                         </div>
                     )}
 
-                    <div className="pt-2 border-t border-slate-850">
+                    <div className="pt-2 border-t border-slate-800">
                         {isScanning ? (
                             <button
                                 type="button"
@@ -167,7 +167,7 @@ export function GlossaryScanWidget({
                                 Dừng quét ngay
                             </button>
                         ) : (
-                            <div className="text-center text-xs font-bold text-emerald-450 flex items-center justify-center gap-1.5 py-1">
+                            <div className="text-center text-xs font-bold text-emerald-400 flex items-center justify-center gap-1.5 py-1">
                                 <Check className="w-4 h-4" />
                                 Quét hoàn tất — {scanFoundCount} thuật ngữ mới
                             </div>
@@ -188,7 +188,7 @@ export function GlossaryScanWidget({
                         {isScanning && (
                             <button
                                 onClick={onToggleScan}
-                                className="p-1 text-rose-450 hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
+                                className="p-1 text-rose-400 hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
                             >
                                 <Square className="w-3.5 h-3.5 fill-rose-500" />
                             </button>

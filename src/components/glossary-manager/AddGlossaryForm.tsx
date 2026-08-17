@@ -79,25 +79,25 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({ glossary, o
       <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Thêm từ khóa mới bằng tay</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         <div>
-          <label className="block text-[10px] uppercase font-bold text-slate-450 mb-1">Gốc tiếng Trung *</label>
+          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Gốc tiếng Trung *</label>
           <input id="input-chinese-new" type="text" placeholder="Ví dụ: 萧炎" value={chinese}
                  onChange={(e) => setChinese(e.target.value)}
                  className="w-full text-xs bg-slate-950 border border-slate-700/60 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-indigo-500" required />
         </div>
         <div>
-          <label className="block text-[10px] uppercase font-bold text-slate-455 mb-1">Phiên âm Hán Việt</label>
+          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phiên âm Hán Việt</label>
           <input id="input-pinyin-new" type="text" placeholder="Ví dụ: Tiêu Viêm" value={pinyin}
                  onChange={(e) => setPinyin(e.target.value)}
                  className="w-full text-xs bg-slate-950 border border-slate-700/60 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-indigo-500" />
         </div>
         <div>
-          <label className="block text-[10px] uppercase font-bold text-slate-455 mb-1">Bản dịch tiếng Việt *</label>
+          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Bản dịch tiếng Việt *</label>
           <input id="input-vietnamese-new" type="text" placeholder="Ví dụ: Tiêu Viêm" value={vietnamese}
                  onChange={(e) => setVietnamese(e.target.value)}
                  className="w-full text-xs bg-slate-950 border border-slate-700/60 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-indigo-500" required />
         </div>
         <div>
-          <label className="block text-[10px] uppercase font-bold text-slate-455 mb-1">Phân loại</label>
+          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phân loại</label>
           <select id="select-type-new" value={type} onChange={(e) => setType(e.target.value as GlossaryType)}
                   className="w-full text-xs bg-slate-950 border border-slate-700/60 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer">
             <option value="character">Nhân vật</option>
@@ -109,7 +109,7 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({ glossary, o
         </div>
       </div>
       <div>
-        <label className="block text-[10px] uppercase font-bold text-slate-455 mb-1">Ghi chú ngữ cảnh (Hướng dẫn AI xưng hô, đại từ đúng đắn)</label>
+        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Ghi chú ngữ cảnh (Hướng dẫn AI xưng hô, đại từ đúng đắn)</label>
         <input id="input-note-new" type="text"
                placeholder="Ví dụ: Nam chính, sư phụ, nhân vật nữ kêu bằng nàng, có xưng hô bá đạo..."
                value={note} onChange={(e) => setNote(e.target.value)}
@@ -126,7 +126,7 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({ glossary, o
               id="btn-use-existing"
               type="button"
               onClick={handleUseExisting}
-              className="bg-amber-950/30 hover:bg-amber-900/40 border border-amber-800/40 text-amber-350 px-2 py-1 rounded font-bold text-[11px] cursor-pointer transition-colors"
+              className="bg-amber-950/30 hover:bg-amber-900/40 border border-amber-800/40 text-amber-300 px-2 py-1 rounded font-bold text-[11px] cursor-pointer transition-colors"
             >
               Dùng entry đó thay vì tạo mới
             </button>
@@ -148,7 +148,7 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({ glossary, o
           Hủy
         </button>
         <button id="btn-save-add" type="submit"
-                className="bg-indigo-650 hover:bg-indigo-700 text-white px-3.5 py-1 text-xs font-bold rounded transition-colors cursor-pointer animate-fadeIn">
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1 text-xs font-bold rounded transition-colors cursor-pointer animate-fadeIn">
           Lưu từ điển
         </button>
       </div>

@@ -282,7 +282,7 @@ export default function AutoTranslator({
                 type="button"
                 onClick={handleRetryFailedChapters}
                 disabled={isProcessing}
-                className={`w-full py-2.5 bg-rose-650 hover:bg-rose-600 text-white rounded-lg text-xs font-extrabold shadow-md shadow-rose-500/10 flex items-center justify-center gap-1.5 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}`}
+                className={`w-full py-2.5 bg-rose-600 hover:bg-rose-600 text-white rounded-lg text-xs font-extrabold shadow-md shadow-rose-500/10 flex items-center justify-center gap-1.5 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}`}
               >
                 Dịch lại các chương lỗi này
               </button>

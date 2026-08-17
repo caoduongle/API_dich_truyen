@@ -69,7 +69,7 @@ const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel
             }
             onSave(item.id, chinese.trim(), pinyin.trim() || vietnamese.trim(), vietnamese.trim(), type, item.note);
           }}
-          className="p-1 bg-indigo-650 text-white hover:bg-indigo-700 rounded transition-colors cursor-pointer"
+          className="p-1 bg-indigo-600 text-white hover:bg-indigo-700 rounded transition-colors cursor-pointer"
         >
           <Check className="w-3.5 h-3.5" />
         </button>
@@ -108,7 +108,7 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
     <div
       style={style}
       onClick={() => onSelect(item)}
-      className={`grid grid-cols-12 items-center border-b border-slate-800/80 transition-colors cursor-pointer select-none text-xs hover:bg-slate-850/30 ${
+      className={`grid grid-cols-12 items-center border-b border-slate-800/80 transition-colors cursor-pointer select-none text-xs hover:bg-slate-800/30 ${
         isSelected ? 'bg-indigo-950/30 border-l-4 border-indigo-600' : ''
       }`}
     >
@@ -135,9 +135,9 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
             </span>
           </div>
           
-          <div className="col-span-1 px-3 py-2.5 whitespace-nowrap text-slate-450 font-sans text-[11px]">
+          <div className="col-span-1 px-3 py-2.5 whitespace-nowrap text-slate-400 font-sans text-[11px]">
             {item.createdAt ? (
-              <span className="font-semibold text-slate-350">{new Date(item.createdAt).toLocaleDateString('vi-VN')}</span>
+              <span className="font-semibold text-slate-300">{new Date(item.createdAt).toLocaleDateString('vi-VN')}</span>
             ) : (
               <span className="text-slate-600 italic">--</span>
             )}
@@ -165,7 +165,7 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
                     onDelete(item.id);
                   }
                 }}
-                className="p-1 text-slate-400 hover:text-rose-450 hover:bg-rose-950/40 rounded transition-colors cursor-pointer" 
+                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors cursor-pointer" 
                 title="Xóa từ"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -322,8 +322,8 @@ export const GlossaryTable = React.memo(function GlossaryTable({
           </div>
 
           {/* Pagination and count stats at bottom */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-800 bg-slate-955/20 bg-slate-950/30 text-xs">
-            <span className="text-slate-450 font-sans">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-800 bg-slate-950/20 bg-slate-950/30 text-xs">
+            <span className="text-slate-400 font-sans">
               {pageSize === 'all' ? (
                 <>
                   Hiển thị toàn bộ <strong className="text-slate-200">{totalItems}</strong> thuật ngữ trong danh sách ảo hóa.
@@ -343,14 +343,14 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                   <button
                     onClick={() => setCurrentPage(1)}
                     disabled={safeCurrentPage === 1}
-                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-350 hover:bg-slate-850 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
                     Đầu
                   </button>
                   <button
                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                     disabled={safeCurrentPage === 1}
-                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-350 hover:bg-slate-850 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
                     Trước
                   </button>
@@ -361,8 +361,8 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                       onClick={() => setCurrentPage(pageNum)}
                       className={`px-2.5 py-1 rounded border text-[11px] font-semibold transition-colors cursor-pointer ${
                         safeCurrentPage === pageNum
-                          ? 'bg-indigo-650 border-indigo-600 text-white'
-                          : 'bg-slate-950 border border-slate-800 text-slate-350 hover:bg-slate-850'
+                          ? 'bg-indigo-600 border-indigo-600 text-white'
+                          : 'bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800'
                       }`}
                     >
                       {pageNum}
@@ -372,20 +372,20 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                   <button
                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                     disabled={safeCurrentPage === totalPages}
-                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-350 hover:bg-slate-850 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
                     Sau
                   </button>
                   <button
                     onClick={() => setCurrentPage(totalPages)}
                     disabled={safeCurrentPage === totalPages}
-                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-350 hover:bg-slate-850 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
+                    className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[11px] font-medium cursor-pointer"
                   >
                     Cuối
                   </button>
                 </div>
 
-                <div className="flex items-center gap-1.5 border-l border-slate-800 pl-2 ml-1 text-slate-450 font-sans text-[11px]">
+                <div className="flex items-center gap-1.5 border-l border-slate-800 pl-2 ml-1 text-slate-400 font-sans text-[11px]">
                   <span>Đi đến:</span>
                   <input
                     type="text"
@@ -393,7 +393,7 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                     onChange={handlePageInputChange}
                     onKeyDown={handlePageInputKeyDown}
                     onBlur={handlePageInputSubmit}
-                    className="w-10 px-1 py-0.5 text-center bg-slate-950 border border-slate-750/80 rounded font-bold text-slate-200 text-[11px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                    className="w-10 px-1 py-0.5 text-center bg-slate-950 border border-slate-700/80 rounded font-bold text-slate-200 text-[11px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
                   />
                   <span>/ {totalPages}</span>
                 </div>

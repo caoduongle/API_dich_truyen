@@ -214,7 +214,7 @@ export function ProjectFormModal({
           {editingProject ? <Edit3 className="w-4 h-4 text-indigo-400" /> : <Plus className="w-4 h-4 text-indigo-400" />}
           {editingProject ? 'Chỉnh sửa Môi trường & Bộ truyện' : 'Thiết kế Môi trường & Bộ Truyện mới'}
         </h3>
-        <p className="text-xs text-slate-450">
+        <p className="text-xs text-slate-400">
           {editingProject
             ? 'Cập nhật các trường liên quan bên dưới để chỉnh sửa thông tin bộ truyện. Bạn cũng có thể tải file raw hoặc file cẩm nang để nhập thêm chương/từ mới.'
             : 'Hãy nhập các trường liên quan. Bạn có thể sử dụng tính năng tải file bên dưới để tự động điền nhanh.'}
@@ -232,7 +232,7 @@ export function ProjectFormModal({
             placeholder="Ví dụ: Đấu Phá Thương Khung, Thần Điêu Đại Hiệp..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-xs bg-slate-950 border border-slate-750/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-950"
+            className="w-full text-xs bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-950"
             required
           />
         </div>
@@ -245,7 +245,7 @@ export function ProjectFormModal({
             placeholder="Ví dụ: Thiên Tàm Thổ Đậu, Ngã Thất Tây Hồng Thị..."
             value={author}
             onChange={(e) => setAuthor(e.target.value)}
-            className="w-full text-xs bg-slate-950 border border-slate-750/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-950"
+            className="w-full text-xs bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-950"
           />
         </div>
 
@@ -255,7 +255,7 @@ export function ProjectFormModal({
             id="select-project-genre"
             value={genre}
             onChange={(e) => setGenre(e.target.value)}
-            className="w-full text-xs bg-slate-950 border border-slate-750/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
+            className="w-full text-xs bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
           >
             <option value="Tiên Hiệp">Tiên Hiệp (Giả tưởng bay bổng, tu tiên, tiên giới)</option>
             <option value="Võ Hiệp">Võ Hiệp (Kiếm hiệp truyền thống, ân oán giang hồ)</option>
@@ -280,7 +280,7 @@ export function ProjectFormModal({
             id="select-project-tone"
             value={tone}
             onChange={(e) => setTone(e.target.value)}
-            className="w-full text-xs bg-slate-950 border border-slate-750/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
+            className="w-full text-xs bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
           >
             <option value="Dịch thuần Việt mượt mà">Thuần Việt mượt mà (Ưu tiên câu từ lưu loát tự nhiên Việt Nam)</option>
             <option value="Trang nghiêm cổ phong">Cổ phong trang nghiêm (Từ ngữ đậm chất Hán Việt, sang quý)</option>
@@ -304,7 +304,7 @@ export function ProjectFormModal({
           placeholder="Ghi chú về văn phong, cốt truyện hoặc cách xưng hô chung..."
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="w-full text-xs bg-slate-950 border border-slate-750/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 resize-none"
+          className="w-full text-xs bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 resize-none"
         />
       </div>
 
@@ -314,7 +314,7 @@ export function ProjectFormModal({
         <div className="bg-slate-950/20 border border-slate-800/80 rounded-xl p-4 space-y-3">
           <div>
             <h4 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-              <FileText className="w-4 h-4 text-blue-450" />
+              <FileText className="w-4 h-4 text-blue-400" />
               Tải lên Novel Raw Gốc (.txt; .epub)
             </h4>
             <p className="text-[11px] text-slate-500">Trích xuất nội dung toàn bộ văn bản và chia chương nhanh</p>
@@ -336,7 +336,7 @@ export function ProjectFormModal({
               <Upload className="w-3.5 h-3.5" />
               Chọn File Gốc
             </button>
-            <span className="text-[11px] text-slate-455 truncate max-w-[150px]" title={rawFileName}>
+            <span className="text-[11px] text-slate-400 truncate max-w-[150px]" title={rawFileName}>
               {rawFileName || 'Chưa chọn tệp'}
             </span>
           </div>
@@ -344,14 +344,14 @@ export function ProjectFormModal({
           {/* Splitting mechanism settings for TXT */}
           {rawFileName && rawFileName.endsWith('.txt') && (
             <div className="bg-slate-950/40 border border-slate-800/60 p-2.5 rounded-lg space-y-1.5 text-[11px]">
-              <span className="font-bold text-slate-350 block">Cơ chế tự động phân chia chương văn bản:</span>
+              <span className="font-bold text-slate-300 block">Cơ chế tự động phân chia chương văn bản:</span>
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-300">
                   <input
                     type="radio"
                     checked={splitMethod === 'regex'}
                     onChange={() => handleToggleSplitMethod('regex')}
-                    className="accent-indigo-550"
+                    className="accent-indigo-500"
                   />
                   Tìm theo tên chương (&quot;Chương x&quot;)
                 </label>
@@ -360,7 +360,7 @@ export function ProjectFormModal({
                     type="radio"
                     checked={splitMethod === 'chunk'}
                     onChange={() => handleToggleSplitMethod('chunk')}
-                    className="accent-indigo-550"
+                    className="accent-indigo-500"
                   />
                   Chia đều mỗi 8,000 ký tự
                 </label>
@@ -376,9 +376,9 @@ export function ProjectFormModal({
             </div>
           ) : parsedChapters.length > 0 ? (
             <div className="bg-emerald-950/15 border border-emerald-900/30 text-emerald-300 text-xs p-2.5 rounded-lg flex items-start gap-1.5">
-              <Check className="w-4 h-4 text-emerald-450 shrink-0 mt-0.5" />
+              <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold block text-emerald-350">Giải tích tệp tin hoàn tất!</span>
+                <span className="font-bold block text-emerald-300">Giải tích tệp tin hoàn tất!</span>
                 <span>Phát hiện thành công <strong>{parsedChapters.length} chương</strong> có sẵn để nạp vào truyện.</span>
               </div>
             </div>
@@ -411,7 +411,7 @@ export function ProjectFormModal({
               <Upload className="w-3.5 h-3.5" />
               Tải Lên File MD
             </button>
-            <span className="text-[11px] text-slate-455 truncate max-w-[150px]" title={guidelineFileName}>
+            <span className="text-[11px] text-slate-400 truncate max-w-[150px]" title={guidelineFileName}>
               {guidelineFileName || 'Chưa chọn tệp'}
             </span>
           </div>
@@ -423,9 +423,9 @@ export function ProjectFormModal({
               <span>Hệ thống AI đang đọc và trích từ vựng...</span>
             </div>
           ) : analyzedGlossary.length > 0 ? (
-            <div className="space-y-1 bg-emerald-950/15 border border-emerald-900/30 p-2.5 rounded-lg text-[11px] text-emerald-350">
-              <div className="flex items-center gap-1 text-xs font-bold text-emerald-350">
-                <Check className="w-4 h-4 text-emerald-450 shrink-0" />
+            <div className="space-y-1 bg-emerald-950/15 border border-emerald-900/30 p-2.5 rounded-lg text-[11px] text-emerald-300">
+              <div className="flex items-center gap-1 text-xs font-bold text-emerald-300">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>Bộ Hướng Dẫn & Từ Điển Đã Sẵn Sàng!</span>
               </div>
               <p>AI đã trích xuất thành công <strong>{analyzedGlossary.length} từ khóa</strong> nạp sẵn vào từ điển, cấu hình tông xưng hô và thể loại dịch thuật.</p>
@@ -457,7 +457,7 @@ export function ProjectFormModal({
         <button
           id="btn-save-project"
           type="submit"
-          className="bg-indigo-650 hover:bg-indigo-755 text-white px-5 py-1.5 text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
         >
           <Check className="w-3.5 h-3.5" />
           {editingProject ? 'Lưu & Cập nhật truyện' : 'Lưu & Tạo truyện mới'}
