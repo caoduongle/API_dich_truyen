@@ -1,35 +1,12 @@
-export type ClassValue =
-  | string
-  | number
-  | boolean
-  | undefined
-  | null
-  | { [key: string]: any }
-  | ClassValue[];
+import { type ClassValue, clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
 /**
- * Kết hợp className có điều kiện và xử lý mảng/đối tượng class an toàn,
- * dùng cho tất cả components trong src/components/ui/
+ * Kết hợp className có điều kiện (clsx) và loại bỏ xung đột Tailwind (twMerge).
+ * Dùng trong mọi component ở src/components/ui để các variant có thể ghi đè
+ * style mặc định một cách an toàn (vd: className="px-2" truyền vào Button phải
+ * thắng px-4 mặc định, không phải cả hai cùng tồn tại trong chuỗi class).
  */
-export function cn(...inputs: ClassValue[]): string {
-  const classes: string[] = [];
-
-  for (const input of inputs) {
-    if (!input) continue;
-
-    if (typeof input === 'string' || typeof input === 'number') {
-      classes.push(String(input));
-    } else if (Array.isArray(input)) {
-      const inner = cn(...input);
-      if (inner) classes.push(inner);
-    } else if (typeof input === 'object') {
-      for (const key in input) {
-        if (input[key]) classes.push(key);
-      }
-    }
-  }
-
-  return classes.join(' ');
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }
-
-export default cn;

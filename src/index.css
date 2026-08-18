@@ -88,6 +88,30 @@ html {
   animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* ANIMATE-IN/OUT — cài đặt tối giản, không phụ thuộc plugin tailwindcss-animate
+   (chưa cài trong project này). Chỉ định nghĩa đúng các class đang thực sự
+   được dùng (Modal.tsx và các panel dùng animate-in fade-in / zoom-in-95 /
+   slide-in-from-*). Trước khi thêm class animate-in mới ở nơi khác, nhớ khai
+   báo biến --tw-enter-* tương ứng ở đây, nếu không class sẽ không có tác dụng. */
+@keyframes enter {
+  from {
+    opacity: var(--tw-enter-opacity, 1);
+    transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+      scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), var(--tw-enter-scale, 1));
+  }
+}
+.animate-in {
+  animation-name: enter;
+  animation-duration: 200ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+.fade-in { --tw-enter-opacity: 0; }
+.zoom-in-95 { --tw-enter-scale: .95; }
+.slide-in-from-top-1 { --tw-enter-translate-y: -0.25rem; }
+.slide-in-from-top-2 { --tw-enter-translate-y: -0.5rem; }
+.slide-in-from-right { --tw-enter-translate-x: 100%; }
+
 /* GLOW POLISH - Ánh sáng đỏ chu sa tinh tế cho giai đoạn biên tập */
 .glow-polish {
   box-shadow: 0 0 20px -4px rgba(184, 64, 44, 0.18);
