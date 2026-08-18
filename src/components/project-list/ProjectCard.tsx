@@ -1,9 +1,13 @@
 import React from 'react';
+import { motion } from 'motion/react';
 import { StoryProject } from '../../types';
 import {
   BookOpen, Tag, Download, Edit3, Trash2, Sparkles, Calendar
 } from 'lucide-react';
 import { useNotifications } from '../NotificationSystem';
+import { GenreMark } from '../ui/GenreMark';
+import { Badge } from '../ui/Badge';
+import { Button } from '../ui/Button';
 
 export interface ProjectCardProps {
   proj: StoryProject;
@@ -17,23 +21,6 @@ export interface ProjectCardProps {
   isExportingEpub: boolean;
   canDelete: boolean;
   progress?: { total: number; done: number; pct: number };
-}
-
-export function getGenreEmoji(g: string): string {
-  switch (g) {
-    case 'Tiên Hiệp': return '✨';
-    case 'Võ Hiệp': return '⚔️';
-    case 'Ngôn Tình': return '💖';
-    case 'Đô Thị': return '🏙️';
-    case 'Huyền Huyễn': return '🐉';
-    case 'Huyền Huyễn Phương Tây': return '🏰';
-    case 'Vô Hạn Lưu': return '🌀';
-    case 'Lịch Sử / Quân Sự': return '🛡️';
-    case 'Khoa Huyễn / Võng Du': return '🤖';
-    case 'Linh Dị / Thần Quái': return '👻';
-    case 'Hệ Thống / Điền Văn': return '🌾';
-    default: return '📖';
-  }
 }
 
 export function ProjectCard({
@@ -52,9 +39,10 @@ export function ProjectCard({
   const { showConfirm } = useNotifications();
 
   return (
-    <div
+    <motion.div
       id={`project-card-${proj.id}`}
       onClick={() => onSelect(proj.id)}
+      whileTap={{ scale: 0.99 }}
       className={`p-5 rounded-md border transition-all cursor-pointer relative flex flex-col justify-between ${
         isActive
           ? 'border-polish bg-parchment shadow-md ring-1 ring-polish/30'
@@ -64,37 +52,44 @@ export function ProjectCard({
       <div>
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5">
-            <span className="text-xl">{getGenreEmoji(proj.genre)}</span>
-            <span className="bg-ink text-text-muted border border-parchment-2 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-[2px]">
+            <GenreMark genre={proj.genre} />
+            <Badge tone="neutral" className="uppercase tracking-wider">
               {proj.genre}
-            </span>
+            </Badge>
           </div>
 
           <div className="flex items-center gap-1">
-            {/* Export JSON */}
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Sao lưu lưu trữ truyện về máy tính (.json)"
+              title="Sao lưu lưu trữ truyện về máy tính (.json)"
               onClick={(e) => {
                 e.stopPropagation();
                 onExportJson(proj);
               }}
-              className="text-text-muted hover:text-text-main p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer"
-              title="Sao lưu lưu trữ truyện về máy tính (.json)"
             >
               <Download className="w-3.5 h-3.5" />
-            </button>
+            </Button>
 
-            {/* Edit Button */}
-            <button
-              onClick={(e) => onEdit(e, proj)}
-              className="text-text-muted hover:text-text-main p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer"
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Chỉnh sửa thông tin môi trường và bộ truyện"
               title="Chỉnh sửa thông tin môi trường và bộ truyện"
+              onClick={(e) => onEdit(e, proj)}
             >
               <Edit3 className="w-3.5 h-3.5" />
-            </button>
+            </Button>
 
             {canDelete && (
-              <button
+              <Button
                 id={`btn-delete-project-${proj.id}`}
+                variant="ghost"
+                size="icon"
+                aria-label="Xóa truyện"
+                title="Xóa truyện"
+                className="hover:text-rose-400"
                 onClick={async (e) => {
                   e.stopPropagation();
                   const confirmed = await showConfirm({
@@ -108,11 +103,9 @@ export function ProjectCard({
                     onDelete(proj.id);
                   }
                 }}
-                className="text-text-muted hover:text-rose-400 p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer"
-                title="Xóa truyện"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -174,9 +167,11 @@ export function ProjectCard({
               <span className="font-bold text-polish">{progress.done}/{progress.total} chương ({progress.pct}%)</span>
             </div>
             <div className="w-full h-1.5 bg-ink border border-parchment-2 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-polish rounded-full transition-all duration-500"
-                style={{ width: progress.pct + '%' }}
+              <motion.div
+                className="h-full bg-polish rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: progress.pct + '%' }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
               />
             </div>
           </div>
@@ -184,37 +179,43 @@ export function ProjectCard({
 
         {proj.chapters.length > 0 && (
           <div className="flex gap-1.5 pt-2 border-t border-parchment-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); onExportText(proj, 'vietnamese'); }}
-              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-ink hover:bg-parchment-2 text-text-main border border-parchment-2 rounded-[2px] transition cursor-pointer"
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 text-[10px] py-1.5"
               title="Xuất bản dịch tiếng Việt (.txt)"
+              onClick={(e) => { e.stopPropagation(); onExportText(proj, 'vietnamese'); }}
             >
               ↓ Bản Việt (.txt)
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onExportText(proj, 'bilingual'); }}
-              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-ink hover:bg-parchment-2 text-text-main border border-parchment-2 rounded-[2px] transition cursor-pointer"
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 text-[10px] py-1.5"
               title="Xuất song ngữ Trung-Việt (.txt)"
+              onClick={(e) => { e.stopPropagation(); onExportText(proj, 'bilingual'); }}
             >
               ↓ Song ngữ (.txt)
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 text-[10px] py-1.5 text-polish"
               disabled={isExportingEpub}
-              onClick={(e) => { e.stopPropagation(); onExportEpub(proj); }}
-              className="flex-1 text-center text-[10px] font-semibold py-1.5 bg-ink hover:bg-parchment-2 text-polish border border-parchment-2 rounded-[2px] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               title="Đóng gói và xuất file sách điện tử (.epub) để đọc trên điện thoại/Kindle"
+              onClick={(e) => { e.stopPropagation(); onExportEpub(proj); }}
             >
               {isExportingEpub ? 'Đang xuất...' : '↓ Sách EPUB'}
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
       {isActive && (
-        <div className="absolute top-4 right-14 bg-polish text-white text-[9px] font-bold px-1.5 py-0.5 rounded-[2px] tracking-wider uppercase">
-          ĐANG DỊCH
-        </div>
+        <Badge tone="solid" className="absolute top-4 right-14 text-[9px]">
+          Đang dịch
+        </Badge>
       )}
-    </div>
+    </motion.div>
   );
 }

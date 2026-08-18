@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo } from 'react';
+import { motion, type Variants } from 'motion/react';
 import { StoryProject, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
@@ -7,8 +8,10 @@ import { useEpubExport } from '../hooks/useEpubExport';
 import { ProjectCard } from './project-list/ProjectCard';
 import { ProjectFormModal } from './project-list/ProjectFormModal';
 import { SkeletonProjectCard } from './common/Skeleton';
-import { 
-  Folder, Upload
+import { EmptyState } from './ui/EmptyState';
+import { Button } from './ui/Button';
+import {
+  Folder, Upload, BookOpenText
 } from 'lucide-react';
 
 interface ProjectListProps {
@@ -22,6 +25,15 @@ interface ProjectListProps {
   selectedModel: string;
   isLoading?: boolean;
 }
+
+const CARD_ENTRANCE: Variants = {
+  hidden: { opacity: 0, y: 10 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: Math.min(i, 8) * 0.04, duration: 0.25, ease: 'easeOut' },
+  }),
+};
 
 export default function ProjectList({
   projects,
@@ -199,7 +211,7 @@ export default function ProjectList({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs">
         <div className="space-y-1">
           <h2 className="text-sm font-display font-bold text-text-main uppercase tracking-wider flex items-center gap-2">
-            <Folder className="w-4 h-4 text-polish animate-pulse" />
+            <Folder className="w-4 h-4 text-polish" />
             Giám Sát & Quản Lý Dự Án Truyện
           </h2>
           <p className="text-xs text-text-muted">
@@ -215,18 +227,20 @@ export default function ProjectList({
             onChange={handleImportProjectJson}
             className="hidden"
           />
-          <button
+          <Button
             id="btn-import-project-json"
+            variant="secondary"
+            icon={<Upload className="w-3.5 h-3.5 text-polish" />}
             onClick={() => importJsonInputRef.current?.click()}
-            className="flex items-center gap-1.5 border border-parchment-2 bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main font-semibold px-3 py-1.5 text-xs rounded-[2px] transition-colors cursor-pointer"
             title="Đọc tệp tin .json lưu ở máy tính để dịch tiếp"
           >
-            <Upload className="w-3.5 h-3.5 text-polish" />
             Nạp tệp sao lưu (.json)
-          </button>
+          </Button>
 
-          <button
+          <Button
             id="btn-trigger-add-project"
+            variant="primary"
+            className="glow-polish font-bold"
             onClick={() => {
               if (isCreating) {
                 setIsCreating(false);
@@ -235,10 +249,9 @@ export default function ProjectList({
                 setIsCreating(true);
               }
             }}
-            className="flex items-center gap-1.5 bg-polish hover:bg-[#A03522] text-white font-bold px-4 py-1.5 text-xs rounded-[2px] shadow-xs transition-colors cursor-pointer glow-polish"
           >
             {isCreating ? 'Hủy' : 'Tạo truyện mới'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -261,37 +274,56 @@ export default function ProjectList({
         <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest">
           Tiểu thuyết hiện hữu trong hệ thống
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {isLoading ? (
-            <>
-              <SkeletonProjectCard />
-              <SkeletonProjectCard />
-              <SkeletonProjectCard />
-            </>
-          ) : (
-            projects.map((proj) => {
+
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <SkeletonProjectCard />
+            <SkeletonProjectCard />
+            <SkeletonProjectCard />
+          </div>
+        ) : projects.length === 0 ? (
+          <EmptyState
+            icon={<BookOpenText className="w-5 h-5" />}
+            title="Chưa có tiểu thuyết nào"
+            description="Tạo dự án đầu tiên hoặc nạp một tệp sao lưu .json để bắt đầu dịch."
+            action={
+              <Button variant="primary" className="mt-1" onClick={() => setIsCreating(true)}>
+                Tạo truyện mới
+              </Button>
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {projects.map((proj, i) => {
               const isActive = proj.id === activeProjectId;
               const progress = projectProgressMap.get(proj.id);
 
               return (
-                <ProjectCard
+                <motion.div
                   key={proj.id}
-                  proj={proj}
-                  isActive={isActive}
-                  onSelect={onSelectProject}
-                  onEdit={handleStartEditProject}
-                  onDelete={onDeleteProject}
-                  onExportJson={handleExportProjectJson}
-                  onExportText={handleExportText}
-                  onExportEpub={handleExportEpub}
-                  isExportingEpub={isExportingEpub === proj.id}
-                  canDelete={projects.length > 1}
-                  progress={progress}
-                />
+                  custom={i}
+                  initial="hidden"
+                  animate="show"
+                  variants={CARD_ENTRANCE}
+                >
+                  <ProjectCard
+                    proj={proj}
+                    isActive={isActive}
+                    onSelect={onSelectProject}
+                    onEdit={handleStartEditProject}
+                    onDelete={onDeleteProject}
+                    onExportJson={handleExportProjectJson}
+                    onExportText={handleExportText}
+                    onExportEpub={handleExportEpub}
+                    isExportingEpub={isExportingEpub === proj.id}
+                    canDelete={projects.length > 1}
+                    progress={progress}
+                  />
+                </motion.div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
