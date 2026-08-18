@@ -224,6 +224,7 @@ export function useExportFiles({
 
       const dbChapters = await getChaptersByProjectFromDB(proj.id);
       const chaptersMap = new Map(dbChapters.map(c => [c.id, c]));
+      const generatedFiles: Array<{ filename: string; content: string }> = [];
 
       for (let i = 0; i < chaptersToExport.length; i++) {
         const chapMeta = chaptersToExport[i];
@@ -258,16 +259,37 @@ export function useExportFiles({
           const cleanChapTitle = sanitize(chap.title);
           const filename = `${cleanTitle}_[${cleanChapTitle}]_ALIGN_FT.jsonl`;
 
-          const blob = new Blob([fileContent], { type: "application/x-jsonlines;charset=utf-8" });
-          const url = URL.createObjectURL(blob);
-          triggerDownload(url, filename);
-          URL.revokeObjectURL(url);
-
-          addLog(`Xuất bản thành công tệp học liệu: ${filename}`, 'success');
+          generatedFiles.push({ filename, content: fileContent });
+          addLog(`Gióng hàng thành công chương: ${chap.title}`, 'success');
         } catch (chapErr: any) {
           addLog(`Thất bại tại chương "${chap.title}": ${chapErr.message || chapErr}`, 'error');
         }
       }
+
+      if (generatedFiles.length === 0) {
+        showToast({ message: "Không có dữ liệu gióng hàng nào được tạo ra!", type: 'warning' });
+      } else if (generatedFiles.length === 1) {
+        const single = generatedFiles[0];
+        const blob = new Blob([single.content], { type: "application/x-jsonlines;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        triggerDownload(url, single.filename);
+        URL.revokeObjectURL(url);
+        addLog(`Xuất bản thành công tệp học liệu: ${single.filename}`, 'success');
+      } else {
+        addLog(`Đang nén ${generatedFiles.length} tệp học liệu thành file .ZIP...`, 'info');
+        const zip = new JSZip();
+        for (const file of generatedFiles) {
+          zip.file(file.filename, file.content);
+        }
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(zipBlob);
+        const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
+        const zipName = `${sanitize(proj.title)}_ALIGN_FT_${generatedFiles.length}chaps.zip`;
+        triggerDownload(url, zipName);
+        URL.revokeObjectURL(url);
+        addLog(`Xuất bản thành công gói học liệu dạng ZIP: ${zipName}`, 'success');
+      }
+
       addLog("HOÀN TẤT QUY TRÌNH SẢN XUẤT HỌC LIỆU GIÓNG HÀNG FINE-TUNE!", "success");
     } catch (error: any) {
       addLog(`Lỗi hệ thống gióng hàng sỉ: ${error.message || error}`, "error");

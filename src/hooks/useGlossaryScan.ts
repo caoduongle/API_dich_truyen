@@ -46,6 +46,19 @@ export function useGlossaryScan({
 
   const projectRef = useRef<StoryProject>(activeProject);
   const isStopScanRequestedRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      isStopScanRequestedRef.current = true;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     projectRef.current = activeProject;
@@ -73,6 +86,7 @@ export function useGlossaryScan({
 
     setIsScanningGlossary(true);
     isStopScanRequestedRef.current = false;
+    abortControllerRef.current = new AbortController();
     setScanningProgress(0);
     setScanFoundCount(0);
     setCurrentScanningChapterIndex(0);
@@ -93,11 +107,11 @@ export function useGlossaryScan({
         : [];
 
       for (let loop = 1; loop <= extractionLoops; loop++) {
-        if (isStopScanRequestedRef.current) break;
+        if (isStopScanRequestedRef.current || !isMountedRef.current) break;
         setCurrentExtractionLoop(loop);
 
         for (let i = 0; i < scopedChaps.length; i++) {
-          if (isStopScanRequestedRef.current) break;
+          if (isStopScanRequestedRef.current || !isMountedRef.current) break;
           const chapMeta = scopedChaps[i];
           const chap = chaptersMap.get(chapMeta.id);
           if (!chap) continue;
@@ -109,6 +123,8 @@ export function useGlossaryScan({
           try {
             const response = await apiFetch('/api/analyze-glossary', {
               method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: abortControllerRef.current?.signal,
               body: JSON.stringify({
                 text: `${chap.title}\n\n${chap.sourceText}`,
                 apiKeys,
@@ -120,7 +136,7 @@ export function useGlossaryScan({
 
             if (!response.ok) throw new Error("Gặp lỗi phản hồi trích xuất từ AI.");
             const data = await response.json();
-            if (data.truncated) {
+            if (data.truncated && isMountedRef.current) {
               showToast({
                 message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của Chương ${i + 1} được phân tích để tối ưu hiệu suất.`,
                 type: 'warning'
@@ -186,7 +202,9 @@ export function useGlossaryScan({
                 if (newlyDiscovered.length > 0) {
                   addLog(`Phát hiện ${newlyDiscovered.length} thuật ngữ mới tại chương "${chap.title}"`, 'success');
                   setAutoDiscoveredBatch((prev) => [...prev, ...newlyDiscovered]);
-                  setScanFoundCount((prev) => prev + newlyDiscovered.length);
+                  if (isMountedRef.current) {
+                    setScanFoundCount((prev) => prev + newlyDiscovered.length);
+                  }
                 }
                 if (pendingDiscovered.length > 0) {
                   projectRef.current.pendingGlossary = [...(projectRef.current.pendingGlossary || []), ...pendingDiscovered];
@@ -196,6 +214,10 @@ export function useGlossaryScan({
 
             activeFailedIds = activeFailedIds.filter(id => id !== chap.id);
           } catch (chapErr: any) {
+            if (chapErr.name === 'AbortError' || (chapErr instanceof DOMException && chapErr.name === 'AbortError')) {
+              isStopScanRequestedRef.current = true;
+              break;
+            }
             newlyFailedIds.push(chap.id);
             if (String(chapErr.message).startsWith("ALL_KEYS_EXHAUSTED")) {
               isStopScanRequestedRef.current = true;
@@ -231,10 +253,15 @@ export function useGlossaryScan({
         addLog("=== ĐÃ HOÀN TẤT TOÀN BỘ QUY TRÌNH QUÉT LỌC TỰ ĐỘNG THÀNH CÔNG ===", 'success');
       }
     } catch (err: any) {
-      addLog(`Lỗi hệ thống rà soát từ vựng sỉ: ${err.message}`, 'error');
+      if (err.name !== 'AbortError' && !(err instanceof DOMException && err.name === 'AbortError')) {
+        addLog(`Lỗi hệ thống rà soát từ vựng sỉ: ${err.message}`, 'error');
+      }
     } finally {
-      setIsScanningGlossary(false);
-      isStopScanRequestedRef.current = false;
+      if (isMountedRef.current) {
+        setIsScanningGlossary(false);
+        isStopScanRequestedRef.current = false;
+      }
+      abortControllerRef.current = null;
     }
   }, [isScanningGlossary, scanRangeEnabled, scanRangeStart, scanRangeEnd, extractionLoops, apiKeys, selectedModel, currentApiKeyIndexRef, onUpdateProject, addLog, setAutoDiscoveredBatch]);
 

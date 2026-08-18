@@ -172,6 +172,7 @@ export function useProjects() {
     }, [setProjects]);
 
     const handleAddGlossaryItem = useCallback((newItem: Omit<GlossaryItem, 'id'>, force = false) => {
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -195,15 +196,20 @@ export function useProjects() {
                 createdAt: newItem.createdAt || new Date().toISOString()
             };
             const updated: StoryProject = { ...activeProj, glossary: [completeItem, ...activeProj.glossary] };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            saveProjectToDB(updatedToSave);
+        }
     }, [activeProjectId, setProjects]);
 
     const handleAddGlossaryItems = useCallback((newItems: Omit<GlossaryItem, 'id'>[]) => {
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -231,15 +237,20 @@ export function useProjects() {
             });
             if (completeItems.length === 0) return prev;
             const updated: StoryProject = { ...activeProj, glossary: [...completeItems, ...activeProj.glossary] };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            saveProjectToDB(updatedToSave);
+        }
     }, [activeProjectId, setProjects]);
 
     const handleUpdateGlossaryItem = useCallback((id: string, updatedItem: GlossaryItem) => {
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -247,15 +258,20 @@ export function useProjects() {
 
             const updatedGlossary = activeProj.glossary.map(item => item.id === id ? updatedItem : item);
             const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            saveProjectToDB(updatedToSave);
+        }
     }, [activeProjectId, setProjects]);
 
     const handleDeleteGlossaryItem = useCallback((id: string) => {
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -263,12 +279,16 @@ export function useProjects() {
 
             const updatedGlossary = activeProj.glossary.filter(item => item.id !== id);
             const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            saveProjectToDB(updatedToSave);
+        }
     }, [activeProjectId, setProjects]);
 
     const handleMergeGlossaryItems = useCallback((
@@ -276,6 +296,7 @@ export function useProjects() {
         mergedPayload: Partial<GlossaryItem>,
         idsToDelete: string[]
     ) => {
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -292,12 +313,16 @@ export function useProjects() {
             }).filter(item => !idsToDelete.includes(item.id));
 
             const updated: StoryProject = { ...activeProj, glossary: updatedGlossary };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            saveProjectToDB(updatedToSave);
+        }
     }, [activeProjectId, setProjects]);
 
     const handleDeleteChapterHistory = useCallback(async (chapId: string) => {
@@ -317,6 +342,7 @@ export function useProjects() {
 
         const oldProjects = [...currentProjects];
 
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -324,12 +350,16 @@ export function useProjects() {
 
             const updatedChapters = targetProj.chapters.filter(c => c.id !== chapId);
             const updated: StoryProject = { ...targetProj, chapters: updatedChapters };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            await saveProjectToDB(updatedToSave);
+        }
 
         // 3. Show undoable toast
         showToast({
@@ -350,21 +380,27 @@ export function useProjects() {
     }, [activeProjectId, setProjects, showToast]);
 
     const handleAddToPendingGlossary = useCallback((item: PendingGlossaryItem) => {
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
             const activeProj = prev[idx];
 
             const updated: StoryProject = { ...activeProj, pendingGlossary: [...(activeProj.pendingGlossary || []), item] };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            saveProjectToDB(updatedToSave);
+        }
     }, [activeProjectId, setProjects]);
 
     const handleConfirmPendingItem = useCallback((pendingId: string, override?: Partial<GlossaryItem>) => {
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -386,15 +422,20 @@ export function useProjects() {
                 glossary: [confirmed, ...activeProj.glossary],
                 pendingGlossary: (activeProj.pendingGlossary || []).filter(p => p.id !== pendingId)
             };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            saveProjectToDB(updatedToSave);
+        }
     }, [activeProjectId, setProjects]);
 
     const handleDiscardPendingItem = useCallback((pendingId: string) => {
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === activeProjectId);
             if (idx === -1) return prev;
@@ -404,12 +445,16 @@ export function useProjects() {
                 ...activeProj,
                 pendingGlossary: (activeProj.pendingGlossary || []).filter(p => p.id !== pendingId)
             };
-            saveProjectToDB(updated);
+            updatedToSave = updated;
 
             const next = [...prev];
             next[idx] = updated;
+            projectsRef.current = next;
             return next;
         });
+        if (updatedToSave) {
+            saveProjectToDB(updatedToSave);
+        }
     }, [activeProjectId, setProjects]);
 
     const handleResetChapters = useCallback(async (projectId: string, chapIds: string[]) => {
@@ -438,6 +483,7 @@ export function useProjects() {
         const oldProjects = [...currentProjects];
 
         // 2. Perform reset on React state
+        let updatedToSave: StoryProject | null = null;
         setProjects(prev => {
             const idx = prev.findIndex(p => p.id === projectId);
             if (idx === -1) return prev;
@@ -454,12 +500,17 @@ export function useProjects() {
                 return c;
             });
             const updatedProj = { ...targetProj, chapters: updatedChapters };
-            saveProjectToDB(updatedProj);
+            updatedToSave = updatedProj;
 
             const next = [...prev];
             next[idx] = updatedProj;
+            projectsRef.current = next;
             return next;
         });
+
+        if (updatedToSave) {
+            await saveProjectToDB(updatedToSave);
+        }
 
         // 3. Show undoable toast
         const count = chapIds.length;
