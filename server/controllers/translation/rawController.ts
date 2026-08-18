@@ -193,7 +193,15 @@ export async function translateRawWithContentSplit(
     description?: string,
     enableSegmentTranslation?: boolean
 ): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number; isPartial?: boolean }> {
-  const cacheKey = translationChunkCache.generateKey("raw", text, { genre, tone, model, extra: description });
+  const glossaryFingerprint = Array.isArray(glossary)
+    ? glossary.map(g => `${g.chinese || ''}:${g.vietnamese || ''}`).join('|')
+    : '';
+  const cacheKey = translationChunkCache.generateKey("raw", text, {
+    genre,
+    tone,
+    model,
+    extra: `${description || ''}____${glossaryFingerprint}`
+  });
   const cached = translationChunkCache.get(cacheKey);
   if (cached && cached.text) {
     console.log(`[Cache Hit - Phase 1] Tận dụng bản dịch lưu đệm (${cached.text.length} ký tự)`);

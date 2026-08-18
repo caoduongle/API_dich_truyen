@@ -27,13 +27,24 @@ export function parseGlossaryFromMd(text: string): Array<{
     const line = rawLine.trim();
     if (!line) continue;
     if (line.startsWith("|") && line.endsWith("|")) {
-      const cells = line.split("|").map((c) => c.trim()).filter((c) => c !== "");
-      if (cells.length < 3) continue;
+      const cells = line.split("|").map((c) => c.trim()).slice(1, -1);
+      if (cells.length < 2) continue;
 
-      const chinese    = cells[0].replace(/\\\|/g, "|");
-      const pinyin     = cells[1].replace(/\\\|/g, "|");
-      const vietnamese = cells[2].replace(/\\\|/g, "|");
-      const note       = (cells[3] ?? "").replace(/\\\|/g, "|");
+      let chinese = "";
+      let pinyin = "";
+      let vietnamese = "";
+      let note = "";
+
+      if (cells.length === 2) {
+        chinese = cells[0].replace(/\\\|/g, "|");
+        vietnamese = cells[1].replace(/\\\|/g, "|");
+      } else {
+        chinese    = cells[0].replace(/\\\|/g, "|");
+        pinyin     = cells[1].replace(/\\\|/g, "|");
+        vietnamese = cells[2].replace(/\\\|/g, "|");
+        note       = (cells[3] ?? "").replace(/\\\|/g, "|");
+      }
+
       if (!HAN_REGEX.test(chinese)) continue;
       if (!chinese || !vietnamese) continue;
 

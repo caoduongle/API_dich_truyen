@@ -171,7 +171,14 @@ export async function polishWithContentSplit(
     description?: string,
     enableSegmentTranslation?: boolean
 ): Promise<{ polishedTranslation: string; successKeyIndex: number; isPartial?: boolean }> {
-  const cacheKey = translationChunkCache.generateKey("polish", `${sourceText}____SPLIT____${rawTranslation}`, { genre, tone, model, extra: `${additionalInstructions}____${description}` });
+  const glossaryFingerprint = Array.isArray(glossary)
+    ? glossary.map(g => `${g.chinese || ''}:${g.vietnamese || ''}`).join('|')
+    : '';
+  const cacheKey = translationChunkCache.generateKey(
+    "polish",
+    `${sourceText}____SPLIT____${rawTranslation}`,
+    { genre, tone, model, extra: `${additionalInstructions}____${description}____${glossaryFingerprint}` }
+  );
   const cached = translationChunkCache.get(cacheKey);
   if (cached && cached.text) {
     console.log(`[Cache Hit - Phase 2] Tận dụng bản dịch chuốt lưu đệm (${cached.text.length} ký tự)`);

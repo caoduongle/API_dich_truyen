@@ -20,6 +20,37 @@ describe('parser utils', () => {
       expect(parsed[1].chinese).toBe('乌坦城');
     });
 
+    it('should handle markdown tables with empty cells without column shifting', () => {
+      const md = `
+| 萧炎 | | Tiêu Viêm | Nhân vật chính |
+| 药老 | Dược Lão | |
+`;
+      const parsed = parseGlossaryFromMd(md);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0]).toEqual({
+        chinese: '萧炎',
+        pinyin: '',
+        vietnamese: 'Tiêu Viêm',
+        type: 'term',
+        note: 'Nhân vật chính'
+      });
+    });
+
+    it('should parse 2-column markdown tables correctly', () => {
+      const md = `
+| 药老 | Dược Lão |
+`;
+      const parsed = parseGlossaryFromMd(md);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0]).toEqual({
+        chinese: '药老',
+        pinyin: '',
+        vietnamese: 'Dược Lão',
+        type: 'term',
+        note: ''
+      });
+    });
+
     it('should parse markdown arrow lists correctly', () => {
       const md = `
 - 熏儿 -> Huân Nhi (Bạn gái nam chính)

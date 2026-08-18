@@ -339,7 +339,7 @@ export const deleteChaptersByProjectFromDB = async (projectId: string): Promise<
         const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
         if (cursor) {
           store.delete(cursor.primaryKey);
-          cursor.continue;
+          cursor.continue();
         } else {
           resolve();
         }
