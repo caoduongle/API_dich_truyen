@@ -5,6 +5,7 @@ import { useNotifications } from '../NotificationSystem';
 import { getChapterFromDB } from '../../services/db';
 import { findFuzzyCandidates, FuzzyCandidate } from '@shared/sinoNormalize';
 import { Modal } from '../ui/Modal';
+import { Button } from '../ui/Button';
 
 export interface ReviewQueuePanelProps {
   reviewQueue: Array<GlossaryItem & { reason: string }>;
@@ -102,8 +103,8 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
       <div className="flex-1 space-y-2">
         {item.needsReview ? (
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-[10px] text-rose-300 bg-rose-950/20 border border-rose-900/40 px-2.5 py-1 rounded-[2px] font-medium" title="Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.">
-              <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+            <div className="flex items-center gap-1.5 text-[10px] text-polish bg-polish/10 border border-polish/40 px-2.5 py-1 rounded-[2px] font-medium" title="Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.">
+              <AlertTriangle className="w-3.5 h-3.5 text-polish shrink-0" />
               <span><strong>AI Cảnh báo:</strong> Không xác định được vị trí chính xác trong văn bản gốc — có thể AI nhận diện sai, vui lòng kiểm tra tay.</span>
             </div>
 
@@ -115,7 +116,7 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
               </div>
             ) : hasSearched ? (
               candidates.length > 0 ? (
-                <div className="text-[10.5px] bg-parchment border border-parchment-2 rounded-[2px] p-2 space-y-1.5 pl-2.5 animate-fadeIn">
+                <div className="text-[10.5px] bg-parchment border border-parchment-2 rounded-[2px] p-2 space-y-1.5 pl-2.5 animate-in fade-in">
                   <div className="font-bold text-text-muted text-[9.5px] uppercase tracking-wider">Cụm từ tương tự tìm thấy trong chương gốc:</div>
                   <div className="flex flex-wrap gap-2 items-center">
                     {candidates.map((cand, idx) => (
@@ -134,7 +135,7 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
                   </div>
                 </div>
               ) : (
-                <div className="text-[10px] text-text-muted bg-parchment border border-parchment-2 rounded-[2px] p-2 flex items-center justify-between pl-2.5 animate-fadeIn">
+                <div className="text-[10px] text-text-muted bg-parchment border border-parchment-2 rounded-[2px] p-2 flex items-center justify-between pl-2.5 animate-in fade-in">
                   <span>Không tìm được gợi ý tự động</span>
                   {chapterText && (
                     <button
@@ -192,14 +193,24 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
         </div>
       </div>
       <div className="flex md:flex-col gap-1.5 shrink-0 justify-end md:justify-center">
-        <button onClick={() => handleAcceptReviewItem(item.id)}
-                className="flex-1 md:w-32 bg-polish hover:bg-[#A03522] text-white rounded-[2px] px-2.5 py-1.5 text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs">
-          <CheckCircle className="w-3.5 h-3.5" /> Xác nhận từ
-        </button>
-        <button onClick={() => handleDiscardReviewItem(item.id)}
-                className="flex-1 md:w-32 bg-ink text-text-muted hover:bg-rose-950/20 hover:text-rose-400 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer">
-          <X className="w-3.5 h-3.5" /> Loại bỏ
-        </button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => handleAcceptReviewItem(item.id)}
+          icon={<CheckCircle className="w-3.5 h-3.5" />}
+          className="flex-1 md:w-32"
+        >
+          Xác nhận từ
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => handleDiscardReviewItem(item.id)}
+          icon={<X className="w-3.5 h-3.5" />}
+          className="flex-1 md:w-32 hover:bg-polish/15 hover:text-polish"
+        >
+          Loại bỏ
+        </Button>
       </div>
 
       {/* Full raw text modal */}
@@ -228,7 +239,7 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
   if (reviewQueue.length === 0) return null;
 
   return (
-    <div id="review-queue-section" className="bg-parchment border border-amber-800/40 rounded-md p-4 md:p-5 space-y-4 shadow-xs animate-fadeIn">
+    <div id="review-queue-section" className="bg-parchment border border-amber-800/40 rounded-md p-4 md:p-5 space-y-4 shadow-xs animate-in fade-in">
       <div className="flex items-center justify-between border-b border-parchment-2 pb-2.5">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />
@@ -241,7 +252,9 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
             </p>
           </div>
         </div>
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={async () => {
             const confirmed = await showConfirm({
               title: 'Loại bỏ danh sách rà soát',
@@ -254,10 +267,10 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
               setReviewQueue([]);
             }
           }}
-          className="bg-ink hover:bg-parchment-2 border border-parchment-2 text-rose-400 text-[10px] font-bold px-2.5 py-1 rounded-[2px] transition-colors cursor-pointer uppercase tracking-wider"
+          className="text-text-muted hover:text-polish uppercase tracking-wider text-[10px]"
         >
           Bỏ qua tất cả
-        </button>
+        </Button>
       </div>
 
       <div className="space-y-4 max-h-[360px] overflow-y-auto pr-1">
@@ -275,3 +288,5 @@ export const ReviewQueuePanel = React.memo(function ReviewQueuePanel({
     </div>
   );
 });
+
+export default ReviewQueuePanel;

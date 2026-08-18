@@ -1,7 +1,9 @@
 import React, { useState, useCallback } from 'react';
-import { Link2, X, Check, Search, Trash2 } from 'lucide-react';
+import { Link2, X, Check, Search, Trash2, BookOpen } from 'lucide-react';
 import { GlossaryItem } from '../../types';
 import { useNotifications } from '../NotificationSystem';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
 
 export interface DuplicateGroupEdit {
   groupId: string;
@@ -44,22 +46,25 @@ const DuplicateGroupCard = React.memo(function DuplicateGroupCard({
           </span>
         </div>
         <div className="flex gap-2">
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => onConfirm(group.groupId)}
-            className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-[2px] px-3 py-1.5 text-[11px] font-bold transition-all cursor-pointer shadow-xs"
+            icon={<Check className="w-3.5 h-3.5" />}
+            className="bg-amber-600 hover:bg-amber-700 text-white"
             title="Lưu tất cả thay đổi và đóng nhóm này"
           >
-            <Check className="w-3.5 h-3.5" />
             Xác nhận &amp; đóng
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => onIgnore(group.groupId)}
-            className="flex items-center gap-1.5 bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main rounded-[2px] px-3 py-1.5 text-[11px] font-bold transition-all cursor-pointer border border-parchment-2"
+            icon={<X className="w-3.5 h-3.5" />}
             title="Giữ cả hai từ, không hỏi lại ở lần quét tiếp theo"
           >
-            <X className="w-3.5 h-3.5" />
             Giữ cả hai
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -88,8 +93,12 @@ const DuplicateGroupCard = React.memo(function DuplicateGroupCard({
                   </button>
 
                   {item.sourceChapter && (
-                    <div className="text-[9px] font-bold text-amber-300 bg-amber-950/20 border border-amber-800/30 rounded-[2px] px-1.5 py-0.5 truncate max-w-[200px]" title={item.sourceChapter}>
-                      📖 {item.sourceChapter}
+                    <div
+                      className="text-[9px] font-bold text-amber-300 bg-amber-950/20 border border-amber-800/30 rounded-[2px] px-1.5 py-0.5 truncate max-w-[200px] flex items-center gap-1"
+                      title={item.sourceChapter}
+                    >
+                      <BookOpen className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span className="truncate">{item.sourceChapter}</span>
                     </div>
                   )}
 
@@ -120,50 +129,54 @@ const DuplicateGroupCard = React.memo(function DuplicateGroupCard({
               )}
             </div>
 
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-              <div>
-                <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Tiếng Trung *</span>
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2.5 min-w-0">
+              <div className="space-y-1">
+                <label className="text-[9px] uppercase font-bold text-text-muted font-serif">Tiếng Trung gốc</label>
                 <input
                   type="text"
                   value={item.chinese}
-                  onChange={(e) => onUpdateItem(group.groupId, item.id, 'chinese', e.target.value)}
-                  className="w-full text-xs font-serif bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-2.5 py-1.5 text-text-main outline-none transition-colors"
+                  onChange={e => onUpdateItem(group.groupId, item.id, 'chinese', e.target.value)}
+                  className="w-full text-xs font-serif font-bold bg-parchment border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main focus:outline-none focus:border-amber-500"
                 />
               </div>
-              <div>
-                <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Dịch Việt *</span>
+
+              <div className="space-y-1">
+                <label className="text-[9px] uppercase font-bold text-text-muted">Phiên âm Pinyin</label>
+                <input
+                  type="text"
+                  value={item.pinyin || ''}
+                  onChange={e => onUpdateItem(group.groupId, item.id, 'pinyin', e.target.value)}
+                  placeholder="Phiên âm..."
+                  className="w-full text-xs bg-parchment border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] uppercase font-bold text-text-muted">Dịch nghĩa tiếng Việt</label>
                 <input
                   type="text"
                   value={item.vietnamese}
-                  onChange={(e) => onUpdateItem(group.groupId, item.id, 'vietnamese', e.target.value)}
-                  className="w-full text-xs font-semibold bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-2.5 py-1.5 text-text-main outline-none transition-colors"
+                  onChange={e => onUpdateItem(group.groupId, item.id, 'vietnamese', e.target.value)}
+                  className="w-full text-xs font-semibold bg-parchment border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main focus:outline-none focus:border-amber-500"
                 />
               </div>
-              <div>
-                <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Phiên âm</span>
+
+              <div className="sm:col-span-3 space-y-1">
+                <label className="text-[9px] uppercase font-bold text-text-muted">Ghi chú ngữ cảnh</label>
                 <input
                   type="text"
-                  value={item.pinyin}
-                  onChange={(e) => onUpdateItem(group.groupId, item.id, 'pinyin', e.target.value)}
-                  className="w-full text-xs bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-2.5 py-1.5 text-text-main outline-none transition-colors"
-                />
-              </div>
-              <div>
-                <span className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Ghi chú</span>
-                <input
-                  type="text"
-                  value={item.note}
-                  placeholder="Ghi chú vai trò..."
-                  onChange={(e) => onUpdateItem(group.groupId, item.id, 'note', e.target.value)}
-                  className="w-full text-xs bg-parchment border border-parchment-2 focus:border-amber-500 rounded-[2px] px-2.5 py-1.5 text-text-main outline-none transition-colors"
+                  value={item.note || ''}
+                  onChange={e => onUpdateItem(group.groupId, item.id, 'note', e.target.value)}
+                  placeholder="Ghi chú nhân vật, danh xưng..."
+                  className="w-full text-xs bg-parchment border border-parchment-2 rounded-[2px] px-2 py-1 text-text-muted focus:text-text-main focus:outline-none focus:border-amber-500"
                 />
               </div>
             </div>
 
             <button
               onClick={() => onDeleteItem(group.groupId, item.id)}
-              className="self-center sm:self-start mt-3 sm:mt-4.5 p-1.5 text-text-muted hover:text-rose-400 hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer shrink-0"
-              title="Xóa từ điển này khỏi dự án"
+              className="self-center sm:self-start mt-3 sm:mt-4.5 p-1.5 text-text-muted hover:text-polish hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer shrink-0"
+              title="Xóa từ này khỏi từ điển"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -200,69 +213,87 @@ export const DuplicatePanel = React.memo(function DuplicatePanel({
   getOriginBadge,
 }: DuplicatePanelProps) {
   const { showConfirm } = useNotifications();
-  if (!showDuplicatePanel || duplicateGroups.length === 0) return null;
+
+  if (!showDuplicatePanel) return null;
 
   return (
-    <div id="duplicate-filter-panel" className="bg-parchment border border-amber-800/40 rounded-md p-4 md:p-5 space-y-4 shadow-xs animate-fadeIn">
-      <div className="flex items-center justify-between border-b border-parchment-2 pb-3">
+    <div id="duplicate-panel-root" className="bg-parchment border border-amber-800/40 rounded-md p-4 space-y-4 shadow-xs">
+      <div className="flex items-center justify-between border-b border-parchment-2 pb-2.5">
         <div className="flex items-center gap-2">
-          <Link2 className="w-5 h-5 text-amber-400 animate-pulse" />
+          <Link2 className="w-5 h-5 text-amber-500" />
           <div>
-            <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
-              Bảng Lọc Từ Trùng Lặp
-              <span className="bg-amber-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full">
-                {duplicateGroups.length} nhóm
-              </span>
-            </h4>
-            <p className="text-[11px] text-text-muted mt-0.5">
-              Mỗi thanh bên dưới chứa các từ có liên quan với nhau (trùng tiếng Trung hoặc tiếng Việt). Chỉnh sửa rồi nhấn <strong>Xác nhận</strong> để lưu và đóng thanh đó.
+            <h3 className="text-sm font-bold font-display uppercase tracking-wider text-text-main">
+              Rà soát &amp; Hợp nhất từ trùng lặp
+            </h3>
+            <p className="text-[11px] text-text-muted">
+              Hệ thống phát hiện các mục từ điển có tiếng Trung hoặc tiếng Việt trùng nhau. Hãy chỉnh sửa và bấm Xác nhận để áp dụng.
             </p>
           </div>
         </div>
-        <button
-          onClick={() => { setShowDuplicatePanel(false); setDuplicateGroups([]); }}
-          className="text-text-muted hover:text-text-main p-1 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer"
-          title="Đóng bảng lọc trùng"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <Badge tone="warning">
+            {duplicateGroups.length} nhóm cần xử lý
+          </Badge>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowDuplicatePanel(false)}
+          >
+            Đóng
+          </Button>
+        </div>
       </div>
 
-      <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
-        {duplicateGroups.map((group) => (
-          <DuplicateGroupCard
-            key={group.groupId}
-            group={group}
-            onUpdateItem={handleUpdateDupItem}
-            onConfirm={handleConfirmDupGroup}
-            onIgnore={handleIgnoreDupGroup}
-            onDeleteItem={handleDeleteDupItem}
-            findLiveContext={findLiveContext}
-            getOriginBadge={getOriginBadge}
-          />
-        ))}
-      </div>
+      {duplicateGroups.length === 0 ? (
+        <div className="text-center py-6 text-xs text-text-muted">
+          ✓ Tuyệt vời! Không phát hiện từ nào bị trùng lặp trong từ điển hiện tại.
+        </div>
+      ) : (
+        <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+          {duplicateGroups.map(group => (
+            <DuplicateGroupCard
+              key={group.groupId}
+              group={group}
+              onUpdateItem={handleUpdateDupItem}
+              onConfirm={handleConfirmDupGroup}
+              onIgnore={handleIgnoreDupGroup}
+              onDeleteItem={handleDeleteDupItem}
+              findLiveContext={findLiveContext}
+              getOriginBadge={getOriginBadge}
+            />
+          ))}
+        </div>
+      )}
 
-      <div className="flex justify-end pt-1 border-t border-parchment-2">
-        <button
-          onClick={async () => {
-            const confirmed = await showConfirm({
-              title: 'Hủy bỏ lọc trùng lặp',
-              message: `Bạn có muốn đóng toàn bộ ${duplicateGroups.length} nhóm trùng lặp mà không lưu thay đổi?`,
-              confirmText: 'Đồng ý đóng',
-              cancelText: 'Hủy',
-              type: 'warning'
-            });
-            if (confirmed) {
-              setShowDuplicatePanel(false);
-              setDuplicateGroups([]);
-            }
-          }}
-          className="text-[11px] text-text-muted hover:text-rose-400 font-semibold px-3 py-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer"
-        >
-          Đóng tất cả không lưu
-        </button>
-      </div>
+      {duplicateGroups.length > 0 && (
+        <div className="flex justify-between items-center pt-2 border-t border-parchment-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async () => {
+              const confirmed = await showConfirm({
+                title: 'Bỏ qua tất cả từ trùng',
+                message: 'Giữ lại tất cả các từ trong danh sách trùng lặp này mà không chỉnh sửa?',
+                confirmText: 'Bỏ qua tất cả',
+                cancelText: 'Hủy',
+                type: 'warning',
+              });
+              if (confirmed) {
+                setDuplicateGroups([]);
+                setShowDuplicatePanel(false);
+              }
+            }}
+            className="text-text-muted hover:text-polish"
+          >
+            Bỏ qua tất cả nhóm
+          </Button>
+          <span className="text-[11px] text-text-muted italic">
+            Mẹo: Bấm "Giữ cả hai" nếu hai từ tuy giống nhau nhưng là 2 nghĩa riêng biệt trong truyện.
+          </span>
+        </div>
+      )}
     </div>
   );
 });
+
+export default DuplicatePanel;

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { BookOpen, X, Edit2, Save, Hash } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
 import { useNotifications } from '../NotificationSystem';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
 
 interface DetailEditPanelProps {
   item: GlossaryItem;
@@ -33,7 +35,7 @@ const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: De
 
   return (
     <div className="bg-ink/50 p-4 rounded-md border border-parchment-2 space-y-3">
-      <h4 className="text-[11px] font-bold text-text-main uppercase tracking-wider flex items-center gap-1">
+      <h4 className="text-[11px] font-bold text-text-main uppercase tracking-wider flex items-center gap-1 font-display">
         <Edit2 className="w-3.5 h-3.5 text-polish" /> Chỉnh sửa nhanh thuật ngữ
       </h4>
 
@@ -59,7 +61,7 @@ const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: De
         <div className="space-y-1">
           <label className="text-[9px] uppercase font-bold text-text-muted">Phân loại</label>
           <select value={type} onChange={(e) => setType(e.target.value as GlossaryType)}
-                  className="w-full text-xs bg-ink border border-parchment-2 text-text-main rounded-[2px] px-2 py-1.5 focus:outline-none focus:border-polish cursor-pointer">
+                  className="w-full text-xs bg-ink border border-parchment-2 text-text-main rounded-[2px] px-2.5 py-1.5 focus:outline-none focus:border-polish cursor-pointer">
             <option value="character" className="bg-parchment text-text-main">Nhân vật</option>
             <option value="location" className="bg-parchment text-text-main">Địa danh</option>
             <option value="term" className="bg-parchment text-text-main">Bí kíp/Vật phẩm</option>
@@ -76,11 +78,16 @@ const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: De
                   placeholder="Xưng hô bá đạo, nàng, phu nhân..." />
       </div>
 
-      <button type="button" onClick={handleSave}
-              className="w-full bg-polish hover:bg-[#A03522] text-white py-2 rounded-[2px] text-xs font-bold shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5">
-        <Save className="w-3.5 h-3.5" />
+      <Button
+        type="button"
+        variant="primary"
+        size="md"
+        onClick={handleSave}
+        icon={<Save className="w-3.5 h-3.5" />}
+        className="w-full"
+      >
         Cập nhật thay đổi từ khóa
-      </button>
+      </Button>
     </div>
   );
 });
@@ -111,18 +118,20 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
   return (
     <div className="lg:col-span-5 bg-parchment border border-parchment-2 rounded-md p-5 shadow-xs space-y-5 animate-in slide-in-from-right duration-300 lg:sticky lg:top-32 max-h-[calc(100vh-10rem)] overflow-y-auto custom-scrollbar">
       <div className="flex items-center justify-between border-b border-parchment-2 pb-3">
-        <div className="space-y-0.5">
-          <span className="text-[10px] bg-ink text-polish border border-parchment-2 px-2.5 py-0.5 rounded-[2px] font-bold uppercase tracking-wider">
+        <div className="space-y-1 min-w-0 pr-2">
+          <Badge tone="polish">
             Bảng chi tiết &amp; Tra cứu ngữ cảnh
-          </span>
+          </Badge>
           <h3 className="text-sm font-bold font-serif text-text-main flex items-center gap-1.5 truncate max-w-[250px]" title={`${selectedItem.chinese} → ${selectedItem.vietnamese}`}>
-            <BookOpen className="w-4 h-4 text-polish" />
-            {selectedItem.chinese} → {selectedItem.vietnamese}
+            <BookOpen className="w-4 h-4 text-polish shrink-0" />
+            <span className="truncate">{selectedItem.chinese} → {selectedItem.vietnamese}</span>
           </h3>
         </div>
         <button
           onClick={() => setSelectedItem(null)}
-          className="p-1 hover:bg-parchment-2 rounded-[2px] text-text-muted hover:text-text-main cursor-pointer transition-colors" title="Đóng bảng chi tiết">
+          className="p-1 hover:bg-parchment-2 rounded-[2px] text-text-muted hover:text-text-main cursor-pointer transition-colors"
+          title="Đóng bảng chi tiết"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -137,14 +146,14 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
         </div>
         <div className="flex justify-between">
           <span className="text-text-muted">Thời điểm khởi tạo:</span>
-          <span className="font-bold text-polish">
+          <span className="font-bold text-polish font-mono">
             {selectedItem.createdAt ? new Date(selectedItem.createdAt).toLocaleString('vi-VN') : 'Trước phiên bản v2.4'}
           </span>
         </div>
       </div>
 
       {selectedItem.sourceChapter && (
-        <div className="bg-ink border border-amber-800/30 rounded-[2px] p-3.5 text-[11px] text-amber-300 space-y-1 animate-fadeIn">
+        <div className="bg-ink border border-amber-800/30 rounded-[2px] p-3.5 text-[11px] text-amber-300 space-y-1 animate-in fade-in">
           <div className="flex items-center gap-1.5 font-bold text-amber-400 uppercase tracking-wider text-[10px]">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
             Nguồn gốc trích lọc tự động từ AI Filter
@@ -234,3 +243,5 @@ export const GlossaryDetailSidebar = React.memo(function GlossaryDetailSidebar({
     </div>
   );
 });
+
+export default GlossaryDetailSidebar;

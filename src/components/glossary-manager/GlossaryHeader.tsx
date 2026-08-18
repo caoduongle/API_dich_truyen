@@ -1,5 +1,7 @@
 import React from 'react';
 import { Sparkles, Download, Link2, UploadCloud, Plus, X } from 'lucide-react';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
 
 export interface GlossaryHeaderProps {
   exportGlossaryToMd: () => void;
@@ -43,81 +45,90 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
+        <Button
           id="btn-export-glossary-md"
+          variant="secondary"
+          size="sm"
           onClick={exportGlossaryToMd}
           disabled={glossaryLength === 0}
-          className="flex items-center gap-1.5 bg-ink hover:bg-parchment-2 border border-parchment-2 text-text-main font-semibold px-3 py-1.5 text-xs rounded-[2px] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          icon={<Download className="w-3.5 h-3.5 text-polish" />}
           title={glossaryLength === 0 ? 'Từ điển đang trống' : `Xuất ${glossaryLength} thuật ngữ ra file .md`}
         >
-          <Download className="w-3.5 h-3.5 text-polish" />
           Xuất từ điển (.md)
-        </button>
+        </Button>
 
-        <button
+        <Button
           id="btn-filter-duplicates"
+          variant={showDuplicatePanel && duplicateGroupsLength > 0 ? 'primary' : 'secondary'}
+          size="sm"
           onClick={handleOpenDuplicatePanel}
           disabled={glossaryLength < 2}
-          className={`flex items-center gap-1.5 font-semibold px-3 py-1.5 text-xs rounded-[2px] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+          icon={<Link2 className="w-3.5 h-3.5" />}
+          className={
             showDuplicatePanel && duplicateGroupsLength > 0
-              ? 'bg-amber-950/30 hover:bg-amber-950/50 text-amber-300 border border-amber-800/50'
-              : 'bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main border border-parchment-2'
-          }`}
+              ? 'bg-amber-950/40 text-amber-300 border-amber-800/50 hover:bg-amber-950/60'
+              : ''
+          }
           title="Quét và lọc các từ bị trùng tiếng Trung hoặc tiếng Việt trong từ điển"
         >
-          <Link2 className="w-3.5 h-3.5" />
           Lọc từ trùng
           {showDuplicatePanel && duplicateGroupsLength > 0 && (
-            <span className="bg-amber-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full ml-0.5">
+            <Badge tone="warning" className="ml-0.5">
               {duplicateGroupsLength}
-            </span>
+            </Badge>
           )}
-        </button>
+        </Button>
 
-        <button
+        <Button
           id="btn-merge-han-variants"
+          variant={showMergeHanPanel && mergeGroupsLength > 0 ? 'primary' : 'secondary'}
+          size="sm"
           onClick={handleOpenMergeHanPanel}
           disabled={glossaryLength < 2}
-          className={`flex items-center gap-1.5 font-semibold px-3 py-1.5 text-xs rounded-[2px] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+          icon={<Sparkles className="w-3.5 h-3.5 text-polish" />}
+          className={
             showMergeHanPanel && mergeGroupsLength > 0
-              ? 'bg-amber-950/30 hover:bg-amber-950/50 text-amber-300 border border-amber-800/50'
-              : 'bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main border border-parchment-2'
-          }`}
+              ? 'bg-polish/20 text-polish border-polish/40 hover:bg-polish/30'
+              : ''
+          }
           title="Quét các từ bị trùng do khác ký tự Phồn/Giản để gộp thành biến thể"
         >
-          <Sparkles className="w-3.5 h-3.5 text-polish" />
           Gộp Phồn/Giản
           {showMergeHanPanel && mergeGroupsLength > 0 && (
-            <span className="bg-polish text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full ml-0.5">
+            <Badge tone="polish" className="ml-0.5">
               {mergeGroupsLength}
-            </span>
+            </Badge>
           )}
-        </button>
+        </Button>
 
-        <button
+        <Button
           id="btn-trigger-import-md"
+          variant="secondary"
+          size="sm"
           onClick={() => {
             setIsImporting(!isImporting);
             setIsAdding(false);
           }}
-          className="flex items-center gap-1.5 bg-ink hover:bg-parchment-2 border border-parchment-2 text-text-main font-semibold px-3 py-1.5 text-xs rounded-[2px] transition-all cursor-pointer"
+          icon={<UploadCloud className="w-3.5 h-3.5 text-polish" />}
         >
-          <UploadCloud className="w-3.5 h-3.5 text-polish" />
           Nhập file cẩm nang (.md)
-        </button>
+        </Button>
 
-        <button
+        <Button
           id="btn-trigger-add-glossary"
+          variant="primary"
+          size="sm"
           onClick={() => {
             setIsAdding(!isAdding);
             setIsImporting(false);
           }}
-          className="flex items-center gap-1.5 bg-polish hover:bg-[#A03522] text-white font-bold px-3.5 py-1.5 text-xs rounded-[2px] transition-all cursor-pointer shadow-xs"
+          icon={isAdding ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
         >
-          {isAdding ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
           {isAdding ? 'Hủy thêm mới' : 'Thêm từ mới'}
-        </button>
+        </Button>
       </div>
     </div>
   );
 });
+
+export default GlossaryHeader;

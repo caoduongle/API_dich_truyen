@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Edit2, Trash2, Check, X } from 'lucide-react';
+import { Edit2, Trash2, Check, X, Search } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
 import { useVirtualList } from '../../hooks/useVirtualList';
 import { useNotifications } from '../NotificationSystem';
 import { SealStamp } from '../SealStamp';
 import { SkeletonBlock } from '../common/Skeleton';
+import { EmptyState } from '../ui/EmptyState';
 
 // Sleek single-row Inline Editor to fit inside virtualized row height
 interface InlineEditRowProps {
@@ -172,7 +173,7 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
                     onDelete(item.id);
                   }
                 }}
-                className="p-1 text-text-muted hover:text-rose-400 hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer" 
+                className="p-1 text-text-muted hover:text-polish hover:bg-polish/10 rounded-[2px] transition-colors cursor-pointer" 
                 title="Xóa từ"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -313,9 +314,12 @@ export const GlossaryTable = React.memo(function GlossaryTable({
           ))}
         </div>
       ) : filteredGlossary.length === 0 ? (
-        <div className="p-6 text-center text-text-muted text-xs italic">
-          Không tìm thấy từ điển nào khớp với tiêu chuẩn tìm kiếm của bạn. Hãy tạo mới ở nút góc trên!
-        </div>
+        <EmptyState
+          icon={<Search className="w-5 h-5 text-text-muted" />}
+          title="Không tìm thấy thuật ngữ phù hợp"
+          description="Không tìm thấy từ điển nào khớp với tiêu chuẩn tìm kiếm của bạn. Hãy thử từ khóa khác hoặc tạo mới từ ở góc trên!"
+          className="m-4"
+        />
       ) : (
         <div className="w-full text-left">
           {/* Header Row */}
@@ -440,3 +444,5 @@ export const GlossaryTable = React.memo(function GlossaryTable({
     </div>
   );
 });
+
+export default GlossaryTable;

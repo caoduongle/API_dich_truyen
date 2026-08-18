@@ -20,6 +20,7 @@ import { DuplicatePanel } from './glossary-manager/DuplicatePanel';
 import { GlossaryTable } from './glossary-manager/GlossaryTable';
 import { GlossaryDetailSidebar } from './glossary-manager/GlossaryDetailSidebar';
 import { MergeHanPanel } from './glossary-manager/MergeHanPanel';
+import { Badge } from './ui/Badge';
 
 interface GlossaryManagerProps {
   projectId: string;
@@ -442,9 +443,9 @@ function GlossaryManager({
 
   const getOriginBadge = useCallback((origin?: string) => {
     switch (origin) {
-      case 'guideline': return <span className="bg-emerald-950/30 text-emerald-400 border border-emerald-900/40 text-[9px] font-bold px-1.5 py-0.5 rounded-[2px]">Cẩm nang</span>;
-      case 'scanned':  return <span className="bg-amber-950/30 text-amber-400 border border-amber-900/45 text-[9px] font-bold px-1.5 py-0.5 rounded-[2px]">AI Quét</span>;
-      default:         return <span className="bg-ink text-text-muted border border-parchment-2 text-[9px] font-bold px-1.5 py-0.5 rounded-[2px]">Thủ công</span>;
+      case 'guideline': return <Badge tone="polish">Cẩm nang</Badge>;
+      case 'scanned':  return <Badge tone="warning">AI Quét</Badge>;
+      default:         return <Badge tone="neutral">Thủ công</Badge>;
     }
   }, []);
 
