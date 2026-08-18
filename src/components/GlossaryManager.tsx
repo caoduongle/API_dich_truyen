@@ -393,7 +393,7 @@ function GlossaryManager({
     const now = new Date().toLocaleString('vi-VN');
     const lines: string[] = [];
 
-    lines.push(`# 📖 Từ Điển Dự Án`);
+    lines.push(`# Từ Điển Dự Án`);
     lines.push('');
     lines.push(`> Xuất tự động lúc: **${now}** `);
     lines.push(`> Tổng số thuật ngữ: **${glossary.length}**`);

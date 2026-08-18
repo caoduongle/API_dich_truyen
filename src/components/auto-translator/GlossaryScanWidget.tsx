@@ -47,7 +47,7 @@ export function GlossaryScanWidget({
     return (
         <div
             className={`fixed bottom-4 left-4 z-50 bg-parchment border border-parchment-2 rounded-md shadow-2xl transition-all duration-300 overflow-hidden flex flex-col ${
-                isMinimized ? 'w-72 sm:w-80 h-12' : 'w-80 sm:w-96 max-h-[400px] h-auto'
+                isMinimized ? 'w-72 sm:w-80 h-12' : 'w-[calc(100vw-2rem)] sm:w-96 max-h-[400px] h-auto'
             }`}
         >
             <div className="bg-ink border-b border-parchment-2 text-text-main px-4 py-2.5 flex items-center justify-between shrink-0 select-none">

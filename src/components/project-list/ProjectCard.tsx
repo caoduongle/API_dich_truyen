@@ -89,7 +89,7 @@ export function ProjectCard({
                 size="icon"
                 aria-label="Xóa truyện"
                 title="Xóa truyện"
-                className="hover:text-rose-400"
+                className="hover:text-polish"
                 onClick={async (e) => {
                   e.stopPropagation();
                   const confirmed = await showConfirm({

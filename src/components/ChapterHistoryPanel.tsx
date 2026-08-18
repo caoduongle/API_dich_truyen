@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
-import { History, BookOpen, Clock, Trash2, RotateCcw } from 'lucide-react';
+import { History, BookOpen, Clock, Trash2, RotateCcw, ArrowRight } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { useVirtualList } from '../hooks/useVirtualList';
 import { UI_CONFIG } from '@shared/constants';
 import { SkeletonBlock } from './common/Skeleton';
+import { Button } from './ui/Button';
+import { Badge } from './ui/Badge';
+import { EmptyState } from './ui/EmptyState';
 
 interface ChapterHistoryPanelProps {
   activeProject: StoryProject;
@@ -93,51 +96,53 @@ export default function ChapterHistoryPanel({
       </div>
 
       {chapters.length === 0 ? (
-        <div className="bg-parchment border border-parchment-2 rounded-md p-8 text-center text-text-muted space-y-4 shadow-xs">
-          <BookOpen className="w-12 h-12 text-text-muted mx-auto" />
-          <p className="text-sm">Chưa có chương nào được lưu trữ riêng biệt tại đây.</p>
-          <button
-            onClick={() => onGoToTranslate()}
-            className="inline-flex items-center gap-1.5 bg-polish hover:bg-[#A03522] text-white text-xs font-bold px-4 py-2.5 rounded-[2px] cursor-pointer shadow-xs transition-colors glow-polish"
-          >
-            Bắt đầu dịch ngay
-          </button>
-        </div>
+        <EmptyState
+          icon={<BookOpen className="w-8 h-8 text-text-muted" />}
+          title="Chưa có chương nào được lưu trữ riêng biệt tại đây"
+          description="Hãy tải sách và bắt đầu dịch chương trong Không gian dịch thuật để theo dõi tiến trình!"
+          action={
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => onGoToTranslate()}
+              icon={<ArrowRight className="w-4 h-4" />}
+            >
+              Mở bàn dịch ngay
+            </Button>
+          }
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          {/* Chapter list */}
-          <div className="bg-parchment border border-parchment-2 rounded-md overflow-hidden p-3 flex flex-col max-h-[500px] shadow-xs">
-            {/* Batch Action Header */}
-            <div className="flex items-center justify-between px-2 py-2 border-b border-parchment-2 mb-2">
-              <label className="flex items-center gap-2 text-xs font-bold text-text-muted cursor-pointer">
+          {/* Chapter list left sidebar */}
+          <div className="space-y-3 bg-parchment border border-parchment-2 rounded-md p-4 shadow-xs">
+            <div className="flex items-center justify-between border-b border-parchment-2 pb-2.5">
+              <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={selectedChapterIds.length === chapters.length && chapters.length > 0}
                   onChange={handleSelectAll}
-                  className="rounded-[2px] border-parchment-2 bg-ink text-polish focus:ring-polish w-3.5 h-3.5"
+                  className="rounded-[2px] accent-polish w-3.5 h-3.5 cursor-pointer"
+                  title="Chọn tất cả các chương"
                 />
-                Chọn tất cả ({chapters.length})
-              </label>
-              
+                <span className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                  Danh Sách Chương ({chapters.length})
+                </span>
+              </div>
               {selectedChapterIds.length > 0 && (
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleResetSelectedToSource}
-                  className="bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold px-2 py-1 rounded-[2px] shadow-xs cursor-pointer transition-all flex items-center gap-1"
+                  icon={<RotateCcw className="w-3 h-3" />}
+                  className="text-[10px] text-amber-300 border-amber-800/40 hover:bg-amber-950/20 py-0.5 px-2"
                 >
-                  <RotateCcw className="w-3 h-3" />
                   Reset ({selectedChapterIds.length})
-                </button>
+                </Button>
               )}
             </div>
 
-            <span className="text-[10px] font-bold text-text-muted px-2 py-1 block tracking-wider uppercase">
-              Chương đã biên soạn
-            </span>
-            
-            {/* Virtualized list scroll container */}
-            <div 
-              className="overflow-y-auto flex-1 pr-1 custom-scrollbar"
-              style={{ height: '400px' }}
+            <div
+              className="overflow-y-auto max-h-[500px]"
               onScroll={onScroll}
             >
               <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
@@ -145,75 +150,67 @@ export default function ChapterHistoryPanel({
                   const isSelected = selectedHistoryChapterId === chap.id;
                   const isChecked = selectedChapterIds.includes(chap.id);
                   return (
-                    <div key={chap.id} style={style} className="py-[3px]">
+                    <div
+                      key={chap.id}
+                      style={style}
+                      className="px-0.5 py-1"
+                    >
                       <div
                         onClick={async () => {
                           setSelectedHistoryChapterId(chap.id);
-                          setSelectedChapterDetails(null);
                           const fullChap = await getChapterFromDB(chap.id);
                           setSelectedChapterDetails(fullChap);
-                          if (fullChap) {
-                            if (!fullChap.polishedTranslation && !fullChap.rawTranslation) {
-                              setHistoryViewTab('source');
-                            } else if (!fullChap.polishedTranslation) {
-                              setHistoryViewTab('raw');
-                            } else {
-                              setHistoryViewTab('polished');
-                            }
+                          if (fullChap?.polishedTranslation) {
+                            setHistoryViewTab('polished');
+                          } else if (fullChap?.rawTranslation) {
+                            setHistoryViewTab('raw');
+                          } else {
+                            setHistoryViewTab('source');
                           }
                         }}
-                        className={`p-3 rounded-[2px] transition-all cursor-pointer relative group flex justify-between items-start border h-full ${
+                        className={`group relative p-3 rounded-[2px] border transition-all cursor-pointer flex flex-col gap-1.5 ${
                           isSelected
                             ? 'bg-parchment-2 border-polish shadow-xs'
-                            : 'bg-ink border-parchment-2 hover:bg-parchment-2'
+                            : 'bg-ink/60 border-parchment-2 hover:bg-parchment-2/50'
                         }`}
                       >
-                        <div className="flex items-start gap-2.5 flex-1 pr-6">
+                        <div className="flex items-start gap-2 pr-6">
                           <input
                             type="checkbox"
                             checked={isChecked}
-                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
-                              setSelectedChapterIds(prev => 
-                                e.target.checked 
-                                  ? [...prev, chap.id] 
-                                  : prev.filter(id => id !== chap.id)
-                              );
+                              e.stopPropagation();
+                              if (e.target.checked) {
+                                setSelectedChapterIds(prev => [...prev, chap.id]);
+                              } else {
+                                setSelectedChapterIds(prev => prev.filter(id => id !== chap.id));
+                              }
                             }}
-                            className="mt-0.5 rounded-[2px] border-parchment-2 bg-ink text-polish focus:ring-polish w-3.5 h-3.5 cursor-pointer"
+                            className="mt-0.5 rounded-[2px] accent-polish w-3 h-3 cursor-pointer shrink-0"
                           />
-                          <div className="flex-1">
-                            <h4 className={`text-xs font-bold ${isSelected ? 'text-polish' : 'text-text-main'}`}>
-                              {chap.title}
-                            </h4>
-                            <div className="flex items-center gap-1.5 text-[10px] text-text-muted mt-1 flex-wrap">
-                              <Clock className="w-3 h-3 text-text-muted" />
-                              <span>
-                                {new Date(chap.createdAt).toLocaleDateString('vi-VN')}{' '}
-                                {new Date(chap.createdAt).toLocaleTimeString('vi-VN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                              {chap.status === 'completed' && (
-                                <span className="bg-polish/20 text-polish border border-polish/30 text-[9px] font-bold px-1.5 py-0.5 rounded-[2px]">
-                                  ✓ Hoàn tất
-                                </span>
-                              )}
-                              {chap.status === 'in_progress' && (
-                                <span className="bg-draft/20 text-draft border border-draft/30 text-[9px] font-bold px-1.5 py-0.5 rounded-[2px]">
-                                  📝 Bản thô
-                                </span>
-                              )}
-                              {chap.status === 'not_started' && (
-                                <span className="bg-ink text-text-muted border border-parchment-2 text-[9px] font-bold px-1.5 py-0.5 rounded-[2px]">
-                                  🈷 Bản gốc
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                          <h4 className="text-xs font-bold text-text-main line-clamp-1 flex-1 font-serif">
+                            {chap.title}
+                          </h4>
                         </div>
+
+                        <div className="flex items-center justify-between text-[10px] text-text-muted pl-5">
+                          <span className="flex items-center gap-1 font-sans">
+                            <Clock className="w-3 h-3 text-text-muted" />
+                            {new Date(chap.createdAt).toLocaleDateString('vi-VN')}
+                          </span>
+                          <span className={`px-1.5 py-0.5 rounded-[2px] font-bold text-[9px] border ${
+                            chap.status === 'completed'
+                              ? 'bg-polish/15 text-polish border-polish/30'
+                              : chap.status === 'in_progress'
+                              ? 'bg-draft/20 text-draft border-draft/30'
+                              : 'bg-ink text-text-muted border-parchment-2'
+                          }`}>
+                            {chap.status === 'completed' ? 'Đã biên tập' : chap.status === 'in_progress' ? 'Đang dịch' : 'Chưa dịch'}
+                          </span>
+                        </div>
+
                         <button
+                          type="button"
                           onClick={async (e) => {
                             e.stopPropagation();
                             const confirmed = await showConfirm({
@@ -229,7 +226,7 @@ export default function ChapterHistoryPanel({
                               setSelectedChapterIds(prev => prev.filter(id => id !== chap.id));
                             }
                           }}
-                          className="text-text-muted hover:text-rose-400 p-1 rounded-[2px] opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-2 cursor-pointer"
+                          className="text-text-muted hover:text-polish p-1 rounded-[2px] opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-2 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -276,15 +273,19 @@ export default function ChapterHistoryPanel({
                       </div>
                       <div className="flex gap-2">
                         {chap.status !== 'not_started' && (
-                          <button
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => handleResetSingleToSource(chap.id)}
-                            className="text-xs font-semibold border border-amber-800/40 hover:bg-amber-950/20 text-amber-300 px-3 py-1.5 rounded-[2px] cursor-pointer transition-colors flex items-center gap-1"
+                            icon={<RotateCcw className="w-3.5 h-3.5" />}
+                            className="text-amber-300 border-amber-800/40 hover:bg-amber-950/20"
                           >
-                            <RotateCcw className="w-3.5 h-3.5" />
                             Reset về bản gốc
-                          </button>
+                          </Button>
                         )}
-                        <button
+                        <Button
+                          variant="primary"
+                          size="sm"
                           onClick={async () => {
                             const fullChap = await getChapterFromDB(chap.id);
                             if (fullChap) {
@@ -293,10 +294,9 @@ export default function ChapterHistoryPanel({
                               showToast({ message: "Không tìm thấy dữ liệu chương!", type: 'error' });
                             }
                           }}
-                          className="text-xs font-bold bg-polish hover:bg-[#A03522] text-white px-3 py-1.5 rounded-[2px] cursor-pointer transition-colors shadow-xs"
                         >
                           Mở chỉnh sửa lại
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
@@ -304,9 +304,9 @@ export default function ChapterHistoryPanel({
                     <div className="flex gap-1 bg-ink rounded-[2px] p-1 w-fit border border-parchment-2">
                       {(
                         [
-                          { key: 'source', label: '🈷 Bản gốc', available: !!chap.sourceText },
-                          { key: 'raw', label: '📝 Dịch thô', available: !!chap.rawTranslation },
-                          { key: 'polished', label: '✨ Dịch biên tập', available: !!chap.polishedTranslation },
+                          { key: 'source', label: 'Bản gốc', available: !!chap.sourceText },
+                          { key: 'raw', label: 'Dịch thô', available: !!chap.rawTranslation },
+                          { key: 'polished', label: 'Dịch biên tập', available: !!chap.polishedTranslation },
                         ] as const
                       ).map(({ key, label, available }) => (
                         <button
