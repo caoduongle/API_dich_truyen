@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService";
-import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING } from "../../utils/text";
+import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody } from "../../utils/text";
 import { translationChunkCache } from "../../utils/chunkCache";
 import { checkLeftoverGlossary } from "../glossaryController";
 import { isHanEquivalent } from "@shared/sinoNormalize";
@@ -92,14 +92,15 @@ export async function callPolishDirect(
       "Bạn là một dịch giả kiêm nhà biên tập văn học và tác giả tiểu thuyết dịch thuật hàng đầu Việt Nam.\n" +
       "Nhiệm vụ của bạn là thực hiện Giai đoạn 2 (Literary Polishing): Chuốt mịn, nhuận sắc, nâng cao chất lượng văn phong từ bản dịch thô được cung cấp, đối chiếu chặt chẽ với văn bản tiếng Trung gốc.\n\n" +
       "QUY TẮC BẮT BUỘC ĐỂ ĐẠT CHẤT LƯỢNG CAO NHẤT:\n" +
-      "1. Tuyệt đối TÔN TRỌNG và ĐỒNG BỘ 100% các từ khóa, thực thể, tên nhân vật, địa danh, tuyệt kỹ trong bảng Từ điển (Glossary) được cung cấp. BẮT BUỘC dùng đúng tên dịch tiếng Việt đã chỉ định.\n" +
-      "2. Khắc phục triệt để giọng văn 'dịch máy gượng gạo' (hạn chế lạm dụng từ 'của', các cấu trúc bị động 'bị/được' vô nghĩa, lặp từ nhiều lần). Sử dụng câu từ tiếng Việt linh hoạt, biến hoá, biểu cảm nhưng tự nhiên, giàu hình ảnh.\n" +
-      "3. Chuyển tải chính xác âm hưởng, cảm xúc, không khí của cảnh (chiến đấu hào hùng, bi tráng; đối thoại sâu sắc, sắc sảo; miêu tả tâm trạng tinh tế).\n" +
-      "4. TUYỆT ĐỐI KHÔNG được phép tự ý tóm tắt, cắt bỏ hoặc thêm thắt các sự kiện, tình tiết không có trong bản gốc tiếng Trung. Mỗi câu, mỗi ý của nguyên tác đều phải được thể hiện trọn vẹn.\n" +
-      `5. Phong cách phù hợp thể loại: ${getGenreStyleGuide(genre)}\n` +
-      "6. Khi thấy các tên nhân vật hoặc thuật ngữ được bọc trong ngoặc vuông [Tên_Việt] ở văn bản Trung, hãy dùng đúng tên đó và BỎ NGOẶC VUÔNG trong bản dịch cuối (ví dụ: [Philomena] → Philomena, KHÔNG viết '[Philomena]').\n" +
-      (description && description.trim() ? `7. BẮT BUỘC TUÂN THỦ nguyên tắc xưng hô và phong cách dịch đặc biệt của truyện: ${description.trim()}\n` : "") +
-      (additionalInstructions && additionalInstructions.trim() ? `8. LƯU Ý BỔ SUNG TỪ NGƯỜI DÙNG: ${additionalInstructions.trim()}` : "");
+      "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN (PARAGRAPH BREAKS): Mỗi đoạn văn của nguyên tác tiếng Trung PHẢI tương ứng với một đoạn văn trong bản dịch tiếng Việt, ngăn cách nhau bằng dòng trống (\\n\\n). TUYỆT ĐỐI KHÔNG nén các đoạn văn lại thành một khối văn bản duy nhất. Tiêu đề chương PHẢI đứng riêng biệt trên dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
+      "2. Tuyệt đối TÔN TRỌNG và ĐỒNG BỘ 100% các từ khóa, thực thể, tên nhân vật, địa danh, tuyệt kỹ trong bảng Từ điển (Glossary) được cung cấp. BẮT BUỘC dùng đúng tên dịch tiếng Việt đã chỉ định.\n" +
+      "3. Khắc phục triệt để giọng văn 'dịch máy gượng gạo' (hạn chế lạm dụng từ 'của', các cấu trúc bị động 'bị/được' vô nghĩa, lặp từ nhiều lần). Sử dụng câu từ tiếng Việt linh hoạt, biến hoá, biểu cảm nhưng tự nhiên, giàu hình ảnh.\n" +
+      "4. Chuyển tải chính xác âm hưởng, cảm xúc, không khí của cảnh (chiến đấu hào hùng, bi tráng; đối thoại sâu sắc, sắc sảo; miêu tả tâm trạng tinh tế).\n" +
+      "5. TUYỆT ĐỐI KHÔNG được phép tự ý tóm tắt, cắt bỏ hoặc thêm thắt các sự kiện, tình tiết không có trong bản gốc tiếng Trung. Mỗi câu, mỗi ý của nguyên tác đều phải được thể hiện trọn vẹn.\n" +
+      `6. Phong cách phù hợp thể loại: ${getGenreStyleGuide(genre)}\n` +
+      "7. Khi thấy các tên nhân vật hoặc thuật ngữ được bọc trong ngoặc vuông [Tên_Việt] ở văn bản Trung, hãy dùng đúng tên đó và BỎ NGOẶC VUÔNG trong bản dịch cuối (ví dụ: [Philomena] → Philomena, KHÔNG viết '[Philomena]').\n" +
+      (description && description.trim() ? `8. BẮT BUỘC TUÂN THỦ nguyên tắc xưng hô và phong cách dịch đặc biệt của truyện: ${description.trim()}\n` : "") +
+      (additionalInstructions && additionalInstructions.trim() ? `9. LƯU Ý BỔ SUNG TỪ NGƯỜI DÙNG: ${additionalInstructions.trim()}` : "");
 
   let prompt = `--- THÔNG TIN TRUYỆN ---
 Thể loại: ${genre || "Tiên Hiệp"}
@@ -123,7 +124,7 @@ ${rawTranslation}`;
     properties: {
       polishedTranslation: {
         type: Type.STRING,
-        description: "Toàn bộ nội dung bản dịch tiếng Việt sau khi đã được chuốt mịn văn phong văn học đỉnh cao, giữ đúng cấu trúc đoạn văn, lời thoại tự nhiên, không bỏ sót bất kỳ chi tiết nào."
+        description: "Toàn bộ nội dung bản dịch tiếng Việt sau khi đã được chuốt mịn văn phong văn học đỉnh cao, giữ nguyên 100% các đoạn văn ngăn cách bằng dòng trống (\\n\\n), tiêu đề chương ở dòng riêng biệt, lời thoại tự nhiên, không bỏ sót bất kỳ chi tiết nào."
       }
     },
     required: ["polishedTranslation"]
@@ -165,6 +166,9 @@ ${rawTranslation}`;
       }
     }
   }
+
+  // Tự động phân tách tiêu đề và thân chương nếu bị dính dòng
+  finalPolishedTranslation = separateChapterTitleAndBody(finalPolishedTranslation);
 
   return {
     polishedTranslation: finalPolishedTranslation || "",

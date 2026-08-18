@@ -159,7 +159,7 @@ describe('Translation Controller Suite', () => {
       await polishTranslation(req, res);
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          polishedTranslation: 'Chương 1: Phế sài trỗi dậy. Gió đêm vi vu thổi qua rèm cửa.',
+          polishedTranslation: 'Chương 1: Phế sài trỗi dậy\n\nGió đêm vi vu thổi qua rèm cửa.',
         })
       );
     });

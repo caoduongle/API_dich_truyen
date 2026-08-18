@@ -85,3 +85,31 @@ export function cleanChineseText(text: string): string {
 
   return finalLines.join("\n").trim();
 }
+
+/**
+ * Tự động phát hiện và tách dòng nếu tiêu đề chương bị dính liền với câu văn mở đầu
+ */
+export function separateChapterTitleAndBody(text: string): string {
+  if (!text || typeof text !== "string") return "";
+  const trimmed = text.trim();
+  const lines = trimmed.split('\n');
+  if (lines.length === 0) return trimmed;
+
+  const firstLine = lines[0].trim();
+
+  // Dò tìm mẫu tiêu đề dính câu mở đầu:
+  // "Chương 1: Đài Phát Thanh Kinh Hoàng. Đôi môi đỏ thắm..."
+  // "Chương 1. Đôi môi đỏ thắm..."
+  // "Chương 1: Đài Phát Thanh Kinh Hoàng! Đôi môi đỏ thắm..."
+  const titleSeparationRegex = /^((?:Chương|Chapter|Hồi|Quyển|Tập|Thứ\s+\d+\s*chương|第\s*[\d零一二三四五六七八九十百千万]+\s*[章节回卷])\s*(?:\d+|[IVXLCDM]+|[a-zA-ZÀ-ỹ0-9零一二三四五六七八九十百千万]+)?\s*(?:[:.\-—]\s*[^.!?\n]+)?)([.?!\-])\s+([A-ZÀ-Ỹ0-9"“'‘\p{L}].*)$/u;
+
+  const match = firstLine.match(titleSeparationRegex);
+  if (match) {
+    const detectedTitle = match[1].trim();
+    const firstSentence = match[3].trim();
+    const remainingLines = lines.slice(1);
+    return [detectedTitle, "", firstSentence, ...remainingLines].join('\n');
+  }
+
+  return trimmed;
+}

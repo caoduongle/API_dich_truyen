@@ -2,6 +2,7 @@ import { Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryItem } from '../
 import { getChapterFromDB, saveChapterToDB } from './db';
 import { isHanEquivalent } from '@shared/sinoNormalize';
 import { apiFetch } from '../utils/apiClient';
+import { separateChapterTitleAndBody } from '../utils/textCleaner';
 
 export interface SingleChapterResult {
   success: boolean;
@@ -261,15 +262,18 @@ export async function executeSingleChapterTranslation({
   }
 
   // ── Lưu kết quả ──
+  const cleanRaw = separateChapterTitleAndBody(firstDraft);
+  const cleanPolished = currentTextToPolish ? separateChapterTitleAndBody(currentTextToPolish) : '';
+
   const paragraphs = chapter.sourceText.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 0);
-  const translatedLines = currentTextToPolish
-    ? currentTextToPolish.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 0)
-    : firstDraft.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const translatedLines = cleanPolished
+    ? cleanPolished.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 0)
+    : cleanRaw.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 0);
 
   const updatedFullChapter: Chapter = {
     ...chapter,
-    rawTranslation: firstDraft,
-    polishedTranslation: currentTextToPolish,
+    rawTranslation: cleanRaw,
+    polishedTranslation: cleanPolished,
     paragraphs,
     translatedLines,
     status: 'completed',
