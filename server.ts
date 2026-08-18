@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import helmet from "helmet";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import apiRouter from "./server/routes/api";
@@ -10,6 +11,7 @@ import { SERVER_CONFIG } from "@shared/constants";
 dotenv.config();
 
 const app = express();
+app.use(helmet());
 // Tin tưởng proxy phía trước (Cloud Run / load balancer) để req.ip lấy đúng IP client thật từ X-Forwarded-For.
 app.set('trust proxy', process.env.TRUST_PROXY_HOPS ? Number(process.env.TRUST_PROXY_HOPS) : 1);
 
