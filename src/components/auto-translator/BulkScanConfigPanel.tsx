@@ -1,5 +1,6 @@
 import React from 'react';
 import { Database, ListOrdered, Square } from 'lucide-react';
+import { Button } from '../ui/Button';
 
 export interface BulkScanConfigPanelProps {
   scanRangeEnabled: boolean;
@@ -32,15 +33,19 @@ export const BulkScanConfigPanel = React.memo(function BulkScanConfigPanel({
 }: BulkScanConfigPanelProps) {
   return (
     <div id="bulk-glossary-extract-card" className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs">
-      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-2">
+      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-2 font-display">
         <Database className="w-4 h-4 text-amber-500" /> Rà soát &amp; Lọc thuật ngữ sỉ
       </h3>
-      <p className="text-[11px] text-text-muted">Quét sỉ toàn tập truyện để tự động bóc tách, chuẩn hóa danh xưng danh riêng phương Tây/Trung Hoa cổ phong đưa thẳng vào bộ quy tắc.</p>
+      <p className="text-[11px] text-text-muted">
+        Quét sỉ toàn tập truyện để tự động bóc tách, chuẩn hóa danh xưng danh riêng phương Tây/Trung Hoa cổ phong đưa thẳng vào bộ quy tắc.
+      </p>
 
       {/* Phạm vi chương rà soát */}
       <div className="space-y-2 pt-1">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-text-main flex items-center gap-1.5"><ListOrdered className="w-3.5 h-3.5 text-amber-400" /> Giới hạn phạm vi chương</span>
+          <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
+            <ListOrdered className="w-3.5 h-3.5 text-amber-400" /> Giới hạn phạm vi chương
+          </span>
           <button
             type="button"
             disabled={isScanningGlossary}
@@ -105,9 +110,18 @@ export const BulkScanConfigPanel = React.memo(function BulkScanConfigPanel({
         </div>
       </div>
 
-      <button type="button" onClick={() => handleAutoExtractGlossary()} className={`w-full py-2.5 rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer ${isScanningGlossary ? 'bg-rose-600 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'}`}>
-        {isScanningGlossary ? <><Square className="w-3.5 h-3.5 fill-white" /> Dừng quét lọc ({scanningProgress}%)</> : <><Database className="w-3.5 h-3.5 fill-white" /> Kích hoạt quét lọc sỉ mới</>}
-      </button>
+      <Button
+        type="button"
+        variant="primary"
+        size="md"
+        onClick={() => handleAutoExtractGlossary()}
+        icon={isScanningGlossary ? <Square className="w-3.5 h-3.5 fill-white" /> : <Database className="w-3.5 h-3.5 fill-white" />}
+        className={`w-full py-2.5 ${isScanningGlossary ? 'bg-polish hover:bg-[#A03522]' : 'bg-amber-600 hover:bg-amber-700'}`}
+      >
+        {isScanningGlossary ? `Dừng quét lọc (${scanningProgress}%)` : 'Kích hoạt quét lọc sỉ mới'}
+      </Button>
     </div>
   );
 });
+
+export default BulkScanConfigPanel;

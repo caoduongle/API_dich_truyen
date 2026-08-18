@@ -1,6 +1,7 @@
 import React from 'react';
 import { Maximize2, Minimize2, X, RefreshCw, Sparkles, Square, Check } from 'lucide-react';
 import { StoryProject } from '../../types';
+import { Button } from '../ui/Button';
 
 interface GlossaryScanWidgetProps {
     isVisible: boolean;
@@ -77,7 +78,7 @@ export function GlossaryScanWidget({
                     <button
                         type="button"
                         onClick={() => setIsVisible(false)}
-                        className="p-1 hover:bg-parchment-2 rounded-[2px] transition-colors text-text-muted hover:text-rose-400 cursor-pointer"
+                        className="p-1 hover:bg-parchment-2 rounded-[2px] transition-colors text-text-muted hover:text-polish cursor-pointer"
                     >
                         <X className="w-3.5 h-3.5" />
                     </button>
@@ -127,45 +128,47 @@ export function GlossaryScanWidget({
                     )}
 
                     {failedIds && failedIds.length > 0 && (
-                        <div className="bg-rose-950/20 border border-rose-900/40 p-3 rounded-[2px] space-y-2 animate-in slide-in-from-top-2 duration-200">
+                        <div className="bg-polish/10 border border-polish/40 p-3 rounded-[2px] space-y-2 animate-in slide-in-from-top-2 duration-200">
                             <div className="flex items-center gap-2">
                                 <span className="flex h-1.5 w-1.5 relative shrink-0">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-polish opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-polish"></span>
                                 </span>
-                                <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">
+                                <span className="text-[10px] font-bold text-polish uppercase tracking-wider">
                                     Phát hiện {failedIds.length} chương lỗi khi quét
                                 </span>
                             </div>
-                            <p className="text-[10px] text-rose-300 font-normal leading-normal max-h-16 overflow-y-auto bg-ink p-2 rounded-[2px] border border-rose-900/30 custom-scrollbar">
+                            <p className="text-[10px] text-text-main font-normal leading-normal max-h-16 overflow-y-auto bg-ink p-2 rounded-[2px] border border-parchment-2 custom-scrollbar">
                                 {failedIds.map((fid) => {
                                     const chap = activeProject.chapters.find(c => c.id === fid);
                                     return chap ? chap.title : fid;
                                 }).join(', ')}
                             </p>
-                            <button
+                            <Button
                                 type="button"
+                                variant="primary"
+                                size="sm"
                                 onClick={onRetryFailedGlossaryChapters}
                                 disabled={isScanning}
-                                className={`w-full py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-[2px] text-[11px] font-bold shadow-xs flex items-center justify-center gap-1 transition-all ${
-                                    isScanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                                }`}
+                                className="w-full py-1 text-[11px]"
                             >
                                 Quét lại các chương lỗi này
-                            </button>
+                            </Button>
                         </div>
                     )}
 
                     <div className="pt-2 border-t border-parchment-2">
                         {isScanning ? (
-                            <button
+                            <Button
                                 type="button"
+                                variant="primary"
+                                size="sm"
                                 onClick={onToggleScan}
-                                className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer focus:outline-none"
+                                icon={<Square className="w-3.5 h-3.5 fill-white" />}
+                                className="w-full py-2 bg-polish hover:bg-[#A03522] text-white"
                             >
-                                <Square className="w-3.5 h-3.5 fill-white" />
                                 Dừng quét ngay
-                            </button>
+                            </Button>
                         ) : (
                             <div className="text-center text-xs font-bold text-polish flex items-center justify-center gap-1.5 py-1">
                                 <Check className="w-4 h-4 text-polish" />
@@ -188,9 +191,9 @@ export function GlossaryScanWidget({
                         {isScanning && (
                             <button
                                 onClick={onToggleScan}
-                                className="p-1 text-rose-400 hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
+                                className="p-1 text-polish hover:bg-polish/10 rounded-[2px] transition-colors cursor-pointer"
                             >
-                                <Square className="w-3.5 h-3.5 fill-rose-500" />
+                                <Square className="w-3.5 h-3.5 fill-polish" />
                             </button>
                         )}
                         <button
@@ -205,3 +208,5 @@ export function GlossaryScanWidget({
         </div>
     );
 }
+
+export default GlossaryScanWidget;

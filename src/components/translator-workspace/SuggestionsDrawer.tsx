@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sparkles } from 'lucide-react';
 import { GlossaryItem } from '../../types';
+import { Button } from '../ui/Button';
 
 export interface SuggestionsDrawerProps {
   suggestions: Omit<GlossaryItem, 'id'>[];
@@ -23,7 +24,7 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
     <div id="entities-analysis-drawer" className="bg-parchment border border-parchment-2 text-text-main rounded-md p-4 space-y-3 shadow-xs animate-slideUp">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h4 className="text-xs font-bold text-polish uppercase tracking-wider flex items-center gap-1.5">
+          <h4 className="text-xs font-bold text-polish uppercase tracking-wider flex items-center gap-1.5 font-display">
             <Sparkles className="w-4 h-4 text-polish" />
             Kết Quả Gợi Ý Từ Điển Âm Hán Việt &amp; Nhân Vật
           </h4>
@@ -38,14 +39,14 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
               suggestions.forEach((_, idx) => { checkAll[idx] = true; });
               setSelectedSuggestions(checkAll);
             }}
-            className="text-[10px] font-bold text-text-muted hover:text-text-main cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-text-main"
+            className="text-[10px] font-bold text-text-muted hover:text-text-main cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-text-main transition-colors"
           >
             Chọn tất cả
           </button>
           <span className="text-text-muted">|</span>
           <button
             onClick={() => setSelectedSuggestions({})}
-            className="text-[10px] font-bold text-text-muted hover:text-text-main cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-text-main"
+            className="text-[10px] font-bold text-text-muted hover:text-text-main cursor-pointer uppercase tracking-wider border-b border-transparent hover:border-text-main transition-colors"
           >
             Bỏ chọn
           </button>
@@ -87,14 +88,17 @@ export const SuggestionsDrawer = React.memo(function SuggestionsDrawer({
       </div>
 
       <div className="flex justify-end pt-1">
-        <button
+        <Button
           id="btn-import-suggestions"
+          variant="primary"
+          size="sm"
           onClick={handleImportSuggestions}
-          className="bg-polish hover:bg-[#A03522] text-white font-bold text-xs px-3 py-1.5 rounded-[2px] transition-colors cursor-pointer shadow-xs"
         >
           Lưu các từ đã chọn vào Từ Điển Dự Án
-        </button>
+        </Button>
       </div>
     </div>
   );
 });
+
+export default SuggestionsDrawer;

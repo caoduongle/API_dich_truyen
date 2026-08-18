@@ -1,5 +1,6 @@
 import React from 'react';
-import { BookOpen, ListOrdered, Check, Eye } from 'lucide-react';
+import { BookOpen, ListOrdered, Check, Eye, RefreshCw } from 'lucide-react';
+import { Button } from '../ui/Button';
 
 export interface ApplyGlossaryPanelProps {
   applyGlossaryRangeEnabled: boolean;
@@ -36,7 +37,7 @@ export const ApplyGlossaryPanel = React.memo(function ApplyGlossaryPanel({
 }: ApplyGlossaryPanelProps) {
   return (
     <div id="apply-glossary-card" className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs">
-      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-2">
+      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-2 font-display">
         <BookOpen className="w-4 h-4 text-amber-500" /> Áp dụng từ điển vào raw
       </h3>
       <p className="text-[11px] text-text-muted">Thay thế trước các từ tiếng Trung trong <strong>văn bản gốc</strong> của chương được chọn bằng bản dịch từ từ điển. Khi dịch tự động sẽ ưu tiên dùng văn bản đã xử lý này.</p>
@@ -92,65 +93,48 @@ export const ApplyGlossaryPanel = React.memo(function ApplyGlossaryPanel({
             <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>Đã thay <strong>{applyGlossaryResult.replaced}</strong> thuật ngữ trên <strong>{applyGlossaryResult.chapters}</strong> chương.</span>
           </div>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={onViewDetails}
-            className="flex items-center gap-1 text-amber-300 hover:text-amber-200 font-bold shrink-0 border border-amber-800/40 bg-parchment px-2 py-0.5 rounded-[2px] cursor-pointer transition-colors"
+            icon={<Eye className="w-3 h-3" />}
+            className="text-amber-300 border-amber-800/40 hover:text-amber-200"
           >
-            <Eye className="w-3 h-3" /> Xem chi tiết
-          </button>
+            Xem chi tiết
+          </Button>
         </div>
       )}
 
       {/* Nút xem chi tiết khi chưa có kết quả mới nhưng đã có chương được xử lý */}
       {!applyGlossaryResult && hasProcessedChapters && (
-        <button
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           onClick={onViewDetails}
-          className="w-full flex items-center justify-center gap-1.5 border border-amber-800/40 text-amber-300 hover:bg-parchment-2 font-bold px-3 py-1.5 rounded-[2px] text-xs cursor-pointer transition-colors"
+          icon={<Eye className="w-3.5 h-3.5 text-amber-400" />}
+          className="w-full text-amber-300 border-amber-800/40"
         >
-          <Eye className="w-3.5 h-3.5" /> Xem chi tiết các chương đã xử lý
-        </button>
+          Xem chi tiết các chương đã xử lý
+        </Button>
       )}
 
-      <button
+      <Button
         type="button"
+        variant="primary"
+        size="md"
         disabled={isApplyingGlossary || isProcessing || glossaryLength === 0 || totalChapters === 0}
         onClick={handleApplyGlossaryToAllChapters}
-        className={`w-full py-2.5 rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-          isApplyingGlossary
-            ? 'bg-amber-700 text-white cursor-wait'
-            : 'bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-40 disabled:cursor-not-allowed'
-        }`}
+        icon={isApplyingGlossary ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <BookOpen className="w-3.5 h-3.5" />}
+        className="w-full bg-amber-600 hover:bg-amber-700 text-white"
       >
-        {isApplyingGlossary ? (
-          <><RefreshCwIcon className="w-3.5 h-3.5 animate-spin" /> Đang xử lý chương...</>
-        ) : (
-          <><BookOpen className="w-3.5 h-3.5" /> Áp dụng từ điển ({glossaryLength} từ / {applyGlossaryRangeEnabled ? `${applyGlossaryRangeEnd - applyGlossaryRangeStart + 1}` : totalChapters} chương)</>
-        )}
-      </button>
+        {isApplyingGlossary
+          ? 'Đang xử lý chương...'
+          : `Áp dụng từ điển (${glossaryLength} từ / ${applyGlossaryRangeEnabled ? `${applyGlossaryRangeEnd - applyGlossaryRangeStart + 1}` : totalChapters} chương)`}
+      </Button>
     </div>
   );
 });
 
-function RefreshCwIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-      <path d="M3 21v-5h5" />
-    </svg>
-  );
-}
+export default ApplyGlossaryPanel;

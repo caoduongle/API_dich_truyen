@@ -1,5 +1,6 @@
 import React from 'react';
-import { Sliders, ListOrdered, Layers, Play, Pause, Square, Download } from 'lucide-react';
+import { Sliders, ListOrdered, Layers, Play, Pause, Square, Download, RefreshCw, Zap, AlertTriangle } from 'lucide-react';
+import { Button } from '../ui/Button';
 
 export interface TranslationConfigPanelProps {
   polishCycles: number;
@@ -67,7 +68,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
 
   return (
     <div className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs animate-fadeIn">
-      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-3">
+      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-3 font-display">
         <Sliders className="w-4 h-4 text-polish" /> Tham số dịch tự động
       </h3>
 
@@ -88,7 +89,7 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
             onClick={() => setAutoTranslateMode('from_scratch')}
             className={`py-2 px-3 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'from_scratch' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2'}`}
           >
-            <span className="text-[11px] flex items-center gap-1"><RefreshCwIcon className="w-3 h-3 text-polish" /> Dịch từ đầu</span>
+            <span className="text-[11px] flex items-center gap-1"><RefreshCw className="w-3 h-3 text-polish" /> Dịch từ đầu</span>
             <span className="text-[9px] text-text-muted font-normal mt-0.5">({totalChapters} chương)</span>
           </button>
         </div>
@@ -169,7 +170,9 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
       <div className="space-y-1.5 pt-2.5 border-t border-parchment-2">
         <div className="flex justify-between items-center text-xs">
           <div className="flex flex-col">
-            <span className="font-bold text-text-main flex items-center gap-1">⚡ Dịch song song:</span>
+            <span className="font-bold text-text-main flex items-center gap-1">
+              <Zap className="w-3.5 h-3.5 text-polish" /> Dịch song song:
+            </span>
             <span className="text-[10px] text-text-muted font-normal mt-0.5">Số chương dịch cùng lúc (1 = tuần tự)</span>
           </div>
           <span className="bg-ink border border-parchment-2 text-polish rounded-[2px] px-2.5 py-0.5 text-[10px] font-bold">{concurrency} luồng</span>
@@ -187,9 +190,10 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
           ))}
         </div>
         {concurrency > 1 && (
-          <p className="text-[10px] text-amber-300 bg-amber-950/20 border border-amber-900/40 rounded-[2px] px-2.5 py-2 leading-relaxed">
-            ⚠️ Dịch song song đẩy nhanh tiến độ nhưng có thể làm giảm nhất quán của từ điển giữa các chương dịch song hành. Khuyên dùng 2-3 luồng.
-          </p>
+          <div className="text-[10px] text-amber-300 bg-amber-950/20 border border-amber-900/40 rounded-[2px] px-2.5 py-2 leading-relaxed flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <span>Dịch song song đẩy nhanh tiến độ nhưng có thể làm giảm nhất quán của từ điển giữa các chương dịch song hành. Khuyên dùng 2-3 luồng.</span>
+          </div>
         )}
       </div>
 
@@ -235,41 +239,61 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
       <div className="space-y-2 pt-4 border-t border-parchment-2">
         {isProcessing ? (
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={handleToggleProcessing} className="py-2.5 rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer bg-amber-600 hover:bg-amber-700 text-white"><Pause className="w-3.5 h-3.5 fill-white" /> Tạm dừng</button>
-            <button onClick={handleStopTranslation} className="py-2.5 rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer bg-rose-600 hover:bg-rose-700 text-white"><Square className="w-3.5 h-3.5 fill-white" /> Dừng &amp; Lưu</button>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handleToggleProcessing}
+              icon={<Pause className="w-3.5 h-3.5 fill-white" />}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              Tạm dừng
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handleStopTranslation}
+              icon={<Square className="w-3.5 h-3.5 fill-white" />}
+              className="bg-polish hover:bg-[#A03522] text-white"
+            >
+              Dừng &amp; Lưu
+            </Button>
           </div>
         ) : (
-          <button onClick={handleToggleProcessing} className="w-full py-2.5 rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer bg-polish hover:bg-[#A03522] text-white transition-colors glow-polish"><Play className="w-4 h-4 fill-white animate-pulse" /> Kích hoạt Dịch Tự Động sỉ</button>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={handleToggleProcessing}
+            icon={<Play className="w-4 h-4 fill-white animate-pulse" />}
+            className="w-full py-3 text-xs glow-polish"
+          >
+            Kích hoạt Dịch Tự Động sỉ
+          </Button>
         )}
 
         <div className="flex gap-2">
-          <button type="button" onClick={handleResetQueue} className="flex-1 py-1.5 rounded-[2px] border border-parchment-2 bg-ink text-text-muted hover:text-text-main hover:bg-parchment-2 cursor-pointer text-xs font-semibold transition-colors">Reset hàng đợi</button>
-          <button type="button" onClick={triggerExportDownload} className="flex-1 py-1.5 rounded-[2px] border border-parchment-2 bg-ink text-text-muted hover:text-text-main hover:bg-parchment-2 cursor-pointer text-xs font-semibold flex items-center justify-center gap-1 transition-colors"><Download className="w-3.5 h-3.5 text-polish" /> Sao lưu JSON</button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={handleResetQueue}
+            className="flex-1 py-2"
+          >
+            Reset hàng đợi
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={triggerExportDownload}
+            icon={<Download className="w-3.5 h-3.5 text-polish" />}
+            className="flex-1 py-2"
+          >
+            Sao lưu JSON
+          </Button>
         </div>
       </div>
     </div>
   );
 });
 
-// Helper component for Refresh icon
-function RefreshCwIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-      <path d="M3 21v-5h5" />
-    </svg>
-  );
-}
+export default TranslationConfigPanel;

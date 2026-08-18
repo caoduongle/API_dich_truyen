@@ -10,6 +10,9 @@ import { QaCritiquePanel } from './QaCritiquePanel';
 import { QuickAddTermModal } from './QuickAddTermModal';
 import { ChapterSelectorToolbar } from './ChapterSelectorToolbar';
 import { useHotkeys } from '../../hooks/useHotkeys';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
+import { Kbd } from '../ui/Kbd';
 
 export interface BilingualEditorProps {
   sourceText: string;
@@ -106,244 +109,219 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   isCheckingQa,
 }: BilingualEditorProps) {
   const { showToast } = useNotifications();
-  const sourceParaCount = sourceText.split(/\n+/).map(l => l.trim()).filter(Boolean).length;
-  const translationText = activeStage === 'polished' ? polishedTranslation : rawTranslation;
-  const translationParaCount = translationText.split(/\n+/).map(l => l.trim()).filter(Boolean).length;
-  const isMismatch = warningParagraphMismatch && sourceParaCount > 0 && translationParaCount > 0 && sourceParaCount !== translationParaCount;
-
   const [selectedTerm, setSelectedTerm] = useState('');
   const [selectedContext, setSelectedContext] = useState('');
 
-  // Hotkey Ctrl+Enter: Dịch thô hoặc Chuốt văn tùy theo tab đang chọn
-  useHotkeys('ctrl+enter', () => {
-    if (activeStage === 'raw' && sourceText.trim() && !isTranslating) {
-      handleTranslateRaw();
-    } else if (activeStage === 'polished' && rawTranslation.trim() && !isPolishing) {
-      handlePolishTranslation();
-    }
-  });
-
-  // Hotkey Ctrl+S: Lưu chương dịch hiện tại
+  // Hotkey bindings
   useHotkeys('ctrl+s', () => {
-    if (sourceText.trim() && (rawTranslation.trim() || polishedTranslation.trim())) {
+    if (sourceText && (rawTranslation || polishedTranslation)) {
       handleSaveChapter();
     }
   });
 
+  useHotkeys('ctrl+enter', () => {
+    if (activeStage === 'raw' && !isTranslating && sourceText) {
+      handleTranslateRaw();
+    } else if (activeStage === 'polished' && !isPolishing && rawTranslation) {
+      handlePolishTranslation();
+    }
+  });
+
   const handleTextareaSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
-    const textarea = e.currentTarget;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const text = textarea.value;
-
+    const target = e.target as HTMLTextAreaElement;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    
     if (start !== end) {
-      const selection = text.substring(start, end).trim();
-      if (selection.length > 0 && selection.length <= 30) {
-        setSelectedTerm(selection);
-
-        let paragraphStart = text.lastIndexOf('\n', start);
-        if (paragraphStart === -1) paragraphStart = 0;
-        else paragraphStart += 1;
-
-        let paragraphEnd = text.indexOf('\n', end);
-        if (paragraphEnd === -1) paragraphEnd = text.length;
-
-        const paragraph = text.substring(paragraphStart, paragraphEnd).trim();
-        setSelectedContext(paragraph);
+      const selected = target.value.substring(start, end).trim();
+      if (selected.length > 0 && selected.length <= 15) {
+        setSelectedTerm(selected);
+        const lineStart = target.value.lastIndexOf('\n', start) + 1;
+        const lineEnd = target.value.indexOf('\n', end);
+        const contextLine = target.value.substring(
+          lineStart, 
+          lineEnd === -1 ? target.value.length : lineEnd
+        ).trim();
+        setSelectedContext(contextLine);
       }
     }
   };
 
   const handleCleanText = () => {
-    if (!sourceText.trim()) {
-      showToast({ message: "Chưa nhập nội dung tiếng Trung để dọn dẹp.", type: 'warning' });
-      return;
-    }
+    if (!sourceText) return;
     const cleaned = cleanChineseText(sourceText);
-    if (cleaned === sourceText) {
-      showToast({ message: "Văn bản đã sạch sẽ, không phát hiện quảng cáo hay khoảng trắng dư thừa.", type: 'info' });
-      return;
-    }
-    if (!isGlossaryApplied) {
-      setOriginalSourceText(sourceText);
-      setIsGlossaryApplied(true);
-    }
     setSourceText(cleaned);
-    showToast({ message: "Đã dọn dẹp và làm sạch văn bản thành công!", type: 'success' });
+    if (!isGlossaryApplied) {
+      setOriginalSourceText(cleaned);
+    }
+    showToast({ message: "Đã lọc sạch văn bản rác, khoảng trắng dư thừa!", type: 'success' });
   };
 
+  // Mismatch calculation
+  const sourceParaCount = sourceText.split('\n').filter(p => p.trim() !== '').length;
+  const currentTranslationText = activeStage === 'polished' ? (polishedTranslation || rawTranslation) : rawTranslation;
+  const translationParaCount = currentTranslationText.split('\n').filter(p => p.trim() !== '').length;
+  const isMismatch = warningParagraphMismatch && sourceParaCount > 0 && translationParaCount > 0 && sourceParaCount !== translationParaCount;
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Left column - Source space */}
-      <div className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs animate-fadeIn">
-        <div className="flex items-center justify-between border-b border-parchment-2 pb-3">
-          <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2">
-            <span className="flex items-center justify-center w-5 h-5 rounded-[2px] bg-draft text-white text-[10px] font-bold">1</span>
-            Nội Dung Tiếng Trung Gốc
-          </h3>
-          
-          <ChapterSelectorToolbar
-            untranslatedChapters={untranslatedChapters}
-            onLoadChapterById={handleLoadChapterById}
-            onLoadExample={handleLoadExample}
-            sourceText={sourceText}
-          />
-        </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      {/* Left column - Chinese Source Text Section */}
+      <div className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs flex flex-col justify-between animate-fadeIn">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between border-b border-parchment-2 pb-3">
+            <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5 font-display">
+              <span className="flex items-center justify-center w-5 h-5 rounded-[2px] bg-ink text-polish text-[10px] font-bold border border-parchment-2">1</span>
+              <span>Nguyên Tác Chữ Hán</span>
+            </h3>
 
-        <div className="space-y-1.5">
-          <label className="block text-[9px] font-bold uppercase tracking-wider text-text-muted">Tiêu đề chương / Tiêu đề truyện dịch</label>
-          <input
-            id="input-chapter-title"
-            type="text"
-            placeholder="Ví dụ: Chương 1: Diễn biến kịch tính dồn dập..."
-            value={chapterTitle}
-            onChange={(e) => setChapterTitle(e.target.value)}
-            className="w-full text-xs bg-ink border border-parchment-2 rounded-[2px] px-3 py-2 text-text-main font-semibold focus:outline-none focus:border-draft transition-all"
-          />
-        </div>
-
-        <div className="relative">
-          <textarea
-            id="textarea-chinese-source"
-            rows={12}
-            placeholder="Dán hoặc gõ truyện chữ Trung Quốc (Giản thể/Phồn thể) vào đây..."
-            value={sourceText}
-            onChange={(e) => {
-              const val = e.target.value;
-              setSourceText(val);
-              if (val.trim() === '') {
-                setOriginalSourceText('');
-                setIsGlossaryApplied(false);
-              } else if (!isGlossaryApplied) {
-                setOriginalSourceText(val);
-              }
-            }}
-            onSelect={handleTextareaSelect}
-            className="w-full text-sm bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main font-serif leading-relaxed focus:outline-none focus:border-draft transition-all resize-y"
-          />
-          {sourceText && (
-            <span className="absolute bottom-3 right-3 text-[9px] text-text-muted bg-parchment px-2 py-0.5 rounded-[2px] border border-parchment-2 font-mono">
-              {sourceText.length.toLocaleString()} ký tự
-            </span>
-          )}
-        </div>
-
-        {/* Quick Add Glossary Term Widget */}
-        <QuickAddTermModal
-          selectedTerm={selectedTerm}
-          selectedContext={selectedContext}
-          onClose={() => {
-            setSelectedTerm('');
-            setSelectedContext('');
-          }}
-          activeProject={activeProject}
-          onUpdateProject={onUpdateProject}
-          apiKeys={apiKeys}
-          selectedModel={selectedModel}
-        />
-
-        {applyGlossarySourceCount !== null && !isApplyingGlossaryToSource && (
-          <div className="bg-draft/20 border border-draft/40 text-text-main rounded-[2px] px-4 py-2.5 text-xs flex items-center gap-2.5 animate-fadeIn">
-            <BookOpen className="w-4 h-4 text-draft shrink-0" />
-            <span>
-              Đã thay thế thành công <strong>{applyGlossarySourceCount}</strong> thuật ngữ từ từ điển vào văn bản gốc.
-            </span>
+            <ChapterSelectorToolbar
+              untranslatedChapters={untranslatedChapters}
+              onLoadChapterById={handleLoadChapterById}
+              onLoadExample={handleLoadExample}
+              sourceText={sourceText}
+            />
           </div>
-        )}
 
-        {/* Core Action buttons */}
-        <div className="flex flex-col sm:flex-row gap-2 pt-1">
-          {isGlossaryApplied && (
-            <button
-              type="button"
-              onClick={() => {
-                setSourceText(originalSourceText);
-                setIsGlossaryApplied(false);
+          <div className="space-y-1.5">
+            <label className="block text-[9px] font-bold uppercase tracking-wider text-text-muted">Tiêu đề chương / Tiêu đề truyện dịch</label>
+            <input
+              id="input-chapter-title"
+              type="text"
+              placeholder="Ví dụ: Chương 1: Diễn biến kịch tính dồn dập..."
+              value={chapterTitle}
+              onChange={(e) => setChapterTitle(e.target.value)}
+              className="w-full text-xs bg-ink border border-parchment-2 rounded-[2px] px-3 py-2 text-text-main font-semibold focus:outline-none focus:border-draft transition-all"
+            />
+          </div>
+
+          <div className="relative">
+            <textarea
+              id="textarea-chinese-source"
+              rows={12}
+              placeholder="Dán hoặc gõ truyện chữ Trung Quốc (Giản thể/Phồn thể) vào đây..."
+              value={sourceText}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSourceText(val);
+                if (val.trim() === '') {
+                  setOriginalSourceText('');
+                  setIsGlossaryApplied(false);
+                } else if (!isGlossaryApplied) {
+                  setOriginalSourceText(val);
+                }
               }}
-              className="w-full sm:flex-1 flex items-center justify-center gap-1.5 border border-parchment-2 bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main font-semibold px-3 py-2 rounded-[2px] transition-all cursor-pointer text-xs"
-              title="Khôi phục văn bản tiếng Trung gốc ban đầu"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Khôi phục gốc
-            </button>
+              onSelect={handleTextareaSelect}
+              className="w-full text-sm bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main font-serif leading-relaxed focus:outline-none focus:border-draft transition-all resize-y"
+            />
+            {sourceText && (
+              <span className="absolute bottom-3 right-3 text-[9px] text-text-muted bg-parchment px-2 py-0.5 rounded-[2px] border border-parchment-2 font-mono">
+                {sourceText.length.toLocaleString()} ký tự
+              </span>
+            )}
+          </div>
+
+          {/* Quick Add Glossary Term Widget */}
+          <QuickAddTermModal
+            selectedTerm={selectedTerm}
+            selectedContext={selectedContext}
+            onClose={() => {
+              setSelectedTerm('');
+              setSelectedContext('');
+            }}
+            activeProject={activeProject}
+            onUpdateProject={onUpdateProject}
+            apiKeys={apiKeys}
+            selectedModel={selectedModel}
+          />
+
+          {applyGlossarySourceCount !== null && !isApplyingGlossaryToSource && (
+            <div className="bg-draft/20 border border-draft/40 text-text-main rounded-[2px] px-4 py-2.5 text-xs flex items-center gap-2.5 animate-fadeIn">
+              <BookOpen className="w-4 h-4 text-draft shrink-0" />
+              <span>
+                Đã thay thế thành công <strong>{applyGlossarySourceCount}</strong> thuật ngữ từ từ điển vào văn bản gốc.
+              </span>
+            </div>
           )}
 
-          <button
-            type="button"
-            disabled={!sourceText || glossaryLength === 0 || isApplyingGlossaryToSource}
-            onClick={handleApplyGlossaryToSource}
-            className="w-full sm:flex-1 flex items-center justify-center gap-1.5 border border-amber-800/40 bg-amber-950/20 hover:bg-amber-950/40 text-amber-300 font-semibold px-3 py-2 rounded-[2px] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-xs"
-            title={glossaryLength === 0 ? 'Từ điển dự án đang trống' : 'Thay thế các từ tiếng Trung trong văn bản gốc bằng bản dịch từ từ điển'}
-          >
-            {isApplyingGlossaryToSource ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                Đang áp dụng từ điển...
-              </>
-            ) : (
-              <>
-                <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-                Áp dụng từ điển
-                {glossaryLength > 0 && (
-                  <span className="ml-1 bg-amber-900/50 border border-amber-800/40 text-amber-300 text-[9px] font-bold px-1.5 py-0.5 rounded-[2px]">
-                    {glossaryLength}
-                  </span>
-                )}
-              </>
+          {/* Core Action buttons */}
+          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+            {isGlossaryApplied && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setSourceText(originalSourceText);
+                  setIsGlossaryApplied(false);
+                }}
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+                className="w-full sm:flex-1"
+                title="Khôi phục văn bản tiếng Trung gốc ban đầu"
+              >
+                Khôi phục gốc
+              </Button>
             )}
-          </button>
 
-          <button
-            type="button"
-            disabled={!sourceText}
-            onClick={handleCleanText}
-            className="w-full sm:flex-1 flex items-center justify-center gap-1.5 border border-parchment-2 bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main font-semibold px-3 py-2 rounded-[2px] transition-all cursor-pointer text-xs"
-            title="Loại bỏ quảng cáo, dòng trống trùng lặp, khoảng trắng rác tiếng Trung"
-          >
-            <Eraser className="w-3.5 h-3.5 text-text-muted" />
-            Dọn rác văn bản
-          </button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!sourceText || glossaryLength === 0 || isApplyingGlossaryToSource}
+              onClick={handleApplyGlossaryToSource}
+              icon={isApplyingGlossaryToSource ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" /> : <BookOpen className="w-3.5 h-3.5 text-amber-400" />}
+              className="w-full sm:flex-1 text-amber-300 border-amber-800/40 bg-amber-950/20 hover:bg-amber-950/40"
+              title={glossaryLength === 0 ? 'Từ điển dự án đang trống' : 'Thay thế các từ tiếng Trung trong văn bản gốc bằng bản dịch từ từ điển'}
+            >
+              {isApplyingGlossaryToSource ? 'Đang áp dụng...' : 'Áp dụng từ điển'}
+              {!isApplyingGlossaryToSource && glossaryLength > 0 && (
+                <Badge tone="warning" className="ml-1">
+                  {glossaryLength}
+                </Badge>
+              )}
+            </Button>
 
-          <button
-            id="btn-analyze-names"
-            disabled={isAnalyzing || !sourceText}
-            onClick={handleAnalyzeGlossary}
-            className="w-full sm:flex-1 flex items-center justify-center gap-1.5 bg-ink border border-parchment-2 text-text-main font-semibold hover:bg-parchment-2 px-3 py-2 rounded-[2px] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-            title="Phân tích đoạn văn để đề xuất từ vựng, tên nhân vật thích hợp"
-          >
-            {isAnalyzing ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-text-muted" />
-                Đang tìm...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-3.5 h-3.5 text-text-muted" />
-                Tìm nhân vật
-              </>
-            )}
-          </button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!sourceText}
+              onClick={handleCleanText}
+              icon={<Eraser className="w-3.5 h-3.5 text-text-muted" />}
+              className="w-full sm:flex-1"
+              title="Loại bỏ quảng cáo, dòng trống trùng lặp, khoảng trắng rác tiếng Trung"
+            >
+              Dọn rác
+            </Button>
 
-          <button
-            id="btn-translate-draft1"
-            disabled={isTranslating || !sourceText}
-            onClick={handleTranslateRaw}
-            aria-label="Dịch thô chương hiện tại (Ctrl+Enter)"
-            className="w-full sm:flex-1 flex items-center justify-center gap-1.5 bg-draft hover:bg-[#4E5E75] text-white font-bold px-3 py-2.5 rounded-[2px] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-xs shadow-xs"
-          >
-            {isTranslating ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-                Đang dịch...
-              </>
-            ) : (
-              <>
-                <Play className="w-3.5 h-3.5 text-white fill-current" />
-                <span>Dịch thô (GĐ 1)</span>
-                <kbd className="hidden lg:inline-block text-[9px] bg-black/20 px-1 py-0.5 rounded-[2px] font-mono opacity-75">Ctrl+↵</kbd>
-              </>
-            )}
-          </button>
+            <Button
+              id="btn-analyze-names"
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={isAnalyzing || !sourceText}
+              onClick={handleAnalyzeGlossary}
+              icon={isAnalyzing ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-text-muted" /> : <Sparkles className="w-3.5 h-3.5 text-text-muted" />}
+              className="w-full sm:flex-1"
+              title="Phân tích đoạn văn để đề xuất từ vựng, tên nhân vật thích hợp"
+            >
+              {isAnalyzing ? 'Đang tìm...' : 'Tìm nhân vật'}
+            </Button>
+
+            <Button
+              id="btn-translate-draft1"
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={isTranslating || !sourceText}
+              onClick={handleTranslateRaw}
+              icon={isTranslating ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" /> : <Play className="w-3.5 h-3.5 text-white fill-current" />}
+              className="w-full sm:flex-1 bg-draft hover:bg-[#4E5E75]"
+              aria-label="Dịch thô chương hiện tại (Ctrl+Enter)"
+            >
+              <span>Dịch thô (GĐ 1)</span>
+              <Kbd className="hidden lg:inline-block text-[9px] bg-black/20 text-white/90">Ctrl+↵</Kbd>
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -351,9 +329,9 @@ export const BilingualEditor = React.memo(function BilingualEditor({
       <div className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs flex flex-col justify-between animate-fadeIn">
         <div className="space-y-3">
           <div className="flex items-center justify-between border-b border-parchment-2 pb-3">
-            <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5">
+            <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5 font-display">
               <span className="flex items-center justify-center w-5 h-5 rounded-[2px] bg-polish text-white text-[10px] font-bold">2</span>
-              <span className="text-text-main">Kết Quả Biên Soạn Bản Thảo</span>
+              <span>Kết Quả Biên Soạn Bản Thảo</span>
             </h3>
             
             {/* Stages toggles */}
@@ -522,42 +500,39 @@ export const BilingualEditor = React.memo(function BilingualEditor({
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-parchment-2">
-          <button
+          <Button
             id="btn-polish"
+            variant="primary"
+            size="md"
             disabled={isPolishing || !rawTranslation}
             onClick={handlePolishTranslation}
+            icon={isPolishing ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" /> : <Sparkles className="w-3.5 h-3.5 text-white fill-current" />}
+            className="flex-1 glow-polish"
             aria-label="Chuốt văn phong thuần Việt (Ctrl+Enter)"
-            className="flex-1 flex items-center justify-center gap-1.5 bg-polish hover:bg-[#A03522] active:bg-[#8F2D1E] text-white font-bold px-3.5 py-2.5 rounded-[2px] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs glow-polish text-xs"
             title="Phục vụ chuốt văn phong thuần Việt trôi chảy (Dựa trên dịch thô)"
           >
-            {isPolishing ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-                Đang chuốt...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-3.5 h-3.5 text-white fill-current" />
-                <span>Chuốt văn thuần Việt</span>
-                <kbd className="hidden lg:inline-block text-[9px] bg-black/20 px-1 py-0.5 rounded-[2px] font-mono opacity-80">Ctrl+↵</kbd>
-              </>
-            )}
-          </button>
+            <span>Chuốt văn thuần Việt</span>
+            <Kbd className="hidden lg:inline-block text-[9px] bg-black/20 text-white/90">Ctrl+↵</Kbd>
+          </Button>
 
-          <button
+          <Button
             id="btn-save"
+            variant="secondary"
+            size="md"
             disabled={!sourceText || (!rawTranslation && !polishedTranslation)}
             onClick={handleSaveChapter}
+            icon={<Save className="w-3.5 h-3.5 text-text-muted" />}
+            className="flex-none font-bold"
             aria-label="Lưu chương dịch vào lịch sử (Ctrl+S)"
-            className="flex items-center justify-center gap-1.5 bg-ink hover:bg-parchment-2 text-text-muted hover:text-text-main border border-parchment-2 font-bold px-4 py-2.5 rounded-[2px] transition-colors cursor-pointer text-xs"
             title="Lưu trữ chương đã biên dịch hoàn thiện này vào lịch sử truyện (Ctrl+S)"
           >
-            <Save className="w-3.5 h-3.5 text-text-muted" />
             <span>Lưu chương dịch</span>
-            <kbd className="hidden lg:inline-block text-[9px] bg-parchment-2 px-1 py-0.5 rounded-[2px] font-mono text-text-muted">Ctrl+S</kbd>
-          </button>
+            <Kbd className="hidden lg:inline-block text-[9px]">Ctrl+S</Kbd>
+          </Button>
         </div>
       </div>
     </div>
   );
 });
+
+export default BilingualEditor;

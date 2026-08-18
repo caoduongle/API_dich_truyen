@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChapterMetadata } from '../../types';
 import { CHINESE_EXAMPLES } from '../../data/examples';
+import { Button } from '../ui/Button';
 
 export interface ChapterSelectorToolbarProps {
   untranslatedChapters: ChapterMetadata[];
@@ -49,13 +50,16 @@ export function ChapterSelectorToolbar({
           <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted block">Văn bản mẫu khảo nghiệm</span>
           <div className="flex flex-wrap gap-2">
             {CHINESE_EXAMPLES.map((ex, idx) => (
-              <button
+              <Button
                 key={idx}
+                type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => onLoadExample(idx)}
-                className="bg-parchment border border-parchment-2 hover:border-draft hover:bg-parchment-2 rounded-[2px] px-2.5 py-1 text-xs text-text-main font-semibold transition cursor-pointer"
+                className="text-xs"
               >
                 {ex.title}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -63,3 +67,5 @@ export function ChapterSelectorToolbar({
     </>
   );
 }
+
+export default ChapterSelectorToolbar;

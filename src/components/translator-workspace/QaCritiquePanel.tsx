@@ -44,15 +44,15 @@ export function QaCritiquePanel({
 
       {/* QA Issues Found */}
       {enableAiQaCritique && !isCheckingQa && qaIssues.length > 0 && (
-        <div className="bg-rose-950/20 border border-rose-900/40 text-rose-300 p-3.5 rounded-[2px] space-y-2 text-xs animate-slideDown shadow-sm">
-          <div className="flex items-center gap-1.5 font-bold text-rose-400">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+        <div className="bg-polish/10 border border-polish/40 text-polish p-3.5 rounded-[2px] space-y-2 text-xs animate-slideDown shadow-xs">
+          <div className="flex items-center gap-1.5 font-bold text-polish">
+            <AlertCircle className="w-4 h-4 text-polish shrink-0" />
             <span>AI Phát Hiện Lỗi Kiểm Duyệt QA ({qaIssues.length})</span>
           </div>
           <ul className="space-y-1.5 list-disc pl-4 leading-relaxed text-text-main">
             {qaIssues.map((issue, idx) => (
               <li key={idx}>
-                <strong className="text-rose-400 font-bold">[{issue.type.toUpperCase()}] ({issue.severity}):</strong> {issue.description}
+                <strong className="text-polish font-bold">[{issue.type.toUpperCase()}] ({issue.severity}):</strong> {issue.description}
               </li>
             ))}
           </ul>
@@ -61,3 +61,5 @@ export function QaCritiquePanel({
     </>
   );
 }
+
+export default QaCritiquePanel;

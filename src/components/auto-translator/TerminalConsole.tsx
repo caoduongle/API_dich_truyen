@@ -47,7 +47,7 @@ export const TerminalConsole = React.memo(function TerminalConsole({ logs, onCle
                 ) : (
                     logs.map((log, idx) => {
                         const typeColor = log.type === 'error'
-                            ? 'text-rose-400 font-bold'
+                            ? 'text-polish font-bold'
                             : log.type === 'success'
                                 ? 'text-polish font-bold'
                                 : log.type === 'warn'
@@ -67,3 +67,5 @@ export const TerminalConsole = React.memo(function TerminalConsole({ logs, onCle
         </div>
     );
 });
+
+export default TerminalConsole;

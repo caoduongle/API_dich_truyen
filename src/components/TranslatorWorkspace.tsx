@@ -801,11 +801,11 @@ export default function TranslatorWorkspace({
       </div>
 
       {errorMessage && (
-        <div className="bg-rose-950/20 border border-rose-900/40 text-rose-300 p-3.5 rounded-[2px] flex items-start gap-2.5 text-xs animate-slideUp">
-          <AlertCircle className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" />
+        <div className="bg-polish/10 border border-polish/40 text-polish p-3.5 rounded-[2px] flex items-start gap-2.5 text-xs animate-slideUp">
+          <AlertCircle className="w-4 h-4 text-polish mt-0.5 shrink-0" />
           <div>
-            <p className="font-bold text-rose-400">Lưu ý hệ thống:</p>
-            <p>{errorMessage}</p>
+            <p className="font-bold text-polish">Lưu ý hệ thống:</p>
+            <p className="text-text-main mt-0.5">{errorMessage}</p>
           </div>
         </div>
       )}

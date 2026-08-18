@@ -1,5 +1,6 @@
 import React from 'react';
 import { Maximize2, Minimize2, X, Clock, Zap, Square, Play, Save, RefreshCw } from 'lucide-react';
+import { Button } from '../ui/Button';
 
 interface DriveProgressWidgetProps {
     isVisible: boolean;
@@ -78,7 +79,7 @@ export function DriveProgressWidget({
                     <button
                         type="button"
                         onClick={() => setIsVisible(false)}
-                        className="p-1 hover:bg-parchment-2 rounded-[2px] transition-colors text-text-muted hover:text-rose-400 cursor-pointer"
+                        className="p-1 hover:bg-parchment-2 rounded-[2px] transition-colors text-text-muted hover:text-polish cursor-pointer"
                     >
                         <X className="w-3.5 h-3.5" />
                     </button>
@@ -133,26 +134,30 @@ export function DriveProgressWidget({
 
                     <div className="pt-2 border-t border-parchment-2 flex items-center gap-2">
                         {isProcessing ? (
-                            <button
+                            <Button
+                                variant="primary"
+                                size="sm"
                                 onClick={onStop}
-                                className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                icon={<Square className="w-3.5 h-3.5 fill-white" />}
+                                className="flex-1 bg-polish hover:bg-[#A03522] text-white"
                             >
-                                <Square className="w-3.5 h-3.5 fill-white" />
                                 Dừng &amp; Lưu
-                            </button>
+                            </Button>
                         ) : (
-                            <button
+                            <Button
+                                variant="primary"
+                                size="sm"
                                 onClick={onResume}
-                                className="flex-1 py-1.5 bg-polish hover:bg-[#A03522] text-white rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                icon={<Play className="w-3.5 h-3.5 fill-white" />}
+                                className="flex-1"
                             >
-                                <Play className="w-3.5 h-3.5 fill-white" />
                                 Tiếp tục dịch
-                            </button>
+                            </Button>
                         )}
 
                         <button
                             onClick={onSaveBackup}
-                            className="p-1.5 bg-ink hover:bg-parchment-2 text-text-main rounded-[2px] border border-parchment-2 cursor-pointer"
+                            className="p-1.5 bg-ink hover:bg-parchment-2 text-text-main rounded-[2px] border border-parchment-2 cursor-pointer transition-colors"
                             title="Tải tệp lưu trữ backup cấu trúc truyện dạng .JSON"
                         >
                             <Save className="w-4 h-4 text-text-muted" />
@@ -174,9 +179,9 @@ export function DriveProgressWidget({
                         {isProcessing && (
                             <button
                                 onClick={onStop}
-                                className="p-1 text-rose-400 hover:bg-rose-950/40 rounded transition-colors cursor-pointer"
+                                className="p-1 text-polish hover:bg-polish/10 rounded-[2px] transition-colors cursor-pointer"
                             >
-                                <Square className="w-3.5 h-3.5 fill-rose-500" />
+                                <Square className="w-3.5 h-3.5 fill-polish" />
                             </button>
                         )}
                         <button

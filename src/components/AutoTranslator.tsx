@@ -265,30 +265,32 @@ export default function AutoTranslator({
 
           {/* Failed chapters section */}
           {activeProject.translationQueueState?.failedIds && activeProject.translationQueueState.failedIds.length > 0 && (
-            <div className="bg-rose-950/20 border border-rose-900/40 p-4 rounded-md space-y-2.5 animate-in slide-in-from-top-2 duration-200 shadow-xs">
+            <div className="bg-polish/10 border border-polish/40 p-4 rounded-md space-y-2.5 animate-in slide-in-from-top-2 duration-200 shadow-xs">
               <div className="flex items-center gap-2">
                 <span className="flex h-2 w-2 relative shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-polish opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-polish"></span>
                 </span>
-                <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">
+                <span className="text-xs font-bold text-polish uppercase tracking-wider">
                   Phát hiện {activeProject.translationQueueState.failedIds.length} chương lỗi
                 </span>
               </div>
-              <p className="text-[11px] text-rose-300 font-normal leading-relaxed max-h-24 overflow-y-auto bg-ink p-2.5 rounded-[2px] border border-rose-900/30 custom-scrollbar">
+              <p className="text-[11px] text-text-main font-normal leading-relaxed max-h-24 overflow-y-auto bg-ink p-2.5 rounded-[2px] border border-parchment-2 custom-scrollbar">
                 {activeProject.translationQueueState.failedIds.map((fid) => {
                   const chap = activeProject.chapters.find(c => c.id === fid);
                   return chap ? chap.title : fid;
                 }).join(', ')}
               </p>
-              <button
+              <Button
                 type="button"
+                variant="primary"
+                size="md"
                 onClick={handleRetryFailedChapters}
                 disabled={isProcessing}
-                className={`w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-[2px] text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                className="w-full"
               >
                 Dịch lại các chương lỗi này
-              </button>
+              </Button>
             </div>
           )}
 

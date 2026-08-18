@@ -1,5 +1,6 @@
 import React from 'react';
-import { FileText, ListOrdered } from 'lucide-react';
+import { FileText, ListOrdered, Download } from 'lucide-react';
+import { Button } from '../ui/Button';
 
 export interface ExportFilesPanelProps {
   exportMode: 'web' | 'audio' | 'align_jsonl';
@@ -44,7 +45,7 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
 
   return (
     <div id="export-txt-card" className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs">
-      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-2">
+      <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-2 border-b border-parchment-2 pb-2 font-display">
         <FileText className="w-4 h-4 text-polish" /> Sản xuất tập tin kết quả sau dịch
       </h3>
 
@@ -148,9 +149,19 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
         )}
       </div>
 
-      <button onClick={exportMode === 'align_jsonl' ? handleExportAlignJsonl : handleExportTxt} disabled={isExportingTxt} className="w-full py-2.5 bg-polish hover:bg-[#A03522] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-[2px] text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer glow-polish">
+      <Button
+        type="button"
+        variant="primary"
+        size="md"
+        onClick={exportMode === 'align_jsonl' ? handleExportAlignJsonl : handleExportTxt}
+        disabled={isExportingTxt}
+        icon={<Download className="w-4 h-4 text-white" />}
+        className="w-full py-2.5 glow-polish"
+      >
         {isExportingTxt ? "Đang xử lý kết xuất..." : exportMode === 'align_jsonl' ? "Bắt đầu gióng hàng & tải .JSONL" : "Bắt đầu xuất tải tệp .TXT sỉ"}
-      </button>
+      </Button>
     </div>
   );
 });
+
+export default ExportFilesPanel;

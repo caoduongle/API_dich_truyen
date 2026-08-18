@@ -1,5 +1,5 @@
 import React from 'react';
-import { ListOrdered, Check } from 'lucide-react';
+import { ListOrdered, Check, RefreshCw } from 'lucide-react';
 import { ChapterMetadata } from '../../types';
 
 export interface QueueStatusPanelProps {
@@ -23,7 +23,7 @@ export const QueueStatusPanel = React.memo(function QueueStatusPanel({
   return (
     <div className="bg-parchment border border-parchment-2 p-4 rounded-md shadow-xs space-y-3">
       <div className="flex justify-between items-center">
-        <span className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5">
+        <span className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5 font-display">
           <ListOrdered className="w-4 h-4 text-polish" /> Trạng thái vận chuyển hàng đợi ({processedCount}/{chaptersQueue.length})
           {concurrency > 1 && currentChapterIndex >= 0 && currentChapterIndex < chaptersQueue.length && (
             <span className="text-[10px] font-normal text-polish ml-1">
@@ -47,7 +47,7 @@ export const QueueStatusPanel = React.memo(function QueueStatusPanel({
             <div key={chap.id} className={`p-1.5 rounded-[2px] border flex items-center justify-between ${isCurrent ? 'border-polish bg-polish/15 text-polish font-bold animate-pulse' : isDone ? 'border-parchment-2 bg-ink text-text-muted' : 'border-parchment-2 bg-ink/40 text-text-muted opacity-60'}`}>
               <span className="truncate flex-1" title={chap.title}>{chap.title}</span>
               {isDone && <Check className="w-3 h-3 text-polish shrink-0 ml-1" />}
-              {isCurrent && <RefreshCwIcon className="w-2.5 h-2.5 animate-spin text-polish shrink-0 ml-1" />}
+              {isCurrent && <RefreshCw className="w-2.5 h-2.5 animate-spin text-polish shrink-0 ml-1" />}
             </div>
           );
         })}
@@ -56,24 +56,4 @@ export const QueueStatusPanel = React.memo(function QueueStatusPanel({
   );
 });
 
-function RefreshCwIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-      <path d="M3 21v-5h5" />
-    </svg>
-  );
-}
+export default QueueStatusPanel;
