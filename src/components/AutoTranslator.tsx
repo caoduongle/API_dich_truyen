@@ -15,6 +15,9 @@ import { ExportFilesPanel } from './auto-translator/ExportFilesPanel';
 import { QueueStatusPanel } from './auto-translator/QueueStatusPanel';
 import { DiscoveredTermsPanel } from './auto-translator/DiscoveredTermsPanel';
 import { DiffModal } from './auto-translator/DiffModal';
+import { Modal } from './ui/Modal';
+import { EmptyState } from './ui/EmptyState';
+import { Button } from './ui/Button';
 
 // Existing sub-components
 import { TerminalConsole } from './auto-translator/TerminalConsole';
@@ -358,11 +361,18 @@ export default function AutoTranslator({
       {/* Modal xem chi tiết diff sourceText vs processedSourceText */}
       {isDiffModalOpen && (
         isLoadingDiffChapters ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs p-4 animate-fadeIn">
-            <div className="bg-parchment border border-parchment-2 rounded-md p-6 text-center shadow-2xl max-w-sm w-full">
-              <p className="text-xs font-bold text-polish animate-pulse">Đang tải dữ liệu so sánh từ IndexedDB...</p>
+          <Modal
+            open={isDiffModalOpen}
+            onClose={() => setIsDiffModalOpen(false)}
+            size="sm"
+            showCloseButton={false}
+          >
+            <div className="py-4 text-center">
+              <p className="text-xs font-bold text-polish animate-pulse">
+                Đang tải dữ liệu so sánh từ IndexedDB...
+              </p>
             </div>
-          </div>
+          </Modal>
         ) : fullChaptersForDiff.length > 0 ? (
           <DiffModal
             chapters={fullChaptersForDiff}
@@ -372,17 +382,26 @@ export default function AutoTranslator({
             onClose={() => setIsDiffModalOpen(false)}
           />
         ) : (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs p-4 animate-fadeIn">
-            <div className="bg-parchment border border-parchment-2 rounded-md p-6 text-center shadow-2xl space-y-4 max-w-sm w-full">
-              <p className="text-xs font-bold text-text-muted">Chưa có chương nào áp dụng từ điển để so sánh!</p>
-              <button
-                onClick={() => setIsDiffModalOpen(false)}
-                className="px-4 py-2 bg-polish hover:bg-[#A03522] text-white text-xs font-bold rounded-[2px] cursor-pointer transition-colors shadow-xs"
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
+          <Modal
+            open={isDiffModalOpen}
+            onClose={() => setIsDiffModalOpen(false)}
+            size="md"
+          >
+            <EmptyState
+              icon={<Cpu className="w-5 h-5 text-text-muted" />}
+              title="Chưa có dữ liệu so sánh"
+              description="Chưa có chương nào áp dụng từ điển để so sánh!"
+              action={
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={() => setIsDiffModalOpen(false)}
+                >
+                  Đóng
+                </Button>
+              }
+            />
+          </Modal>
         )
       )}
       {/* Khối Floating Drive Progress Monitor Widget */}

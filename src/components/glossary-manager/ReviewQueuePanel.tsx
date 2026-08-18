@@ -4,6 +4,7 @@ import { GlossaryItem, GlossaryType } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { getChapterFromDB } from '../../services/db';
 import { findFuzzyCandidates, FuzzyCandidate } from '@shared/sinoNormalize';
+import { Modal } from '../ui/Modal';
 
 export interface ReviewQueuePanelProps {
   reviewQueue: Array<GlossaryItem & { reason: string }>;
@@ -202,27 +203,15 @@ const ReviewQueueItem = React.memo(function ReviewQueueItem({
       </div>
 
       {/* Full raw text modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-parchment border border-parchment-2 text-text-main rounded-md w-full max-w-2xl overflow-hidden shadow-2xl animate-scale-up max-h-[90vh] flex flex-col">
-            <div className="border-b border-parchment-2 p-4 flex items-center justify-between bg-ink/40">
-              <h3 className="text-sm font-bold font-display uppercase tracking-wider text-text-main">
-                Toàn văn chương gốc tiếng Trung
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="text-text-muted hover:text-text-main p-1 hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 text-text-main text-xs font-serif leading-relaxed whitespace-pre-wrap select-text">
-              {chapterText}
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        size="2xl"
+        title="Toàn văn chương gốc tiếng Trung"
+        bodyClassName="p-6 text-text-main text-xs font-serif leading-relaxed whitespace-pre-wrap select-text"
+      >
+        {chapterText}
+      </Modal>
     </div>
   );
 });

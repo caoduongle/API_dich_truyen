@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X, RotateCcw } from 'lucide-react';
+import { Button } from './ui/Button';
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error';
 
@@ -123,7 +124,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       {children}
 
       {/* Floating Toasts Stack */}
-      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
+      <div className="fixed bottom-5 right-5 z-[60] flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
         <AnimatePresence>
           {toasts.map((toast) => {
             const isUndoable = !!toast.onUndo;
@@ -139,7 +140,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                     : toast.type === 'warning'
                     ? 'border-amber-800/60'
                     : toast.type === 'error'
-                    ? 'border-rose-800/60'
+                    ? 'border-polish/50'
                     : 'border-parchment-2'
                 }`}
               >
@@ -147,7 +148,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 <div className="mt-0.5 shrink-0">
                   {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-polish" />}
                   {toast.type === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-400" />}
-                  {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400" />}
+                  {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-polish" />}
                   {toast.type === 'info' && <Info className="w-4 h-4 text-text-muted" />}
                 </div>
 
@@ -185,7 +186,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                           : toast.type === 'warning'
                           ? 'bg-amber-500'
                           : toast.type === 'error'
-                          ? 'bg-rose-500'
+                          ? 'bg-polish'
                           : 'bg-draft'
                       }`}
                       style={{ width: `${toast.progress}%` }}
@@ -201,7 +202,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       {/* Confirmation Modal */}
       <AnimatePresence>
         {confirmModal && (
-          <div className="fixed inset-0 z-[9990] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -251,26 +252,22 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
               {/* Action Buttons */}
               <div className="flex gap-2.5 justify-end pt-2">
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="sm"
                   onClick={() => handleConfirmResolve(false)}
-                  className="px-3.5 py-1.5 text-xs font-medium text-text-muted hover:text-text-main bg-ink hover:bg-parchment-2 border border-parchment-2 rounded-[2px] transition-colors cursor-pointer"
                 >
                   {confirmModal.cancelText || 'Hủy'}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant={confirmModal.type === 'danger' ? 'primary' : confirmModal.type === 'warning' ? 'primary' : 'secondary'}
+                  size="sm"
                   onClick={() => handleConfirmResolve(true)}
-                  className={`px-4 py-1.5 text-xs font-bold text-white rounded-[2px] shadow-xs transition-colors cursor-pointer ${
-                    confirmModal.type === 'danger'
-                      ? 'bg-polish hover:bg-[#A03522]'
-                      : confirmModal.type === 'warning'
-                      ? 'bg-amber-600 hover:bg-amber-700'
-                      : 'bg-draft hover:bg-[#4E5E75]'
-                  }`}
                 >
                   {confirmModal.confirmText || 'Xác nhận'}
-                </button>
+                </Button>
               </div>
             </motion.div>
           </div>
