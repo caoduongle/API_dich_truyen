@@ -11,6 +11,10 @@ import { TabSkeleton } from './components/common/Skeleton';
 import { useHotkeys } from './hooks/useHotkeys';
 import { I18nProvider, useTranslation } from './i18n/I18nContext';
 import { LanguageSelector } from './components/common/LanguageSelector';
+import { Button } from './components/ui/Button';
+import { Badge } from './components/ui/Badge';
+import { Kbd } from './components/ui/Kbd';
+import { Seal } from './components/ui/Seal';
 
 // Code splitting các tab nặng qua React.lazy để tối ưu hóa initial bundle parse time
 const TranslatorWorkspace = React.lazy(() => import('./components/TranslatorWorkspace'));
@@ -161,12 +165,10 @@ function AppContent() {
   return (
     <div id="ai-story-translator-app" className="min-h-screen bg-ink flex flex-col font-sans text-text-main selection:bg-polish/25 selection:text-text-main">
 
-      {/* Platform Header */}
-      <header className="sticky top-0 z-55 h-14 bg-parchment/95 border-b border-parchment-2 flex items-center justify-between px-4 sm:px-6 shrink-0 shadow-xs">
+      {/* Platform Header — z-30 ladder rule */}
+      <header className="sticky top-0 z-30 h-14 bg-parchment/95 backdrop-blur-xs border-b border-parchment-2 flex items-center justify-between px-4 sm:px-6 shrink-0 shadow-xs">
         <div className="flex items-center gap-3">
-          <div className="w-7 h-7 bg-polish rounded-[3px] flex items-center justify-center text-white shadow-xs">
-            <Languages className="w-3.5 h-3.5" />
-          </div>
+          <Seal character="譯" className="text-[13px]" />
           <div>
             <h1 className="text-xs sm:text-sm font-display font-semibold tracking-wide text-text-main flex items-center gap-1.5 leading-none">
               {t('common.appTitle')}
@@ -175,9 +177,9 @@ function AppContent() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3">
           {activeProject && (
-            <div className="hidden sm:flex items-center bg-ink/70 rounded-[3px] px-2.5 py-1 gap-1.5 border border-parchment-2">
+            <div className="hidden sm:flex items-center bg-ink/70 rounded-[2px] px-2.5 py-1 gap-1.5 border border-parchment-2">
               <span className="text-[9px] font-bold text-text-muted uppercase tracking-wider">Ngữ điệu:</span>
               <span className="text-xs font-medium text-text-main">{activeProject.genre} / {activeProject.tone}</span>
             </div>
@@ -187,7 +189,9 @@ function AppContent() {
           <LanguageSelector />
 
           {authRequired && (
-            <button
+            <Button
+              variant={isAuthenticated ? 'secondary' : 'primary'}
+              size="sm"
               onClick={() => {
                 if (isAuthenticated) {
                   if (window.confirm("Bạn có chắc chắn muốn đăng xuất khỏi máy chủ?")) {
@@ -200,30 +204,27 @@ function AppContent() {
                   setShowAuthModal(true);
                 }
               }}
-              className={`flex items-center gap-1.5 py-1.5 px-3 rounded-[3px] text-xs font-bold cursor-pointer transition-all border ${
-                isAuthenticated
-                  ? 'bg-parchment text-text-main border-parchment-2 hover:bg-parchment-2'
-                  : 'bg-polish/20 text-polish border-polish/40 hover:bg-polish/30 animate-pulse'
-              }`}
+              icon={isAuthenticated ? <Unlock className="w-3.5 h-3.5 text-text-muted" /> : <Lock className="w-3.5 h-3.5 text-white" />}
+              className={!isAuthenticated ? 'animate-pulse' : ''}
               title={isAuthenticated ? "Máy chủ đã xác thực. Bấm để đăng xuất" : "Yêu cầu đăng nhập máy chủ"}
             >
-              {isAuthenticated ? <Unlock className="w-3.5 h-3.5 text-text-muted" /> : <Lock className="w-3.5 h-3.5 text-polish" />}
               <span className="hidden sm:inline">{isAuthenticated ? 'Đã khóa máy chủ' : 'Chưa đăng nhập'}</span>
-            </button>
+            </Button>
           )}
 
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => setShowApiSettings(true)}
-            className="flex items-center gap-1.5 bg-polish hover:bg-[#A03522] active:bg-[#8F2D1E] text-white py-1.5 px-3 rounded-[3px] text-xs font-semibold cursor-pointer transition-all shadow-xs"
+            icon={<Settings className="w-3.5 h-3.5" />}
           >
-            <Settings className="w-3.5 h-3.5" />
             {t('nav.aiConfig')} ({apiKeys.filter(k => k.trim()).length ? `${apiKeys.filter(k => k.trim()).length} ${t('common.keys')}` : t('common.system')})
-          </button>
+          </Button>
         </div>
       </header>
 
-      {/* Tab Navigation */}
-      <div className="bg-parchment border-b border-parchment-2 sticky top-14 z-40">
+      {/* Tab Navigation — z-30 ladder rule */}
+      <div className="bg-parchment border-b border-parchment-2 sticky top-14 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between overflow-x-auto scrollbar-none py-0.5">
             <nav role="tablist" aria-label="Phân vùng làm việc chính" className="flex space-x-1 min-w-max">
@@ -234,12 +235,15 @@ function AppContent() {
                 aria-controls="panel-translate"
                 tabIndex={0}
                 onClick={() => switchTab('translate')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'translate' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                  activeTab === 'translate'
+                    ? 'border-polish text-text-main bg-parchment-2/40'
+                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                 }`}
               >
-                <BookOpenText className="w-3.5 h-3.5 shrink-0" />
-                {t('nav.translate')}
+                <BookOpenText className="w-3.5 h-3.5 shrink-0 text-polish" />
+                <span>{t('nav.translate')}</span>
+                <Kbd className="hidden md:inline-block text-[9px]">Alt+1</Kbd>
               </button>
 
               <button
@@ -249,12 +253,15 @@ function AppContent() {
                 aria-controls="panel-auto-translate"
                 tabIndex={0}
                 onClick={() => switchTab('auto-translate')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'auto-translate' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                  activeTab === 'auto-translate'
+                    ? 'border-polish text-text-main bg-parchment-2/40'
+                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                 }`}
               >
                 <Cpu className={`w-3.5 h-3.5 shrink-0 ${isAutoTranslating ? 'text-polish animate-pulse' : 'text-text-muted'}`} />
-                {t('nav.autoTranslate')}
+                <span>{t('nav.autoTranslate')}</span>
+                <Kbd className="hidden md:inline-block text-[9px]">Alt+2</Kbd>
               </button>
 
               <button
@@ -264,21 +271,24 @@ function AppContent() {
                 aria-controls="panel-glossary"
                 tabIndex={0}
                 onClick={() => switchTab('glossary')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'glossary' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                  activeTab === 'glossary'
+                    ? 'border-polish text-text-main bg-parchment-2/40'
+                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                 }`}
               >
-                <Settings className="w-3.5 h-3.5 shrink-0" />
-                {t('nav.glossary')}
+                <Settings className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+                <span>{t('nav.glossary')}</span>
+                <Kbd className="hidden md:inline-block text-[9px]">Alt+3</Kbd>
                 {activeProject && activeProject.glossary.length > 0 && (
-                  <span className="bg-parchment-2 text-text-main border border-parchment-2 text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] shrink-0 ml-1">
+                  <Badge tone="neutral" className="ml-0.5">
                     {activeProject.glossary.length}
-                  </span>
+                  </Badge>
                 )}
                 {activeProject && (activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY).length > 0 && (
-                  <span className="bg-amber-950/60 text-amber-300 border border-amber-800/50 text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] shrink-0 ml-1">
+                  <Badge tone="warning" className="ml-0.5">
                     {t('glossary.pendingCount', { count: (activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY).length })}
-                  </span>
+                  </Badge>
                 )}
               </button>
 
@@ -289,16 +299,19 @@ function AppContent() {
                 aria-controls="panel-history"
                 tabIndex={0}
                 onClick={() => switchTab('history')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'history' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                  activeTab === 'history'
+                    ? 'border-polish text-text-main bg-parchment-2/40'
+                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                 }`}
               >
-                <History className="w-3.5 h-3.5 shrink-0" />
-                {t('nav.history')}
+                <History className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+                <span>{t('nav.history')}</span>
+                <Kbd className="hidden md:inline-block text-[9px]">Alt+4</Kbd>
                 {activeProject && activeProject.chapters.length > 0 && (
-                  <span className="bg-parchment-2 text-text-main border border-parchment-2 text-[10px] font-bold px-1.5 py-0.5 rounded-[2px] shrink-0 ml-1">
+                  <Badge tone="neutral" className="ml-0.5">
                     {activeProject.chapters.length}
-                  </span>
+                  </Badge>
                 )}
               </button>
 
@@ -309,12 +322,18 @@ function AppContent() {
                 aria-controls="panel-projects"
                 tabIndex={0}
                 onClick={() => switchTab('projects')}
-                className={`flex items-center gap-2 px-3.5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'projects' ? 'border-polish text-text-main font-bold glow-polish' : 'border-transparent text-text-muted hover:text-text-main'
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                  activeTab === 'projects'
+                    ? 'border-polish text-text-main bg-parchment-2/40'
+                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                 }`}
               >
-                <Folder className="w-3.5 h-3.5 shrink-0" />
-                {t('nav.projects')} ({projects.length})
+                <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+                <span>{t('nav.projects')}</span>
+                <Kbd className="hidden md:inline-block text-[9px]">Alt+5</Kbd>
+                <Badge tone="neutral" className="ml-0.5">
+                  {projects.length}
+                </Badge>
               </button>
             </nav>
 
