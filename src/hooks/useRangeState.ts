@@ -7,7 +7,7 @@ export function useRangeState(totalChapters: number) {
 
   useEffect(() => {
     if (totalChapters > 0) {
-      setEnd(prev => prev >= totalChapters - 1 ? totalChapters : prev);
+      setEnd(prev => (prev > totalChapters || prev === 0 ? totalChapters : prev));
     }
   }, [totalChapters]);
 

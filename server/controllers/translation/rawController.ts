@@ -30,42 +30,46 @@ export async function callRawTranslationDirect(
   // Pre-substitution: thay thế cứng từ điển vào source text trước khi dịch
   let substitutedText = text;
   if (Array.isArray(glossary) && glossary.length > 0) {
+    const glossaryMap = new Map<string, string>();
+    const terms: string[] = [];
+
     const sortedGlossary = [...glossary].sort((a, b) => (b.chinese || "").length - (a.chinese || "").length);
     for (const item of sortedGlossary) {
       if (!item.chinese?.trim() || !item.vietnamese?.trim()) continue;
-      const esc = escapeRegex(item.chinese.trim());
-      const regex = new RegExp(esc, 'g');
-      
-      const occurrences = (substitutedText.match(regex) || []).length;
-      if (occurrences > 0) {
-        substitutedText = substitutedText.replace(regex, `[${item.vietnamese}]`);
-      } else {
-        const canonicalSub = findCanonicalSubstring(substitutedText, item.chinese);
-        if (canonicalSub) {
-          const escCanon = escapeRegex(canonicalSub);
-          const regexCanon = new RegExp(escCanon, 'g');
-          substitutedText = substitutedText.replace(regexCanon, `[${item.vietnamese}]`);
-        }
+      const mainZh = item.chinese.trim();
+      const vi = item.vietnamese.trim();
+      if (!glossaryMap.has(mainZh)) {
+        glossaryMap.set(mainZh, vi);
+        terms.push(mainZh);
       }
-
-      // Replace variants if present
       if (Array.isArray(item.variants) && item.variants.length > 0) {
         for (const variant of item.variants) {
-          if (!variant || !variant.trim()) continue;
-          const escVar = escapeRegex(variant.trim());
-          const regexVar = new RegExp(escVar, 'g');
-          const occurrencesVar = (substitutedText.match(regexVar) || []).length;
-          if (occurrencesVar > 0) {
-            substitutedText = substitutedText.replace(regexVar, `[${item.vietnamese}]`);
-          } else {
-            const canonicalSubVar = findCanonicalSubstring(substitutedText, variant);
-            if (canonicalSubVar) {
-              const escCanonVar = escapeRegex(canonicalSubVar);
-              const regexCanonVar = new RegExp(escCanonVar, 'g');
-              substitutedText = substitutedText.replace(regexCanonVar, `[${item.vietnamese}]`);
-            }
+          if (!variant?.trim()) continue;
+          const varZh = variant.trim();
+          if (!glossaryMap.has(varZh)) {
+            glossaryMap.set(varZh, vi);
+            terms.push(varZh);
           }
         }
+      }
+    }
+
+    terms.sort((a, b) => b.length - a.length);
+
+    if (terms.length > 0) {
+      const escapedTerms = terms.map(t => escapeRegex(t));
+      const pattern = new RegExp(escapedTerms.join('|'), 'g');
+      substitutedText = substitutedText.replace(pattern, (match) => `[${glossaryMap.get(match) || match}]`);
+    }
+
+    // Dò các biến thể Hán tự phồn thể / giản thể qua canonical mapping
+    for (const item of sortedGlossary) {
+      if (!item.chinese?.trim() || !item.vietnamese?.trim()) continue;
+      const canonicalSub = findCanonicalSubstring(substitutedText, item.chinese);
+      if (canonicalSub && !canonicalSub.startsWith('[')) {
+        const escCanon = escapeRegex(canonicalSub);
+        const regexCanon = new RegExp(escCanon, 'g');
+        substitutedText = substitutedText.replace(regexCanon, `[${item.vietnamese}]`);
       }
     }
   }
@@ -335,7 +339,10 @@ export async function translateRawWithContentSplit(
 
       console.log(`[Divide & Conquer Adaptive Split] Chia thành ${parts.length} phần: ${parts.map((p, idx) => `P${idx + 1}(${p.length} ký tự)`).join(' & ')}`);
       const results = await Promise.all(
-        parts.map(async (part) => {
+        parts.map(async (part, index) => {
+          const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
+            ? (startKeyIndex + index) % apiKeys.length
+            : startKeyIndex;
           try {
             return await translateRawWithContentSplit(
               part,
@@ -345,7 +352,7 @@ export async function translateRawWithContentSplit(
               apiKeys,
               model,
               depth + 1,
-              startKeyIndex,
+              staggeredKeyIndex,
               description
             );
           } catch (partErr: any) {

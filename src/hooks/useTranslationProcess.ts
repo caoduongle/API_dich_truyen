@@ -68,7 +68,6 @@ export function useTranslationProcess({
 
   const projectRef = useRef<StoryProject>(activeProject);
   const isPauseRequestedRef = useRef<boolean>(false);
-  const bufferedProjectRef = useRef<StoryProject | null>(null);
   const currentAbortControllerRef = useRef<AbortController | null>(null);
   const activeAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
@@ -216,10 +215,6 @@ export function useTranslationProcess({
     setIsProcessing(true);
     isPauseRequestedRef.current = false;
 
-    if (!bufferedProjectRef.current) {
-      bufferedProjectRef.current = { ...projectRef.current };
-    }
-
     // Adaptive concurrency: bắt đầu từ giá trị người dùng chọn
     let effectiveConcurrency = concurrency;
 
@@ -233,12 +228,13 @@ export function useTranslationProcess({
 
       setCurrentChapterIndex(i);
 
-      // ── Snapshot glossary cho lô này ──
-      const glossarySnapshot = [...bufferedProjectRef.current!.glossary];
+      // ── Snapshot glossary cho lô này từ projectRef.current ──
+      const currentProj = projectRef.current;
+      const glossarySnapshot = [...currentProj.glossary];
       const projState = {
-        genre: bufferedProjectRef.current!.genre,
-        tone: bufferedProjectRef.current!.tone,
-        description: bufferedProjectRef.current!.description
+        genre: currentProj.genre,
+        tone: currentProj.tone,
+        description: currentProj.description
       };
 
       // ── Stagger API key cho từng chương trong lô ──
@@ -263,7 +259,7 @@ export function useTranslationProcess({
       let batchResults: BatchResult[];
 
       if (effectiveConcurrency <= 1) {
-        // ═══ CHẾ ĐỘ TUẦN TỰ (concurrency=1): hành vi 100% giống code cũ ═══
+        // ═══ CHẾ ĐỘ TUẦN TỰ (concurrency=1) ═══
         const chapterMeta = batch[0];
         const controller = batchControllers.get(chapterMeta.id)!;
         currentAbortControllerRef.current = controller;
@@ -281,7 +277,6 @@ export function useTranslationProcess({
           // AbortError → break toàn bộ loop
           if (err.name === 'AbortError' || (err instanceof DOMException && err.name === 'AbortError')) {
             addLog("Đã hủy yêu cầu đang xử lý theo lệnh dừng của người dùng", "warn");
-            // Cleanup controllers
             batchControllers.forEach((_, id) => activeAbortControllersRef.current.delete(id));
             currentAbortControllerRef.current = null;
             break;
@@ -308,25 +303,27 @@ export function useTranslationProcess({
         );
 
         batchResults = settled.map((s, idx) => {
-          if (s.status === 'fulfilled') return { result: s.value };
-          return { error: s.reason, chapterId: batch[idx].id };
+          const chap = batch[idx];
+          activeAbortControllersRef.current.delete(chap.id);
+          if (s.status === 'fulfilled') {
+            return { result: s.value };
+          } else {
+            return { error: s.reason, chapterId: chap.id };
+          }
         });
-
-        // Cleanup controllers
-        batchControllers.forEach((_, id) => activeAbortControllersRef.current.delete(id));
       }
 
-      // ── XỬ LÝ KẾT QUẢ LÔ ──
-      let batchOverloadCount = 0;
-      let batchSuccessCount = 0;
-      let lastSuccessKeyIndex = baseKeyIndex;
+      // ── XỬ LÝ KẾT QUẢ CẢ LÔ ──
       const batchNewGlossary: GlossaryItem[] = [];
       const batchNewPending: PendingGlossaryItem[] = [];
       const batchFailedIds: string[] = [];
+      const batchCompletedChapterIds: string[] = [];
+      let batchSuccessCount = 0;
+      let batchOverloadCount = 0;
       let allKeysExhausted = false;
       let hasAbort = false;
+      let lastSuccessKeyIndex = currentApiKeyIndexRef.current;
 
-      // Xử lý theo thứ tự chương trong lô (quan trọng cho dedup glossary)
       for (const br of batchResults) {
         if ('result' in br) {
           const r = br.result;
@@ -345,16 +342,8 @@ export function useTranslationProcess({
               }
             }
             batchNewPending.push(...r.newPendingItems);
-
-            // Cập nhật status chương
-            bufferedProjectRef.current = {
-              ...bufferedProjectRef.current!,
-              chapters: bufferedProjectRef.current!.chapters.map(c =>
-                c.id === r.chapterId ? { ...c, status: 'completed' as const, updatedAt: new Date().toISOString() } : c
-              )
-            };
+            batchCompletedChapterIds.push(r.chapterId);
           } else {
-            // translateSingleChapter trả success=false (getChapterFromDB failed)
             batchFailedIds.push(r.chapterId);
           }
         } else {
@@ -388,54 +377,59 @@ export function useTranslationProcess({
           } else {
             // Không skip → dừng toàn bộ
             batchFailedIds.push(chapterId);
-            if (bufferedProjectRef.current) {
-              onUpdateProject({ ...bufferedProjectRef.current });
-              bufferedProjectRef.current = null;
-            }
             setIsProcessing(false);
             return;
           }
         }
       }
 
-      // ── Gộp glossary mới vào state chính SAU KHI cả lô xong ──
-      if (batchNewGlossary.length > 0) {
-        addLog(`Trích xuất sỉ thành công ${batchNewGlossary.length} thuật ngữ mới sạch kèm nguồn gốc vào bộ quy tắc gối đầu.`, 'success');
-        setAutoDiscoveredBatch((prev) => [...prev, ...batchNewGlossary]);
-        bufferedProjectRef.current = {
-          ...bufferedProjectRef.current!,
-          glossary: [...bufferedProjectRef.current!.glossary, ...batchNewGlossary]
-        };
-      }
-      if (batchNewPending.length > 0) {
-        addLog(`Phát hiện và đẩy sỉ ${batchNewPending.length} từ trùng/xung đột vào hàng chờ kiểm duyệt.`, 'warn');
-        bufferedProjectRef.current = {
-          ...bufferedProjectRef.current!,
-          pendingGlossary: [...(bufferedProjectRef.current!.pendingGlossary || []), ...batchNewPending]
-        };
-      }
-
       // ── Cập nhật key index ──
       currentApiKeyIndexRef.current = lastSuccessKeyIndex;
 
-      // ── Cập nhật failedIds & queue state MỘT LẦN cho cả lô ──
-      const existingFailedIds: string[] = bufferedProjectRef.current?.translationQueueState?.failedIds || [];
-      const allFailedIds: string[] = [...existingFailedIds, ...batchFailedIds];
+      // ── Merge delta vào fresh projectRef.current ──
+      const freshProj = projectRef.current;
+      const completedSet = new Set(batchCompletedChapterIds);
+      const updatedChapters = freshProj.chapters.map(c =>
+        completedSet.has(c.id) ? { ...c, status: 'completed' as const, updatedAt: new Date().toISOString() } : c
+      );
+
+      const mergedGlossary = [...freshProj.glossary];
+      if (batchNewGlossary.length > 0) {
+        addLog(`Trích xuất sỉ thành công ${batchNewGlossary.length} thuật ngữ mới sạch kèm nguồn gốc vào bộ quy tắc gối đầu.`, 'success');
+        setAutoDiscoveredBatch((prev) => [...prev, ...batchNewGlossary]);
+        for (const item of batchNewGlossary) {
+          const exists = mergedGlossary.some(g => isHanEquivalent(g.chinese, item.chinese));
+          if (!exists) mergedGlossary.push(item);
+        }
+      }
+
+      const mergedPending = [...(freshProj.pendingGlossary || [])];
+      if (batchNewPending.length > 0) {
+        addLog(`Phát hiện và đẩy sỉ ${batchNewPending.length} từ trùng/xung đột vào hàng chờ kiểm duyệt.`, 'warn');
+        mergedPending.push(...batchNewPending);
+      }
+
+      const existingFailedIds: string[] = freshProj.translationQueueState?.failedIds || [];
+      const allFailedIds: string[] = Array.from(new Set([...existingFailedIds, ...batchFailedIds]));
       const nextIndex = i + batchSize;
       const isQueueFinished = nextIndex >= queue.length;
 
-      bufferedProjectRef.current = {
-        ...bufferedProjectRef.current!,
-        translationQueueState: (isQueueFinished && allFailedIds.length === 0) ? undefined : {
-          queueIds: queue.map(c => c.id),
-          currentIndex: isQueueFinished ? queue.length : nextIndex,
-          mode: paramsRef.current.autoTranslateMode,
-          skipFailedChapters: paramsRef.current.skipFailedChapters,
-          failedIds: allFailedIds
-        }
+      const nextQueueState = (isQueueFinished && allFailedIds.length === 0) ? undefined : {
+        queueIds: queue.map(c => c.id),
+        currentIndex: isQueueFinished ? queue.length : nextIndex,
+        mode: paramsRef.current.autoTranslateMode,
+        skipFailedChapters: paramsRef.current.skipFailedChapters,
+        failedIds: allFailedIds
       };
 
-      onUpdateProject({ ...bufferedProjectRef.current! });
+      onUpdateProject({
+        ...freshProj,
+        chapters: updatedChapters,
+        glossary: mergedGlossary,
+        pendingGlossary: mergedPending,
+        translationQueueState: nextQueueState
+      });
+
       setProcessedCount((prev) => prev + batchSize);
 
       // ── Adaptive concurrency (chỉ khi concurrency > 1) ──
@@ -452,10 +446,6 @@ export function useTranslationProcess({
       // ── Dừng nếu all keys exhausted hoặc abort ──
       if (allKeysExhausted) {
         addLog("⚠️ TẤT CẢ API KEY ĐÃ CẠN KIỆT HẠN MỨC QUOTA!", 'error');
-        if (bufferedProjectRef.current) {
-          onUpdateProject({ ...bufferedProjectRef.current });
-          bufferedProjectRef.current = null;
-        }
         triggerExportDownload();
         break;
       }
@@ -472,22 +462,14 @@ export function useTranslationProcess({
     if (isPauseRequestedRef.current) {
       isPauseRequestedRef.current = false;
       addLog("Đã tạm dừng tiến trình dịch tự động an toàn.", "warn");
-      if (bufferedProjectRef.current) {
-        onUpdateProject({ ...bufferedProjectRef.current });
-        bufferedProjectRef.current = null;
-      }
     } else if (i >= queue.length) {
-      const currentFailed = bufferedProjectRef.current?.translationQueueState?.failedIds || [];
+      const currentFailed = projectRef.current?.translationQueueState?.failedIds || [];
       if (currentFailed.length > 0) {
         addLog(`TẤT CẢ CHƯƠNG TRONG HÀNG ĐỢI ĐÃ ĐƯỢC XỬ LÝ (Có ${currentFailed.length} chương lỗi).`, "warn");
       } else {
         addLog("TẤT CẢ CHƯƠNG TRONG HÀNG ĐỢI ĐÃ ĐƯỢC BIÊN DỊCH THÀNH CÔNG!", "success");
       }
       setCurrentChapterIndex(-1);
-      if (bufferedProjectRef.current) {
-        onUpdateProject({ ...bufferedProjectRef.current });
-        bufferedProjectRef.current = null;
-      }
       triggerExportDownload();
     }
   }, [currentApiKeyIndexRef, onUpdateProject, triggerExportDownload, addLog, setAutoDiscoveredBatch, translateSingleChapter, concurrency]);
@@ -516,7 +498,7 @@ export function useTranslationProcess({
       setAutoDiscoveredBatch([]);
       setLogs([]);
       setProcessStartTime(Date.now());
-      bufferedProjectRef.current = {
+      onUpdateProject({
         ...projectRef.current,
         translationQueueState: {
           queueIds: prepared.map(c => c.id),
@@ -525,17 +507,15 @@ export function useTranslationProcess({
           skipFailedChapters: paramsRef.current.skipFailedChapters,
           failedIds: []
         }
-      };
-      onUpdateProject({ ...bufferedProjectRef.current });
+      });
     } else {
       if (startIdx < 0) startIdx = 0;
       if (!processStartTime) setProcessStartTime(Date.now());
-      if (!bufferedProjectRef.current) bufferedProjectRef.current = { ...projectRef.current };
     }
 
     addLog(`BẮT ĐẦU TIẾN TRÌNH DỊCH TỰ ĐỘNG | Mô hình gốc: '${selectedModel}'`, 'success');
     runTranslationLoop(queue, startIdx);
-  }, [isProcessing, chaptersQueue, processedCount, currentChapterIndex, prepareQueue, setAutoDiscoveredBatch, setLogs, processStartTime, selectedModel, addLog, runTranslationLoop]);
+  }, [isProcessing, chaptersQueue, processedCount, currentChapterIndex, prepareQueue, setAutoDiscoveredBatch, setLogs, processStartTime, selectedModel, addLog, runTranslationLoop, onUpdateProject]);
 
   const handleStopTranslation = useCallback(() => {
     isPauseRequestedRef.current = true;
@@ -547,13 +527,9 @@ export function useTranslationProcess({
     activeAbortControllersRef.current.forEach((ctrl) => ctrl.abort());
     activeAbortControllersRef.current.clear();
 
-    addLog("Hệ thống lưu trữ khẩn cấp dữ liệu từ bộ đệm vào IndexedDB...", 'info');
-    if (bufferedProjectRef.current) {
-      onUpdateProject({ ...bufferedProjectRef.current });
-      bufferedProjectRef.current = null;
-    }
+    addLog("Hệ thống lưu trữ dữ liệu vào IndexedDB...", 'info');
     triggerExportDownload();
-  }, [onUpdateProject, triggerExportDownload, addLog]);
+  }, [triggerExportDownload, addLog]);
 
   const handleResetQueue = useCallback(() => {
     setIsProcessing(false);
@@ -564,7 +540,6 @@ export function useTranslationProcess({
     setAutoDiscoveredBatch([]);
     setLogs([]);
     currentApiKeyIndexRef.current = 0;
-    bufferedProjectRef.current = null;
 
     const updated = {
       ...projectRef.current,
@@ -619,7 +594,7 @@ export function useTranslationProcess({
     setAutoDiscoveredBatch([]);
     setLogs([]);
 
-    bufferedProjectRef.current = {
+    onUpdateProject({
       ...projectRef.current,
       translationQueueState: {
         queueIds: failedChaps.map(c => c.id),
@@ -628,9 +603,7 @@ export function useTranslationProcess({
         skipFailedChapters: paramsRef.current.skipFailedChapters,
         failedIds: [] // reset failedIds for the retry queue run
       }
-    };
-
-    onUpdateProject({ ...bufferedProjectRef.current });
+    });
 
     addLog(`BẮT ĐẦU DỊCH LẠI CÁC CHƯƠNG LỖI | Mô hình: '${selectedModel}'`, 'success');
     runTranslationLoop(failedChaps, 0);
@@ -649,7 +622,10 @@ export function useTranslationProcess({
     handleToggleProcessing,
     handleStopTranslation,
     handleResetQueue,
-    triggerExportDownload,
     handleRetryFailedChapters,
+    triggerExportDownload,
+    prepareQueue,
+    runTranslationLoop,
+    translateSingleChapter,
   };
 }

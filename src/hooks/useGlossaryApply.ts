@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, startTransition } from 'react';
-import { StoryProject } from '../types';
-import { getChapterFromDB, saveChapterToDB, getChaptersByProjectFromDB } from '../services/db';
+import { StoryProject, Chapter } from '../types';
+import { getChapterFromDB, saveChaptersToDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../components/NotificationSystem';
 
@@ -104,6 +104,7 @@ export function useGlossaryApply({
 
         const dbChapters = await getChaptersByProjectFromDB(projectRef.current.id);
         const chaptersMap = new Map(dbChapters.map(c => [c.id, c]));
+        const chaptersToSave: Chapter[] = [];
 
         const updatedChaptersMetadata = await Promise.all(chapters.map(async (chapMeta) => {
           if (!scopedChapters.includes(chapMeta) || !pattern) {
@@ -125,12 +126,12 @@ export function useGlossaryApply({
           if (chapReplaced > 0) {
             totalReplaced += chapReplaced;
             chaptersAffected++;
-            const updatedFull = {
+            const updatedFull: Chapter = {
               ...fullChap,
               processedSourceText: result,
               updatedAt: new Date().toISOString()
             };
-            await saveChapterToDB(updatedFull);
+            chaptersToSave.push(updatedFull);
             return {
               ...chapMeta,
               updatedAt: updatedFull.updatedAt
@@ -138,6 +139,10 @@ export function useGlossaryApply({
           }
           return chapMeta;
         }));
+
+        if (chaptersToSave.length > 0) {
+          await saveChaptersToDB(chaptersToSave);
+        }
 
         startTransition(() => {
           onUpdateProject({ ...projectRef.current, chapters: updatedChaptersMetadata });

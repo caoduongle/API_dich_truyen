@@ -32,6 +32,9 @@ export async function callPolishDirect(
   const matchedTermsList: string[] = [];
   let totalMatchOccurrences = 0;
   if (Array.isArray(glossary) && glossary.length > 0) {
+    const glossaryMap = new Map<string, string>();
+    const terms: string[] = [];
+
     const sortedGlossary = [...glossary].sort((a, b) => {
       const lenA = (a.chinese || "").length;
       const lenB = (b.chinese || "").length;
@@ -40,28 +43,40 @@ export async function callPolishDirect(
 
     for (const item of sortedGlossary) {
       if (!item.chinese || !item.chinese.trim()) continue;
-      const esc = escapeRegex(item.chinese.trim());
-      const regex = new RegExp(esc, 'g');
-      const occurrences = (substitutedSourceText.match(regex) || []).length;
-      if (occurrences > 0) {
-        substitutedSourceText = substitutedSourceText.replace(regex, `[${item.vietnamese}]`);
-        matchedTermsList.push(`${item.chinese} -> [${item.vietnamese}] (${occurrences} lần)`);
-        totalMatchOccurrences += occurrences;
+      const mainZh = item.chinese.trim();
+      const vi = (item.vietnamese || '').trim();
+      if (!glossaryMap.has(mainZh)) {
+        glossaryMap.set(mainZh, vi);
+        terms.push(mainZh);
       }
-
       if (Array.isArray(item.variants) && item.variants.length > 0) {
         for (const variant of item.variants) {
           if (!variant || !variant.trim()) continue;
-          const escVar = escapeRegex(variant.trim());
-          const regexVar = new RegExp(escVar, 'g');
-          const occurrencesVar = (substitutedSourceText.match(regexVar) || []).length;
-          if (occurrencesVar > 0) {
-            substitutedSourceText = substitutedSourceText.replace(regexVar, `[${item.vietnamese}]`);
-            matchedTermsList.push(`${variant} -> [${item.vietnamese}] (${occurrencesVar} lần)`);
-            totalMatchOccurrences += occurrencesVar;
+          const varZh = variant.trim();
+          if (!glossaryMap.has(varZh)) {
+            glossaryMap.set(varZh, vi);
+            terms.push(varZh);
           }
         }
       }
+    }
+
+    terms.sort((a, b) => b.length - a.length);
+
+    if (terms.length > 0) {
+      const matchCounts = new Map<string, number>();
+      const escapedTerms = terms.map(t => escapeRegex(t));
+      const pattern = new RegExp(escapedTerms.join('|'), 'g');
+      substitutedSourceText = substitutedSourceText.replace(pattern, (match) => {
+        const count = (matchCounts.get(match) || 0) + 1;
+        matchCounts.set(match, count);
+        totalMatchOccurrences++;
+        return `[${glossaryMap.get(match) || match}]`;
+      });
+
+      matchCounts.forEach((count, term) => {
+        matchedTermsList.push(`${term} -> [${glossaryMap.get(term) || term}] (${count} lần)`);
+      });
     }
   }
 
@@ -312,6 +327,9 @@ export async function polishWithContentSplit(
       const results = await Promise.all(
         sourceParts.map(async (srcPart, index) => {
           const matchingRawPart = rawParts[index] || rawParts[rawParts.length - 1] || "";
+          const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
+            ? (startKeyIndex + index) % apiKeys.length
+            : startKeyIndex;
           try {
             return await polishWithContentSplit(
               srcPart,
@@ -323,14 +341,14 @@ export async function polishWithContentSplit(
               apiKeys,
               model,
               depth + 1,
-              startKeyIndex,
+              staggeredKeyIndex,
               description
             );
           } catch (partErr: any) {
             console.warn(`[Divide & Conquer Fallback Polish] Đoạn (${srcPart.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
             return {
               polishedTranslation: matchingRawPart || `[Lỗi chuốt văn đoạn: ${srcPart.substring(0, 40)}...]`,
-              successKeyIndex: startKeyIndex,
+              successKeyIndex: staggeredKeyIndex,
               isPartial: true
             };
           }

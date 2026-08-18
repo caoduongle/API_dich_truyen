@@ -6,6 +6,7 @@ import { StoryProject, GlossaryItem } from '../../types';
 vi.mock('../../services/db', () => ({
   getChaptersByProjectFromDB: vi.fn(),
   saveChapterToDB: vi.fn(),
+  saveChaptersToDB: vi.fn(),
 }));
 
 vi.mock('../../components/NotificationSystem', () => ({
@@ -119,8 +120,8 @@ describe('useGlossaryApply - Glossary application hook', () => {
         const getChaptersMock = vi.mocked(await import('../../services/db')).getChaptersByProjectFromDB;
         getChaptersMock.mockResolvedValue(dbChapters);
 
-        const saveChapterMock = vi.mocked(await import('../../services/db')).saveChapterToDB;
-        saveChapterMock.mockResolvedValue(undefined as any);
+        const saveChaptersMock = vi.mocked(await import('../../services/db')).saveChaptersToDB;
+        saveChaptersMock.mockResolvedValue(undefined as any);
 
         const onUpdateProject = vi.fn();
         const addLog = vi.fn();
@@ -136,10 +137,10 @@ describe('useGlossaryApply - Glossary application hook', () => {
 
         await hook.handleApplyGlossaryToAllChapters();
 
-        // Verify that saveChapterToDB was called with the updated sourceText
-        expect(saveChapterMock).toHaveBeenCalled();
-        const updatedChapter = saveChapterMock.mock.calls[0][0];
-        expect(updatedChapter.processedSourceText).toBe('Câu 1: Vạn Kiếm Quy Tông! Câu 2: Vạn Kiếm Quy Tông!');
+        // Verify that saveChaptersToDB was called with the updated sourceText in batch
+        expect(saveChaptersMock).toHaveBeenCalled();
+        const updatedChapters = saveChaptersMock.mock.calls[0][0];
+        expect(updatedChapters[0].processedSourceText).toBe('Câu 1: Vạn Kiếm Quy Tông! Câu 2: Vạn Kiếm Quy Tông!');
         
         // Verify that onUpdateProject was called
         expect(onUpdateProject).toHaveBeenCalled();
@@ -208,8 +209,8 @@ describe('useGlossaryApply - Glossary application hook', () => {
         const getChaptersMock = vi.mocked(await import('../../services/db')).getChaptersByProjectFromDB;
         getChaptersMock.mockResolvedValue(dbChapters);
 
-        const saveChapterMock = vi.mocked(await import('../../services/db')).saveChapterToDB;
-        saveChapterMock.mockResolvedValue(undefined as any);
+        const saveChaptersMock = vi.mocked(await import('../../services/db')).saveChaptersToDB;
+        saveChaptersMock.mockResolvedValue(undefined as any);
 
         const onUpdateProject = vi.fn();
         const addLog = vi.fn();
@@ -225,8 +226,8 @@ describe('useGlossaryApply - Glossary application hook', () => {
 
         await hook.handleApplyGlossaryToAllChapters();
 
-        expect(saveChapterMock).toHaveBeenCalled();
-        const updatedChapter = saveChapterMock.mock.calls[0][0];
-        expect(updatedChapter.processedSourceText).toBe('Ta dùng Vạn Kiếm Quy Tông!');
+        expect(saveChaptersMock).toHaveBeenCalled();
+        const updatedChapters = saveChaptersMock.mock.calls[0][0];
+        expect(updatedChapters[0].processedSourceText).toBe('Ta dùng Vạn Kiếm Quy Tông!');
     });
 });
