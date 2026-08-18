@@ -32,6 +32,13 @@ và danh sách "cấm kỵ" để tránh giao diện kiểu "AI slop" chung chun
   `tailwind-merge`, `lucide-react`).
 - Không gộp nhiều màn hình không liên quan vào một diff khổng lồ — mỗi lần chỉ sửa
   1-2 màn hình/module, để Implementation Plan còn review được.
+- **Gặp lỗi "Failed to resolve import 'X' ... Does the file exist?"**: đây là thiếu
+  package trong `node_modules`, KHÔNG phải file sai. Fix đúng là `npm install X`,
+  KHÔNG phải xóa import/viết lại code để né dùng package đó — việc này đã xảy ra
+  thật với `clsx`/`tailwind-merge` trong `src/lib/cn.ts` (bị viết lại thành nối
+  chuỗi thủ công để né lỗi thay vì cài package), làm mất khả năng merge className
+  an toàn mà toàn bộ `src/components/ui/` phụ thuộc vào. Nếu thấy `cn.ts` không
+  import `clsx`/`tailwind-merge` nữa, đó là dấu hiệu bị revert — khôi phục lại.
 
 ## Cấu trúc primitives đã có (đừng tạo trùng)
 `src/lib/cn.ts`, `src/components/ui/{Button,Badge,Seal,GenreMark,EmptyState,Kbd}.tsx`.
