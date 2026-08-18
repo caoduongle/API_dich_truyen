@@ -6,6 +6,7 @@ import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../components/NotificationSystem';
 import { apiFetch } from '../utils/apiClient';
+import { buildExportFileContent } from '../utils/exportFormatter';
 
 export interface UseExportFilesProps {
   activeProject: StoryProject;
@@ -99,74 +100,14 @@ export function useExportFiles({
         const validChunk = chunkMeta.map(meta => chaptersMap.get(meta.id)).filter((c): c is Chapter => !!c);
         if (validChunk.length === 0) continue;
 
-        let fileContent = "";
-        validChunk.forEach((chap, idx) => {
-          const content = (chap.polishedTranslation || chap.rawTranslation || "").trim();
-          const lines = content.split('\n');
-          const titleRegex = /^(?:Chương|Chapter|Quyển|Tập|Thứ)\s+(?:\d+|[IVXLCDM]+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười|trăm|ngàn|vạn|nhất|nhị|tam|tứ|ngũ|lục|thất|bát|cửu|thập)/i;
-          const chineseTitleRegex = /^第\s*[\d零一二三四五六七八九十百]+\s*[章节]/;
-          const partIndicatorRegex = /[\(\[（【]\s*(?:\d+\s*[\/|／]\s*\d+|phần\s*\d+|đoạn\s*\d+)\s*[\)\]）】]/i;
-          const partIndicatorRegexG = /[\(\[（【]\s*(?:\d+\s*[\/|／]\s*\d+|phần\s*\d+|đoạn\s*\d+)\s*[\)\]）】]/gi;
+        const formattedInputs = validChunk.map((chap, idx) => ({
+          index: chunkIdx * cap + idx + 1,
+          chapterTitle: chap.title,
+          sourceText: chap.sourceText,
+          translatedText: chap.polishedTranslation || chap.rawTranslation || "",
+        }));
 
-          let detectedTitle = "";
-          const cleanLines: string[] = [];
-
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) {
-              if (cleanLines.length > 0 && cleanLines[cleanLines.length - 1] !== "") {
-                cleanLines.push("");
-              }
-              continue;
-            }
-
-            const isTitle = titleRegex.test(line) || chineseTitleRegex.test(line);
-            if (isTitle) {
-              if (i < 5 && !detectedTitle) {
-                detectedTitle = line;
-                continue;
-              }
-              const hasPartIndicator = partIndicatorRegex.test(line);
-              const cleanMain = detectedTitle ? detectedTitle.replace(partIndicatorRegexG, '').replace(/[\s\W_]+/g, '').toLowerCase() : "";
-              const cleanCurrent = line.replace(partIndicatorRegexG, '').replace(/[\s\W_]+/g, '').toLowerCase();
-              const isSimilarToMain = cleanMain && cleanCurrent && (cleanCurrent.includes(cleanMain) || cleanMain.includes(cleanCurrent));
-
-              if (hasPartIndicator || isSimilarToMain || i >= 5) {
-                continue;
-              }
-            }
-            cleanLines.push(lines[i]);
-          }
-
-          let finalTitle = "";
-          if (detectedTitle && /^(Chương|Chapter|Quyển|Tập)/i.test(detectedTitle)) {
-            finalTitle = detectedTitle;
-          } else {
-            const chapTitleTrim = chap.title.trim();
-            if (/^(Chương|Chapter|Quyển|Tập)/i.test(chapTitleTrim)) {
-              finalTitle = chapTitleTrim;
-            } else {
-              const globalIdx = chunkIdx * cap + idx;
-              const chineseNumMatch = chap.title.match(/第\s*([\d零一二三四五六七八九十百千万]+)\s*[章节]/);
-              const num = chineseNumMatch ? chineseNumMatch[1] : (globalIdx + 1).toString();
-              finalTitle = `Chương ${num}`;
-            }
-          }
-
-          finalTitle = finalTitle.replace(/^\*+\s*/, '').trim();
-          finalTitle = finalTitle.replace(partIndicatorRegexG, '').trim();
-
-          let bodyContent = cleanLines.join('\n').trim();
-          bodyContent = bodyContent.replace(/(?:\*\s*){3,}/g, '').trim();
-
-          if (idx > 0) fileContent += "\n\n";
-
-          if (exportMode === 'web') {
-            fileContent += `*** ${finalTitle}\n${bodyContent}`;
-          } else {
-            fileContent += bodyContent;
-          }
-        });
+        const fileContent = buildExportFileContent(formattedInputs, exportMode);
 
         const firstChapter = validChunk[0];
         const lastChapter = validChunk[validChunk.length - 1];
