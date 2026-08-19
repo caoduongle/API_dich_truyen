@@ -379,10 +379,31 @@ export interface ModelUsageStats {
   tokensThisMinute?: number;
 }
 
+export interface LogicalSummaryStats {
+  logicalRequestsTotal: number;
+  logicalRequestsToday: number;
+  successfulRequestsTotal: number;
+  successfulRequestsToday: number;
+  failedRequestsTotal: number;
+  failedRequestsToday: number;
+  retriesTotal: number;
+  retriesToday: number;
+  providerAttemptsTotal: number;
+  providerAttemptsToday: number;
+  successfulAttemptsTotal: number;
+  successfulAttemptsToday: number;
+  failedAttemptsTotal: number;
+  failedAttemptsToday: number;
+  lastResetDay: string;
+}
+
 export interface KeyQuotaFullSnapshot {
   index: number;
   keyHash: string;
   maskedKey: string;
+  providerAttemptsTotal?: number;
+  providerAttemptsToday?: number;
+  providerAttemptsThisMinute?: number;
   requestsTotal: number;
   requestsToday: number;
   requestsThisMinute: number;
@@ -399,6 +420,7 @@ export interface QuotaStatusResponse {
   timestamp: string;
   timezone: string;
   currentDayPST: string;
+  summary?: LogicalSummaryStats;
   keys: KeyQuotaFullSnapshot[];
 }
 

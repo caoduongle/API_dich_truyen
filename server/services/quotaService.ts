@@ -64,12 +64,46 @@ interface InternalKeyStats {
   disabledReason?: string;
 }
 
+export interface LogicalSummaryStats {
+  logicalRequestsTotal: number;
+  logicalRequestsToday: number;
+  successfulRequestsTotal: number;
+  successfulRequestsToday: number;
+  failedRequestsTotal: number;
+  failedRequestsToday: number;
+  retriesTotal: number;
+  retriesToday: number;
+  providerAttemptsTotal: number;
+  providerAttemptsToday: number;
+  successfulAttemptsTotal: number;
+  successfulAttemptsToday: number;
+  failedAttemptsTotal: number;
+  failedAttemptsToday: number;
+  lastResetDay: string;
+}
+
+export interface ModelLogicalStats {
+  logicalRequestsTotal: number;
+  logicalRequestsToday: number;
+  successfulRequestsTotal: number;
+  successfulRequestsToday: number;
+  failedRequestsTotal: number;
+  failedRequestsToday: number;
+  retriesTotal: number;
+  retriesToday: number;
+  lastResetDay: string;
+}
+
 export interface KeyQuotaSnapshot {
   keyHash: string;
   maskedKey: string;
   healthState: KeyHealthState;
   circuitBreakerState: CircuitBreakerStatus;
   cooldownRemainingMs: number;
+  // Provider Attempt Metrics (Aliased with requestsTotal/requestsToday for compatibility)
+  providerAttemptsTotal: number;
+  providerAttemptsToday: number;
+  providerAttemptsThisMinute: number;
   requestsTotal: number;
   requestsToday: number;
   requestsThisMinute: number;
@@ -120,6 +154,24 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = 5 * 60 * 1000; // 5 phút
 
 class QuotaService {
   private keyStatsMap = new Map<string, InternalKeyStats>();
+  private logicalStats: LogicalSummaryStats = {
+    logicalRequestsTotal: 0,
+    logicalRequestsToday: 0,
+    successfulRequestsTotal: 0,
+    successfulRequestsToday: 0,
+    failedRequestsTotal: 0,
+    failedRequestsToday: 0,
+    retriesTotal: 0,
+    retriesToday: 0,
+    providerAttemptsTotal: 0,
+    providerAttemptsToday: 0,
+    successfulAttemptsTotal: 0,
+    successfulAttemptsToday: 0,
+    failedAttemptsTotal: 0,
+    failedAttemptsToday: 0,
+    lastResetDay: getDayInLosAngeles(),
+  };
+  private modelLogicalStatsMap = new Map<string, ModelLogicalStats>();
 
   private getOrCreateStats(key: string, timestamp: number = Date.now()): InternalKeyStats {
     const trimmedKey = key.trim();
@@ -484,6 +536,9 @@ class QuotaService {
           healthState: 'Healthy',
           circuitBreakerState: 'Closed',
           cooldownRemainingMs: 0,
+          providerAttemptsTotal: 0,
+          providerAttemptsToday: 0,
+          providerAttemptsThisMinute: 0,
           requestsTotal: 0,
           requestsToday: 0,
           requestsThisMinute: 0,
@@ -523,6 +578,9 @@ class QuotaService {
         healthState: health.state,
         circuitBreakerState: health.circuitBreaker,
         cooldownRemainingMs: health.cooldownRemainingMs,
+        providerAttemptsTotal: stats.requestsTotal,
+        providerAttemptsToday: requestsToday,
+        providerAttemptsThisMinute: requestsThisMinute,
         requestsTotal: stats.requestsTotal,
         requestsToday,
         requestsThisMinute,
@@ -538,10 +596,134 @@ class QuotaService {
   }
 
   /**
+   * Ghi nhận vòng đời của một yêu cầu dịch logic (Logical Translation Request)
+   * Tách biệt rõ ràng giữa số lần người dùng gửi yêu cầu và số lần gọi API thực tế (Provider Attempts/Retries)
+   */
+  public recordLogicalRequest(
+    modelName: string,
+    status: 'success' | 'failure',
+    attemptsCount: number = 1,
+    retriesCount: number = 0,
+    timestamp: number = Date.now()
+  ): void {
+    const currentDay = getDayInLosAngeles(timestamp);
+
+    // Kiểm tra reset ngày cho logicalStats
+    if (this.logicalStats.lastResetDay !== currentDay) {
+      this.logicalStats.logicalRequestsToday = 0;
+      this.logicalStats.successfulRequestsToday = 0;
+      this.logicalStats.failedRequestsToday = 0;
+      this.logicalStats.retriesToday = 0;
+      this.logicalStats.providerAttemptsToday = 0;
+      this.logicalStats.successfulAttemptsToday = 0;
+      this.logicalStats.failedAttemptsToday = 0;
+      this.logicalStats.lastResetDay = currentDay;
+    }
+
+    const safeAttempts = Math.max(1, attemptsCount);
+    const safeRetries = Math.max(0, retriesCount !== undefined ? retriesCount : safeAttempts - 1);
+
+    this.logicalStats.logicalRequestsTotal++;
+    this.logicalStats.logicalRequestsToday++;
+    this.logicalStats.retriesTotal += safeRetries;
+    this.logicalStats.retriesToday += safeRetries;
+    this.logicalStats.providerAttemptsTotal += safeAttempts;
+    this.logicalStats.providerAttemptsToday += safeAttempts;
+
+    if (status === 'success') {
+      this.logicalStats.successfulRequestsTotal++;
+      this.logicalStats.successfulRequestsToday++;
+      this.logicalStats.successfulAttemptsTotal += 1;
+      this.logicalStats.successfulAttemptsToday += 1;
+      this.logicalStats.failedAttemptsTotal += (safeAttempts - 1);
+      this.logicalStats.failedAttemptsToday += (safeAttempts - 1);
+    } else {
+      this.logicalStats.failedRequestsTotal++;
+      this.logicalStats.failedRequestsToday++;
+      this.logicalStats.failedAttemptsTotal += safeAttempts;
+      this.logicalStats.failedAttemptsToday += safeAttempts;
+    }
+
+    // Ghi nhận theo Model
+    const normalizedModel = modelName ? (modelName.startsWith('models/') ? modelName : `models/${modelName}`) : 'unknown';
+    let mStats = this.modelLogicalStatsMap.get(normalizedModel);
+    if (!mStats) {
+      mStats = {
+        logicalRequestsTotal: 0,
+        logicalRequestsToday: 0,
+        successfulRequestsTotal: 0,
+        successfulRequestsToday: 0,
+        failedRequestsTotal: 0,
+        failedRequestsToday: 0,
+        retriesTotal: 0,
+        retriesToday: 0,
+        lastResetDay: currentDay,
+      };
+      this.modelLogicalStatsMap.set(normalizedModel, mStats);
+    }
+
+    if (mStats.lastResetDay !== currentDay) {
+      mStats.logicalRequestsToday = 0;
+      mStats.successfulRequestsToday = 0;
+      mStats.failedRequestsToday = 0;
+      mStats.retriesToday = 0;
+      mStats.lastResetDay = currentDay;
+    }
+
+    mStats.logicalRequestsTotal++;
+    mStats.logicalRequestsToday++;
+    mStats.retriesTotal += safeRetries;
+    mStats.retriesToday += safeRetries;
+    if (status === 'success') {
+      mStats.successfulRequestsTotal++;
+      mStats.successfulRequestsToday++;
+    } else {
+      mStats.failedRequestsTotal++;
+      mStats.failedRequestsToday++;
+    }
+  }
+
+  /**
+   * Lấy thống kê tổng hợp toàn hệ thống (Logical & Provider Summary)
+   */
+  public getLogicalSummary(timestamp: number = Date.now()): LogicalSummaryStats {
+    const currentDay = getDayInLosAngeles(timestamp);
+    if (this.logicalStats.lastResetDay !== currentDay) {
+      this.logicalStats.logicalRequestsToday = 0;
+      this.logicalStats.successfulRequestsToday = 0;
+      this.logicalStats.failedRequestsToday = 0;
+      this.logicalStats.retriesToday = 0;
+      this.logicalStats.providerAttemptsToday = 0;
+      this.logicalStats.successfulAttemptsToday = 0;
+      this.logicalStats.failedAttemptsToday = 0;
+      this.logicalStats.lastResetDay = currentDay;
+    }
+    return { ...this.logicalStats };
+  }
+
+  /**
    * Reset toàn bộ dữ liệu in-memory (dùng cho testing)
    */
   public resetAll(): void {
     this.keyStatsMap.clear();
+    this.modelLogicalStatsMap.clear();
+    this.logicalStats = {
+      logicalRequestsTotal: 0,
+      logicalRequestsToday: 0,
+      successfulRequestsTotal: 0,
+      successfulRequestsToday: 0,
+      failedRequestsTotal: 0,
+      failedRequestsToday: 0,
+      retriesTotal: 0,
+      retriesToday: 0,
+      providerAttemptsTotal: 0,
+      providerAttemptsToday: 0,
+      successfulAttemptsTotal: 0,
+      successfulAttemptsToday: 0,
+      failedAttemptsTotal: 0,
+      failedAttemptsToday: 0,
+      lastResetDay: getDayInLosAngeles(),
+    };
   }
 }
 

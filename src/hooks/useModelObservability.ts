@@ -4,12 +4,14 @@ import {
   fetchModelsForKey, 
   KeyQuotaFullSnapshot, 
   ModelInfoItem,
-  QuotaStatusResponse
+  QuotaStatusResponse,
+  LogicalSummaryStats
 } from '../utils/apiClient';
 import { saveDiscoveredModels } from '../utils/modelRegistry';
 
 export interface ModelObservabilityState {
   snapshotKeys: KeyQuotaFullSnapshot[];
+  summary: LogicalSummaryStats | null;
   loadingQuota: boolean;
   quotaError: string | null;
   inspectResults: Record<number, ModelInfoItem[]>;
@@ -41,6 +43,7 @@ export function useModelObservability(
   onModelsDiscovered?: (models: ModelInfoItem[]) => void
 ): ModelObservabilityState {
   const [snapshotKeys, setSnapshotKeys] = useState<KeyQuotaFullSnapshot[]>([]);
+  const [summary, setSummary] = useState<LogicalSummaryStats | null>(null);
   const [loadingQuota, setLoadingQuota] = useState(false);
   const [quotaError, setQuotaError] = useState<string | null>(null);
 
@@ -64,25 +67,24 @@ export function useModelObservability(
     const currentClean = cleanKeysRef.current;
     if (currentClean.length === 0) {
       setSnapshotKeys([]);
+      setSummary(null);
       return;
     }
 
     const currentKeysKey = currentClean.join(',');
     const now = Date.now();
 
-    // Sử dụng cache 30s nếu không bắt buộc tải mới (forceRefresh = false)
-    if (
-      !forceRefresh &&
-      globalQuotaCache &&
-      globalQuotaCache.keysKey === currentKeysKey &&
-      now - globalQuotaCache.timestamp < QUOTA_CACHE_TTL_MS
-    ) {
-      const cached = globalQuotaCache.data;
-      setSnapshotKeys(cached.keys || []);
-      setTimezone(cached.timezone || 'America/Los_Angeles');
-      setCurrentDayPST(cached.currentDayPST || '');
-      setLastUpdated(new Date(globalQuotaCache.timestamp));
-      return;
+    if (!forceRefresh && globalQuotaCache && globalQuotaCache.keysKey === currentKeysKey) {
+      const isFresh = (now - globalQuotaCache.timestamp) < QUOTA_CACHE_TTL_MS;
+      if (isFresh) {
+        const cached = globalQuotaCache.data;
+        setSnapshotKeys(cached.keys || []);
+        setSummary(cached.summary || null);
+        setTimezone(cached.timezone || 'America/Los_Angeles');
+        setCurrentDayPST(cached.currentDayPST || '');
+        setLastUpdated(new Date(globalQuotaCache.timestamp));
+        return;
+      }
     }
 
     setLoadingQuota(true);
@@ -95,6 +97,7 @@ export function useModelObservability(
         keysKey: currentKeysKey,
       };
       setSnapshotKeys(data.keys || []);
+      setSummary(data.summary || null);
       setTimezone(data.timezone || 'America/Los_Angeles');
       setCurrentDayPST(data.currentDayPST || '');
       setLastUpdated(new Date(now));
@@ -140,6 +143,7 @@ export function useModelObservability(
 
   return {
     snapshotKeys,
+    summary,
     loadingQuota,
     quotaError,
     inspectResults,

@@ -310,6 +310,7 @@ export async function generateWithRotation(
     let lastError: any = null;
     const requestStartTime = Date.now();
     let outerPass = 0;
+    let totalProviderAttempts = 0;
 
     while (true) {
       let anyOverloadFailure = false;
@@ -352,6 +353,7 @@ export async function generateWithRotation(
 
         try {
           console.log(`[Rotation] Thử khóa ${i + 1}/${rawKeys.length} với model "${model}"`);
+          totalProviderAttempts++;
           const ai = new GoogleGenAI({
             apiKey: key,
             httpOptions: {
@@ -456,6 +458,11 @@ export async function generateWithRotation(
                 const jsonStart = rawText.search(/[\{\[]/); 
                 if (jsonStart > 0) rawText = rawText.substring(jsonStart);
               }
+
+              // Ghi nhận hoàn thành yêu cầu logic thành công
+              const retriesCount = Math.max(0, totalProviderAttempts - 1);
+              quotaService.recordLogicalRequest(model, 'success', totalProviderAttempts, retriesCount);
+
               return {
                 text: rawText,
                 successKeyIndex: i
@@ -463,6 +470,7 @@ export async function generateWithRotation(
             } catch (innerErr: any) {
               if (isOverloadError(innerErr) && overloadAttempt < MAX_OVERLOAD_RETRIES) {
                 overloadAttempt++;
+                totalProviderAttempts++;
                 quotaService.recordUsage(key, model, 'overloaded');
                 const retryDelay = OVERLOAD_BASE_DELAY_MS * Math.pow(2, overloadAttempt - 1) + Math.floor(Math.random() * 1000);
                 console.warn(`[Overload Retry] Model quá tải (503), thử lại key ${i + 1} lần ${overloadAttempt}/${MAX_OVERLOAD_RETRIES} sau ${retryDelay}ms...`);
@@ -484,6 +492,8 @@ export async function generateWithRotation(
 
           // Nếu là lỗi dừng ngay lập tức (Safety / Invalid / Model Unsupported)
           if (normalized.recommendedAction === 'fail_immediately') {
+            const retriesCount = Math.max(0, totalProviderAttempts - 1);
+            quotaService.recordLogicalRequest(model, 'failure', totalProviderAttempts, retriesCount);
             throw err;
           }
 
@@ -516,6 +526,9 @@ export async function generateWithRotation(
       console.warn(`[Overload Outer Retry] Toàn bộ ${rawKeys.length} khóa đều quá tải. Chờ ${outerDelay}ms (lần ${outerPass}/${MAX_OUTER_OVERLOAD_PASSES})...`);
       await sleep(outerDelay);
     }
+
+    const retriesCount = Math.max(0, totalProviderAttempts - 1);
+    quotaService.recordLogicalRequest(model, 'failure', totalProviderAttempts, retriesCount);
 
     const rawLastMsg = String(lastError?.message || lastError || "Không xác định");
     const sanitizedLastMsg = redactApiKey(rawLastMsg, rawKeys);

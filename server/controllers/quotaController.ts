@@ -25,10 +25,13 @@ export async function getQuotaStatusHandler(req: Request, res: Response): Promis
       };
     });
 
+    const summary = quotaService.getLogicalSummary();
+
     res.json({
       timestamp: new Date().toISOString(),
       timezone: 'America/Los_Angeles',
       currentDayPST: getDayInLosAngeles(),
+      summary,
       keys: keysWithRuntime,
     });
   } catch (err: any) {

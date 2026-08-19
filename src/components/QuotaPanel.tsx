@@ -251,7 +251,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
 
         {/* RPD Gauge */}
         <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPD Hôm nay (PST)</div>
+          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Lượt gọi API Hôm nay</div>
           <div className="text-sm font-mono font-bold text-text-main mt-0.5">
             {item.requestsToday} <span className="text-[10px] text-text-muted font-normal">/ {safeLimit.maxRpd}</span>
           </div>
@@ -489,6 +489,7 @@ export function QuotaPanel({
 
   const {
     snapshotKeys,
+    summary,
     loadingQuota: loading,
     quotaError: error,
     inspectResults,
@@ -682,14 +683,36 @@ export function QuotaPanel({
           );
         })()}
 
-        {/* 4 Metric Tiles for Currently Selected Model: RPM, TPM, Requests/Tokens Today, Total */}
+        {/* 4 Metric Tiles: Logical Translations, Provider Attempts, Retries, TPM */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
           <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPM Hiện tại (60s)</div>
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Yêu cầu dịch (Logical)</div>
             <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-              {modelSummary.requestsThisMinute}
+              {summary ? summary.logicalRequestsToday : modelSummary.requestsToday} <span className="text-[10px] text-text-muted font-normal">hôm nay</span>
             </div>
-            <div className="text-[9px] text-text-muted mt-0.5">Tất cả các key</div>
+            <div className="text-[9px] text-text-muted mt-0.5">
+              {summary ? `${summary.successfulRequestsTotal} thành công / ${summary.logicalRequestsTotal} tổng` : `${modelSummary.totalRequests} tổng`}
+            </div>
+          </div>
+
+          <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Lượt gọi API (Provider)</div>
+            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+              {summary ? summary.providerAttemptsToday : modelSummary.requestsToday} <span className="text-[10px] text-text-muted font-normal">lượt</span>
+            </div>
+            <div className="text-[9px] text-text-muted mt-0.5">
+              {summary ? `${summary.providerAttemptsTotal} tổng lượt gọi` : `${modelSummary.requestsThisMinute} RPM (60s)`}
+            </div>
+          </div>
+
+          <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Lượt thử lại (Retries)</div>
+            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+              {summary ? summary.retriesToday : modelSummary.errorsTotal} <span className="text-[10px] text-text-muted font-normal">lần</span>
+            </div>
+            <div className={`text-[9px] mt-0.5 ${summary && summary.retriesTotal > 0 ? 'text-amber-400 font-bold' : 'text-text-muted'}`}>
+              {summary ? `${summary.retriesTotal} tổng lần xoay key` : `${modelSummary.errorsTotal} lỗi`}
+            </div>
           </div>
 
           <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
@@ -699,24 +722,8 @@ export function QuotaPanel({
             <div className="text-sm font-mono font-bold text-text-main mt-0.5">
               {formatTokenCount(modelSummary.tokensThisMinute)}
             </div>
-            <div className="text-[9px] text-text-muted mt-0.5">Tokens / phút</div>
-          </div>
-
-          <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Hôm nay (PST)</div>
-            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-              {modelSummary.requestsToday} <span className="text-[10px] text-text-muted font-normal">reqs</span>
-            </div>
-            <div className="text-[9px] text-text-muted mt-0.5">{formatTokenCount(modelSummary.tokensToday)} tokens</div>
-          </div>
-
-          <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Lũy kế</div>
-            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-              {formatTokenCount(modelSummary.totalTokens)} <span className="text-[10px] text-text-muted font-normal">tokens</span>
-            </div>
-            <div className={`text-[9px] mt-0.5 ${modelSummary.errorsTotal > 0 ? 'text-polish font-bold' : 'text-text-muted'}`}>
-              {modelSummary.totalRequests} reqs • {modelSummary.errorsTotal} lỗi
+            <div className="text-[9px] text-text-muted mt-0.5">
+              {formatTokenCount(modelSummary.tokensToday)} hôm nay / {formatTokenCount(modelSummary.totalTokens)} tổng
             </div>
           </div>
         </div>
