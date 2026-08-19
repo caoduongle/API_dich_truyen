@@ -46,7 +46,8 @@ export async function getQuotaStatusHandler(req: Request, res: Response): Promis
 export async function getModelsForKeyHandler(req: Request, res: Response): Promise<void> {
   try {
     const apiKeys: string[] = Array.isArray(req.body?.apiKeys) ? req.body.apiKeys : [];
-    const { keyIndex } = req.body || {};
+    const { keyIndex, forceRefresh } = req.body || {};
+
 
     if (typeof keyIndex !== 'number' || keyIndex < 0 || keyIndex >= apiKeys.length) {
       res.status(400).json({
@@ -56,9 +57,11 @@ export async function getModelsForKeyHandler(req: Request, res: Response): Promi
     }
 
     const targetKey = apiKeys[keyIndex];
-    const result = await modelInfoService.listModelsForKey(targetKey);
+
+    const result = await modelInfoService.listModelsForKey(targetKey, Boolean(forceRefresh));
 
     res.json(result);
+
   } catch (err: any) {
     logger.error('[quotaController] Lỗi khi tra cứu model cho khóa:', err.message || err);
     res.status(500).json({

@@ -18,8 +18,12 @@ import {
   getDynamicPacingInterval,
   isTpmNearLimit,
   formatPacingSummary,
+  getModelDefinition,
+  migrateModelSelection,
 } from '../modelRegistry';
+import { DEFAULT_MODEL_ID } from '../../constants/models';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../apiClient';
+
 
 describe('modelRegistry utils', () => {
   let mockStorage: Record<string, string> = {};
@@ -398,4 +402,28 @@ describe('modelRegistry utils', () => {
       });
     });
   });
+
+  describe('Model Lifecycle & Migration Helpers', () => {
+    it('returns def correctly from getModelDefinition', () => {
+      const flash = getModelDefinition('gemini-2.5-flash');
+      expect(flash).toBeDefined();
+      expect(flash?.status).toBe('active');
+      expect(flash?.capabilities.generateContent).toBe(true);
+    });
+
+    it('migrates invalid or empty model string to DEFAULT_MODEL_ID', () => {
+      const res = migrateModelSelection('');
+      expect(res.wasMigrated).toBe(true);
+      expect(res.effectiveModelId).toBe(DEFAULT_MODEL_ID);
+    });
+
+    it('keeps active model unchanged without migration', () => {
+      const res = migrateModelSelection('gemini-2.5-flash');
+      expect(res.wasMigrated).toBe(false);
+      expect(res.isShutdown).toBe(false);
+      expect(res.isDeprecated).toBe(false);
+      expect(res.effectiveModelId).toBe('gemini-2.5-flash');
+    });
+  });
 });
+

@@ -8,10 +8,15 @@ import { createRateLimiter } from "./server/middleware/rateLimiter";
 import { metricsMiddleware } from "./server/middleware/metricsMiddleware";
 import { SERVER_CONFIG } from "@shared/constants";
 
+import { requestIdMiddleware } from "./server/middleware/tracingMiddleware";
+
 dotenv.config();
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
+
+// Gắn Request ID đầu tiên cho toàn bộ chuỗi middleware
+app.use(requestIdMiddleware);
 
 app.use(
   helmet({

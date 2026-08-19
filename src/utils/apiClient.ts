@@ -276,9 +276,13 @@ export async function apiFetch(
           headers.set('X-Custom-Rpm', String(parsed.customRpm));
         }
       }
+      if (parsed.idempotencyKey && !headers.has('Idempotency-Key')) {
+        headers.set('Idempotency-Key', String(parsed.idempotencyKey));
+      }
     } catch {
       // Keep original body if parsing fails
     }
+
   }
 
   // Đính kèm X-Custom-Rpm từ global store nếu header chưa có

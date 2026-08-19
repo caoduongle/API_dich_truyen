@@ -5,9 +5,10 @@ import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../components/NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
-import { apiFetch } from '../utils/apiClient';
 import { executeSingleChapterTranslation, SingleChapterResult } from '../services/chapterTranslationService';
-import { getDynamicPacingInterval } from '../utils/modelRegistry';
+import { getDynamicPacingInterval, isTpmNearLimit } from '../utils/modelRegistry';
+
+
 
 export interface UseTranslationProcessProps {
   activeProject: StoryProject;

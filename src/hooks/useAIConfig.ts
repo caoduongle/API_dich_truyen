@@ -11,8 +11,10 @@ import {
   removeCustomModel, 
   clearDiscoveredModels, 
   RegisteredModelDef,
-  normalizeModelId
+  normalizeModelId,
+  migrateModelSelection
 } from '../utils/modelRegistry';
+
 
 export function useAIConfig() {
     const { showToast } = useNotifications();
@@ -37,16 +39,17 @@ export function useAIConfig() {
     const [selectedModel, setSelectedModel] = useState<string>(() => {
         const stored = localStorage.getItem('gemini_selected_model');
         if (stored) {
-            const all = getRegisteredModels();
-            const normStored = normalizeModelId(stored);
-            if (all.some(m => normalizeModelId(m.id) === normStored)) {
-                return stored;
+            const migration = migrateModelSelection(stored);
+            if (migration.wasMigrated) {
+                localStorage.setItem('gemini_selected_model', migration.effectiveModelId);
             }
+            return migration.effectiveModelId;
         }
         return DEFAULT_MODEL_ID;
     });
 
     const [showApiSettings, setShowApiSettings] = useState(false);
+
 
     const [warningParagraphMismatch, setWarningParagraphMismatch] = useState<boolean>(() => {
         const stored = localStorage.getItem('warning_paragraph_mismatch');

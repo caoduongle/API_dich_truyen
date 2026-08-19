@@ -1,20 +1,13 @@
-import { AVAILABLE_MODELS } from '../constants/models';
+import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
 import { KeyQuotaFullSnapshot, ModelInfoItem, ModelUsageStats } from './apiClient';
+import type { ModelCapabilities, ModelDefinition, ModelLimits, ModelSource, ModelStatus } from '@shared/models';
 
 export const DISCOVERED_MODELS_STORAGE_KEY = 'gemini_discovered_models';
 export const CUSTOM_MODELS_STORAGE_KEY = 'gemini_custom_models';
 
-export type ModelSource = 'preset' | 'discovered' | 'custom';
+export type { ModelSource, ModelStatus, ModelCapabilities, ModelLimits, ModelDefinition };
 
-export interface RegisteredModelDef {
-  id: string;
-  label: string;
-  source: ModelSource;
-  description?: string;
-  inputTokenLimit?: number;
-  outputTokenLimit?: number;
-  addedAt?: string;
-}
+export interface RegisteredModelDef extends ModelDefinition {}
 
 export const MODEL_ID_REGEX = /^[a-zA-Z0-9_\-\.\/]{1,128}$/;
 
@@ -71,6 +64,13 @@ export function getPresetModels(): RegisteredModelDef[] {
     id: m.id,
     label: m.label,
     source: 'preset' as ModelSource,
+    status: m.status || 'active',
+    capabilities: m.capabilities || { generateContent: true },
+    limits: m.limits,
+    replacementId: m.replacementId,
+    description: m.description,
+    inputTokenLimit: m.inputTokenLimit,
+    outputTokenLimit: m.outputTokenLimit,
   }));
 }
 
@@ -83,7 +83,21 @@ export function getDiscoveredModels(): RegisteredModelDef[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.filter(m => m && typeof m.id === 'string' && isValidModelIdFormat(m.id));
+      return parsed
+        .filter(m => m && typeof m.id === 'string' && isValidModelIdFormat(m.id))
+        .map(m => ({
+          id: m.id,
+          label: m.label || m.id,
+          source: 'discovered' as ModelSource,
+          status: (m.status as ModelStatus) || 'active',
+          capabilities: m.capabilities || { generateContent: true },
+          limits: m.limits,
+          replacementId: m.replacementId,
+          description: m.description,
+          inputTokenLimit: m.inputTokenLimit,
+          outputTokenLimit: m.outputTokenLimit,
+          addedAt: m.addedAt,
+        }));
     }
     return [];
   } catch {
@@ -100,7 +114,21 @@ export function getCustomModels(): RegisteredModelDef[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.filter(m => m && typeof m.id === 'string' && isValidModelIdFormat(m.id));
+      return parsed
+        .filter(m => m && typeof m.id === 'string' && isValidModelIdFormat(m.id))
+        .map(m => ({
+          id: m.id,
+          label: m.label || m.id,
+          source: 'custom' as ModelSource,
+          status: (m.status as ModelStatus) || 'active',
+          capabilities: m.capabilities || { generateContent: true },
+          limits: m.limits,
+          replacementId: m.replacementId,
+          description: m.description,
+          inputTokenLimit: m.inputTokenLimit,
+          outputTokenLimit: m.outputTokenLimit,
+          addedAt: m.addedAt,
+        }));
     }
     return [];
   } catch {
@@ -149,6 +177,78 @@ export function getRegisteredModels(): RegisteredModelDef[] {
 }
 
 /**
+ * Tra cứu định nghĩa đầy đủ của một model theo ID
+ */
+export function getModelDefinition(modelId: string): RegisteredModelDef | undefined {
+  if (!modelId) return undefined;
+  const norm = normalizeModelId(modelId);
+  return getRegisteredModels().find(m => normalizeModelId(m.id) === norm);
+}
+
+/**
+ * Di chuyển an toàn (migration) khi model đã lưu bị deprecated hoặc shutdown
+ */
+export function migrateModelSelection(currentModelId: string): {
+  effectiveModelId: string;
+  wasMigrated: boolean;
+  isDeprecated: boolean;
+  isShutdown: boolean;
+  replacementId?: string;
+  reason?: string;
+} {
+  if (!currentModelId || !isValidModelIdFormat(currentModelId)) {
+    return {
+      effectiveModelId: DEFAULT_MODEL_ID,
+      wasMigrated: true,
+      isDeprecated: false,
+      isShutdown: false,
+      reason: 'Model không hợp lệ, tự động chuyển về model mặc định.',
+    };
+  }
+
+  const def = getModelDefinition(currentModelId);
+  if (!def) {
+    // Model không còn tồn tại trong registry
+    return {
+      effectiveModelId: currentModelId,
+      wasMigrated: false,
+      isDeprecated: false,
+      isShutdown: false,
+    };
+  }
+
+  if (def.status === 'shutdown') {
+    const target = def.replacementId || DEFAULT_MODEL_ID;
+    return {
+      effectiveModelId: target,
+      wasMigrated: true,
+      isDeprecated: false,
+      isShutdown: true,
+      replacementId: def.replacementId,
+      reason: `Mô hình "${def.label}" đã chính thức ngừng hoạt động (Shutdown). Tự động chuyển sang mô hình "${target}".`,
+    };
+  }
+
+  if (def.status === 'deprecated') {
+    return {
+      effectiveModelId: currentModelId,
+      wasMigrated: false,
+      isDeprecated: true,
+      isShutdown: false,
+      replacementId: def.replacementId,
+      reason: `Mô hình "${def.label}" sắp ngừng hoạt động (Deprecated). Khuyến nghị chuyển sang "${def.replacementId || 'mô hình mới hơn'}".`,
+    };
+  }
+
+  return {
+    effectiveModelId: currentModelId,
+    wasMigrated: false,
+    isDeprecated: false,
+    isShutdown: false,
+  };
+}
+
+/**
  * Lưu danh sách model khám phá từ API Key vào localStorage
  * Chỉ lưu các model có hỗ trợ sinh nội dung (generateContent) và chưa có trong Presets.
  */
@@ -171,8 +271,9 @@ export function saveDiscoveredModels(models: ModelInfoItem[]): RegisteredModelDe
     if (!item || !item.name) continue;
 
     // Lọc: nếu có supportedGenerationMethods thì kiểm tra có 'generateContent' không
+    let canGenerate = true;
     if (item.supportedGenerationMethods && Array.isArray(item.supportedGenerationMethods)) {
-      const canGenerate = item.supportedGenerationMethods.some(m => 
+      canGenerate = item.supportedGenerationMethods.some(m => 
         m.toLowerCase().includes('generatecontent')
       );
       if (!canGenerate) continue;
@@ -188,6 +289,12 @@ export function saveDiscoveredModels(models: ModelInfoItem[]): RegisteredModelDe
       id: cleanId,
       label: item.displayName ? `${item.displayName} (${cleanId})` : cleanId,
       source: 'discovered',
+      status: 'active',
+      capabilities: {
+        generateContent: canGenerate,
+        vision: true,
+        thinking: cleanId.toLowerCase().includes('thinking') || cleanId.toLowerCase().includes('2.5'),
+      },
       description: item.description,
       inputTokenLimit: item.inputTokenLimit,
       outputTokenLimit: item.outputTokenLimit,
@@ -238,6 +345,10 @@ export function addCustomModel(
     id: cleanId,
     label: label?.trim() || cleanId,
     source: 'custom',
+    status: 'active',
+    capabilities: {
+      generateContent: true,
+    },
     addedAt: new Date().toISOString(),
   };
 
@@ -309,9 +420,7 @@ export function formatTokenCount(tokens: number = 0): string {
 }
 
 /**
- * Tổng hợp số liệu thống kê sử dụng và mức độ khả dụng của một Model đang chọn từ:
- * 1. Dữ liệu Quota thời gian thực của máy chủ (snapshotKeys.byModel)
- * 2. Kết quả kiểm tra model thực tế của từng key (inspectResults)
+ * Tổng hợp số liệu thống kê sử dụng và mức độ khả dụng của một Model đang chọn
  */
 export function computeModelStatsSummary(
   selectedModelId: string,
@@ -367,7 +476,6 @@ export function computeModelStatsSummary(
   }
 
   const hasChecked = checkedKeyCount > 0;
-  // Cảnh báo không khả dụng nếu đã kiểm tra ít nhất 1 key và 0 key nào hỗ trợ
   const isUnavailable = hasChecked && availableKeyCount === 0;
 
   return {
@@ -451,20 +559,16 @@ export function checkKeySupportForModel(
 }
 
 export interface PacingConfig {
-  /** Khoảng cách an toàn giữa 2 request liên tiếp tính bằng mili-giây */
   intervalMs: number;
-  /** Tốc độ ước tính theo phút (Requests Per Minute) */
   estimatedRpm: number;
-  /** Chuỗi mô tả thời gian giãn cách (ví dụ: "1.1s" hoặc "4.5s") */
   intervalSec: string;
-  /** Có đang bật chế độ tối ưu hóa theo hạn mức cá nhân hay không */
   isCustom: boolean;
 }
 
 /**
  * Tính toán khoảng cách an toàn (mili-giây) giữa các request dựa trên RPM người dùng cấu hình
  * Hoặc fallback theo tier của model.
- * Sử dụng hệ số an toàn 0.88 và giới hạn sàn 500ms.
+ * Sử dụng hệ số an toàn 0.88 và giới hạn sàn 500ms trên client.
  */
 export function getDynamicPacingInterval(customRpm?: number, modelId?: string): number {
   if (typeof customRpm === 'number' && customRpm > 0) {

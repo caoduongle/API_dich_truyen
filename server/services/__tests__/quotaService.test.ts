@@ -209,4 +209,54 @@ describe('quotaService', () => {
       expect(snapshots[1].errorsTotal).toBe(1);
     });
   });
+
+  describe('KeyHealth State Machine & Candidate Scoring', () => {
+    const keyA = 'AIzaSyKeyCandidateA12345';
+    const keyB = 'AIzaSyKeyCandidateB67890';
+
+    it('should start in Healthy state and transition to Degraded and Open on consecutive errors', () => {
+      const initialHealth = quotaService.getKeyHealth(keyA);
+      expect(initialHealth.state).toBe('Healthy');
+      expect(initialHealth.circuitBreaker).toBe('Closed');
+      expect(initialHealth.isAvailable).toBe(true);
+
+      // 1 error -> Degraded
+      quotaService.recordUsage(keyA, 'gemini-2.5-flash', 'error');
+      expect(quotaService.getKeyHealth(keyA).state).toBe('Degraded');
+      expect(quotaService.getKeyHealth(keyA).consecutiveErrors).toBe(1);
+
+      // 3 consecutive errors -> Circuit Breaker Open
+      quotaService.recordUsage(keyA, 'gemini-2.5-flash', 'error');
+      quotaService.recordUsage(keyA, 'gemini-2.5-flash', 'error');
+      const healthAfter3 = quotaService.getKeyHealth(keyA);
+      expect(healthAfter3.circuitBreaker).toBe('Open');
+      expect(healthAfter3.state).toBe('Cooldown');
+      expect(healthAfter3.isAvailable).toBe(false);
+    });
+
+    it('should score healthy keys higher than keys with errors or high token consumption', () => {
+      const now = Date.now();
+      // Key A: perfectly healthy
+      quotaService.recordUsage(keyA, 'gemini-2.5-flash', 'success', now, {
+        promptTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150,
+      });
+
+      // Key B: consumed 800,000 tokens this minute
+      quotaService.recordUsage(keyB, 'gemini-2.5-flash', 'success', now, {
+        promptTokens: 400000,
+        outputTokens: 400000,
+        totalTokens: 800000,
+      });
+
+      const scoreA = quotaService.calculateKeyScore(keyA, 'gemini-2.5-flash', 2000, now);
+      const scoreB = quotaService.calculateKeyScore(keyB, 'gemini-2.5-flash', 2000, now);
+
+      expect(scoreA.isEligible).toBe(true);
+      expect(scoreB.isEligible).toBe(true);
+      expect(scoreA.score).toBeGreaterThan(scoreB.score);
+    });
+  });
 });
+

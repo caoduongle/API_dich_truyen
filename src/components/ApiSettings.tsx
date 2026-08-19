@@ -19,7 +19,9 @@ import {
   isValidModelIdFormat,
   formatTokenCount,
   formatPacingSummary,
+  getModelDefinition,
 } from '../utils/modelRegistry';
+
 
 interface ApiSettingsProps {
   apiKeys: string[];
@@ -45,6 +47,10 @@ function ModelSummaryCard({
   summary: ModelStatsSummary; 
   onInspectClick: () => void;
 }) {
+  const modelDef = getModelDefinition(summary.modelId);
+  const isDeprecated = modelDef?.status === 'deprecated';
+  const isShutdown = modelDef?.status === 'shutdown';
+
   let customRpm: number | undefined;
   try {
     const saved = localStorage.getItem('gemini_quota_custom_limits');
@@ -71,25 +77,58 @@ function ModelSummaryCard({
           </span>
         </div>
 
-        {summary.hasChecked ? (
-          summary.isUnavailable ? (
-            <Badge tone="warning" className="animate-pulse">
+        <div className="flex items-center gap-1.5">
+          {isDeprecated && (
+            <Badge tone="warning">
               <AlertTriangle className="w-3 h-3 text-amber-400" />
-              0 / {summary.totalKeys} key hỗ trợ
+              Sắp ngừng hỗ trợ (Deprecated)
             </Badge>
+          )}
+          {isShutdown && (
+            <Badge tone="danger">
+              <X className="w-3 h-3 text-red-400" />
+              Đã ngừng hoạt động (Shutdown)
+            </Badge>
+          )}
+          {summary.hasChecked ? (
+            summary.isUnavailable ? (
+              <Badge tone="warning" className="animate-pulse">
+                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                0 / {summary.totalKeys} key hỗ trợ
+              </Badge>
+            ) : (
+              <Badge tone="polish">
+                <CheckCircle2 className="w-3 h-3 text-polish" />
+                {summary.availableKeyCount} / {summary.totalKeys} key hỗ trợ
+              </Badge>
+            )
           ) : (
-            <Badge tone="polish">
-              <CheckCircle2 className="w-3 h-3 text-polish" />
-              {summary.availableKeyCount} / {summary.totalKeys} key hỗ trợ
+            <Badge tone="neutral">
+              <Clock className="w-3 h-3 text-text-muted" />
+              Chưa kiểm tra key
             </Badge>
-          )
-        ) : (
-          <Badge tone="neutral">
-            <Clock className="w-3 h-3 text-text-muted" />
-            Chưa kiểm tra key
-          </Badge>
-        )}
+          )}
+        </div>
       </div>
+
+      {isDeprecated && (
+        <div className="bg-amber-950/30 border border-amber-800/60 rounded-[2px] p-2.5 text-xs text-amber-300 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>Mô hình này sắp ngừng hỗ trợ. Khuyến nghị chuyển sang: <strong>{modelDef?.replacementId || 'model mới hơn'}</strong></span>
+          </div>
+        </div>
+      )}
+
+      {isShutdown && (
+        <div className="bg-red-950/30 border border-red-800/60 rounded-[2px] p-2.5 text-xs text-red-300 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <X className="w-3.5 h-3.5 text-red-400 shrink-0" />
+            <span>Mô hình này đã bị Google khai tử. Vui lòng chọn mô hình khác để tiếp tục dịch.</span>
+          </div>
+        </div>
+      )}
+
 
       {summary.isUnavailable && (
         <div className="bg-amber-950/30 border border-amber-800/60 rounded-[2px] p-2.5 text-xs text-amber-300 flex items-center justify-between gap-2 flex-wrap">

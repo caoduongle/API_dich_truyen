@@ -159,7 +159,10 @@ describe("Rate Limiter Middleware", () => {
       authLimiter(req, res, next);
       expect(next).toHaveBeenCalledTimes(10);
       expect(resStatus).toHaveBeenCalledWith(429);
-      expect(resJson).toHaveBeenCalledWith({ error: "Quá nhiều lần thử đăng nhập." });
+      expect(resJson).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "Quá nhiều lần thử đăng nhập." })
+      );
+
     });
 
     it("should use custom keyPrefix and windowMs in Redis mode", async () => {

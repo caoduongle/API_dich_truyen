@@ -29,12 +29,14 @@ import {
 } from "../controllers/quotaController";
 import { authMiddleware } from "../middleware/authMiddleware";
 import { createRateLimiter } from "../middleware/rateLimiter";
+import { idempotencyMiddleware } from "../middleware/idempotencyMiddleware";
 import { sessionStore } from "../services/sessionStore";
 import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models";
 import { metricsService } from "../services/metricsService";
 import { SERVER_CONFIG } from "@shared/constants";
 
 const router = Router();
+
 
 // --- Dedicated Auth Rate Limiter cho đăng nhập ---
 const authLoginRateLimiter = createRateLimiter({
@@ -180,9 +182,10 @@ router.post("/extract-glossary", extractCustomRpmMiddleware, validateModelMiddle
 router.post("/quick-translate-term", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, quickTranslateTerm);
 
 // --- Routes for Translation Tasks ---
-router.post("/translate-raw", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, translateRaw);
-router.post("/polish-translation", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, polishTranslation);
-router.post("/qa-critique", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, qaCritique);
+router.post("/translate-raw", idempotencyMiddleware, extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, translateRaw);
+router.post("/polish-translation", idempotencyMiddleware, extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, polishTranslation);
+router.post("/qa-critique", idempotencyMiddleware, extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, qaCritique);
+
 
 // --- Routes for Bilingual alignment ---
 router.post("/align-chapter", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, alignChapter);
