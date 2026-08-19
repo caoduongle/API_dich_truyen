@@ -46,7 +46,7 @@ export function LanguageSelector() {
         <div
           role="listbox"
           aria-label="Danh sách ngôn ngữ"
-          className="absolute right-0 mt-1 w-36 bg-parchment border border-parchment-2 rounded-[2px] shadow-xl z-50 py-1 animate-fadeIn"
+          className="absolute right-0 mt-1 w-36 bg-parchment border border-parchment-2 rounded-[2px] shadow-xl z-40 py-1 animate-fadeIn"
         >
           {supportedLocales.map((loc) => (
             <button
