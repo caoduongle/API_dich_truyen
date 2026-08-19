@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { sessionStore } from "../services/sessionStore";
-import { MAX_API_KEYS_PER_REQUEST } from "../constants/models";
+import { validateSessionKeysBody } from "../utils/validation";
 
 /**
  * POST /api/session-keys
@@ -8,33 +8,18 @@ import { MAX_API_KEYS_PER_REQUEST } from "../constants/models";
  */
 export async function createSessionHandler(req: Request, res: Response): Promise<void> {
   try {
+    const validation = validateSessionKeysBody(req.body);
+    if (!validation.valid) {
+      res.status(400).json({
+        error: validation.error,
+      });
+      return;
+    }
+
     const { apiKeys } = req.body;
-
-    if (!Array.isArray(apiKeys)) {
-      res.status(400).json({
-        error: "Trường 'apiKeys' phải là một mảng chuỗi.",
-      });
-      return;
-    }
-
-    if (apiKeys.length > MAX_API_KEYS_PER_REQUEST) {
-      res.status(400).json({
-        error: `Quá nhiều API key trong một phiên (tối đa ${MAX_API_KEYS_PER_REQUEST}).`,
-      });
-      return;
-    }
-
-    const cleanKeys = apiKeys
-      .filter((k): k is string => typeof k === "string")
+    const cleanKeys = (apiKeys as string[])
       .map((k) => k.trim())
       .filter(Boolean);
-
-    if (cleanKeys.length === 0) {
-      res.status(400).json({
-        error: "Danh sách API keys không được để trống.",
-      });
-      return;
-    }
 
     const result = await sessionStore.createSession(cleanKeys);
     res.status(200).json({

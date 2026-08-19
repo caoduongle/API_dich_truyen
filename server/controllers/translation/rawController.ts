@@ -1,9 +1,10 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService";
-import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody } from "../../utils/text";
+import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody, sanitizePromptInput } from "../../utils/text";
 import { translationChunkCache } from "../../utils/chunkCache";
 import { validateAndSnapBackEntities, findCanonicalSubstring } from "@shared/sinoNormalize";
+import { validateTranslateRawBody } from "../../utils/validation";
 
 /**
  * Gọi trực tiếp tác vụ dịch thô Giai đoạn 1 từ Gemini API
@@ -28,7 +29,7 @@ export async function callRawTranslationDirect(
   }
 
   // Pre-substitution: thay thế cứng từ điển vào source text trước khi dịch
-  let substitutedText = text;
+  let substitutedText = sanitizePromptInput(text);
   if (Array.isArray(glossary) && glossary.length > 0) {
     const glossaryMap = new Map<string, string>();
     const terms: string[] = [];
@@ -403,11 +404,13 @@ export async function translateRawWithContentSplit(
  */
 export async function translateRaw(req: Request, res: Response): Promise<void> {
   try {
-    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
-    if (!text || typeof text !== "string") {
-      res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
+    const validation = validateTranslateRawBody(req.body);
+    if (!validation.valid) {
+      res.status(400).json({ error: validation.error });
       return;
     }
+
+    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
 
     const { rawTranslation, discoveredEntities, successKeyIndex, isPartial } = await translateRawWithContentSplit(
         text,

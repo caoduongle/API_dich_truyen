@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { metricsService } from '../services/metricsService';
-import { Logger } from '../utils/logger';
+import { Logger, sanitizeSecretString } from '../utils/logger';
 
 const httpLogger = new Logger('HTTP');
 
@@ -15,25 +15,27 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
   res.on('finish', () => {
     const durationMs = Date.now() - start;
     const { statusCode } = res;
+    const sanitizedUrl = sanitizeSecretString(originalUrl);
+    const routePath = originalUrl.split('?')[0];
 
-    // Ghi nhận metrics
-    metricsService.recordRequest(method, originalUrl, statusCode, durationMs);
+    // Ghi nhận metrics theo route path (không gom lẫn query params bí mật)
+    metricsService.recordRequest(method, routePath, statusCode, durationMs);
 
-    // Ghi structured log
+    // Ghi structured log đã che giấu secrets
     const meta = {
       method,
-      url: originalUrl,
+      url: sanitizedUrl,
       status: statusCode,
       durationMs,
       ip,
     };
 
     if (statusCode >= 500) {
-      httpLogger.error(`${method} ${originalUrl} ${statusCode} - ${durationMs}ms`, meta);
+      httpLogger.error(`${method} ${sanitizedUrl} ${statusCode} - ${durationMs}ms`, meta);
     } else if (statusCode >= 400) {
-      httpLogger.warn(`${method} ${originalUrl} ${statusCode} - ${durationMs}ms`, meta);
+      httpLogger.warn(`${method} ${sanitizedUrl} ${statusCode} - ${durationMs}ms`, meta);
     } else {
-      httpLogger.info(`${method} ${originalUrl} ${statusCode} - ${durationMs}ms`, meta);
+      httpLogger.info(`${method} ${sanitizedUrl} ${statusCode} - ${durationMs}ms`, meta);
     }
   });
 

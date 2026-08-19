@@ -1,20 +1,21 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation } from "../services/geminiService";
-import { safeParseJson, LITERARY_TRANSLATION_FRAMING } from "../utils/text";
+import { safeParseJson, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../utils/text";
+import { validateAlignmentBody } from "../utils/validation";
 
 // 4. API: Gióng hàng đối sọc dữ liệu song ngữ xuất bản học liệu JSONL Fine-tuning
 export async function alignChapter(req: Request, res: Response): Promise<void> {
   try {
-    const { sourceText, translatedText, apiKeys, model, startKeyIndex = 0 } = req.body;
-    if (!sourceText || typeof sourceText !== "string") {
-      res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
+    const validation = validateAlignmentBody(req.body);
+    if (!validation.valid) {
+      res.status(400).json({ error: validation.error });
       return;
     }
-    if (!translatedText || typeof translatedText !== "string") {
-      res.status(400).json({ error: "Văn bản dịch không hợp lệ." });
-      return;
-    }
+
+    const { sourceText: rawSource, translatedText: rawTranslated, apiKeys, model, startKeyIndex = 0 } = req.body;
+    const sourceText = sanitizePromptInput(rawSource);
+    const translatedText = sanitizePromptInput(rawTranslated);
 
     const systemInstruction =
         LITERARY_TRANSLATION_FRAMING +

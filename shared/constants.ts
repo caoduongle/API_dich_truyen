@@ -13,6 +13,10 @@ export const SERVER_CONFIG = {
   RATE_LIMIT_WINDOW_MS: 60 * 1000,
   /** Số request tối đa cho phép trong mỗi cửa sổ rate limit trên một IP */
   RATE_LIMIT_MAX_REQUESTS: 60,
+  /** Cửa sổ thời gian tính rate limit riêng cho đăng nhập (15 phút) */
+  AUTH_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
+  /** Số lần thử đăng nhập tối đa cho phép trong mỗi cửa sổ trên một IP (10 lần / 15 phút) */
+  AUTH_RATE_LIMIT_MAX_REQUESTS: 10,
 } as const;
 
 // --- CẤU HÌNH DỊCH THUẬT & TRÍ TUỆ NHÂN TẠO (AI SERVICE CONFIG) ---

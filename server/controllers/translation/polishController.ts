@@ -1,10 +1,11 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService";
-import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody } from "../../utils/text";
+import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody, sanitizePromptInput } from "../../utils/text";
 import { translationChunkCache } from "../../utils/chunkCache";
 import { checkLeftoverGlossary } from "../glossaryController";
 import { isHanEquivalent } from "@shared/sinoNormalize";
+import { validatePolishBody } from "../../utils/validation";
 
 /**
  * Gọi trực tiếp tác vụ chuốt văn phong văn học Giai đoạn 2
@@ -28,7 +29,8 @@ export async function callPolishDirect(
         .join("\n");
   }
 
-  let substitutedSourceText = sourceText || "";
+  let substitutedSourceText = sanitizePromptInput(sourceText || "");
+  const cleanRawTranslation = sanitizePromptInput(rawTranslation);
   const matchedTermsList: string[] = [];
   let totalMatchOccurrences = 0;
   if (Array.isArray(glossary) && glossary.length > 0) {
@@ -117,7 +119,7 @@ ${matchedSummarySection}
 ${substitutedSourceText}
 
 --- BẢN DỊCH THÔ GIAI ĐOẠN 1 (ĐỂ BIÊN TẬP VÀ CHUỐT MỊN) ---
-${rawTranslation}`;
+${cleanRawTranslation}`;
 
   const schema = {
     type: Type.OBJECT,
@@ -389,11 +391,13 @@ export async function polishWithContentSplit(
  */
 export async function polishTranslation(req: Request, res: Response): Promise<void> {
   try {
-    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
-    if (!rawTranslation || typeof rawTranslation !== "string") {
-      res.status(400).json({ error: "Bản dịch thô không hợp lệ." });
+    const validation = validatePolishBody(req.body);
+    if (!validation.valid) {
+      res.status(400).json({ error: validation.error });
       return;
     }
+
+    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
 
     let newlyDiscoveredDuringPolish: any[] = [];
     let keyIndexAfterCheck = startKeyIndex;

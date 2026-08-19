@@ -2,9 +2,17 @@ import { Request, Response, NextFunction } from "express";
 import Redis from "ioredis";
 import { SERVER_CONFIG } from "@shared/constants";
 
-const { RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_REQUESTS } = SERVER_CONFIG;
+export interface RateLimiterOptions {
+  windowMs?: number;
+  maxRequests?: number;
+  keyPrefix?: string;
+  message?: string;
+}
 
-export function createRateLimiter() {
+export function createRateLimiter(options?: RateLimiterOptions) {
+  const windowMs = options?.windowMs ?? SERVER_CONFIG.RATE_LIMIT_WINDOW_MS;
+  const maxRequests = options?.maxRequests ?? SERVER_CONFIG.RATE_LIMIT_MAX_REQUESTS;
+  const keyPrefix = options?.keyPrefix ?? "ratelimit:";
   const redisUrl = process.env.REDIS_URL;
 
   if (redisUrl) {
@@ -20,15 +28,16 @@ export function createRateLimiter() {
 
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      const key = `ratelimit:${ip}`;
+      const key = `${keyPrefix}${ip}`;
       try {
-        const evalResult = await redisClient.eval(LUA_SCRIPT, 1, key, RATE_LIMIT_WINDOW_MS);
+        const evalResult = await redisClient.eval(LUA_SCRIPT, 1, key, windowMs);
         const [count, pttl] = evalResult as [number, number];
-        
-        if (count > RATE_LIMIT_MAX_REQUESTS) {
+
+        if (count > maxRequests) {
           const remainingSeconds = Math.ceil(Math.max(0, pttl) / 1000);
+          const errorMsg = options?.message || `Quá nhiều yêu cầu. Vui lòng chờ ${remainingSeconds} giây rồi thử lại.`;
           res.status(429).json({
-            error: `Quá nhiều yêu cầu. Vui lòng chờ ${remainingSeconds} giây rồi thử lại.`
+            error: errorMsg
           });
           return;
         }
@@ -62,15 +71,17 @@ export function createRateLimiter() {
 
       const existing = ipRequestCounts.get(ip);
       if (!existing || now > existing.resetTime) {
-        ipRequestCounts.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+        ipRequestCounts.set(ip, { count: 1, resetTime: now + windowMs });
         next();
         return;
       }
 
       existing.count++;
-      if (existing.count > RATE_LIMIT_MAX_REQUESTS) {
+      if (existing.count > maxRequests) {
+        const remainingSeconds = Math.ceil((existing.resetTime - now) / 1000);
+        const errorMsg = options?.message || `Quá nhiều yêu cầu. Vui lòng chờ ${remainingSeconds} giây rồi thử lại.`;
         res.status(429).json({
-          error: `Quá nhiều yêu cầu. Vui lòng chờ ${Math.ceil((existing.resetTime - now) / 1000)} giây rồi thử lại.`
+          error: errorMsg
         });
         return;
       }

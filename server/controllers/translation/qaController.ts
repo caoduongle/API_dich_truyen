@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation } from "../../services/geminiService";
-import { safeParseJson, LITERARY_TRANSLATION_FRAMING } from "../../utils/text";
+import { safeParseJson, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../../utils/text";
 
 /**
  * POST /api/qa-critique
@@ -9,15 +9,21 @@ import { safeParseJson, LITERARY_TRANSLATION_FRAMING } from "../../utils/text";
  */
 export async function qaCritique(req: Request, res: Response): Promise<void> {
   try {
-    const { sourceText, translatedText, apiKeys, model, startKeyIndex = 0 } = req.body;
-    if (!sourceText || typeof sourceText !== "string") {
-      res.status(400).json({ error: "Văn bản gốc không hợp lệ." });
+    const rawSource = req.body.sourceText || req.body.rawTranslation;
+    const rawTranslated = req.body.translatedText || req.body.polishedTranslation;
+
+    if (!rawSource || typeof rawSource !== "string" || rawSource.trim().length === 0) {
+      res.status(400).json({ error: "Văn bản gốc không hợp lệ hoặc đang để trống." });
       return;
     }
-    if (!translatedText || typeof translatedText !== "string") {
-      res.status(400).json({ error: "Bản dịch không hợp lệ." });
+    if (!rawTranslated || typeof rawTranslated !== "string" || rawTranslated.trim().length === 0) {
+      res.status(400).json({ error: "Bản dịch không hợp lệ hoặc đang để trống." });
       return;
     }
+
+    const sourceText = sanitizePromptInput(rawSource);
+    const translatedText = sanitizePromptInput(rawTranslated);
+    const { apiKeys, model, startKeyIndex = 0 } = req.body;
 
     const systemInstruction =
         LITERARY_TRANSLATION_FRAMING +

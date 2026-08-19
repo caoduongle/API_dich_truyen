@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { authStore } from "../services/authStore";
+import { validateLoginBody } from "../utils/validation";
 
 /**
  * GET /api/auth/status
@@ -51,8 +52,6 @@ export async function getAuthStatusHandler(req: Request, res: Response): Promise
  */
 export async function loginHandler(req: Request, res: Response): Promise<void> {
   try {
-    const { password } = req.body || {};
-
     if (!authStore.isAuthRequired()) {
       res.status(200).json({
         success: true,
@@ -62,12 +61,15 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    if (!password || typeof password !== "string") {
+    const validation = validateLoginBody(req.body);
+    if (!validation.valid) {
       res.status(400).json({
-        error: "Vui lòng cung cấp mật khẩu truy cập máy chủ.",
+        error: validation.error,
       });
       return;
     }
+
+    const { password } = req.body;
 
     const isValid = authStore.validatePassword(password);
     if (!isValid) {

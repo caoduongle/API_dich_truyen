@@ -67,8 +67,20 @@ class SessionStore {
   async getActiveSessionCount(): Promise<number> {
     if (this.redisClient) {
       try {
-        const keys = await this.redisClient.keys("session:*");
-        return keys.length;
+        let cursor = "0";
+        let count = 0;
+        do {
+          const [nextCursor, keys] = await this.redisClient.scan(
+            cursor,
+            "MATCH",
+            `${SESSION_PREFIX}*`,
+            "COUNT",
+            100
+          );
+          cursor = nextCursor;
+          count += keys.length;
+        } while (cursor !== "0");
+        return count;
       } catch (_) {
         return 0;
       }

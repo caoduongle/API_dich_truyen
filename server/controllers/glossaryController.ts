@@ -1,12 +1,13 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError, SafetyFilterError } from "../services/geminiService";
-import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, LITERARY_TRANSLATION_FRAMING } from "../utils/text";
+import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../utils/text";
 import { translationChunkCache } from "../utils/chunkCache";
 import { parseGlossaryFromMd } from "../utils/parser";
 import { validateAndSnapBackEntities, isHanEquivalent } from "@shared/sinoNormalize";
 import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts";
 import { GLOSSARY_LIMITS } from "@shared/constants";
+import { validateGlossaryTextBody, validateGuidelinesBody, validateQuickTranslateTermBody } from "../utils/validation";
 
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
 
@@ -33,11 +34,12 @@ export async function checkLeftoverGlossary(
         "Lưu ý: Chỉ trích xuất từ bị sót CHƯA CÓ trong bảng từ điển được cung cấp. Nếu không bị sót từ nào, hãy trả về danh sách trống.\n" +
         buildEntityExtractionInstruction('checkLeftover');
 
+    const cleanSourceText = sanitizePromptInput(sourceText);
     const prompt = `--- TỪ ĐIỂN ĐÃ CÓ (ĐÃ ĐƯỢC THIẾT LẬP) ---
 ${glossaryStr}
 
 --- VĂN BẢN TIẾNG TRUNG GỐC CẦN RÀ SOÁT ---
-${sourceText}
+${cleanSourceText}
 
 Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào bị sót không.`;
 
@@ -264,11 +266,14 @@ async function analyzeGlossaryWithContentSplit(
 // 1. API: Phân tích trích xuất gợi ý thuật ngữ từ văn bản thô
 export async function analyzeGlossary(req: Request, res: Response): Promise<void> {
   try {
-    const { text, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
-    if (!text || typeof text !== "string") {
-      res.status(400).json({ error: "Văn bản tiếng Trung không hợp lệ." });
+    const validation = validateGlossaryTextBody(req.body);
+    if (!validation.valid) {
+      res.status(400).json({ error: validation.error });
       return;
     }
+
+    const { apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
+    const text = sanitizePromptInput(req.body.text);
 
     const chunks = splitTextIntoChunks(text, MAX_CHARS_FOR_GLOSSARY_ANALYSIS);
     const chunksToProcess = chunks.slice(0, MAX_CHUNKS_TO_ANALYZE);
@@ -354,11 +359,14 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
 // API: Phân tích cẩm nang Markdown (.md) để cập nhật bối cảnh truyện
 export async function analyzeGuidelines(req: Request, res: Response): Promise<void> {
   try {
-    const { text, apiKeys, model, startKeyIndex = 0 } = req.body;
-    if (!text || typeof text !== "string") {
-      res.status(400).json({ error: "Văn bản hướng dẫn không hợp lệ." });
+    const rawContent = req.body.text || req.body.content;
+    if (!rawContent || typeof rawContent !== "string" || rawContent.trim().length === 0) {
+      res.status(400).json({ error: "Nội dung cẩm nang không hợp lệ hoặc đang để trống." });
       return;
     }
+
+    const text = sanitizePromptInput(rawContent);
+    const { apiKeys, model, startKeyIndex = 0 } = req.body;
 
     const parsedGlossary = parseGlossaryFromMd(text);
     console.log(`[analyze-guidelines] Regex parse: ${parsedGlossary.length} thuật ngữ.`);
@@ -367,6 +375,7 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
     const isGuidelinesTruncated = text.length > MAX_CHARS_FOR_GUIDELINES_ANALYSIS;
 
     const systemInstruction =
+        LITERARY_TRANSLATION_FRAMING +
         "Bạn là trợ lý dịch thuật AI lão luyện chuyên phân tích cẩm nang dịch thuật.\n" +
         "Nhiệm vụ: Đọc phần hướng dẫn phong cách dịch và xác định:\n" +
         "1. Thể loại truyện (genre)\n" +
@@ -426,11 +435,14 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
 // API: Trích xuất nhanh thuật ngữ (Tương thích với AutoTranslator)
 export async function extractGlossary(req: Request, res: Response): Promise<void> {
   try {
-    const { text, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
-    if (!text || typeof text !== "string") {
-      res.status(400).json({ error: "Văn bản không hợp lệ." });
+    const validation = validateGlossaryTextBody(req.body);
+    if (!validation.valid) {
+      res.status(400).json({ error: validation.error });
       return;
     }
+
+    const { apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId } = req.body;
+    const text = sanitizePromptInput(req.body.text);
 
     const systemInstruction =
         LITERARY_TRANSLATION_FRAMING +
@@ -487,11 +499,15 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
 // API: Dịch nhanh cụm từ bôi đen với ngữ cảnh
 export async function quickTranslateTerm(req: Request, res: Response): Promise<void> {
   try {
-    const { term, contextText, apiKeys, model, startKeyIndex = 0 } = req.body;
-    if (!term || typeof term !== "string" || !term.trim()) {
-      res.status(400).json({ error: "Thuật ngữ bôi đen không hợp lệ." });
+    const validation = validateQuickTranslateTermBody(req.body);
+    if (!validation.valid) {
+      res.status(400).json({ error: validation.error });
       return;
     }
+
+    const { apiKeys, model, startKeyIndex = 0 } = req.body;
+    const term = sanitizePromptInput(req.body.term);
+    const contextText = sanitizePromptInput(req.body.contextText || "");
 
     const systemInstruction =
         LITERARY_TRANSLATION_FRAMING +

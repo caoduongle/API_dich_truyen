@@ -24,11 +24,21 @@ import {
   logoutHandler
 } from "../controllers/authController";
 import { authMiddleware } from "../middleware/authMiddleware";
+import { createRateLimiter } from "../middleware/rateLimiter";
 import { sessionStore } from "../services/sessionStore";
 import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models";
 import { metricsService } from "../services/metricsService";
+import { SERVER_CONFIG } from "@shared/constants";
 
 const router = Router();
+
+// --- Dedicated Auth Rate Limiter cho đăng nhập ---
+const authLoginRateLimiter = createRateLimiter({
+  windowMs: SERVER_CONFIG.AUTH_RATE_LIMIT_WINDOW_MS,
+  maxRequests: SERVER_CONFIG.AUTH_RATE_LIMIT_MAX_REQUESTS,
+  keyPrefix: "ratelimit:login:",
+  message: "Quá nhiều lần thử đăng nhập không thành công. Vui lòng chờ 15 phút rồi thử lại."
+});
 
 // --- MIDDLEWARE: Xác thực quyền truy cập API (Authentication) ---
 // Nếu máy chủ có cấu hình ACCESS_PASSWORD, yêu cầu X-Auth-Token hợp lệ
@@ -36,7 +46,7 @@ router.use(authMiddleware);
 
 // --- Auth Endpoints ---
 router.get("/auth/status", getAuthStatusHandler);
-router.post("/auth/login", loginHandler);
+router.post("/auth/login", authLoginRateLimiter, loginHandler);
 router.post("/auth/logout", logoutHandler);
 
 // --- MIDDLEWARE: Kiểm tra model hợp lệ ---

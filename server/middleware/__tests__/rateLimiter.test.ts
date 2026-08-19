@@ -132,4 +132,60 @@ describe("Rate Limiter Middleware", () => {
       expect(next).toHaveBeenCalled();
     });
   });
+
+  describe("Custom Options & Dedicated Auth Rate Limiting", () => {
+    it("should enforce custom maxRequests and windowMs in in-memory mode", () => {
+      delete process.env.REDIS_URL;
+      const authLimiter = createRateLimiter({
+        windowMs: 15 * 60 * 1000,
+        maxRequests: 10,
+        keyPrefix: "ratelimit:login:",
+        message: "Quá nhiều lần thử đăng nhập."
+      });
+
+      const req = { ip: "9.9.9.9", socket: {} } as unknown as Request;
+      const resJson = vi.fn();
+      const resStatus = vi.fn().mockReturnValue({ json: resJson });
+      const res = { status: resStatus } as unknown as Response;
+      const next = vi.fn();
+
+      // First 10 requests should pass
+      for (let i = 0; i < 10; i++) {
+        authLimiter(req, res, next);
+      }
+      expect(next).toHaveBeenCalledTimes(10);
+
+      // 11th request should be blocked with 429
+      authLimiter(req, res, next);
+      expect(next).toHaveBeenCalledTimes(10);
+      expect(resStatus).toHaveBeenCalledWith(429);
+      expect(resJson).toHaveBeenCalledWith({ error: "Quá nhiều lần thử đăng nhập." });
+    });
+
+    it("should use custom keyPrefix and windowMs in Redis mode", async () => {
+      process.env.REDIS_URL = "redis://localhost:6379";
+      const authLimiter = createRateLimiter({
+        windowMs: 900000,
+        maxRequests: 10,
+        keyPrefix: "ratelimit:login:"
+      });
+
+      const req = { ip: "9.9.9.9", socket: {} } as unknown as Request;
+      const res = { status: vi.fn().mockReturnValue({ json: vi.fn() }) } as unknown as Response;
+      const next = vi.fn();
+
+      mockEval.mockResolvedValue([1, 900000]);
+
+      await authLimiter(req, res, next);
+
+      expect(mockEval).toHaveBeenCalledWith(
+        expect.any(String),
+        1,
+        "ratelimit:login:9.9.9.9",
+        900000
+      );
+      expect(next).toHaveBeenCalled();
+    });
+  });
 });
+

@@ -17,11 +17,38 @@ const CURRENT_LOG_LEVEL: LogLevel =
   (process.env.LOG_LEVEL as LogLevel) ||
   (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
 
-function sanitizeValue(val: any): any {
+/**
+ * Làm sạch chuỗi tự do (URL, query string, message, error stack),
+ * che giấu tất cả các token, API key, password, secret, Bearer auth.
+ */
+export function sanitizeSecretString(str: string): string {
+  if (!str || typeof str !== 'string') return str;
+
+  let sanitized = str;
+
+  // 1. Che giấu Google Gemini API keys: AIzaSy...
+  sanitized = sanitized.replace(/AIza[0-9A-Za-z-_]{35}/g, 'AIza***[REDACTED]');
+
+  // 2. Che giấu token / key / password trong query strings hoặc gán key-value:
+  // Khớp: ?token=..., &token=..., token=..., apiKey=..., access_token=..., password=..., secret=...
+  sanitized = sanitized.replace(
+    /((?:[?&]|\b)(?:token|apikey|api_key|password|secret|key|access_token)=)([^&\s"'`]+)/gi,
+    '$1[REDACTED]'
+  );
+
+  // 3. Che giấu Bearer tokens trong header Authorization hoặc log message
+  sanitized = sanitized.replace(
+    /(Bearer\s+)[A-Za-z0-9\-._~+/]+=*/gi,
+    '$1[REDACTED]'
+  );
+
+  return sanitized;
+}
+
+export function sanitizeValue(val: any): any {
   if (!val) return val;
   if (typeof val === 'string') {
-    // Ẩn API keys AIza...
-    return val.replace(/AIza[0-9A-Za-z-_]{35}/g, 'AIza***[REDACTED]');
+    return sanitizeSecretString(val);
   }
   if (Array.isArray(val)) {
     return val.map(sanitizeValue);
@@ -29,7 +56,7 @@ function sanitizeValue(val: any): any {
   if (typeof val === 'object') {
     const clean: Record<string, any> = {};
     for (const [k, v] of Object.entries(val)) {
-      if (/password|secret|apikey|key|token/i.test(k) && typeof v === 'string') {
+      if (/(?:password|secret|apikey|api_key|token|authorization|^key$|[_-]key$)/i.test(k) && typeof v === 'string') {
         clean[k] = v.length > 8 ? `${v.slice(0, 4)}...[REDACTED]` : '***';
       } else {
         clean[k] = sanitizeValue(v);
@@ -55,13 +82,14 @@ export class Logger {
     if (!this.shouldLog(level)) return;
 
     const timestamp = new Date().toISOString();
+    const sanitizedMessage = sanitizeSecretString(message);
     const sanitizedMeta = meta ? sanitizeValue(meta) : undefined;
 
     const logEntry = {
       timestamp,
       level,
       context: this.context,
-      message,
+      message: sanitizedMessage,
       ...(sanitizedMeta !== undefined && { meta: sanitizedMeta }),
     };
 
@@ -85,7 +113,7 @@ export class Logger {
         level === 'debug' ? '\x1b[36m' : '\x1b[32m';
       const reset = '\x1b[0m';
       const metaStr = sanitizedMeta ? ` ${JSON.stringify(sanitizedMeta)}` : '';
-      const output = `${color}[${timestamp}] [${level.toUpperCase()}] [${this.context}]${reset} ${message}${metaStr}`;
+      const output = `${color}[${timestamp}] [${level.toUpperCase()}] [${this.context}]${reset} ${sanitizedMessage}${metaStr}`;
 
       if (level === 'error') {
         console.error(output);

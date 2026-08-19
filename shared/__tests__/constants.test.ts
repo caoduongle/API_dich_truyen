@@ -13,6 +13,8 @@ describe('Shared Constants System', () => {
     expect(SERVER_CONFIG.DEFAULT_PORT).toBe(3000);
     expect(SERVER_CONFIG.RATE_LIMIT_WINDOW_MS).toBe(60000);
     expect(SERVER_CONFIG.RATE_LIMIT_MAX_REQUESTS).toBe(60);
+    expect(SERVER_CONFIG.AUTH_RATE_LIMIT_WINDOW_MS).toBe(15 * 60 * 1000);
+    expect(SERVER_CONFIG.AUTH_RATE_LIMIT_MAX_REQUESTS).toBe(10);
   });
 
   it('defines valid AI service configurations', () => {

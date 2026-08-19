@@ -39,11 +39,20 @@ describe("Session Controller & Session Store", () => {
     });
 
     it("should reject empty apiKeys array with 400", async () => {
-      req.body = { apiKeys: ["", "   "] };
+      req.body = { apiKeys: [] };
       await createSessionHandler(req as Request, res as Response);
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith(
         expect.objectContaining({ error: expect.stringContaining("không được để trống") })
+      );
+    });
+
+    it("should reject blank apiKeys entries with 400", async () => {
+      req.body = { apiKeys: ["", "   "] };
+      await createSessionHandler(req as Request, res as Response);
+      expect(statusMock).toHaveBeenCalledWith(400);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining("không hợp lệ") })
       );
     });
 
@@ -119,4 +128,31 @@ describe("Session Controller & Session Store", () => {
       expect(keysAfter).toBeNull();
     });
   });
+
+  describe("getActiveSessionCount", () => {
+    it("should count active sessions accurately in memory mode", async () => {
+      expect(await sessionStore.getActiveSessionCount()).toBe(0);
+      await sessionStore.createSession(["KeyA"]);
+      await sessionStore.createSession(["KeyB", "KeyC"]);
+      expect(await sessionStore.getActiveSessionCount()).toBe(2);
+    });
+
+    it("should count active sessions via Redis scan when redisClient is present", async () => {
+      const mockScan = vi.fn()
+        .mockResolvedValueOnce(["10", ["session_keys:token1", "session_keys:token2"]])
+        .mockResolvedValueOnce(["0", ["session_keys:token3"]]);
+
+      (sessionStore as any).redisClient = {
+        scan: mockScan,
+      };
+
+      const count = await sessionStore.getActiveSessionCount();
+      expect(count).toBe(3);
+      expect(mockScan).toHaveBeenCalledWith("0", "MATCH", "session_keys:*", "COUNT", 100);
+      expect(mockScan).toHaveBeenCalledWith("10", "MATCH", "session_keys:*", "COUNT", 100);
+
+      (sessionStore as any).redisClient = null;
+    });
+  });
 });
+
