@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError, SafetyFilterError } from "../services/geminiService";
+import { normalizeUpstreamError } from "../utils/errorClassifier";
+import { AIErrorCode } from "../constants/errors";
 import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../utils/text";
 import { translationChunkCache } from "../utils/chunkCache";
 import { parseGlossaryFromMd } from "../utils/parser";
@@ -357,7 +359,14 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
     });
   } catch (error: any) {
     logger.error("Lỗi phân tích Glossary:", error);
-    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích thuật ngữ." });
+    const normalized = normalizeUpstreamError(error);
+    res.status(normalized.httpStatus).json({
+      error: normalized.message || "Đã xảy ra lỗi khi phân tích thuật ngữ.",
+      code: normalized.code,
+      isRetryable: normalized.isRetryable,
+      ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
+      ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
+    });
   }
 }
 
@@ -433,7 +442,14 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
     });
   } catch (error: any) {
     logger.error("Lỗi phân tích cẩm nang hướng dẫn dịch thuật .md:", error);
-    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích cẩm nang hướng dẫn." });
+    const normalized = normalizeUpstreamError(error);
+    res.status(normalized.httpStatus).json({
+      error: normalized.message || "Đã xảy ra lỗi khi phân tích cẩm nang hướng dẫn.",
+      code: normalized.code,
+      isRetryable: normalized.isRetryable,
+      ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
+      ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
+    });
   }
 }
 
@@ -497,7 +513,14 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
       return;
     }
     logger.error("Lỗi extract-glossary:", error);
-    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi trích xuất thuật ngữ." });
+    const normalized = normalizeUpstreamError(error);
+    res.status(normalized.httpStatus).json({
+      error: normalized.message || "Đã xảy ra lỗi khi trích xuất thuật ngữ.",
+      code: normalized.code,
+      isRetryable: normalized.isRetryable,
+      ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
+      ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
+    });
   }
 }
 
@@ -557,7 +580,14 @@ export async function quickTranslateTerm(req: Request, res: Response): Promise<v
     res.json({ term: parsed, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
     logger.error("Lỗi quick-translate-term:", error);
-    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích thuật ngữ." });
+    const normalized = normalizeUpstreamError(error);
+    res.status(normalized.httpStatus).json({
+      error: normalized.message || "Đã xảy ra lỗi khi phân tích thuật ngữ.",
+      code: normalized.code,
+      isRetryable: normalized.isRetryable,
+      ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
+      ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
+    });
   }
 }
 

@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService";
+import { normalizeUpstreamError } from "../../utils/errorClassifier";
+import { AIErrorCode } from "../../constants/errors";
 import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody, sanitizePromptInput } from "../../utils/text";
 import { translationChunkCache } from "../../utils/chunkCache";
 import { checkLeftoverGlossary } from "../glossaryController";
@@ -468,6 +470,13 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
     });
   } catch (error: any) {
     logger.error("Lỗi tối ưu văn phong:", error);
-    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi tối ưu biên tập.", ...(isOverloadError(error) ? { errorType: 'overload' } : {}) });
+    const normalized = normalizeUpstreamError(error);
+    res.status(normalized.httpStatus).json({
+      error: normalized.message || "Đã xảy ra lỗi khi tối ưu biên tập.",
+      code: normalized.code,
+      isRetryable: normalized.isRetryable,
+      ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
+      ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
+    });
   }
 }

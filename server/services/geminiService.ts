@@ -170,45 +170,12 @@ export class SafetyFilterError extends Error {
   }
 }
 
-export const isSafetyOrEmptyError = (err: any): boolean => {
-  if (!err) return false;
-  if (err.isSafety === true || err.name === 'SafetyFilterError') return true;
-
-  const errorMsg = (err.message || String(err)).toLowerCase();
-  if (
-    errorMsg.includes("safety") ||
-    errorMsg.includes("safetyfiltererror") ||
-    errorMsg.includes("finishreason") ||
-    errorMsg.includes("block") ||
-    errorMsg.includes("filter") ||
-    errorMsg.includes("prohibited") ||
-    errorMsg.includes("recitation") ||
-    errorMsg.includes("trống") ||
-    errorMsg.includes("empty") ||
-    errorMsg.includes("candidate") ||
-    errorMsg.includes("không nhận được")
-  ) {
-    if (
-      (errorMsg.includes("429") || errorMsg.includes("rate limit") || errorMsg.includes("quota") || isOverloadError(err)) &&
-      !errorMsg.includes("finishreason") &&
-      !errorMsg.includes("safetyfiltererror")
-    ) {
-      return false;
-    }
-    return true;
-  }
-  return false;
-};
-
-export const isOverloadError = (err: any): boolean => {
-  const errStr = (err.message || String(err)).toLowerCase();
-  return (
-    errStr.includes('503') ||
-    errStr.includes('unavailable') ||
-    errStr.includes('overloaded') ||
-    errStr.includes('high demand')
-  );
-};
+export {
+  isSafetyOrEmptyError,
+  isOverloadError,
+  isRetryableError,
+  shouldRotateKey,
+} from "../utils/errorClassifier";
 
 export async function generateWithRotation(
     apiKeys: string[] | undefined,
@@ -468,7 +435,8 @@ export async function generateWithRotation(
                 successKeyIndex: i
               };
             } catch (innerErr: any) {
-              if (isOverloadError(innerErr) && overloadAttempt < MAX_OVERLOAD_RETRIES) {
+              const normalizedInner = normalizeUpstreamError(innerErr, rawKeys);
+              if (normalizedInner.code === AIErrorCode.OVERLOADED && overloadAttempt < MAX_OVERLOAD_RETRIES) {
                 overloadAttempt++;
                 totalProviderAttempts++;
                 quotaService.recordUsage(key, model, 'overloaded');
@@ -490,20 +458,20 @@ export async function generateWithRotation(
           // Ghi nhận vào Quota Service
           quotaService.recordCategorizedError(key, model, normalized);
 
-          // Nếu là lỗi dừng ngay lập tức (Safety / Invalid / Model Unsupported)
+          // Xử lý theo recommendedAction chuẩn hóa
           if (normalized.recommendedAction === 'fail_immediately') {
             const retriesCount = Math.max(0, totalProviderAttempts - 1);
             quotaService.recordLogicalRequest(model, 'failure', totalProviderAttempts, retriesCount);
             throw err;
           }
 
-          if (isOverloadError(err)) {
+          if (normalized.code === AIErrorCode.OVERLOADED) {
             anyOverloadFailure = true;
             continue;
           }
 
           anyNonOverloadFailure = true;
-          if (normalized.code === AIErrorCode.RATE_LIMITED || normalized.code === AIErrorCode.QUOTA_EXCEEDED) {
+          if (normalized.recommendedAction === 'cooldown_key' || normalized.recommendedAction === 'rotate_key') {
             console.warn(`[Circuit Breaker] Kích hoạt ngắt mạch bảo vệ trên khóa ${i + 1} trong 5 phút.`);
             blacklistedKeys.set(key, Date.now() + BLACKLIST_COOLDOWN_MS);
           }

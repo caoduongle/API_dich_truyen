@@ -167,4 +167,39 @@ describe("analyzeGlossary Controller with Divide & Conquer", () => {
       })
     );
   });
+
+  it("should return normalized 503 error when upstream model is overloaded", async () => {
+    req.body.text = "Normal text payload";
+
+    const overloadErr = Object.assign(new Error("503 Service Unavailable: High demand"), { status: 503 });
+    vi.mocked(geminiService.generateWithRotation).mockRejectedValue(overloadErr);
+
+    await analyzeGlossary(req as Request, res as Response);
+
+    expect(statusMock).toHaveBeenCalledWith(503);
+    expect(jsonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "OVERLOADED",
+        isRetryable: true,
+        errorType: "overload",
+      })
+    );
+  });
+
+  it("should return normalized 401 error when API key is invalid", async () => {
+    req.body.text = "Normal text payload";
+
+    const authErr = Object.assign(new Error("API_KEY_INVALID"), { status: 401 });
+    vi.mocked(geminiService.generateWithRotation).mockRejectedValue(authErr);
+
+    await analyzeGlossary(req as Request, res as Response);
+
+    expect(statusMock).toHaveBeenCalledWith(401);
+    expect(jsonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "AUTH_FAILED",
+        isRetryable: false,
+      })
+    );
+  });
 });

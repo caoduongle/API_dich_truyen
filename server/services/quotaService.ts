@@ -376,9 +376,12 @@ class QuotaService {
         stats.healthState = 'RateLimited';
         stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 5000);
         break;
+      case AIErrorCode.OVERLOADED:
       case AIErrorCode.SERVER_ERROR:
+      case AIErrorCode.NETWORK_ERROR:
+      case AIErrorCode.TIMEOUT:
         stats.healthState = 'Cooldown';
-        stats.cooldownUntil = timestamp + 3000;
+        stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 3000);
         break;
       default:
         if (stats.consecutiveErrors >= CIRCUIT_BREAKER_CONSECUTIVE_THRESHOLD) {

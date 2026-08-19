@@ -1,3 +1,10 @@
+# Data Model: Error Taxonomy & Smart Retry Engine
+
+## 1. Entities & Type Definitions
+
+### 1.1 AIErrorCode & AIRecommendedAction
+
+```typescript
 export enum AIErrorCode {
   RATE_LIMITED = 'RATE_LIMITED',
   QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
@@ -19,7 +26,13 @@ export type AIRecommendedAction =
   | 'cooldown_key'
   | 'disable_key'
   | 'fail_immediately';
+```
 
+---
+
+### 1.2 AIErrorNormalized
+
+```typescript
 export interface AIErrorNormalized {
   code: AIErrorCode;
   message: string;
@@ -29,3 +42,18 @@ export interface AIErrorNormalized {
   retryAfterSec?: number;
   details?: Record<string, unknown>;
 }
+```
+
+---
+
+### 1.3 Standardized ApiErrorResponse
+
+```typescript
+export interface ApiErrorResponse {
+  error: string;
+  code: AIErrorCode;
+  isRetryable: boolean;
+  retryAfterSec?: number;
+  details?: Record<string, unknown>;
+}
+```

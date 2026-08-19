@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation } from "../../services/geminiService";
+import { normalizeUpstreamError } from "../../utils/errorClassifier";
+import { AIErrorCode } from "../../constants/errors";
 import { safeParseJson, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../../utils/text";
 import { Logger } from "../../utils/logger";
 
@@ -104,6 +106,13 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
     }
   } catch (error: any) {
     logger.error("[QA Critique Error] Thất bại rà soát kiểm duyệt:", error);
-    res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi chạy kiểm duyệt AI." });
+    const normalized = normalizeUpstreamError(error);
+    res.status(normalized.httpStatus).json({
+      error: normalized.message || "Đã xảy ra lỗi khi chạy kiểm duyệt AI.",
+      code: normalized.code,
+      isRetryable: normalized.isRetryable,
+      ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
+      ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
+    });
   }
 }
