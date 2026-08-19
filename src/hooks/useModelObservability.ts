@@ -3,7 +3,8 @@ import {
   fetchQuotaStatus, 
   fetchModelsForKey, 
   KeyQuotaFullSnapshot, 
-  ModelInfoItem 
+  ModelInfoItem,
+  QuotaStatusResponse
 } from '../utils/apiClient';
 import { saveDiscoveredModels } from '../utils/modelRegistry';
 
@@ -17,9 +18,22 @@ export interface ModelObservabilityState {
   timezone: string;
   currentDayPST: string;
   lastUpdated: Date | null;
-  loadQuotaStatus: () => Promise<void>;
+  loadQuotaStatus: (forceRefresh?: boolean) => Promise<void>;
   inspectKeyModels: (keyIndex: number) => Promise<void>;
   clearInspectResult: (keyIndex: number) => void;
+}
+
+interface QuotaCacheEntry {
+  data: QuotaStatusResponse;
+  timestamp: number;
+  keysKey: string;
+}
+
+let globalQuotaCache: QuotaCacheEntry | null = null;
+export const QUOTA_CACHE_TTL_MS = 30_000;
+
+export function clearQuotaCache(): void {
+  globalQuotaCache = null;
 }
 
 export function useModelObservability(
@@ -46,10 +60,28 @@ export function useModelObservability(
   const onDiscoveredRef = useRef(onModelsDiscovered);
   onDiscoveredRef.current = onModelsDiscovered;
 
-  const loadQuotaStatus = useCallback(async () => {
+  const loadQuotaStatus = useCallback(async (forceRefresh: boolean = false) => {
     const currentClean = cleanKeysRef.current;
     if (currentClean.length === 0) {
       setSnapshotKeys([]);
+      return;
+    }
+
+    const currentKeysKey = currentClean.join(',');
+    const now = Date.now();
+
+    // Sử dụng cache 30s nếu không bắt buộc tải mới (forceRefresh = false)
+    if (
+      !forceRefresh &&
+      globalQuotaCache &&
+      globalQuotaCache.keysKey === currentKeysKey &&
+      now - globalQuotaCache.timestamp < QUOTA_CACHE_TTL_MS
+    ) {
+      const cached = globalQuotaCache.data;
+      setSnapshotKeys(cached.keys || []);
+      setTimezone(cached.timezone || 'America/Los_Angeles');
+      setCurrentDayPST(cached.currentDayPST || '');
+      setLastUpdated(new Date(globalQuotaCache.timestamp));
       return;
     }
 
@@ -57,10 +89,15 @@ export function useModelObservability(
     setQuotaError(null);
     try {
       const data = await fetchQuotaStatus(currentClean);
+      globalQuotaCache = {
+        data,
+        timestamp: now,
+        keysKey: currentKeysKey,
+      };
       setSnapshotKeys(data.keys || []);
       setTimezone(data.timezone || 'America/Los_Angeles');
       setCurrentDayPST(data.currentDayPST || '');
-      setLastUpdated(new Date());
+      setLastUpdated(new Date(now));
     } catch (err: any) {
       console.error('[useModelObservability] Error loading quota:', err);
       setQuotaError(err.message || 'Không thể tải thông tin hạn ngạch.');
@@ -72,39 +109,6 @@ export function useModelObservability(
   useEffect(() => {
     loadQuotaStatus();
   }, [cleanKeysKey, loadQuotaStatus]);
-
-  // Bộ đếm lùi thời gian ngắt mạch / hoãn rate limit theo từng giây
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSnapshotKeys(prev => {
-        let changed = false;
-        const next = prev.map(item => {
-          let blacklistMs = item.runtime.blacklistRemainingMs;
-          let rateLimitMs = item.runtime.nextAllowedRemainingMs;
-
-          if (blacklistMs > 0 || rateLimitMs > 0) {
-            changed = true;
-            blacklistMs = Math.max(0, blacklistMs - 1000);
-            rateLimitMs = Math.max(0, rateLimitMs - 1000);
-            return {
-              ...item,
-              runtime: {
-                ...item.runtime,
-                isBlacklisted: blacklistMs > 0,
-                blacklistRemainingMs: blacklistMs,
-                isRateLimited: rateLimitMs > 0,
-                nextAllowedRemainingMs: rateLimitMs,
-              },
-            };
-          }
-          return item;
-        });
-        return changed ? next : prev;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
 
   const inspectKeyModels = useCallback(async (keyIndex: number) => {
     const currentClean = cleanKeysRef.current;

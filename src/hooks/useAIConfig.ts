@@ -99,7 +99,15 @@ export function useAIConfig() {
 
     const handleRegisterDiscoveredModels = useCallback((models: ModelInfoItem[]) => {
         const updated = saveDiscoveredModels(models);
-        setDiscoveredModels(updated);
+        setDiscoveredModels(prev => {
+            if (
+                prev.length === updated.length &&
+                prev.every((item, idx) => item.id === updated[idx]?.id)
+            ) {
+                return prev; // Giữ nguyên state reference cũ -> React bails out, không re-render Context
+            }
+            return updated;
+        });
     }, []);
 
     const handleAddCustomModel = useCallback((modelId: string, label?: string) => {

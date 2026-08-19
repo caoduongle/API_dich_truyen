@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useModelObservability } from '../useModelObservability';
-import * as apiClient from '../../utils/apiClient';
+import { useModelObservability, clearQuotaCache, QUOTA_CACHE_TTL_MS } from '../useModelObservability';
 
 describe('useModelObservability Hook', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearQuotaCache();
   });
 
-  it('exports valid useModelObservability hook function', () => {
+  it('exports valid useModelObservability hook function and cache constants', () => {
     expect(typeof useModelObservability).toBe('function');
+    expect(typeof clearQuotaCache).toBe('function');
+    expect(QUOTA_CACHE_TTL_MS).toBe(30_000);
   });
 
   it('defines the required observability interface contracts', () => {
