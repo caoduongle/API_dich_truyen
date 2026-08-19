@@ -16,18 +16,67 @@ import {
 } from '../utils/modelRegistry';
 
 
+/**
+ * Tải danh sách API key an toàn:
+ * 1. Kiểm tra `sessionStorage` (chế độ phiên làm việc tab hiện tại).
+ * 2. Nếu chưa có trong `sessionStorage`, kiểm tra `localStorage` (phiên bản cũ).
+ * 3. Nếu tìm thấy khóa trong `localStorage`, di chuyển an toàn sang `sessionStorage`
+ *    và XÓA BỎ ngay lập tức khỏi `localStorage` để không lưu trữ plaintext vĩnh viễn.
+ * 4. Xử lý an toàn khi gặp dữ liệu lỗi/corrupted JSON mà không gây crash ứng dụng.
+ */
+export function migrateAndLoadApiKeys(): string[] {
+    // 1. Kiểm tra sessionStorage
+    try {
+        const sessionStored = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('gemini_api_keys') : null;
+        if (sessionStored) {
+            const parsed = JSON.parse(sessionStored);
+            if (Array.isArray(parsed)) {
+                return parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0);
+            }
+        }
+    } catch (_) {
+        try {
+            if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.removeItem('gemini_api_keys');
+            }
+        } catch (_) {}
+    }
+
+    // 2. Kiểm tra legacy localStorage
+    try {
+        const legacyStored = typeof localStorage !== 'undefined' ? localStorage.getItem('gemini_api_keys') : null;
+        if (legacyStored) {
+            // Xóa ngay lập tức khỏi localStorage để loại bỏ plaintext lưu vĩnh viễn
+            localStorage.removeItem('gemini_api_keys');
+
+            const parsed = JSON.parse(legacyStored);
+            if (Array.isArray(parsed)) {
+                const cleanKeys = parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0);
+                if (cleanKeys.length > 0) {
+                    try {
+                        if (typeof sessionStorage !== 'undefined') {
+                            sessionStorage.setItem('gemini_api_keys', JSON.stringify(cleanKeys));
+                        }
+                    } catch (_) {}
+                    return cleanKeys;
+                }
+            }
+        }
+    } catch (_) {
+        // Dữ liệu malformed trong localStorage -> xóa an toàn
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem('gemini_api_keys');
+            }
+        } catch (_) {}
+    }
+
+    return [];
+}
+
 export function useAIConfig() {
     const { showToast } = useNotifications();
-    const [apiKeys, setApiKeys] = useState<string[]>(() => {
-        const stored = localStorage.getItem('gemini_api_keys');
-        if (stored) {
-            try {
-                const parsed = JSON.parse(stored);
-                if (Array.isArray(parsed)) return parsed;
-            } catch (_) {}
-        }
-        return [];
-    });
+    const [apiKeys, setApiKeys] = useState<string[]>(() => migrateAndLoadApiKeys());
 
     const [discoveredModels, setDiscoveredModels] = useState<RegisteredModelDef[]>(() => getDiscoveredModels());
     const [customModels, setCustomModels] = useState<RegisteredModelDef[]>(() => getCustomModels());
@@ -77,9 +126,17 @@ export function useAIConfig() {
         });
     }, []);
 
-    // Sync apiKeys to localStorage & Server Session whenever they change
+    // Sync apiKeys to sessionStorage & Server Session whenever they change (NEVER write to localStorage)
     useEffect(() => {
-        localStorage.setItem('gemini_api_keys', JSON.stringify(apiKeys));
+        try {
+            if (typeof sessionStorage !== 'undefined') {
+                if (apiKeys.length > 0) {
+                    sessionStorage.setItem('gemini_api_keys', JSON.stringify(apiKeys));
+                } else {
+                    sessionStorage.removeItem('gemini_api_keys');
+                }
+            }
+        } catch (_) {}
         syncSessionKeysToServer(apiKeys);
     }, [apiKeys]);
 

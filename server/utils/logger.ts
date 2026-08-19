@@ -27,7 +27,7 @@ export function sanitizeSecretString(str: string): string {
   let sanitized = str;
 
   // 1. Che giấu Google Gemini API keys: AIzaSy...
-  sanitized = sanitized.replace(/AIza[0-9A-Za-z-_]{35}/g, 'AIza***[REDACTED]');
+  sanitized = sanitized.replace(/AIza[0-9A-Za-z-_]{20,50}/g, 'AIza***[REDACTED]');
 
   // 2. Che giấu token / key / password trong query strings hoặc gán key-value:
   // Khớp: ?token=..., &token=..., token=..., apiKey=..., access_token=..., password=..., secret=...
