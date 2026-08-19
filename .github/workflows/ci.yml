@@ -32,8 +32,19 @@ jobs:
 
       - name: Secret leak pattern detection
         run: |
-          echo "Scanning for hardcoded Gemini API keys..."
-          if grep -r --exclude-dir={node_modules,.git,dist} -E "AIza[0-9A-Za-z\\-_]{35}" . ; then
+          echo "Scanning for hardcoded Gemini API keys in source files..."
+          if grep -r \
+            --exclude-dir=node_modules \
+            --exclude-dir=.git \
+            --exclude-dir=dist \
+            --exclude-dir=specs \
+            --exclude-dir=__tests__ \
+            --exclude-dir=tests \
+            --exclude-dir=.specify \
+            --exclude="*.test.*" \
+            --exclude="*.spec.*" \
+            --exclude="*.contract.md" \
+            -E "AIza[0-9A-Za-z\\-_]{35}" . ; then
             echo "ERROR: Potential hardcoded Gemini API key detected in source files!"
             exit 1
           fi

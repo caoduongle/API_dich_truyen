@@ -8,6 +8,17 @@ updates:
     labels:
       - "dependencies"
       - "security"
+    groups:
+      vite-toolchain:
+        patterns:
+          - "vite*"
+          - "@vitejs/*"
+          - "@tailwindcss/*"
+          - "vitest*"
+          - "esbuild*"
+    ignore:
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
