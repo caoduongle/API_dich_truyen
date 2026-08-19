@@ -80,6 +80,21 @@ export function validateModelMiddleware(req: Request, res: Response, next: NextF
   next();
 }
 
+// --- MIDDLEWARE: Trích xuất custom RPM nếu có ---
+export function extractCustomRpmMiddleware(req: Request, _res: Response, next: NextFunction): void {
+  const headerRpm = req.headers["x-custom-rpm"];
+  if (headerRpm && typeof headerRpm === "string") {
+    const parsed = parseInt(headerRpm, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      req.body = req.body || {};
+      if (!req.body.customRpm) {
+        req.body.customRpm = parsed;
+      }
+    }
+  }
+  next();
+}
+
 // --- MIDDLEWARE: Giải mã API Keys từ Session Token hoặc Body ---
 // Hỗ trợ cả 2 chế độ:
 // 1. Session Token (Bảo mật cao): Đọc qua header X-Session-Token hoặc body sessionToken, lấy keys từ SessionStore.
@@ -159,18 +174,18 @@ router.get("/session-keys/status", getSessionStatusHandler);
 router.delete("/session-keys", deleteSessionHandler);
 
 // --- Routes for Glossary & Guidelines Analysis ---
-router.post("/analyze-glossary", validateModelMiddleware, resolveApiKeysMiddleware, analyzeGlossary);
-router.post("/analyze-guidelines", validateModelMiddleware, resolveApiKeysMiddleware, analyzeGuidelines);
-router.post("/extract-glossary", validateModelMiddleware, resolveApiKeysMiddleware, extractGlossary);
-router.post("/quick-translate-term", validateModelMiddleware, resolveApiKeysMiddleware, quickTranslateTerm);
+router.post("/analyze-glossary", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, analyzeGlossary);
+router.post("/analyze-guidelines", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, analyzeGuidelines);
+router.post("/extract-glossary", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, extractGlossary);
+router.post("/quick-translate-term", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, quickTranslateTerm);
 
 // --- Routes for Translation Tasks ---
-router.post("/translate-raw", validateModelMiddleware, resolveApiKeysMiddleware, translateRaw);
-router.post("/polish-translation", validateModelMiddleware, resolveApiKeysMiddleware, polishTranslation);
-router.post("/qa-critique", validateModelMiddleware, resolveApiKeysMiddleware, qaCritique);
+router.post("/translate-raw", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, translateRaw);
+router.post("/polish-translation", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, polishTranslation);
+router.post("/qa-critique", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, qaCritique);
 
 // --- Routes for Bilingual alignment ---
-router.post("/align-chapter", validateModelMiddleware, resolveApiKeysMiddleware, alignChapter);
+router.post("/align-chapter", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, alignChapter);
 
 // --- Routes for Quota & Usage Tracking ---
 router.post("/quota-status", resolveApiKeysMiddleware, getQuotaStatusHandler);

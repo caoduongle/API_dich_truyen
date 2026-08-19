@@ -17,7 +17,7 @@ import { Badge } from './ui/Badge';
 import { Seal } from './ui/Seal';
 import { EmptyState } from './ui/EmptyState';
 import { useModelObservability, ModelObservabilityState } from '../hooks/useModelObservability';
-import { computeModelStatsSummary, getKeyModelStats, normalizeModelId, formatTokenCount } from '../utils/modelRegistry';
+import { computeModelStatsSummary, getKeyModelStats, normalizeModelId, formatTokenCount, formatPacingSummary } from '../utils/modelRegistry';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../utils/apiClient';
 
 const CUSTOM_LIMITS_STORAGE_KEY = 'gemini_quota_custom_limits';
@@ -424,7 +424,9 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
-                  <label className="text-[9px] text-text-muted block mb-0.5">Max RPM:</label>
+                  <label className="text-[9px] text-text-muted block mb-0.5">
+                    Max RPM <span className="text-[8px] text-polish">({formatPacingSummary(limit.maxRpm).intervalSec}/lần)</span>:
+                  </label>
                   <input
                     type="number"
                     min="1"
@@ -663,6 +665,22 @@ export function QuotaPanel({
             <span>Model đang chọn hiện không có API key khả dụng trong số các key đã kiểm tra. Hãy kiểm tra lại các key bên dưới hoặc đổi model trong tab Cấu hình.</span>
           </div>
         )}
+
+        {(() => {
+          const firstLimit = Object.values(customLimits)[0];
+          const bannerPacing = formatPacingSummary(firstLimit?.maxRpm, selectedModel);
+          return (
+            <div className="bg-parchment-2/15 border border-parchment-2/60 rounded-[2px] px-2.5 py-1 flex items-center justify-between text-[11px] text-text-muted flex-wrap gap-1">
+              <span className="flex items-center gap-1 font-medium">
+                <Zap className="w-3 h-3 text-polish" />
+                <span>Nhịp độ điều phối: <strong className="text-text-main">~{bannerPacing.estimatedRpm} req/phút</strong> (~{bannerPacing.intervalSec}/lần gọi)</span>
+              </span>
+              <span className="text-[10px] text-text-muted italic">
+                {bannerPacing.isCustom ? 'Tối ưu theo Max RPM cá nhân' : 'Mặc định theo tier model'}
+              </span>
+            </div>
+          );
+        })()}
 
         {/* 4 Metric Tiles for Currently Selected Model: RPM, TPM, Requests/Tokens Today, Total */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">

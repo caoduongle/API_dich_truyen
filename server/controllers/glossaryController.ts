@@ -20,7 +20,8 @@ export async function checkLeftoverGlossary(
     glossary: any[],
     apiKeys: string[] | undefined,
     modelName: string | undefined,
-    startKeyIndex: number = 0
+    startKeyIndex: number = 0,
+    customRpm?: number
 ): Promise<{ items: any[]; successKeyIndex: number }> {
   try {
     let glossaryStr = "";
@@ -65,7 +66,8 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
         prompt,
         schema,
         0.1,
-        startKeyIndex
+        startKeyIndex,
+        customRpm
     );
     const resultText = rotationResult.text;
     if (resultText) {

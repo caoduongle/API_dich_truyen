@@ -186,7 +186,8 @@ export async function generateWithRotation(
     prompt: string,
     responseSchema?: any,
     temperature?: number,
-    startKeyIndex: number = 0
+    startKeyIndex: number = 0,
+    customRpm?: number
 ): Promise<{ text: string; successKeyIndex: number }> {
   // --- GIẢM TỐC TOÀN CỤC KHI MODEL QUÁ TẢI (áp dụng trước khi thử bất kỳ key nào) ---
   const nowBeforeKeys = Date.now();
@@ -232,9 +233,12 @@ export async function generateWithRotation(
         continue;
       }
 
-      // --- RATE LIMITER THEO KEY: mỗi key có mốc thời gian riêng ---
-      // Đảm bảo mỗi key riêng lẻ tuân thủ ~13 req/phút, nhưng các key
-      // khác nhau có thể gửi request đồng thời mà không chặn lẫn nhau.
+      // --- RATE LIMITER THEO KEY & CUSTOM RPM ĐỘNG ---
+      // Tự động điều chỉnh khoảng trễ theo RPM người dùng cấu hình (giới hạn sàn an toàn 400ms)
+      const effectiveKeyIntervalMs = (typeof customRpm === 'number' && customRpm > 0)
+        ? Math.max(400, Math.ceil(60000 / (customRpm * 0.9)))
+        : MIN_REQUEST_INTERVAL_MS;
+
       const keyNextAllowed = nextAllowedTimeByKey.get(key) || 0;
       const nowForRate = Date.now();
       let keyDelay = 0;
@@ -243,14 +247,14 @@ export async function generateWithRotation(
         // Key này chưa tới mốc được phép, tính toán độ trễ cần chờ
         keyDelay = keyNextAllowed - nowForRate;
         // Đẩy mốc thời gian kế tiếp lùi về sau (cơ chế gối đầu)
-        nextAllowedTimeByKey.set(key, keyNextAllowed + MIN_REQUEST_INTERVAL_MS);
+        nextAllowedTimeByKey.set(key, keyNextAllowed + effectiveKeyIntervalMs);
       } else {
         // Key đang rảnh, đặt mốc cho request tiếp theo tính từ bây giờ
-        nextAllowedTimeByKey.set(key, nowForRate + MIN_REQUEST_INTERVAL_MS);
+        nextAllowedTimeByKey.set(key, nowForRate + effectiveKeyIntervalMs);
       }
 
       if (keyDelay > 0) {
-        console.log(`[Rate Limit] Key ${i + 1}: Đang hoãn ${keyDelay}ms để đảm bảo tần suất tối đa 13 req/phút cho key này...`);
+        console.log(`[Rate Limit] Key ${i + 1}: Đang hoãn ${keyDelay}ms (khoảng cách an toàn ${effectiveKeyIntervalMs}ms) cho key này...`);
         await sleep(keyDelay);
       }
 

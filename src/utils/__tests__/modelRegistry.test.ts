@@ -15,6 +15,9 @@ import {
   removeCustomModel,
   clearDiscoveredModels,
   formatTokenCount,
+  getDynamicPacingInterval,
+  isTpmNearLimit,
+  formatPacingSummary,
 } from '../modelRegistry';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../apiClient';
 
@@ -338,6 +341,61 @@ describe('modelRegistry utils', () => {
         { name: 'models/gemini-2.0-flash', displayName: 'Gemini 2.0 Flash' },
       ];
       expect(checkKeySupportForModel(models, 'gemini-2.5-flash')).toBe(false);
+    });
+  });
+
+  describe('Dynamic Pacing & Rate Limiting Helpers', () => {
+    describe('getDynamicPacingInterval', () => {
+      it('calculates safe interval for standard Free Tier (15 RPM)', () => {
+        const interval = getDynamicPacingInterval(15);
+        // 60000 / (15 * 0.88) = ~4545.45 -> ceil = 4546
+        expect(interval).toBe(4546);
+      });
+
+      it('calculates safe interval for Pay-as-you-go Tier (60 RPM & 120 RPM)', () => {
+        const interval60 = getDynamicPacingInterval(60);
+        // 60000 / (60 * 0.88) = ~1136.36 -> ceil = 1137
+        expect(interval60).toBe(1137);
+
+        const interval120 = getDynamicPacingInterval(120);
+        // 60000 / (120 * 0.88) = ~568.18 -> ceil = 569
+        expect(interval120).toBe(569);
+      });
+
+      it('enforces safety floor of 500ms for very high RPM (300 RPM)', () => {
+        const interval300 = getDynamicPacingInterval(300);
+        // 60000 / (300 * 0.88) = 227ms -> Clamped to floor 500ms
+        expect(interval300).toBe(500);
+      });
+
+      it('falls back to model tier defaults when custom RPM is not provided or <= 0', () => {
+        expect(getDynamicPacingInterval(undefined, 'gemini-2.5-flash')).toBe(4500);
+        expect(getDynamicPacingInterval(0, 'gemini-2.5-pro')).toBe(6000);
+        expect(getDynamicPacingInterval(undefined, 'gemini-3.1-flash-lite')).toBe(3500);
+      });
+    });
+
+    describe('isTpmNearLimit', () => {
+      it('returns true when current TPM reaches or exceeds 85% of limit', () => {
+        expect(isTpmNearLimit(850000, 1000000)).toBe(true);
+        expect(isTpmNearLimit(920000, 1000000)).toBe(true);
+        expect(isTpmNearLimit(840000, 1000000)).toBe(false);
+        expect(isTpmNearLimit(0, 1000000)).toBe(false);
+      });
+    });
+
+    describe('formatPacingSummary', () => {
+      it('formats pacing summary object accurately', () => {
+        const summary = formatPacingSummary(60);
+        expect(summary.isCustom).toBe(true);
+        expect(summary.intervalSec).toBe('1.1s');
+        expect(summary.estimatedRpm).toBeCloseTo(52.8, 1);
+
+        const defaultSummary = formatPacingSummary(undefined, 'gemini-2.5-flash');
+        expect(defaultSummary.isCustom).toBe(false);
+        expect(defaultSummary.intervalMs).toBe(4500);
+        expect(defaultSummary.intervalSec).toBe('4.5s');
+      });
     });
   });
 });

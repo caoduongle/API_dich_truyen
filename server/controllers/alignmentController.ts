@@ -16,7 +16,7 @@ export async function alignChapter(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const { sourceText: rawSource, translatedText: rawTranslated, apiKeys, model, startKeyIndex = 0 } = req.body;
+    const { sourceText: rawSource, translatedText: rawTranslated, apiKeys, model, startKeyIndex = 0, customRpm } = req.body;
     const sourceText = sanitizePromptInput(rawSource);
     const translatedText = sanitizePromptInput(rawTranslated);
 
@@ -64,7 +64,8 @@ Hãy thực hiện gióng hàng tỷ mỷ từ đầu đến cuối chương tru
         prompt,
         schema,
         0.15,
-        startKeyIndex
+        startKeyIndex,
+        customRpm
     );
     const resultText = rotationResult.text;
     if (resultText) {

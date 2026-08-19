@@ -20,7 +20,8 @@ export async function callRawTranslationDirect(
     apiKeys: string[] | undefined,
     model: string | undefined,
     startKeyIndex: number = 0,
-    description?: string
+    description?: string,
+    customRpm?: number
 ): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number }> {
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
@@ -151,7 +152,8 @@ ${substitutedText}`;
       prompt,
       schema,
       0.3,
-      startKeyIndex
+      startKeyIndex,
+      customRpm
   );
   const resultText = rotationResult.text;
   if (!resultText) {
@@ -203,7 +205,8 @@ export async function translateRawWithContentSplit(
     depth = 0,
     startKeyIndex: number = 0,
     description?: string,
-    enableSegmentTranslation?: boolean
+    enableSegmentTranslation?: boolean,
+    customRpm?: number
 ): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number; isPartial?: boolean }> {
   const glossaryFingerprint = Array.isArray(glossary)
     ? glossary.map(g => `${g.chinese || ''}:${g.vietnamese || ''}`).join('|')
@@ -241,7 +244,8 @@ export async function translateRawWithContentSplit(
         apiKeys,
         model,
         currentKeyIdx,
-        description
+        description,
+        customRpm
       );
       translatedParagraphs.push(res.rawTranslation);
       currentKeyIdx = res.successKeyIndex;
@@ -260,7 +264,7 @@ export async function translateRawWithContentSplit(
 
   if (estimateTokenCount(text) < 90 || depth > 4) {
     try {
-      const directRes = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description);
+      const directRes = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description, customRpm);
       if (directRes.rawTranslation) {
         translationChunkCache.set(cacheKey, { text: directRes.rawTranslation, discoveredEntities: directRes.discoveredEntities });
       }
@@ -285,7 +289,7 @@ export async function translateRawWithContentSplit(
   }
 
   try {
-    const result = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description);
+    const result = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description, customRpm);
 
     if (!result.rawTranslation || result.rawTranslation.trim().length === 0) {
       if (model && model.toLowerCase().includes('gemma')) {
@@ -298,7 +302,8 @@ export async function translateRawWithContentSplit(
             text,
             undefined,
             0.3,
-            startKeyIndex
+            startKeyIndex,
+            customRpm
         );
 
         if (plainResult.text && plainResult.text.trim().length > 0) {
@@ -361,7 +366,9 @@ export async function translateRawWithContentSplit(
               model,
               depth + 1,
               staggeredKeyIndex,
-              description
+              description,
+              false,
+              customRpm
             );
           } catch (partErr: any) {
             logger.warn(`[Divide & Conquer Fallback] Đoạn (${part.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
@@ -413,7 +420,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
+    const { text, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, chapterId, sourceChapterId, enableSegmentTranslation, customRpm } = req.body;
 
     const { rawTranslation, discoveredEntities, successKeyIndex, isPartial } = await translateRawWithContentSplit(
         text,
@@ -425,7 +432,8 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
         0,
         startKeyIndex,
         description,
-        enableSegmentTranslation
+        enableSegmentTranslation,
+        customRpm
     );
 
     const resolvedChapterId = sourceChapterId || chapterId;

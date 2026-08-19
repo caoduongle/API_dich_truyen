@@ -236,15 +236,25 @@ export async function syncSessionKeysToServer(keys: string[]): Promise<string | 
   return null;
 }
 
+let currentCustomRpm: number | null = null;
+
+export function setGlobalCustomRpm(rpm: number | null): void {
+  currentCustomRpm = rpm && rpm > 0 ? rpm : null;
+}
+
+export function getGlobalCustomRpm(): number | null {
+  return currentCustomRpm;
+}
+
 /**
  * Helper fetch bảo mật cho toàn bộ các endpoint /api/*:
- * 1. Tự động đính kèm header X-Auth-Token & X-Session-Token.
+ * 1. Tự động đính kèm header X-Auth-Token & X-Session-Token & X-Custom-Rpm.
  * 2. Tự động loại bỏ mảng apiKeys khỏi JSON body để tránh lộ plaintext keys qua Network tab.
  * 3. Tự động re-sync session và thử lại (retry) 1 lần trong suốt nếu server trả về 401 sessionExpired.
  * 4. Tự động thông báo yêu cầu mật khẩu nếu server trả về 401 authRequired.
  */
 export async function apiFetch(
-  input: string | URL | Request,
+  input: RequestInfo | URL,
   init?: RequestInit & { skipSessionHeader?: boolean; skipAuthHeader?: boolean }
 ): Promise<Response> {
   const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -253,7 +263,7 @@ export async function apiFetch(
   let headers = new Headers(init?.headers || {});
   let body = init?.body;
 
-  // Nếu là API route và có body dạng JSON string, loại bỏ apiKeys khỏi payload
+  // Nếu là API route và có body dạng JSON string, loại bỏ apiKeys khỏi payload và trích xuất customRpm
   if (isApiRoute && typeof body === 'string' && body.trim().startsWith('{')) {
     try {
       const parsed = JSON.parse(body);
@@ -261,9 +271,19 @@ export async function apiFetch(
         delete parsed.apiKeys;
         body = JSON.stringify(parsed);
       }
+      if (parsed.customRpm && typeof parsed.customRpm === 'number' && parsed.customRpm > 0) {
+        if (!headers.has('X-Custom-Rpm')) {
+          headers.set('X-Custom-Rpm', String(parsed.customRpm));
+        }
+      }
     } catch {
       // Keep original body if parsing fails
     }
+  }
+
+  // Đính kèm X-Custom-Rpm từ global store nếu header chưa có
+  if (isApiRoute && !headers.has('X-Custom-Rpm') && currentCustomRpm && currentCustomRpm > 0) {
+    headers.set('X-Custom-Rpm', String(currentCustomRpm));
   }
 
   // Đính kèm X-Auth-Token nếu có

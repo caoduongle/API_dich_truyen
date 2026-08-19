@@ -23,7 +23,8 @@ export async function callPolishDirect(
     apiKeys: string[] | undefined,
     model: string | undefined,
     startKeyIndex: number = 0,
-    description?: string
+    description?: string,
+    customRpm?: number
 ): Promise<{ polishedTranslation: string; successKeyIndex: number }> {
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
@@ -92,44 +93,46 @@ export async function callPolishDirect(
         matchedTermsList.join("\n");
   }
 
-  const systemInstruction =
-      LITERARY_TRANSLATION_FRAMING +
-      "Bạn là một dịch giả kiêm nhà biên tập văn học và tác giả tiểu thuyết dịch thuật hàng đầu Việt Nam.\n" +
-      "Nhiệm vụ của bạn là thực hiện Giai đoạn 2 (Literary Polishing): Chuốt mịn, nhuận sắc, nâng cao chất lượng văn phong từ bản dịch thô được cung cấp, đối chiếu chặt chẽ với văn bản tiếng Trung gốc.\n\n" +
-      "QUY TẮC BẮT BUỘC ĐỂ ĐẠT CHẤT LƯỢNG CAO NHẤT:\n" +
-      "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN (PARAGRAPH BREAKS): Mỗi đoạn văn của nguyên tác tiếng Trung PHẢI tương ứng với một đoạn văn trong bản dịch tiếng Việt, ngăn cách nhau bằng dòng trống (\\n\\n). TUYỆT ĐỐI KHÔNG nén các đoạn văn lại thành một khối văn bản duy nhất. Tiêu đề chương PHẢI đứng riêng biệt trên dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
-      "2. Tuyệt đối TÔN TRỌNG và ĐỒNG BỘ 100% các từ khóa, thực thể, tên nhân vật, địa danh, tuyệt kỹ trong bảng Từ điển (Glossary) được cung cấp. BẮT BUỘC dùng đúng tên dịch tiếng Việt đã chỉ định.\n" +
-      "3. Khắc phục triệt để giọng văn 'dịch máy gượng gạo' (hạn chế lạm dụng từ 'của', các cấu trúc bị động 'bị/được' vô nghĩa, lặp từ nhiều lần). Sử dụng câu từ tiếng Việt linh hoạt, biến hoá, biểu cảm nhưng tự nhiên, giàu hình ảnh.\n" +
-      "4. Chuyển tải chính xác âm hưởng, cảm xúc, không khí của cảnh (chiến đấu hào hùng, bi tráng; đối thoại sâu sắc, sắc sảo; miêu tả tâm trạng tinh tế).\n" +
-      "5. TUYỆT ĐỐI KHÔNG được phép tự ý tóm tắt, cắt bỏ hoặc thêm thắt các sự kiện, tình tiết không có trong bản gốc tiếng Trung. Mỗi câu, mỗi ý của nguyên tác đều phải được thể hiện trọn vẹn.\n" +
-      `6. Phong cách phù hợp thể loại: ${getGenreStyleGuide(genre)}\n` +
-      "7. Khi thấy các tên nhân vật hoặc thuật ngữ được bọc trong ngoặc vuông [Tên_Việt] ở văn bản Trung, hãy dùng đúng tên đó và BỎ NGOẶC VUÔNG trong bản dịch cuối (ví dụ: [Philomena] → Philomena, KHÔNG viết '[Philomena]').\n" +
-      (description && description.trim() ? `8. BẮT BUỘC TUÂN THỦ nguyên tắc xưng hô và phong cách dịch đặc biệt của truyện: ${description.trim()}\n` : "") +
-      (additionalInstructions && additionalInstructions.trim() ? `9. LƯU Ý BỔ SUNG TỪ NGƯỜI DÙNG: ${additionalInstructions.trim()}` : "");
+  const prompt = `[THÔNG TIN BẢN THẢO]
+Thể loại: ${genre}
+Tông giọng: ${tone}
+${description ? `Mô tả bối cảnh & phong cách: ${description}` : ''}
+${additionalInstructions ? `Yêu cầu dịch thuật bổ sung từ người dùng:\n${additionalInstructions}` : ''}
 
-  let prompt = `--- THÔNG TIN TRUYỆN ---
-Thể loại: ${genre || "Tiên Hiệp"}
-Tông giọng: ${tone || "Trang nghiêm cổ kính"}
-${description && description.trim() ? `Nguyên tắc dịch thuật & Quy tắc xưng hô từ cẩm nang:\n${description.trim()}` : ""}
-${additionalInstructions && additionalInstructions.trim() ? `Yêu cầu bổ sung:\n${additionalInstructions.trim()}` : ""}
+[BẢN DỊCH THÔ GIAI ĐOẠN 1]
+${cleanRawTranslation}
 
---- TỪ ĐIỂN TÊN NHÂN VẬT & THUẬT NGỮ (ĐÃ CÓ - BẮT BUỘC TUÂN THỦ) ---
-${glossaryStr || "(Không có từ điển tùy chọn, dịch tự động dựa trên âm Hán-Việt phổ thông và ngữ cảnh)"}
-${matchedSummarySection}
-
---- VĂN BẢN TIẾNG TRUNG ĐÃ ĐÁNH DẤU TỪ ĐIỂN ---
-(Các tên đã được thay sẵn trong ngoặc vuông [Tên_Việt]. Bắt buộc dùng đúng tên này khi dịch)
+[BẢN GỐC TIẾNG TRUNG ĐỐI CHIẾU]
 ${substitutedSourceText}
 
---- BẢN DỊCH THÔ GIAI ĐOẠN 1 (ĐỂ BIÊN TẬP VÀ CHUỐT MỊN) ---
-${cleanRawTranslation}`;
+${matchedTermsList.length > 0 ? `\n[TỪ ĐIỂN RIÊNG ĐÃ XUẤT HIỆN TRONG ĐOẠN NÀY (${matchedTermsList.length} thuật ngữ, ${totalMatchOccurrences} lần xuất hiện)]:
+${matchedTermsList.map(term => {
+  const g = glossary.find((item: any) => item.chinese === term || (Array.isArray(item.variants) && item.variants.includes(term)));
+  return g ? `- [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> [${g.vietnamese}] (Bắt buộc dùng bản dịch này)` : '';
+}).filter(Boolean).join('\n')}` : ''}
+
+[HƯỚNG DẪN BIÊN TẬP VĂN HỌC]
+${getGenreStyleGuide(genre)}
+- Hãy chuốt lại câu cú tiếng Việt cho mượt mà, bay bổng, loại bỏ hoàn toàn cảm giác "dịch máy", giữ đúng tông giọng ${tone}.
+- Đảm bảo mạch văn trôi chảy, danh từ riêng chuẩn xác theo từ điển và âm Hán Việt.
+- BẢO TOÀN NGUYÊN VẸN CẤU TRÚC ĐOẠN VĂN: Tuyệt đối không tự ý gộp đoạn, không tách đoạn, không nối các dòng hội thoại lại với nhau. Số lượng đoạn văn ở bản chuốt phải tương ứng chính xác với số đoạn ở bản dịch thô!
+- CHỈ TRẢ VỀ DUY NHẤT ĐỐI TƯỢNG JSON với thuộc tính "polishedTranslation". Không viết thêm bất kỳ lời dẫn nào ngoài JSON.`;
+
+  const systemInstruction = `Bạn là một biên tập viên văn học và dịch giả đại tài, chuyên gia trau chuốt tiểu thuyết ngôn tình, tiên hiệp, kiếm hiệp, đô thị Trung - Việt.
+${LITERARY_TRANSLATION_FRAMING}
+Nhiệm vụ tối thượng: Nâng tầm bản dịch thô thành một tác phẩm văn học tiếng Việt mượt mà, chau chuốt, giàu hình ảnh và cảm xúc, tuyệt đối không còn mùi "dịch máy thô cứng" hay "Hán Việt sượng sùng".
+Nguyên tắc:
+1. Giữ nguyên 100% cốt truyện, nhân vật và đại từ xưng hô đã được định hình ở giai đoạn 1.
+2. Tuân thủ tuyệt đối từ điển riêng được cung cấp.
+3. Câu văn phải thuần Việt, uyển chuyển, tự nhiên như tác phẩm được sáng tác bởi tác giả Việt Nam.
+4. ĐẶC BIỆT: Giữ nguyên số lượng đoạn và cách ngắt dòng, tuyệt đối không gộp các đoạn văn lại với nhau.`;
 
   const schema = {
     type: Type.OBJECT,
     properties: {
       polishedTranslation: {
         type: Type.STRING,
-        description: "Toàn bộ nội dung bản dịch tiếng Việt sau khi đã được chuốt mịn văn phong văn học đỉnh cao, giữ nguyên 100% các đoạn văn ngăn cách bằng dòng trống (\\n\\n), tiêu đề chương ở dòng riêng biệt, lời thoại tự nhiên, không bỏ sót bất kỳ chi tiết nào."
+        description: "Bản dịch đã được chau chuốt mượt mà, chuẩn văn phong văn học tiếng Việt."
       }
     },
     required: ["polishedTranslation"]
@@ -142,7 +145,8 @@ ${cleanRawTranslation}`;
       prompt,
       schema,
       0.45,
-      startKeyIndex
+      startKeyIndex,
+      customRpm
   );
   const resultText = rotationResult.text;
   if (!resultText) {
@@ -193,7 +197,8 @@ export async function polishWithContentSplit(
     depth = 0,
     startKeyIndex: number = 0,
     description?: string,
-    enableSegmentTranslation?: boolean
+    enableSegmentTranslation?: boolean,
+    customRpm?: number
 ): Promise<{ polishedTranslation: string; successKeyIndex: number; isPartial?: boolean }> {
   const glossaryFingerprint = Array.isArray(glossary)
     ? glossary.map(g => `${g.chinese || ''}:${g.vietnamese || ''}`).join('|')
@@ -235,7 +240,8 @@ export async function polishWithContentSplit(
         apiKeys,
         model,
         currentKeyIdx,
-        description
+        description,
+        customRpm
       );
       polishedParagraphs.push(res.polishedTranslation);
       currentKeyIdx = res.successKeyIndex;
@@ -250,7 +256,7 @@ export async function polishWithContentSplit(
 
   if (estimateTokenCount(sourceText) < 90 || depth > 4) {
     try {
-      const directRes = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description);
+      const directRes = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description, customRpm);
       if (directRes.polishedTranslation) {
         translationChunkCache.set(cacheKey, { text: directRes.polishedTranslation });
       }
@@ -273,7 +279,7 @@ export async function polishWithContentSplit(
   }
 
   try {
-    const result = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description);
+    const result = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description, customRpm);
 
     if (!result.polishedTranslation || result.polishedTranslation.trim().length === 0) {
       if (model && model.toLowerCase().includes('gemma')) {
@@ -286,7 +292,8 @@ export async function polishWithContentSplit(
             `Bản thô:\n${rawTranslation}\n\nBản gốc Trung:\n${sourceText}`,
             undefined,
             0.4,
-            startKeyIndex
+            startKeyIndex,
+            customRpm
         );
 
         if (plainResult.text && plainResult.text.trim().length > 0) {
@@ -351,7 +358,9 @@ export async function polishWithContentSplit(
               model,
               depth + 1,
               staggeredKeyIndex,
-              description
+              description,
+              false,
+              customRpm
             );
           } catch (partErr: any) {
             logger.warn(`[Divide & Conquer Fallback Polish] Đoạn (${srcPart.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
@@ -400,14 +409,14 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
       return;
     }
 
-    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId, enableSegmentTranslation } = req.body;
+    const { sourceText, rawTranslation, genre, tone, description, glossary, additionalInstructions, apiKeys, model, startKeyIndex = 0, isExtractionEnabled, chapterId, sourceChapterId, enableSegmentTranslation, customRpm } = req.body;
 
     let newlyDiscoveredDuringPolish: any[] = [];
     let keyIndexAfterCheck = startKeyIndex;
 
     if (sourceText && isExtractionEnabled !== false) {
       logger.info("[Polish API] Tiến hành kích hoạt rà soát bổ sung thuật ngữ bị sót...");
-      const checkResults = await checkLeftoverGlossary(sourceText, glossary || [], apiKeys, model, startKeyIndex);
+      const checkResults = await checkLeftoverGlossary(sourceText, glossary || [], apiKeys, model, startKeyIndex, customRpm);
       keyIndexAfterCheck = checkResults.successKeyIndex;
       if (Array.isArray(checkResults.items) && checkResults.items.length > 0) {
         const resolvedChapterId = sourceChapterId || chapterId;
@@ -447,7 +456,8 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
         0,
         keyIndexAfterCheck,
         description,
-        enableSegmentTranslation
+        enableSegmentTranslation,
+        customRpm
     );
 
     res.json({

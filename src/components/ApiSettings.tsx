@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Key, Plus, Trash2, Eye, EyeOff, ClipboardPaste, Cpu, Sliders, BarChart3,
-  AlertTriangle, CheckCircle2, Clock, Sparkles, X
+  AlertTriangle, CheckCircle2, Clock, Sparkles, X, Zap
 } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
@@ -18,6 +18,7 @@ import {
   RegisteredModelDef,
   isValidModelIdFormat,
   formatTokenCount,
+  formatPacingSummary,
 } from '../utils/modelRegistry';
 
 interface ApiSettingsProps {
@@ -44,6 +45,20 @@ function ModelSummaryCard({
   summary: ModelStatsSummary; 
   onInspectClick: () => void;
 }) {
+  let customRpm: number | undefined;
+  try {
+    const saved = localStorage.getItem('gemini_quota_custom_limits');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      const firstLimit = Object.values(parsed)[0] as any;
+      if (firstLimit?.maxRpm && typeof firstLimit.maxRpm === 'number') {
+        customRpm = firstLimit.maxRpm;
+      }
+    }
+  } catch {}
+
+  const pacing = formatPacingSummary(customRpm, summary.modelId);
+
   return (
     <div className="bg-parchment-2/15 border border-parchment-2 rounded-[2px] p-3 space-y-2.5">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -91,6 +106,17 @@ function ModelSummaryCard({
           </button>
         </div>
       )}
+
+      {/* Dynamic Pacing Info Line */}
+      <div className="bg-parchment-2/20 border border-parchment-2/70 rounded-[2px] px-2.5 py-1 flex items-center justify-between text-[11px] text-text-muted flex-wrap gap-1">
+        <span className="flex items-center gap-1 font-medium">
+          <Zap className="w-3 h-3 text-polish" />
+          <span>Tốc độ điều phối: <strong className="text-text-main">~{pacing.estimatedRpm} req/phút</strong> (~{pacing.intervalSec}/lần gọi)</span>
+        </span>
+        <span className="text-[10px] italic">
+          {pacing.isCustom ? 'Tự động tối ưu theo hạn mức bạn nhập' : 'Mặc định theo tier model'}
+        </span>
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
         <div className="bg-ink border border-parchment-2 rounded-[2px] p-1.5">

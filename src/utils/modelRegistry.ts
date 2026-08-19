@@ -449,3 +449,59 @@ export function checkKeySupportForModel(
   const normSelected = normalizeModelId(selectedModelId);
   return modelsForKey.some(m => normalizeModelId(m.name) === normSelected);
 }
+
+export interface PacingConfig {
+  /** Khoảng cách an toàn giữa 2 request liên tiếp tính bằng mili-giây */
+  intervalMs: number;
+  /** Tốc độ ước tính theo phút (Requests Per Minute) */
+  estimatedRpm: number;
+  /** Chuỗi mô tả thời gian giãn cách (ví dụ: "1.1s" hoặc "4.5s") */
+  intervalSec: string;
+  /** Có đang bật chế độ tối ưu hóa theo hạn mức cá nhân hay không */
+  isCustom: boolean;
+}
+
+/**
+ * Tính toán khoảng cách an toàn (mili-giây) giữa các request dựa trên RPM người dùng cấu hình
+ * Hoặc fallback theo tier của model.
+ * Sử dụng hệ số an toàn 0.88 và giới hạn sàn 500ms.
+ */
+export function getDynamicPacingInterval(customRpm?: number, modelId?: string): number {
+  if (typeof customRpm === 'number' && customRpm > 0) {
+    return Math.max(500, Math.ceil(60000 / (customRpm * 0.88)));
+  }
+
+  const norm = modelId ? normalizeModelId(modelId) : '';
+  if (norm.includes('pro')) {
+    return 6000; // ~10 RPM an toàn cho Pro models
+  }
+  if (norm.includes('flash-lite')) {
+    return 3500; // ~17 RPM cho Flash Lite
+  }
+  return 4500; // ~13.3 RPM mặc định an toàn cho Flash models
+}
+
+/**
+ * Kiểm tra xem lượng token tiêu thụ trong phút hiện tại có chạm ngưỡng an toàn (85% maxTpm) hay không
+ */
+export function isTpmNearLimit(currentTpm: number, maxTpm: number = 1000000): boolean {
+  if (currentTpm <= 0 || maxTpm <= 0) return false;
+  return currentTpm >= maxTpm * 0.85;
+}
+
+/**
+ * Định dạng cấu hình nhịp độ điều phối để hiển thị lên giao diện
+ */
+export function formatPacingSummary(customRpm?: number, modelId?: string): PacingConfig {
+  const intervalMs = getDynamicPacingInterval(customRpm, modelId);
+  const intervalSec = (intervalMs / 1000).toFixed(1) + 's';
+  const estimatedRpm = Math.round((60000 / intervalMs) * 10) / 10;
+  const isCustom = typeof customRpm === 'number' && customRpm > 0;
+
+  return {
+    intervalMs,
+    estimatedRpm,
+    intervalSec,
+    isCustom,
+  };
+}

@@ -26,7 +26,7 @@ export async function qaCritique(req: Request, res: Response): Promise<void> {
 
     const sourceText = sanitizePromptInput(rawSource);
     const translatedText = sanitizePromptInput(rawTranslated);
-    const { apiKeys, model, startKeyIndex = 0 } = req.body;
+    const { apiKeys, model, startKeyIndex = 0, customRpm } = req.body;
 
     const systemInstruction =
         LITERARY_TRANSLATION_FRAMING +
@@ -55,14 +55,14 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
         },
         issues: {
           type: Type.ARRAY,
-          description: "Danh sách các lỗi phát hiện được trong bản dịch.",
+          description: "Danh sách các vấn đề phát hiện được.",
           items: {
             type: Type.OBJECT,
             properties: {
               type: {
                 type: Type.STRING,
-                enum: ["omission", "addition", "repetition", "other"],
-                description: "Phân loại lỗi: bỏ sót (omission), thêm thắt (addition), lặp lại (repetition), khác (other)."
+                enum: ["omission", "addition", "repetition", "terminology", "other"],
+                description: "Loại lỗi phát hiện: omission (bỏ sót), addition (thêm thắt), repetition (lặp lại), terminology (sai từ điển), other (khác)."
               },
               severity: {
                 type: Type.STRING,
@@ -88,7 +88,8 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
         prompt,
         schema,
         0.15,
-        startKeyIndex
+        startKeyIndex,
+        customRpm
     );
     const resultText = rotationResult.text;
     if (resultText) {

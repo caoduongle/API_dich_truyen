@@ -9,6 +9,9 @@ import {
   addCustomModel,
   getCustomModels,
   getDiscoveredModels,
+  getDynamicPacingInterval,
+  isTpmNearLimit,
+  formatPacingSummary,
 } from '../../utils/modelRegistry';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../../utils/apiClient';
 
@@ -287,5 +290,38 @@ describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
     expect(found).toBeDefined();
     expect(found?.source).toBe('custom');
     expect(found?.label).toBe('Tiểu Thuyết Tiên Hiệp V1');
+  });
+
+  // Test 9: Dynamic pacing scales with custom RPM and respects safety floors
+  it('Test 9 — dynamic pacing adapts interval based on custom RPM with minimum safety floor', () => {
+    // Default tier model
+    expect(getDynamicPacingInterval(undefined, 'gemini-2.5-pro')).toBe(6000);
+    expect(getDynamicPacingInterval(undefined, 'gemini-2.5-flash')).toBe(4500);
+    expect(getDynamicPacingInterval(undefined, 'gemini-2.0-flash-lite')).toBe(3500);
+
+    // Custom RPM
+    // 15 RPM -> 60000 / (15 * 0.88) = 4546ms
+    expect(getDynamicPacingInterval(15)).toBe(4546);
+
+    // 60 RPM -> 60000 / (60 * 0.88) = 1137ms
+    expect(getDynamicPacingInterval(60)).toBe(1137);
+
+    // 300 RPM -> capped at 500ms safety floor
+    expect(getDynamicPacingInterval(300)).toBe(500);
+
+    // Pacing summary
+    const summary = formatPacingSummary(60, 'gemini-2.5-flash');
+    expect(summary.estimatedRpm).toBe(52.8);
+    expect(summary.intervalSec).toBe('1.1s');
+    expect(summary.isCustom).toBe(true);
+  });
+
+  // Test 10: TPM guard correctly flags near limit threshold at 85%
+  it('Test 10 — TPM throttling guard flags near limit when exceeding 85% capacity', () => {
+    const maxTpm = 1_000_000;
+    expect(isTpmNearLimit(500_000, maxTpm)).toBe(false);
+    expect(isTpmNearLimit(849_999, maxTpm)).toBe(false);
+    expect(isTpmNearLimit(850_000, maxTpm)).toBe(true);
+    expect(isTpmNearLimit(950_000, maxTpm)).toBe(true);
   });
 });

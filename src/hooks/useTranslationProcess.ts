@@ -7,6 +7,7 @@ import { useNotifications } from '../components/NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
 import { apiFetch } from '../utils/apiClient';
 import { executeSingleChapterTranslation, SingleChapterResult } from '../services/chapterTranslationService';
+import { getDynamicPacingInterval } from '../utils/modelRegistry';
 
 export interface UseTranslationProcessProps {
   activeProject: StoryProject;
@@ -221,6 +222,26 @@ export function useTranslationProcess({
     let i = startIndex;
     while (i < queue.length) {
       if (isPauseRequestedRef.current) break;
+
+      // ── Adaptive Dynamic Pacing giữa các đợt dịch ──
+      if (i > startIndex) {
+        let customRpm: number | undefined;
+        try {
+          const stored = localStorage.getItem('gemini_quota_custom_limits');
+          if (stored) {
+            const parsedLimits = JSON.parse(stored);
+            const firstLimit = Object.values(parsedLimits)[0] as any;
+            if (firstLimit?.maxRpm && typeof firstLimit.maxRpm === 'number') {
+              customRpm = firstLimit.maxRpm;
+            }
+          }
+        } catch {}
+
+        const pacingDelay = getDynamicPacingInterval(customRpm, paramsRef.current.selectedModel);
+        if (pacingDelay > 0) {
+          await new Promise(r => setTimeout(r, pacingDelay));
+        }
+      }
 
       // ── Cắt batch ──
       const batchSize = Math.min(effectiveConcurrency, queue.length - i);
