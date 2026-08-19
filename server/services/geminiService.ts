@@ -347,7 +347,15 @@ export async function generateWithRotation(
 
             // Thành công → reset cooldown toàn cục (model đã hồi phục)
             overloadCooldownUntil = 0;
-            quotaService.recordUsage(key, model, 'success');
+            const promptTokens = response?.usageMetadata?.promptTokenCount || 0;
+            const outputTokens = response?.usageMetadata?.candidatesTokenCount || 0;
+            const totalTokens = response?.usageMetadata?.totalTokenCount || (promptTokens + outputTokens);
+
+            quotaService.recordUsage(key, model, 'success', Date.now(), {
+              promptTokens,
+              outputTokens,
+              totalTokens,
+            });
 
             let rawText = response.text ?? "";
             if (!rawText && candidate?.content?.parts?.length) {

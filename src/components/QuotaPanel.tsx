@@ -9,14 +9,15 @@ import {
   Clock,
   Sparkles,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Zap
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Seal } from './ui/Seal';
 import { EmptyState } from './ui/EmptyState';
 import { useModelObservability, ModelObservabilityState } from '../hooks/useModelObservability';
-import { computeModelStatsSummary, getKeyModelStats, normalizeModelId } from '../utils/modelRegistry';
+import { computeModelStatsSummary, getKeyModelStats, normalizeModelId, formatTokenCount } from '../utils/modelRegistry';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../utils/apiClient';
 
 const CUSTOM_LIMITS_STORAGE_KEY = 'gemini_quota_custom_limits';
@@ -24,7 +25,14 @@ const CUSTOM_LIMITS_STORAGE_KEY = 'gemini_quota_custom_limits';
 export interface CustomLimit {
   maxRpm: number;
   maxRpd: number;
+  maxTpm: number;
 }
+
+export const DEFAULT_CUSTOM_LIMIT: CustomLimit = {
+  maxRpm: 15,
+  maxRpd: 1500,
+  maxTpm: 1000000,
+};
 
 export interface CountdownBadgeProps {
   remainingMs: number;
@@ -134,8 +142,14 @@ export const KeyCardItem = React.memo(function KeyCardItem({
   onToggleExpand,
   onSelectModel,
 }: KeyCardItemProps) {
-  const rpmPercent = Math.min(100, Math.round((item.requestsThisMinute / limit.maxRpm) * 100));
-  const rpdPercent = Math.min(100, Math.round((item.requestsToday / limit.maxRpd) * 100));
+  const safeLimit = limit || DEFAULT_CUSTOM_LIMIT;
+  const tokensThisMinute = item.tokensThisMinute || 0;
+  const tokensToday = item.tokensToday || 0;
+  const tokensTotal = item.tokensTotal || 0;
+
+  const rpmPercent = Math.min(100, Math.round((item.requestsThisMinute / safeLimit.maxRpm) * 100));
+  const tpmPercent = Math.min(100, Math.round((tokensThisMinute / safeLimit.maxTpm) * 100));
+  const rpdPercent = Math.min(100, Math.round((item.requestsToday / safeLimit.maxRpd) * 100));
 
   const isBlacklisted = item.runtime?.isBlacklisted && (item.runtime.blacklistRemainingMs || 0) > 0;
   const isRateLimited = item.runtime?.isRateLimited && (item.runtime.nextAllowedRemainingMs || 0) > 0;
@@ -195,22 +209,22 @@ export const KeyCardItem = React.memo(function KeyCardItem({
         </div>
         <div className="flex items-center gap-2.5 font-mono text-[11px] text-text-muted">
           <span>RPM: <strong className="text-text-main">{keyModelStats.requestsThisMinute}</strong></span>
-          <span>Hôm nay: <strong className="text-text-main">{keyModelStats.requestsToday}</strong></span>
-          <span>Tổng: <strong className="text-text-main">{keyModelStats.requestsTotal}</strong></span>
+          <span>TPM: <strong className="text-text-main">{formatTokenCount(keyModelStats.tokensThisMinute)}</strong></span>
+          <span>Hôm nay: <strong className="text-text-main">{keyModelStats.requestsToday}</strong> reqs ({formatTokenCount(keyModelStats.tokensToday)} tok)</span>
           {keyModelStats.errorsTotal > 0 && (
             <span className="text-polish font-bold">Lỗi: {keyModelStats.errorsTotal}</span>
           )}
         </div>
       </div>
 
-      {/* Metrics Grid */}
+      {/* Metrics Grid with Sliding Window RPM & TPM Gauges */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+        {/* RPM Gauge */}
         <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng RPM Key</div>
+          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPM (60s)</div>
           <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-            {item.requestsThisMinute} <span className="text-[10px] text-text-muted font-normal">/ {limit.maxRpm}</span>
+            {item.requestsThisMinute} <span className="text-[10px] text-text-muted font-normal">/ {safeLimit.maxRpm}</span>
           </div>
-          {/* RPM Progress bar */}
           <div className="w-full bg-parchment-2 h-1 rounded-full mt-1.5 overflow-hidden">
             <div 
               className={`h-full transition-all duration-300 ${rpmPercent >= 90 ? 'bg-polish' : rpmPercent >= 70 ? 'bg-amber-400' : 'bg-text-muted'}`}
@@ -219,12 +233,28 @@ export const KeyCardItem = React.memo(function KeyCardItem({
           </div>
         </div>
 
+        {/* TPM Gauge */}
         <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng RPD Key (PST)</div>
-          <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-            {item.requestsToday} <span className="text-[10px] text-text-muted font-normal">/ {limit.maxRpd}</span>
+          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider flex items-center justify-center gap-1">
+            <Zap className="w-2.5 h-2.5 text-polish" /> TPM (60s)
           </div>
-          {/* RPD Progress bar */}
+          <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+            {formatTokenCount(tokensThisMinute)} <span className="text-[10px] text-text-muted font-normal">/ {formatTokenCount(safeLimit.maxTpm)}</span>
+          </div>
+          <div className="w-full bg-parchment-2 h-1 rounded-full mt-1.5 overflow-hidden">
+            <div 
+              className={`h-full transition-all duration-300 ${tpmPercent >= 90 ? 'bg-polish' : tpmPercent >= 70 ? 'bg-amber-400' : 'bg-text-muted'}`}
+              style={{ width: `${tpmPercent}%` }}
+            />
+          </div>
+        </div>
+
+        {/* RPD Gauge */}
+        <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
+          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPD Hôm nay (PST)</div>
+          <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+            {item.requestsToday} <span className="text-[10px] text-text-muted font-normal">/ {safeLimit.maxRpd}</span>
+          </div>
           <div className="w-full bg-parchment-2 h-1 rounded-full mt-1.5 overflow-hidden">
             <div 
               className={`h-full transition-all duration-300 ${rpdPercent >= 90 ? 'bg-polish' : rpdPercent >= 70 ? 'bg-amber-400' : 'bg-text-muted'}`}
@@ -233,20 +263,19 @@ export const KeyCardItem = React.memo(function KeyCardItem({
           </div>
         </div>
 
+        {/* Tokens Today / Total */}
         <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Request Key</div>
+          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Token Hôm nay / Tổng</div>
           <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-            {item.requestsTotal}
+            {formatTokenCount(tokensToday)} <span className="text-[10px] text-text-muted font-normal">/ {formatTokenCount(tokensTotal)}</span>
           </div>
-          <div className="text-[9px] text-text-muted mt-1">Tất cả model</div>
-        </div>
-
-        <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-          <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Lỗi Key</div>
-          <div className={`text-sm font-mono font-bold mt-0.5 ${item.errorsTotal > 0 ? 'text-polish' : 'text-text-main'}`}>
-            {item.errorsTotal}
+          <div className="text-[9px] text-text-muted mt-1">
+            {item.errorsTotal > 0 ? (
+              <span className="text-polish font-bold">{item.errorsTotal} lỗi phát sinh</span>
+            ) : (
+              '0 lỗi phát sinh'
+            )}
           </div>
-          <div className="text-[9px] text-text-muted mt-1">429 / 503 / Safety</div>
         </div>
       </div>
 
@@ -342,10 +371,11 @@ export const KeyCardItem = React.memo(function KeyCardItem({
                   <span className="text-text-main text-[11px] font-semibold">
                     {modelId.replace('models/', '')}
                   </span>
-                  <div className="flex items-center gap-3 text-[10px] text-text-muted">
+                  <div className="flex items-center gap-3 text-[10px] text-text-muted flex-wrap">
                     <span>RPM: <strong className="text-text-main">{mStats.requestsThisMinute}</strong></span>
+                    <span>TPM: <strong className="text-text-main">{formatTokenCount(mStats.tokensThisMinute)}</strong></span>
                     <span>RPD: <strong className="text-text-main">{mStats.requestsToday}</strong></span>
-                    <span>Tổng: <strong className="text-text-main">{mStats.requestsTotal}</strong></span>
+                    <span>TPD: <strong className="text-text-main">{formatTokenCount(mStats.tokensToday)}</strong></span>
                     {mStats.errorsTotal > 0 && (
                       <span className="text-polish font-bold">Lỗi: {mStats.errorsTotal}</span>
                     )}
@@ -363,11 +393,11 @@ export const KeyCardItem = React.memo(function KeyCardItem({
 export interface CustomLimitsPanelProps {
   snapshotKeys: KeyQuotaFullSnapshot[];
   customLimits: Record<string, CustomLimit>;
-  onUpdateLimit: (keyHash: string, field: 'maxRpm' | 'maxRpd', value: number) => void;
+  onUpdateLimit: (keyHash: string, field: 'maxRpm' | 'maxRpd' | 'maxTpm', value: number) => void;
 }
 
 /**
- * Bảng cấu hình giới hạn người dùng tự đặt, bọc React.memo
+ * Bảng cấu hình giới hạn người dùng tự đặt (RPM, TPM, RPD), bọc React.memo
  */
 export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
   snapshotKeys,
@@ -381,36 +411,48 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
         Cấu hình Ngưỡng Hạn ngạch Người dùng Tự đặt
       </div>
       <p className="text-[11px] text-text-muted leading-relaxed">
-        Thiết lập ngưỡng RPM (Request / Phút) và RPD (Request / Ngày) để hiển thị thanh tiến độ phần trăm trực quan trên từng key.
+        Thiết lập ngưỡng RPM (Request / Phút), TPM (Token / Phút) và RPD (Request / Ngày) để hiển thị thanh tiến độ phần trăm trực quan trên từng key.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         {snapshotKeys.map((item, idx) => {
-          const limit = customLimits[item.keyHash] || { maxRpm: 15, maxRpd: 1500 };
+          const limit = customLimits[item.keyHash] || DEFAULT_CUSTOM_LIMIT;
           return (
             <div key={item.keyHash || idx} className="bg-ink border border-parchment-2 rounded-[2px] p-2.5 space-y-2">
               <div className="text-[11px] font-bold text-text-main flex items-center justify-between">
                 <span>Khóa #{idx + 1}</span>
                 <span className="font-mono text-text-muted text-[10px]">{item.maskedKey}</span>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
-                  <label className="text-[10px] text-text-muted block mb-0.5">Giới hạn RPM:</label>
+                  <label className="text-[9px] text-text-muted block mb-0.5">Max RPM:</label>
                   <input
                     type="number"
                     min="1"
                     max="1000"
-                    value={limit.maxRpm}
+                    value={limit.maxRpm || 15}
                     onChange={e => onUpdateLimit(item.keyHash, 'maxRpm', parseInt(e.target.value, 10))}
                     className="w-full bg-parchment-2/40 border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main text-xs font-mono outline-none focus:border-polish"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-text-muted block mb-0.5">Giới hạn RPD:</label>
+                  <label className="text-[9px] text-text-muted block mb-0.5">Max TPM:</label>
+                  <input
+                    type="number"
+                    min="1000"
+                    max="100000000"
+                    step="10000"
+                    value={limit.maxTpm || 1000000}
+                    onChange={e => onUpdateLimit(item.keyHash, 'maxTpm', parseInt(e.target.value, 10))}
+                    className="w-full bg-parchment-2/40 border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main text-xs font-mono outline-none focus:border-polish"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] text-text-muted block mb-0.5">Max RPD:</label>
                   <input
                     type="number"
                     min="1"
                     max="50000"
-                    value={limit.maxRpd}
+                    value={limit.maxRpd || 1500}
                     onChange={e => onUpdateLimit(item.keyHash, 'maxRpd', parseInt(e.target.value, 10))}
                     className="w-full bg-parchment-2/40 border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main text-xs font-mono outline-none focus:border-polish"
                   />
@@ -483,9 +525,9 @@ export function QuotaPanel({
     });
   }, []);
 
-  const handleUpdateLimit = useCallback((keyHash: string, field: 'maxRpm' | 'maxRpd', value: number) => {
+  const handleUpdateLimit = useCallback((keyHash: string, field: 'maxRpm' | 'maxRpd' | 'maxTpm', value: number) => {
     setCustomLimits(prev => {
-      const current = prev[keyHash] || { maxRpm: 15, maxRpd: 1500 };
+      const current = prev[keyHash] || DEFAULT_CUSTOM_LIMIT;
       const next = {
         ...prev,
         [keyHash]: {
@@ -622,10 +664,10 @@ export function QuotaPanel({
           </div>
         )}
 
-        {/* 4 Metric Tiles for Currently Selected Model */}
+        {/* 4 Metric Tiles for Currently Selected Model: RPM, TPM, Requests/Tokens Today, Total */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
           <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPM Hiện tại</div>
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPM Hiện tại (60s)</div>
             <div className="text-sm font-mono font-bold text-text-main mt-0.5">
               {modelSummary.requestsThisMinute}
             </div>
@@ -633,27 +675,31 @@ export function QuotaPanel({
           </div>
 
           <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Request hôm nay (PST)</div>
-            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-              {modelSummary.requestsToday}
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider flex items-center justify-center gap-1">
+              <Zap className="w-2.5 h-2.5 text-polish" /> TPM Hiện tại (60s)
             </div>
-            <div className="text-[9px] text-text-muted mt-0.5">Tính theo múi giờ PST</div>
+            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+              {formatTokenCount(modelSummary.tokensThisMinute)}
+            </div>
+            <div className="text-[9px] text-text-muted mt-0.5">Tokens / phút</div>
           </div>
 
           <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Request</div>
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Hôm nay (PST)</div>
             <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-              {modelSummary.totalRequests}
+              {modelSummary.requestsToday} <span className="text-[10px] text-text-muted font-normal">reqs</span>
             </div>
-            <div className="text-[9px] text-text-muted mt-0.5">Lũy kế phiên làm việc</div>
+            <div className="text-[9px] text-text-muted mt-0.5">{formatTokenCount(modelSummary.tokensToday)} tokens</div>
           </div>
 
           <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Lỗi phát sinh</div>
-            <div className={`text-sm font-mono font-bold mt-0.5 ${modelSummary.errorsTotal > 0 ? 'text-polish' : 'text-text-main'}`}>
-              {modelSummary.errorsTotal}
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Lũy kế</div>
+            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+              {formatTokenCount(modelSummary.totalTokens)} <span className="text-[10px] text-text-muted font-normal">tokens</span>
             </div>
-            <div className="text-[9px] text-text-muted mt-0.5">429 / 503 / Safety</div>
+            <div className={`text-[9px] mt-0.5 ${modelSummary.errorsTotal > 0 ? 'text-polish font-bold' : 'text-text-muted'}`}>
+              {modelSummary.totalRequests} reqs • {modelSummary.errorsTotal} lỗi
+            </div>
           </div>
         </div>
       </div>
@@ -670,7 +716,7 @@ export function QuotaPanel({
       {/* List of Keys Quota Cards */}
       <div className="space-y-3">
         {snapshotKeys.map((item, idx) => {
-          const limit = customLimits[item.keyHash] || { maxRpm: 15, maxRpd: 1500 };
+          const limit = customLimits[item.keyHash] || DEFAULT_CUSTOM_LIMIT;
           return (
             <KeyCardItem
               key={item.keyHash || idx}

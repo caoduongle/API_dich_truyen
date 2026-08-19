@@ -284,12 +284,28 @@ export interface ModelStatsSummary {
   requestsToday: number;
   requestsThisMinute: number;
   errorsTotal: number;
+  totalTokens: number;
+  tokensToday: number;
+  tokensThisMinute: number;
   totalKeys: number;
   checkedKeyCount: number;
   availableKeyCount: number;
   supportingKeyIndices: number[];
   hasChecked: boolean;
   isUnavailable: boolean;
+}
+
+/**
+ * Định dạng số lượng token hiển thị gọn gàng (ví dụ: 1.5k, 250k, 3.2M)
+ */
+export function formatTokenCount(tokens: number = 0): string {
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${(tokens / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  }
+  return `${tokens}`;
 }
 
 /**
@@ -310,8 +326,11 @@ export function computeModelStatsSummary(
   let requestsToday = 0;
   let requestsThisMinute = 0;
   let errorsTotal = 0;
+  let totalTokens = 0;
+  let tokensToday = 0;
+  let tokensThisMinute = 0;
 
-  // 1. Tổng hợp số liệu request từ tất cả các key
+  // 1. Tổng hợp số liệu request và token từ tất cả các key
   for (const item of snapshotKeys) {
     if (!item || !item.byModel) continue;
 
@@ -321,6 +340,9 @@ export function computeModelStatsSummary(
         requestsToday += mStats.requestsToday || 0;
         requestsThisMinute += mStats.requestsThisMinute || 0;
         errorsTotal += mStats.errorsTotal || 0;
+        totalTokens += mStats.tokensTotal || 0;
+        tokensToday += mStats.tokensToday || 0;
+        tokensThisMinute += mStats.tokensThisMinute || 0;
       }
     }
   }
@@ -355,6 +377,9 @@ export function computeModelStatsSummary(
     requestsToday,
     requestsThisMinute,
     errorsTotal,
+    totalTokens,
+    tokensToday,
+    tokensThisMinute,
     totalKeys: effectiveTotalKeys,
     checkedKeyCount,
     availableKeyCount,
@@ -365,14 +390,22 @@ export function computeModelStatsSummary(
 }
 
 /**
- * Trích xuất thống kê request của riêng một key dành cho Model đang chọn.
+ * Trích xuất thống kê request & token của riêng một key dành cho Model đang chọn.
  */
 export function getKeyModelStats(
   keySnapshot?: KeyQuotaFullSnapshot,
   selectedModelId?: string
 ): ModelUsageStats {
   if (!keySnapshot || !keySnapshot.byModel || !selectedModelId) {
-    return { requestsTotal: 0, requestsToday: 0, requestsThisMinute: 0, errorsTotal: 0 };
+    return { 
+      requestsTotal: 0, 
+      requestsToday: 0, 
+      requestsThisMinute: 0, 
+      errorsTotal: 0,
+      tokensTotal: 0,
+      tokensToday: 0,
+      tokensThisMinute: 0
+    };
   }
 
   const normSelected = normalizeModelId(selectedModelId);
@@ -383,11 +416,22 @@ export function getKeyModelStats(
         requestsToday: mStats.requestsToday || 0,
         requestsThisMinute: mStats.requestsThisMinute || 0,
         errorsTotal: mStats.errorsTotal || 0,
+        tokensTotal: mStats.tokensTotal || 0,
+        tokensToday: mStats.tokensToday || 0,
+        tokensThisMinute: mStats.tokensThisMinute || 0,
       };
     }
   }
 
-  return { requestsTotal: 0, requestsToday: 0, requestsThisMinute: 0, errorsTotal: 0 };
+  return { 
+    requestsTotal: 0, 
+    requestsToday: 0, 
+    requestsThisMinute: 0, 
+    errorsTotal: 0,
+    tokensTotal: 0,
+    tokensToday: 0,
+    tokensThisMinute: 0
+  };
 }
 
 /**

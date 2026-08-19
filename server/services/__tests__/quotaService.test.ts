@@ -59,27 +59,43 @@ describe('quotaService', () => {
       expect(snapshot[0].requestsToday).toBe(0);
       expect(snapshot[0].requestsThisMinute).toBe(0);
       expect(snapshot[0].errorsTotal).toBe(0);
+      expect(snapshot[0].tokensTotal).toBe(0);
+      expect(snapshot[0].tokensToday).toBe(0);
+      expect(snapshot[0].tokensThisMinute).toBe(0);
       expect(snapshot[0].maskedKey).toBe(maskApiKey(testKey1));
     });
 
-    it('should record success requests and update counters', () => {
+    it('should record success requests and update request & token counters', () => {
       const now = Date.now();
-      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', now);
-      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', now + 1000);
+      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', now, {
+        promptTokens: 1000,
+        outputTokens: 500,
+        totalTokens: 1500,
+      });
+      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', now + 1000, {
+        promptTokens: 2000,
+        outputTokens: 1000,
+        totalTokens: 3000,
+      });
 
       const snapshot = quotaService.getQuotaSnapshot([testKey1], now + 2000);
       expect(snapshot[0].requestsTotal).toBe(2);
       expect(snapshot[0].requestsToday).toBe(2);
       expect(snapshot[0].requestsThisMinute).toBe(2);
       expect(snapshot[0].errorsTotal).toBe(0);
+      expect(snapshot[0].tokensTotal).toBe(4500);
+      expect(snapshot[0].tokensToday).toBe(4500);
+      expect(snapshot[0].tokensThisMinute).toBe(4500);
 
       const modelStats = snapshot[0].byModel['models/gemini-2.5-flash'];
       expect(modelStats).toBeDefined();
       expect(modelStats.requestsTotal).toBe(2);
+      expect(modelStats.tokensTotal).toBe(4500);
+      expect(modelStats.tokensThisMinute).toBe(4500);
       expect(modelStats.errorsTotal).toBe(0);
     });
 
-    it('should record error and overload attempts to errorsTotal', () => {
+    it('should record error and overload attempts to errorsTotal with 0 tokens if not provided', () => {
       const now = Date.now();
       quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'overloaded', now);
       quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'quota_exceeded', now + 500);
@@ -89,66 +105,107 @@ describe('quotaService', () => {
       const snapshot = quotaService.getQuotaSnapshot([testKey1], now + 2000);
       expect(snapshot[0].requestsTotal).toBe(4);
       expect(snapshot[0].errorsTotal).toBe(4);
+      expect(snapshot[0].tokensTotal).toBe(0);
 
       expect(snapshot[0].byModel['models/gemini-2.5-flash'].errorsTotal).toBe(2);
       expect(snapshot[0].byModel['models/gemini-2.5-pro'].errorsTotal).toBe(2);
     });
 
-    it('should handle rolling 1-minute bucket properly with fake timers', () => {
+    it('should handle sliding 60-second window properly with fake timers for RPM and TPM', () => {
       vi.useFakeTimers();
       const baseTime = new Date('2026-08-19T12:00:00.000Z').getTime();
       vi.setSystemTime(baseTime);
 
-      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', baseTime);
-      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', baseTime + 10000);
+      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', baseTime, {
+        promptTokens: 1000,
+        outputTokens: 500,
+        totalTokens: 1500,
+      });
+      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', baseTime + 10000, {
+        promptTokens: 2000,
+        outputTokens: 1000,
+        totalTokens: 3000,
+      });
 
       let snapshot = quotaService.getQuotaSnapshot([testKey1], baseTime + 20000);
       expect(snapshot[0].requestsThisMinute).toBe(2);
+      expect(snapshot[0].tokensThisMinute).toBe(4500);
       expect(snapshot[0].requestsTotal).toBe(2);
+      expect(snapshot[0].tokensTotal).toBe(4500);
 
-      // Advance by 50 seconds (total 70s from first request, 60s from second)
+      // Advance past 60s from first request (70s total)
       const futureTime = baseTime + 70000;
       snapshot = quotaService.getQuotaSnapshot([testKey1], futureTime);
       expect(snapshot[0].requestsThisMinute).toBe(0);
+      expect(snapshot[0].tokensThisMinute).toBe(0);
       expect(snapshot[0].requestsTotal).toBe(2); // Total remains unchanged
+      expect(snapshot[0].tokensTotal).toBe(4500); // Total tokens remain unchanged
     });
 
-    it('should automatically reset requestsToday when transitioning past midnight in America/Los_Angeles', () => {
+    it('should automatically reset requestsToday and tokensToday when transitioning past midnight in America/Los_Angeles', () => {
       // 2026-08-19 23:59:00 PDT -> 2026-08-20T06:59:00.000Z
       const day1Time = new Date('2026-08-20T06:59:00.000Z').getTime();
-      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', day1Time);
-      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', day1Time + 30000);
+      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', day1Time, {
+        promptTokens: 1000,
+        outputTokens: 500,
+        totalTokens: 1500,
+      });
+      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', day1Time + 30000, {
+        promptTokens: 1000,
+        outputTokens: 500,
+        totalTokens: 1500,
+      });
 
       let snapshot = quotaService.getQuotaSnapshot([testKey1], day1Time + 40000);
       expect(snapshot[0].requestsToday).toBe(2);
+      expect(snapshot[0].tokensToday).toBe(3000);
       expect(snapshot[0].requestsTotal).toBe(2);
+      expect(snapshot[0].tokensTotal).toBe(3000);
 
       // 2 minutes later: 2026-08-20 00:01:00 PDT -> 2026-08-20T07:01:00.000Z (Next Day in PST)
       const day2Time = new Date('2026-08-20T07:01:00.000Z').getTime();
       snapshot = quotaService.getQuotaSnapshot([testKey1], day2Time);
       expect(snapshot[0].requestsToday).toBe(0);
+      expect(snapshot[0].tokensToday).toBe(0);
       expect(snapshot[0].requestsTotal).toBe(2);
+      expect(snapshot[0].tokensTotal).toBe(3000);
 
       // New request on Day 2
-      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', day2Time);
+      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', day2Time, {
+        promptTokens: 2000,
+        outputTokens: 500,
+        totalTokens: 2500,
+      });
       snapshot = quotaService.getQuotaSnapshot([testKey1], day2Time + 1000);
       expect(snapshot[0].requestsToday).toBe(1);
+      expect(snapshot[0].tokensToday).toBe(2500);
       expect(snapshot[0].requestsTotal).toBe(3);
+      expect(snapshot[0].tokensTotal).toBe(5500);
     });
 
-    it('should separate metrics between multiple different API keys', () => {
+    it('should separate request and token metrics between multiple different API keys', () => {
       const now = Date.now();
-      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', now);
-      quotaService.recordUsage(testKey2, 'gemini-2.5-flash', 'success', now);
+      quotaService.recordUsage(testKey1, 'gemini-2.5-flash', 'success', now, {
+        promptTokens: 1000,
+        outputTokens: 500,
+        totalTokens: 1500,
+      });
+      quotaService.recordUsage(testKey2, 'gemini-2.5-flash', 'success', now, {
+        promptTokens: 3000,
+        outputTokens: 1000,
+        totalTokens: 4000,
+      });
       quotaService.recordUsage(testKey2, 'gemini-2.5-pro', 'error', now + 1000);
 
       const snapshots = quotaService.getQuotaSnapshot([testKey1, testKey2], now + 2000);
       expect(snapshots).toHaveLength(2);
 
       expect(snapshots[0].requestsTotal).toBe(1);
+      expect(snapshots[0].tokensTotal).toBe(1500);
       expect(snapshots[0].errorsTotal).toBe(0);
 
       expect(snapshots[1].requestsTotal).toBe(2);
+      expect(snapshots[1].tokensTotal).toBe(4000);
       expect(snapshots[1].errorsTotal).toBe(1);
     });
   });

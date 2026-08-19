@@ -348,6 +348,9 @@ export interface ModelUsageStats {
   requestsToday: number;
   requestsThisMinute: number;
   errorsTotal: number;
+  tokensTotal?: number;
+  tokensToday?: number;
+  tokensThisMinute?: number;
 }
 
 export interface KeyQuotaFullSnapshot {
@@ -358,6 +361,9 @@ export interface KeyQuotaFullSnapshot {
   requestsToday: number;
   requestsThisMinute: number;
   errorsTotal: number;
+  tokensTotal?: number;
+  tokensToday?: number;
+  tokensThisMinute?: number;
   byModel: Record<string, ModelUsageStats>;
   runtime: KeyRuntimeStatus;
   lastRequestTimestamp?: number;

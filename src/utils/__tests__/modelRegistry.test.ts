@@ -14,6 +14,7 @@ import {
   addCustomModel,
   removeCustomModel,
   clearDiscoveredModels,
+  formatTokenCount,
 } from '../modelRegistry';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../apiClient';
 
@@ -139,6 +140,16 @@ describe('modelRegistry utils', () => {
     });
   });
 
+  describe('formatTokenCount', () => {
+    it('formats token numbers cleanly with k and M suffixes', () => {
+      expect(formatTokenCount(500)).toBe('500');
+      expect(formatTokenCount(1500)).toBe('1.5k');
+      expect(formatTokenCount(250000)).toBe('250k');
+      expect(formatTokenCount(1200000)).toBe('1.2M');
+      expect(formatTokenCount(0)).toBe('0');
+    });
+  });
+
   describe('computeModelStatsSummary', () => {
     const mockSnapshots: KeyQuotaFullSnapshot[] = [
       {
@@ -149,18 +160,27 @@ describe('modelRegistry utils', () => {
         requestsToday: 40,
         requestsThisMinute: 5,
         errorsTotal: 2,
+        tokensTotal: 150000,
+        tokensToday: 60000,
+        tokensThisMinute: 7500,
         byModel: {
           'models/gemini-3.1-flash-lite': {
             requestsTotal: 60,
             requestsToday: 25,
             requestsThisMinute: 3,
             errorsTotal: 1,
+            tokensTotal: 90000,
+            tokensToday: 35000,
+            tokensThisMinute: 4500,
           },
           'gemini-2.5-flash': {
             requestsTotal: 40,
             requestsToday: 15,
             requestsThisMinute: 2,
             errorsTotal: 1,
+            tokensTotal: 60000,
+            tokensToday: 25000,
+            tokensThisMinute: 3000,
           },
         },
         runtime: { isBlacklisted: false, blacklistRemainingMs: 0, isRateLimited: false, nextAllowedRemainingMs: 0 },
@@ -173,12 +193,18 @@ describe('modelRegistry utils', () => {
         requestsToday: 30,
         requestsThisMinute: 4,
         errorsTotal: 0,
+        tokensTotal: 120000,
+        tokensToday: 45000,
+        tokensThisMinute: 6000,
         byModel: {
           'gemini-3.1-flash-lite': {
             requestsTotal: 80,
             requestsToday: 30,
             requestsThisMinute: 4,
             errorsTotal: 0,
+            tokensTotal: 120000,
+            tokensToday: 45000,
+            tokensThisMinute: 6000,
           },
         },
         runtime: { isBlacklisted: false, blacklistRemainingMs: 0, isRateLimited: false, nextAllowedRemainingMs: 0 },
@@ -195,7 +221,7 @@ describe('modelRegistry utils', () => {
       ],
     };
 
-    it('accurately sums request metrics for the selected model across all keys', () => {
+    it('accurately sums request and token metrics for the selected model across all keys', () => {
       const summary = computeModelStatsSummary(
         'gemini-3.1-flash-lite',
         mockSnapshots,
@@ -207,6 +233,9 @@ describe('modelRegistry utils', () => {
       expect(summary.requestsToday).toBe(55); // 25 + 30
       expect(summary.requestsThisMinute).toBe(7); // 3 + 4
       expect(summary.errorsTotal).toBe(1); // 1 + 0
+      expect(summary.totalTokens).toBe(210000); // 90k + 120k
+      expect(summary.tokensToday).toBe(80000); // 35k + 45k
+      expect(summary.tokensThisMinute).toBe(10500); // 4500 + 6000
       expect(summary.totalKeys).toBe(2);
       expect(summary.checkedKeyCount).toBe(2);
       expect(summary.availableKeyCount).toBe(2);

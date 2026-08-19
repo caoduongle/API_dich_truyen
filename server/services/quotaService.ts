@@ -2,18 +2,34 @@ import crypto from 'crypto';
 
 export type QuotaAttemptStatus = 'success' | 'overloaded' | 'quota_exceeded' | 'safety' | 'error';
 
+export interface TokenStats {
+  promptTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface CallLogEntry {
+  timestamp: number;
+  tokens: number;
+}
+
 export interface ModelUsageStats {
   requestsTotal: number;
   requestsToday: number;
   requestsThisMinute: number;
   errorsTotal: number;
+  tokensTotal: number;
+  tokensToday: number;
+  tokensThisMinute: number;
 }
 
 interface InternalModelStats {
   requestsTotal: number;
   requestsToday: number;
   errorsTotal: number;
-  requestTimestamps: number[];
+  tokensTotal: number;
+  tokensToday: number;
+  recentCalls: CallLogEntry[];
   lastResetDay: string;
 }
 
@@ -23,7 +39,9 @@ interface InternalKeyStats {
   requestsTotal: number;
   requestsToday: number;
   errorsTotal: number;
-  requestTimestamps: number[];
+  tokensTotal: number;
+  tokensToday: number;
+  recentCalls: CallLogEntry[];
   byModel: Map<string, InternalModelStats>;
   lastResetDay: string;
   lastRequestTimestamp?: number;
@@ -36,6 +54,9 @@ export interface KeyQuotaSnapshot {
   requestsToday: number;
   requestsThisMinute: number;
   errorsTotal: number;
+  tokensTotal: number;
+  tokensToday: number;
+  tokensThisMinute: number;
   byModel: Record<string, ModelUsageStats>;
   lastRequestTimestamp?: number;
 }
@@ -68,13 +89,14 @@ class QuotaService {
   private keyStatsMap = new Map<string, InternalKeyStats>();
 
   /**
-   * Ghi nhận 1 lượt sử dụng API key và model tương ứng
+   * Ghi nhận 1 lượt sử dụng API key và model tương ứng với số token tiêu thụ
    */
   public recordUsage(
     key: string,
     modelName: string,
     status: QuotaAttemptStatus,
-    timestamp: number = Date.now()
+    timestamp: number = Date.now(),
+    tokenStats?: TokenStats
   ): void {
     if (!key || !key.trim()) return;
 
@@ -83,6 +105,7 @@ class QuotaService {
     const maskedKey = maskApiKey(trimmedKey);
     const currentDay = getDayInLosAngeles(timestamp);
     const normalizedModel = modelName ? (modelName.startsWith('models/') ? modelName : `models/${modelName}`) : 'unknown';
+    const tokens = tokenStats?.totalTokens || 0;
 
     let stats = this.keyStatsMap.get(keyHash);
     if (!stats) {
@@ -92,7 +115,9 @@ class QuotaService {
         requestsTotal: 0,
         requestsToday: 0,
         errorsTotal: 0,
-        requestTimestamps: [],
+        tokensTotal: 0,
+        tokensToday: 0,
+        recentCalls: [],
         byModel: new Map<string, InternalModelStats>(),
         lastResetDay: currentDay,
       };
@@ -102,21 +127,24 @@ class QuotaService {
     // Kiểm tra reset ngày mới theo múi giờ America/Los_Angeles
     if (stats.lastResetDay !== currentDay) {
       stats.requestsToday = 0;
+      stats.tokensToday = 0;
       stats.lastResetDay = currentDay;
     }
 
     stats.requestsTotal++;
     stats.requestsToday++;
+    stats.tokensTotal += tokens;
+    stats.tokensToday += tokens;
     stats.lastRequestTimestamp = timestamp;
-    stats.requestTimestamps.push(timestamp);
+    stats.recentCalls.push({ timestamp, tokens });
 
     if (status !== 'success') {
       stats.errorsTotal++;
     }
 
-    // Dọn dẹp các mốc timestamp cũ hơn 60 giây để tránh tràn bộ nhớ
+    // Dọn dẹp các mốc timestamp cũ hơn 60 giây (Sliding Window Log 60s)
     const minuteThreshold = timestamp - 60000;
-    stats.requestTimestamps = stats.requestTimestamps.filter(t => t > minuteThreshold);
+    stats.recentCalls = stats.recentCalls.filter(c => c.timestamp > minuteThreshold);
 
     // Cập nhật thống kê theo từng model
     let modelStats = stats.byModel.get(normalizedModel);
@@ -125,7 +153,9 @@ class QuotaService {
         requestsTotal: 0,
         requestsToday: 0,
         errorsTotal: 0,
-        requestTimestamps: [],
+        tokensTotal: 0,
+        tokensToday: 0,
+        recentCalls: [],
         lastResetDay: currentDay,
       };
       stats.byModel.set(normalizedModel, modelStats);
@@ -133,13 +163,16 @@ class QuotaService {
 
     if (modelStats.lastResetDay !== currentDay) {
       modelStats.requestsToday = 0;
+      modelStats.tokensToday = 0;
       modelStats.lastResetDay = currentDay;
     }
 
     modelStats.requestsTotal++;
     modelStats.requestsToday++;
-    modelStats.requestTimestamps.push(timestamp);
-    modelStats.requestTimestamps = modelStats.requestTimestamps.filter(t => t > minuteThreshold);
+    modelStats.tokensTotal += tokens;
+    modelStats.tokensToday += tokens;
+    modelStats.recentCalls.push({ timestamp, tokens });
+    modelStats.recentCalls = modelStats.recentCalls.filter(c => c.timestamp > minuteThreshold);
 
     if (status !== 'success') {
       modelStats.errorsTotal++;
@@ -147,7 +180,7 @@ class QuotaService {
   }
 
   /**
-   * Lấy snapshot thống kê sử dụng cho danh sách keys
+   * Lấy snapshot thống kê sử dụng và token metrics cho danh sách keys
    */
   public getQuotaSnapshot(keys: string[], timestamp: number = Date.now()): KeyQuotaSnapshot[] {
     const currentDay = getDayInLosAngeles(timestamp);
@@ -167,21 +200,33 @@ class QuotaService {
           requestsToday: 0,
           requestsThisMinute: 0,
           errorsTotal: 0,
+          tokensTotal: 0,
+          tokensToday: 0,
+          tokensThisMinute: 0,
           byModel: {},
         };
       }
 
+      // Lọc các cuộc gọi trong 60 giây gần nhất
+      const recentCallsInWindow = stats.recentCalls.filter(c => c.timestamp > minuteThreshold);
+      const requestsThisMinute = recentCallsInWindow.length;
+      const tokensThisMinute = recentCallsInWindow.reduce((sum, c) => sum + c.tokens, 0);
+
       // Kiểm tra reset ngày
       const requestsToday = stats.lastResetDay === currentDay ? stats.requestsToday : 0;
-      const requestsThisMinute = stats.requestTimestamps.filter(t => t > minuteThreshold).length;
+      const tokensToday = stats.lastResetDay === currentDay ? stats.tokensToday : 0;
 
       const byModelSnapshot: Record<string, ModelUsageStats> = {};
       for (const [model, mStats] of stats.byModel.entries()) {
+        const mRecentCalls = mStats.recentCalls.filter(c => c.timestamp > minuteThreshold);
         byModelSnapshot[model] = {
           requestsTotal: mStats.requestsTotal,
           requestsToday: mStats.lastResetDay === currentDay ? mStats.requestsToday : 0,
-          requestsThisMinute: mStats.requestTimestamps.filter(t => t > minuteThreshold).length,
+          requestsThisMinute: mRecentCalls.length,
           errorsTotal: mStats.errorsTotal,
+          tokensTotal: mStats.tokensTotal,
+          tokensToday: mStats.lastResetDay === currentDay ? mStats.tokensToday : 0,
+          tokensThisMinute: mRecentCalls.reduce((sum, c) => sum + c.tokens, 0),
         };
       }
 
@@ -192,6 +237,9 @@ class QuotaService {
         requestsToday,
         requestsThisMinute,
         errorsTotal: stats.errorsTotal,
+        tokensTotal: stats.tokensTotal,
+        tokensToday,
+        tokensThisMinute,
         byModel: byModelSnapshot,
         lastRequestTimestamp: stats.lastRequestTimestamp,
       };

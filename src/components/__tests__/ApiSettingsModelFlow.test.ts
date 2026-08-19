@@ -179,6 +179,7 @@ describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
     expect(summary31.requestsToday).toBe(270); // 120 + 150
     expect(summary31.requestsThisMinute).toBe(11); // 6 + 5
     expect(summary31.errorsTotal).toBe(1); // 1 + 0
+    expect(summary31.totalTokens).toBe(0); // 0 when not populated in mock
 
     const summary25 = computeModelStatsSummary('gemini-2.5-flash', mockSnapshots, {}, 2);
     expect(summary25.totalRequests).toBe(200);

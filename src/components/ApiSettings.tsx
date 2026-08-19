@@ -16,7 +16,8 @@ import {
   getRegisteredModels,
   getPresetModels,
   RegisteredModelDef,
-  isValidModelIdFormat
+  isValidModelIdFormat,
+  formatTokenCount,
 } from '../utils/modelRegistry';
 
 interface ApiSettingsProps {
@@ -93,30 +94,30 @@ function ModelSummaryCard({
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
         <div className="bg-ink border border-parchment-2 rounded-[2px] p-1.5">
-          <div className="text-[9px] text-text-muted uppercase font-bold tracking-wider">RPM (Phút)</div>
+          <div className="text-[9px] text-text-muted uppercase font-bold tracking-wider">RPM (60s)</div>
           <div className="text-xs font-mono font-bold text-text-main mt-0.5">
             {summary.requestsThisMinute}
           </div>
         </div>
 
         <div className="bg-ink border border-parchment-2 rounded-[2px] p-1.5">
+          <div className="text-[9px] text-text-muted uppercase font-bold tracking-wider">TPM (60s)</div>
+          <div className="text-xs font-mono font-bold text-text-main mt-0.5">
+            {formatTokenCount(summary.tokensThisMinute)}
+          </div>
+        </div>
+
+        <div className="bg-ink border border-parchment-2 rounded-[2px] p-1.5">
           <div className="text-[9px] text-text-muted uppercase font-bold tracking-wider">Hôm nay (PST)</div>
           <div className="text-xs font-mono font-bold text-text-main mt-0.5">
-            {summary.requestsToday}
+            {summary.requestsToday} <span className="text-[9px] text-text-muted">({formatTokenCount(summary.tokensToday)})</span>
           </div>
         </div>
 
         <div className="bg-ink border border-parchment-2 rounded-[2px] p-1.5">
-          <div className="text-[9px] text-text-muted uppercase font-bold tracking-wider">Tổng Request</div>
-          <div className="text-xs font-mono font-bold text-text-main mt-0.5">
-            {summary.totalRequests}
-          </div>
-        </div>
-
-        <div className="bg-ink border border-parchment-2 rounded-[2px] p-1.5">
-          <div className="text-[9px] text-text-muted uppercase font-bold tracking-wider">Lỗi phát sinh</div>
+          <div className="text-[9px] text-text-muted uppercase font-bold tracking-wider">Tổng Token</div>
           <div className={`text-xs font-mono font-bold mt-0.5 ${summary.errorsTotal > 0 ? 'text-polish' : 'text-text-main'}`}>
-            {summary.errorsTotal}
+            {formatTokenCount(summary.totalTokens)}
           </div>
         </div>
       </div>
