@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { 
   RotateCw, 
-  Activity, 
   AlertTriangle, 
   CheckCircle2, 
   Layers, 
@@ -12,16 +11,12 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
-import { 
-  fetchQuotaStatus, 
-  fetchModelsForKey, 
-  KeyQuotaFullSnapshot, 
-  ModelInfoItem 
-} from '../utils/apiClient';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Seal } from './ui/Seal';
 import { EmptyState } from './ui/EmptyState';
+import { useModelObservability, ModelObservabilityState } from '../hooks/useModelObservability';
+import { computeModelStatsSummary, getKeyModelStats, normalizeModelId } from '../utils/modelRegistry';
 
 const CUSTOM_LIMITS_STORAGE_KEY = 'gemini_quota_custom_limits';
 
@@ -34,21 +29,36 @@ interface QuotaPanelProps {
   apiKeys: string[];
   selectedModel: string;
   onSwitchToConfigTab?: () => void;
+  observability?: ModelObservabilityState;
 }
 
-export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: QuotaPanelProps) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [snapshotKeys, setSnapshotKeys] = useState<KeyQuotaFullSnapshot[]>([]);
-  const [timezone, setTimezone] = useState<string>('America/Los_Angeles');
-  const [currentDayPST, setCurrentDayPST] = useState<string>('');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+export function QuotaPanel({ 
+  apiKeys, 
+  selectedModel, 
+  onSwitchToConfigTab,
+  observability: externalObservability,
+}: QuotaPanelProps) {
+  // Sử dụng observability state truyền từ ApiSettings (hoặc tạo hook nội bộ nếu chạy độc lập)
+  const internalObservability = useModelObservability(apiKeys);
+  const obs = externalObservability || internalObservability;
 
-  // Accordion state
+  const {
+    snapshotKeys,
+    loadingQuota: loading,
+    quotaError: error,
+    inspectResults,
+    inspectLoadingKeyIndex,
+    inspectErrors,
+    timezone,
+    currentDayPST,
+    lastUpdated,
+    loadQuotaStatus,
+    inspectKeyModels,
+    clearInspectResult,
+  } = obs;
+
+  // Accordion state cho breakdown từng model trong key
   const [expandedModels, setExpandedModels] = useState<Set<number>>(new Set());
-  const [modelInspectLoading, setModelInspectLoading] = useState<number | null>(null);
-  const [inspectResults, setInspectResults] = useState<Record<number, ModelInfoItem[]>>({});
-  const [inspectErrors, setInspectErrors] = useState<Record<number, string>>({});
 
   // Custom User Limits
   const [customLimits, setCustomLimits] = useState<Record<string, CustomLimit>>(() => {
@@ -63,65 +73,6 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
 
   const cleanKeys = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0);
 
-  const loadQuotaStatus = useCallback(async () => {
-    if (cleanKeys.length === 0) {
-      setSnapshotKeys([]);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchQuotaStatus(cleanKeys);
-      setSnapshotKeys(data.keys || []);
-      setTimezone(data.timezone || 'America/Los_Angeles');
-      setCurrentDayPST(data.currentDayPST || '');
-      setLastUpdated(new Date());
-    } catch (err: any) {
-      console.error('[QuotaPanel] Error loading quota status:', err);
-      setError(err.message || 'Không thể tải thông tin hạn ngạch.');
-    } finally {
-      setLoading(false);
-    }
-  }, [cleanKeys.join(',')]);
-
-  useEffect(() => {
-    loadQuotaStatus();
-  }, [loadQuotaStatus]);
-
-  // Đồng hồ đếm ngược nội bộ (giảm runtime.blacklistRemainingMs mỗi giây)
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSnapshotKeys(prev => {
-        let changed = false;
-        const next = prev.map(item => {
-          let blacklistMs = item.runtime.blacklistRemainingMs;
-          let rateLimitMs = item.runtime.nextAllowedRemainingMs;
-
-          if (blacklistMs > 0 || rateLimitMs > 0) {
-            changed = true;
-            blacklistMs = Math.max(0, blacklistMs - 1000);
-            rateLimitMs = Math.max(0, rateLimitMs - 1000);
-            return {
-              ...item,
-              runtime: {
-                ...item.runtime,
-                isBlacklisted: blacklistMs > 0,
-                blacklistRemainingMs: blacklistMs,
-                isRateLimited: rateLimitMs > 0,
-                nextAllowedRemainingMs: rateLimitMs,
-              },
-            };
-          }
-          return item;
-        });
-        return changed ? next : prev;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
   const toggleModelExpand = (index: number) => {
     setExpandedModels(prev => {
       const next = new Set(prev);
@@ -129,19 +80,6 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
       else next.add(index);
       return next;
     });
-  };
-
-  const handleInspectModels = async (keyIndex: number) => {
-    setModelInspectLoading(keyIndex);
-    setInspectErrors(prev => ({ ...prev, [keyIndex]: '' }));
-    try {
-      const res = await fetchModelsForKey(keyIndex, cleanKeys);
-      setInspectResults(prev => ({ ...prev, [keyIndex]: res.models || [] }));
-    } catch (err: any) {
-      setInspectErrors(prev => ({ ...prev, [keyIndex]: err.message || 'Lỗi kiểm tra model' }));
-    } finally {
-      setModelInspectLoading(null);
-    }
   };
 
   const handleUpdateLimit = (keyHash: string, field: 'maxRpm' | 'maxRpd', value: number) => {
@@ -172,6 +110,13 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
     return `${seconds}s`;
   };
 
+  const modelSummary = computeModelStatsSummary(
+    selectedModel,
+    snapshotKeys,
+    inspectResults,
+    cleanKeys.length
+  );
+
   if (cleanKeys.length === 0) {
     return (
       <EmptyState
@@ -200,7 +145,7 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
               Theo dõi Hạn mức API &amp; Quota
             </h3>
           </div>
-          <p className="text-[11px] text-text-muted flex items-center gap-2">
+          <p className="text-[11px] text-text-muted flex items-center gap-2 flex-wrap">
             <span>Múi giờ chuẩn: <span className="font-mono text-text-main">{timezone}</span> (Ngày: <span className="font-mono text-text-main">{currentDayPST || 'Hôm nay'}</span>)</span>
             {lastUpdated && (
               <span>• Cập nhật: {lastUpdated.toLocaleTimeString()}</span>
@@ -236,6 +181,88 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
           <span>{error}</span>
         </div>
       )}
+
+      {/* TOP OVERVIEW BANNER: MODEL ĐANG SỬ DỤNG */}
+      <div className="bg-ink border-2 border-polish/40 rounded-[2px] p-3.5 space-y-3 shadow-xs">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="p-1 bg-polish/10 border border-polish/30 rounded-[2px]">
+              <Cpu className="w-4 h-4 text-polish" />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase font-bold text-text-muted tracking-wider">
+                Mô hình đang sử dụng
+              </div>
+              <div className="text-xs font-bold text-text-main font-serif">
+                {modelSummary.displayName}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {modelSummary.hasChecked ? (
+              modelSummary.isUnavailable ? (
+                <Badge tone="warning" className="animate-pulse">
+                  <AlertTriangle className="w-3 h-3 text-amber-400" />
+                  0 / {cleanKeys.length} key khả dụng
+                </Badge>
+              ) : (
+                <Badge tone="polish">
+                  <CheckCircle2 className="w-3 h-3 text-polish" />
+                  {modelSummary.availableKeyCount} / {cleanKeys.length} key khả dụng
+                </Badge>
+              )
+            ) : (
+              <Badge tone="neutral">
+                <Clock className="w-3 h-3 text-text-muted" />
+                Chưa kiểm tra key
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {modelSummary.isUnavailable && (
+          <div className="bg-amber-950/40 border border-amber-800/70 rounded-[2px] p-2.5 text-xs text-amber-300 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Model đang chọn hiện không có API key khả dụng trong số các key đã kiểm tra. Hãy kiểm tra lại các key bên dưới hoặc đổi model trong tab Cấu hình.</span>
+          </div>
+        )}
+
+        {/* 4 Metric Tiles for Currently Selected Model */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+          <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPM Hiện tại</div>
+            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+              {modelSummary.requestsThisMinute}
+            </div>
+            <div className="text-[9px] text-text-muted mt-0.5">Tất cả các key</div>
+          </div>
+
+          <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Request hôm nay (PST)</div>
+            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+              {modelSummary.requestsToday}
+            </div>
+            <div className="text-[9px] text-text-muted mt-0.5">Tính theo múi giờ PST</div>
+          </div>
+
+          <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Request</div>
+            <div className="text-sm font-mono font-bold text-text-main mt-0.5">
+              {modelSummary.totalRequests}
+            </div>
+            <div className="text-[9px] text-text-muted mt-0.5">Lũy kế phiên làm việc</div>
+          </div>
+
+          <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
+            <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Lỗi phát sinh</div>
+            <div className={`text-sm font-mono font-bold mt-0.5 ${modelSummary.errorsTotal > 0 ? 'text-polish' : 'text-text-main'}`}>
+              {modelSummary.errorsTotal}
+            </div>
+            <div className="text-[9px] text-text-muted mt-0.5">429 / 503 / Safety</div>
+          </div>
+        </div>
+      </div>
 
       {/* Global Limit Settings Panel */}
       {showLimitSettings && (
@@ -294,12 +321,15 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
           const rpmPercent = Math.min(100, Math.round((item.requestsThisMinute / limit.maxRpm) * 100));
           const rpdPercent = Math.min(100, Math.round((item.requestsToday / limit.maxRpd) * 100));
           const isExpanded = expandedModels.has(idx);
-          const isInspecting = modelInspectLoading === idx;
+          const isInspecting = inspectLoadingKeyIndex === idx;
           const inspectData = inspectResults[idx];
           const inspectErr = inspectErrors[idx];
 
           const isBlacklisted = item.runtime?.isBlacklisted;
           const isRateLimited = item.runtime?.isRateLimited;
+
+          const keyModelStats = getKeyModelStats(item, selectedModel);
+          const normSelected = normalizeModelId(selectedModel);
 
           return (
             <div 
@@ -338,20 +368,36 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleInspectModels(idx)}
+                    onClick={() => inspectKeyModels(idx)}
                     disabled={isInspecting}
                     className="py-0.5 text-[11px] h-6"
                     icon={<Sparkles className="w-3 h-3 text-polish" />}
                   >
-                    {isInspecting ? 'Đang kiểm tra...' : 'Kiểm tra Model'}
+                    {isInspecting ? 'Đang kiểm tra...' : inspectData && inspectData.length > 0 ? 'Kiểm tra lại' : 'Kiểm tra Model'}
                   </Button>
+                </div>
+              </div>
+
+              {/* Model đang dùng trên riêng key này */}
+              <div className="bg-parchment-2/15 border border-parchment-2/70 rounded-[2px] px-2.5 py-1.5 flex items-center justify-between text-xs flex-wrap gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-text-muted font-bold uppercase tracking-wider">Model đang dùng:</span>
+                  <span className="text-text-main font-semibold">{modelSummary.displayName.split('(')[0].trim()}</span>
+                </div>
+                <div className="flex items-center gap-2.5 font-mono text-[11px] text-text-muted">
+                  <span>RPM: <strong className="text-text-main">{keyModelStats.requestsThisMinute}</strong></span>
+                  <span>Hôm nay: <strong className="text-text-main">{keyModelStats.requestsToday}</strong></span>
+                  <span>Tổng: <strong className="text-text-main">{keyModelStats.requestsTotal}</strong></span>
+                  {keyModelStats.errorsTotal > 0 && (
+                    <span className="text-polish font-bold">Lỗi: {keyModelStats.errorsTotal}</span>
+                  )}
                 </div>
               </div>
 
               {/* Metrics Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                 <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-                  <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPM (Phút)</div>
+                  <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng RPM Key</div>
                   <div className="text-sm font-mono font-bold text-text-main mt-0.5">
                     {item.requestsThisMinute} <span className="text-[10px] text-text-muted font-normal">/ {limit.maxRpm}</span>
                   </div>
@@ -365,7 +411,7 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
                 </div>
 
                 <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-                  <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPD (Hôm nay PST)</div>
+                  <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng RPD Key (PST)</div>
                   <div className="text-sm font-mono font-bold text-text-main mt-0.5">
                     {item.requestsToday} <span className="text-[10px] text-text-muted font-normal">/ {limit.maxRpd}</span>
                   </div>
@@ -379,15 +425,15 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
                 </div>
 
                 <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-                  <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Request</div>
+                  <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Request Key</div>
                   <div className="text-sm font-mono font-bold text-text-main mt-0.5">
                     {item.requestsTotal}
                   </div>
-                  <div className="text-[9px] text-text-muted mt-1">Lũy kế phiên</div>
+                  <div className="text-[9px] text-text-muted mt-1">Tất cả model</div>
                 </div>
 
                 <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
-                  <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Lỗi phát sinh</div>
+                  <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Tổng Lỗi Key</div>
                   <div className={`text-sm font-mono font-bold mt-0.5 ${item.errorsTotal > 0 ? 'text-polish' : 'text-text-main'}`}>
                     {item.errorsTotal}
                   </div>
@@ -410,19 +456,39 @@ export function QuotaPanel({ apiKeys, selectedModel, onSwitchToConfigTab }: Quot
                       Google Model List khả dụng ({inspectData.length} models):
                     </span>
                     <button 
-                      onClick={() => setInspectResults(prev => ({ ...prev, [idx]: [] }))}
+                      onClick={() => clearInspectResult(idx)}
                       className="text-[10px] text-text-muted hover:text-text-main underline cursor-pointer"
                     >
                       Ẩn
                     </button>
                   </div>
                   <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
-                    {inspectData.map(m => (
-                      <div key={m.name} className="flex items-center justify-between bg-parchment-2/20 px-2 py-1 rounded-[2px]">
-                        <span className="font-mono text-[11px] text-text-main">{m.name.replace('models/', '')}</span>
-                        <span className="text-[10px] text-text-muted truncate max-w-[180px]">{m.displayName}</span>
-                      </div>
-                    ))}
+                    {inspectData.map(m => {
+                      const isThisSelected = normalizeModelId(m.name) === normSelected;
+                      return (
+                        <div 
+                          key={m.name} 
+                          className={`flex items-center justify-between px-2 py-1 rounded-[2px] border ${
+                            isThisSelected 
+                              ? 'bg-polish/10 border-polish/40 font-semibold' 
+                              : 'bg-parchment-2/20 border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle2 className={`w-3 h-3 ${isThisSelected ? 'text-polish' : 'text-text-muted'}`} />
+                            <span className={`font-mono text-[11px] ${isThisSelected ? 'text-polish font-bold' : 'text-text-main'}`}>
+                              {m.name.replace('models/', '')}
+                            </span>
+                            {isThisSelected && (
+                              <span className="text-[9px] bg-polish text-white px-1 py-0.2 rounded-[2px]">
+                                Đang dùng
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-text-muted truncate max-w-[180px]">{m.displayName}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
