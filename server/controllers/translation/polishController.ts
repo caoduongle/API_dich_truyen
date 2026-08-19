@@ -6,6 +6,9 @@ import { translationChunkCache } from "../../utils/chunkCache";
 import { checkLeftoverGlossary } from "../glossaryController";
 import { isHanEquivalent } from "@shared/sinoNormalize";
 import { validatePolishBody } from "../../utils/validation";
+import { Logger } from "../../utils/logger";
+
+const logger = new Logger("PolishTranslation");
 
 /**
  * Gọi trực tiếp tác vụ chuốt văn phong văn học Giai đoạn 2
@@ -150,7 +153,7 @@ ${cleanRawTranslation}`;
   try {
     parsed = safeParseJson(resultText);
   } catch (err) {
-    console.error("[JSON Extract Failure - Polish] Nội dung lỗi thô:", resultText);
+    logger.error("[JSON Extract Failure - Polish] Nội dung lỗi thô:", resultText);
     throw new Error(`Mô hình trả về văn bản không thể giải mã JSON: ${resultText.substring(0, 100)}`);
   }
 
@@ -202,7 +205,7 @@ export async function polishWithContentSplit(
   );
   const cached = translationChunkCache.get(cacheKey);
   if (cached && cached.text) {
-    console.log(`[Cache Hit - Phase 2] Tận dụng bản dịch chuốt lưu đệm (${cached.text.length} ký tự)`);
+    logger.info(`[Cache Hit - Phase 2] Tận dụng bản dịch chuốt lưu đệm (${cached.text.length} ký tự)`);
     return {
       polishedTranslation: cached.text,
       successKeyIndex: startKeyIndex
@@ -254,7 +257,7 @@ export async function polishWithContentSplit(
       return directRes;
     } catch (leafErr: any) {
       if (depth > 0) {
-        console.warn(`[Polish Leaf Fallback] Đoạn lá (depth ${depth}, ~${sourceText.length} ký tự) bị lỗi/chặn bộ lọc. Sử dụng bản dịch thô thay thế:`, leafErr.message);
+        logger.warn(`[Polish Leaf Fallback] Đoạn lá (depth ${depth}, ~${sourceText.length} ký tự) bị lỗi/chặn bộ lọc. Sử dụng bản dịch thô thay thế:`, leafErr.message);
         return {
           polishedTranslation: rawTranslation || `[Lỗi chuốt văn đoạn: ${sourceText.substring(0, 40)}...]`,
           successKeyIndex: startKeyIndex,
@@ -274,7 +277,7 @@ export async function polishWithContentSplit(
 
     if (!result.polishedTranslation || result.polishedTranslation.trim().length === 0) {
       if (model && model.toLowerCase().includes('gemma')) {
-        console.warn("[Gemma Fallback - Polish] Kích hoạt cứu nguy Plain-Text chuốt văn...");
+        logger.warn("[Gemma Fallback - Polish] Kích hoạt cứu nguy Plain-Text chuốt văn...");
 
         const plainResult = await generateWithRotation(
             apiKeys,
@@ -310,7 +313,7 @@ export async function polishWithContentSplit(
 
     if (isSafetyOrEmptyError(error)) {
       const partsCount = depth >= 2 ? 3 : 2;
-      console.warn(`[Divide & Conquer Adaptive Polish] Vi phạm bộ lọc tại Độ sâu ${depth}. Chia thành ${partsCount} phần (Gốc ${sourceText.length} ký tự, Thô ${rawTranslation.length} ký tự)...`);
+      logger.warn(`[Divide & Conquer Adaptive Polish] Vi phạm bộ lọc tại Độ sâu ${depth}. Chia thành ${partsCount} phần (Gốc ${sourceText.length} ký tự, Thô ${rawTranslation.length} ký tự)...`);
 
       await sleep((depth + 1) * 750);
 
@@ -319,7 +322,7 @@ export async function polishWithContentSplit(
 
       if (sourceParts.length <= 1) {
         if (depth > 0) {
-          console.warn(`[Divide & Conquer Polish Fallback] Không thể chia nhỏ hơn tại depth ${depth}. Dùng bản thô thay thế.`);
+          logger.warn(`[Divide & Conquer Polish Fallback] Không thể chia nhỏ hơn tại depth ${depth}. Dùng bản thô thay thế.`);
           return {
             polishedTranslation: rawTranslation || `[Lỗi chuốt văn đoạn: ${sourceText.substring(0, 40)}...]`,
             successKeyIndex: startKeyIndex,
@@ -329,7 +332,7 @@ export async function polishWithContentSplit(
         throw error;
       }
 
-      console.log(`[Divide & Conquer Adaptive Polish] Chia thành ${sourceParts.length} phần đối chiếu song song.`);
+      logger.info(`[Divide & Conquer Adaptive Polish] Chia thành ${sourceParts.length} phần đối chiếu song song.`);
       const results = await Promise.all(
         sourceParts.map(async (srcPart, index) => {
           const matchingRawPart = rawParts[index] || rawParts[rawParts.length - 1] || "";
@@ -351,7 +354,7 @@ export async function polishWithContentSplit(
               description
             );
           } catch (partErr: any) {
-            console.warn(`[Divide & Conquer Fallback Polish] Đoạn (${srcPart.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
+            logger.warn(`[Divide & Conquer Fallback Polish] Đoạn (${srcPart.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
             return {
               polishedTranslation: matchingRawPart || `[Lỗi chuốt văn đoạn: ${srcPart.substring(0, 40)}...]`,
               successKeyIndex: staggeredKeyIndex,
@@ -403,7 +406,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
     let keyIndexAfterCheck = startKeyIndex;
 
     if (sourceText && isExtractionEnabled !== false) {
-      console.log("[Polish API] Tiến hành kích hoạt rà soát bổ sung thuật ngữ bị sót...");
+      logger.info("[Polish API] Tiến hành kích hoạt rà soát bổ sung thuật ngữ bị sót...");
       const checkResults = await checkLeftoverGlossary(sourceText, glossary || [], apiKeys, model, startKeyIndex);
       keyIndexAfterCheck = checkResults.successKeyIndex;
       if (Array.isArray(checkResults.items) && checkResults.items.length > 0) {
@@ -411,7 +414,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
         newlyDiscoveredDuringPolish = resolvedChapterId
           ? checkResults.items.map((item: any) => ({ ...item, sourceChapterId: resolvedChapterId }))
           : checkResults.items;
-        console.log(`[Polish API] Phát hiện thêm ${newlyDiscoveredDuringPolish.length} thuật ngữ bị bỏ sót during rà soát!`);
+        logger.info(`[Polish API] Phát hiện thêm ${newlyDiscoveredDuringPolish.length} thuật ngữ bị bỏ sót during rà soát!`);
       }
     }
 
@@ -454,7 +457,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
       isPartial: Boolean(isPartial)
     });
   } catch (error: any) {
-    console.error("Lỗi tối ưu văn phong:", error);
+    logger.error("Lỗi tối ưu văn phong:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi tối ưu biên tập.", ...(isOverloadError(error) ? { errorType: 'overload' } : {}) });
   }
 }

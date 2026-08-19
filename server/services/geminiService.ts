@@ -452,5 +452,7 @@ export async function generateWithRotation(
     await sleep(outerDelay);
   }
 
-  throw new Error(`ALL_KEYS_EXHAUSTED: Đã thử toàn bộ ${keysToTry.length} khóa API đều thất bại. Lỗi cuối: ${lastError?.message || lastError || "Không xác định"}`);
+  const rawLastMsg = String(lastError?.message || lastError || "Không xác định");
+  const sanitizedLastMsg = redactApiKey(rawLastMsg, keysToTry);
+  throw new Error(`ALL_KEYS_EXHAUSTED: Đã thử toàn bộ ${keysToTry.length} khóa API đều thất bại. Lỗi cuối: ${sanitizedLastMsg}`);
 }

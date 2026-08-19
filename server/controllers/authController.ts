@@ -1,6 +1,9 @@
 import { Request, Response } from "express";
 import { authStore } from "../services/authStore";
 import { validateLoginBody } from "../utils/validation";
+import { Logger } from "../utils/logger";
+
+const logger = new Logger("AuthController");
 
 /**
  * GET /api/auth/status
@@ -39,7 +42,7 @@ export async function getAuthStatusHandler(req: Request, res: Response): Promise
       authenticated,
     });
   } catch (error: any) {
-    console.error("[AuthController] Error checking auth status:", error);
+    logger.error("[AuthController] Error checking auth status:", error);
     res.status(500).json({
       error: "Không thể kiểm tra trạng thái xác thực máy chủ.",
     });
@@ -87,7 +90,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
       message: "Đăng nhập máy chủ thành công.",
     });
   } catch (error: any) {
-    console.error("[AuthController] Error during login:", error);
+    logger.error("[AuthController] Error during login:", error);
     res.status(500).json({
       error: "Lỗi xử lý xác thực trên máy chủ.",
     });
@@ -123,7 +126,7 @@ export async function logoutHandler(req: Request, res: Response): Promise<void> 
       message: "Đã đăng xuất máy chủ thành công.",
     });
   } catch (error: any) {
-    console.error("[AuthController] Error during logout:", error);
+    logger.error("[AuthController] Error during logout:", error);
     res.status(500).json({
       error: "Không thể thu hồi phiên đăng nhập.",
     });

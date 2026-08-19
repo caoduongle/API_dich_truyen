@@ -3,6 +3,9 @@ import { Type } from "@google/genai";
 import { generateWithRotation } from "../services/geminiService";
 import { safeParseJson, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../utils/text";
 import { validateAlignmentBody } from "../utils/validation";
+import { Logger } from "../utils/logger";
+
+const logger = new Logger("Alignment");
 
 // 4. API: Gióng hàng đối sọc dữ liệu song ngữ xuất bản học liệu JSONL Fine-tuning
 export async function alignChapter(req: Request, res: Response): Promise<void> {
@@ -81,7 +84,7 @@ Hãy thực hiện gióng hàng tỷ mỷ từ đầu đến cuối chương tru
       res.json({ jsonlLines: [], successKeyIndex: startKeyIndex });
     }
   } catch (error: any) {
-    console.error("[Align Chapter Error] Thất bại gióng hàng:", error);
+    logger.error("[Align Chapter Error] Thất bại gióng hàng:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi gióng hàng chương." });
   }
 }

@@ -22,9 +22,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     return;
   }
 
-  // 2. Cho phép các route public không cần token
+  // 2. Cho phép các route public không cần token (so khớp chính xác theo whitelist)
   const requestPath = req.path || req.originalUrl || "";
-  if (PUBLIC_API_PATHS.has(requestPath) || requestPath.endsWith("/auth/login") || requestPath.endsWith("/auth/status") || requestPath.endsWith("/health")) {
+  if (PUBLIC_API_PATHS.has(requestPath)) {
     next();
     return;
   }

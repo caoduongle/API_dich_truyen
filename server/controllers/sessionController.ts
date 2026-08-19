@@ -1,6 +1,9 @@
 import { Request, Response } from "express";
 import { sessionStore } from "../services/sessionStore";
 import { validateSessionKeysBody } from "../utils/validation";
+import { Logger } from "../utils/logger";
+
+const logger = new Logger("SessionController");
 
 /**
  * POST /api/session-keys
@@ -29,7 +32,7 @@ export async function createSessionHandler(req: Request, res: Response): Promise
       message: "Đã tạo phiên làm việc bảo mật thành công.",
     });
   } catch (error: any) {
-    console.error("[SessionController] Error creating session:", error);
+    logger.error("[SessionController] Error creating session:", error);
     res.status(500).json({
       error: "Không thể tạo phiên làm việc bảo mật trên máy chủ.",
     });
@@ -58,7 +61,7 @@ export async function getSessionStatusHandler(req: Request, res: Response): Prom
     const info = await sessionStore.getSessionInfo(token);
     res.status(200).json(info);
   } catch (error: any) {
-    console.error("[SessionController] Error checking session status:", error);
+    logger.error("[SessionController] Error checking session status:", error);
     res.status(500).json({
       error: "Không thể kiểm tra trạng thái phiên làm việc.",
     });
@@ -85,7 +88,7 @@ export async function deleteSessionHandler(req: Request, res: Response): Promise
       message: "Đã thu hồi phiên làm việc thành công.",
     });
   } catch (error: any) {
-    console.error("[SessionController] Error deleting session:", error);
+    logger.error("[SessionController] Error deleting session:", error);
     res.status(500).json({
       error: "Không thể thu hồi phiên làm việc.",
     });

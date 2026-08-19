@@ -2,6 +2,9 @@ import { Request, Response } from "express";
 import { Type } from "@google/genai";
 import { generateWithRotation } from "../../services/geminiService";
 import { safeParseJson, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../../utils/text";
+import { Logger } from "../../utils/logger";
+
+const logger = new Logger("QACritique");
 
 /**
  * POST /api/qa-critique
@@ -99,7 +102,7 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
       res.json({ isValid: true, issues: [], successKeyIndex: startKeyIndex });
     }
   } catch (error: any) {
-    console.error("[QA Critique Error] Thất bại rà soát kiểm duyệt:", error);
+    logger.error("[QA Critique Error] Thất bại rà soát kiểm duyệt:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi chạy kiểm duyệt AI." });
   }
 }

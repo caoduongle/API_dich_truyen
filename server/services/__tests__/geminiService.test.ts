@@ -134,5 +134,54 @@ describe("Gemini Service API Key Cleanup", () => {
       expect(status.nextAllowedRemainingMs).toBeGreaterThan(0);
     });
   });
+
+  describe("ALL_KEYS_EXHAUSTED Error Redaction", () => {
+    it("should redact API key in ALL_KEYS_EXHAUSTED exception message when all keys fail", async () => {
+      const secretKey = "AIzaSySecretTestingKey9999999999999";
+      const mockGenerateContent = vi.fn().mockImplementation(async () => {
+        throw new Error(`FetchError: request to https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${secretKey} failed with 500`);
+      });
+
+      vi.doMock("@google/genai", () => {
+        return {
+          GoogleGenAI: class MockGoogleGenAI {
+            models = {
+              generateContent: mockGenerateContent,
+            };
+          },
+          HarmCategory: {
+            HARM_CATEGORY_HARASSMENT: "HARM_CATEGORY_HARASSMENT",
+            HARM_CATEGORY_HATE_SPEECH: "HARM_CATEGORY_HATE_SPEECH",
+            HARM_CATEGORY_SEXUALLY_EXPLICIT: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            HARM_CATEGORY_DANGEROUS_CONTENT: "HARM_CATEGORY_DANGEROUS_CONTENT",
+          },
+          HarmBlockThreshold: {
+            BLOCK_NONE: "BLOCK_NONE",
+          },
+        };
+      });
+
+      const { generateWithRotation, _testMaps } = await import("../geminiService");
+      _testMaps.blacklistedKeys.clear();
+      _testMaps.nextAllowedTimeByKey.clear();
+
+      let thrownError: any = null;
+      try {
+        await generateWithRotation(
+          [secretKey],
+          "gemini-2.5-flash",
+          "System prompt",
+          "User text"
+        );
+      } catch (err: any) {
+        thrownError = err;
+      }
+
+      expect(thrownError).not.toBeNull();
+      expect(thrownError.message).toContain("ALL_KEYS_EXHAUSTED");
+      expect(thrownError.message).not.toContain(secretKey);
+      expect(thrownError.message).toContain("***REDACTED***");
+    });
+  });
 });
 

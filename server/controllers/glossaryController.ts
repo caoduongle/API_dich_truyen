@@ -8,6 +8,9 @@ import { validateAndSnapBackEntities, isHanEquivalent } from "@shared/sinoNormal
 import { buildEntityExtractionInstruction, buildEntitySchema } from "../utils/glossaryPrompts";
 import { GLOSSARY_LIMITS } from "@shared/constants";
 import { validateGlossaryTextBody, validateGuidelinesBody, validateQuickTranslateTermBody } from "../utils/validation";
+import { Logger } from "../utils/logger";
+
+const logger = new Logger("Glossary");
 
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
 
@@ -75,7 +78,7 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
       };
     }
   } catch (error) {
-    console.error("[checkLeftoverGlossary Error] Thất bại rà soát từ sót:", error);
+    logger.error("[checkLeftoverGlossary Error] Thất bại rà soát từ sót:", error);
   }
   return { items: [], successKeyIndex: startKeyIndex };
 }
@@ -173,7 +176,7 @@ async function analyzeGlossaryWithContentSplit(
   const cacheKey = translationChunkCache.generateKey("glossary", text, { model });
   const cached = translationChunkCache.get(cacheKey);
   if (cached && Array.isArray(cached.suggestions)) {
-    console.log(`[Cache Hit - Glossary] Tận dụng gợi ý thuật ngữ lưu đệm (${cached.suggestions.length} từ)`);
+    logger.info(`[Cache Hit - Glossary] Tận dụng gợi ý thuật ngữ lưu đệm (${cached.suggestions.length} từ)`);
     return {
       suggestions: cached.suggestions,
       successKeyIndex: startKeyIndex,
@@ -189,7 +192,7 @@ async function analyzeGlossaryWithContentSplit(
       return directRes;
     } catch (leafErr: any) {
       if (depth > 0) {
-        console.warn(`[Glossary Split Leaf Fallback] Phân đoạn lá (depth ${depth}, ~${text.length} ký tự) bị lỗi/chặn bộ lọc. Trả về mảng rỗng thay vì crash:`, leafErr.message);
+        logger.warn(`[Glossary Split Leaf Fallback] Phân đoạn lá (depth ${depth}, ~${text.length} ký tự) bị lỗi/chặn bộ lọc. Trả về mảng rỗng thay vì crash:`, leafErr.message);
         return {
           suggestions: [],
           successKeyIndex: startKeyIndex
@@ -218,7 +221,7 @@ async function analyzeGlossaryWithContentSplit(
 
     if (isSafetyOrEmptyError(error)) {
       const partsCount = depth >= 2 ? 3 : 2;
-      console.warn(`[Divide & Conquer Adaptive Split Glossary] Phát hiện lỗi ở Độ sâu ${depth}, đang chia ${partsCount} phần (đoạn ${text.length} ký tự)...`);
+      logger.warn(`[Divide & Conquer Adaptive Split Glossary] Phát hiện lỗi ở Độ sâu ${depth}, đang chia ${partsCount} phần (đoạn ${text.length} ký tự)...`);
 
       await sleep((depth + 1) * 750);
 
@@ -226,7 +229,7 @@ async function analyzeGlossaryWithContentSplit(
 
       if (parts.length <= 1) {
         if (depth > 0) {
-          console.warn(`[Divide & Conquer Glossary Fallback] Không thể chia nhỏ hơn tại depth ${depth}. Trả về mảng rỗng.`);
+          logger.warn(`[Divide & Conquer Glossary Fallback] Không thể chia nhỏ hơn tại depth ${depth}. Trả về mảng rỗng.`);
           return {
             suggestions: [],
             successKeyIndex: startKeyIndex
@@ -235,7 +238,7 @@ async function analyzeGlossaryWithContentSplit(
         throw error;
       }
 
-      console.log(`[Divide & Conquer Adaptive Split Glossary] Chia thành ${parts.length} phần: ${parts.map((p, idx) => `P${idx + 1}(${p.length} ký tự)`).join(' & ')}`);
+      logger.info(`[Divide & Conquer Adaptive Split Glossary] Chia thành ${parts.length} phần: ${parts.map((p, idx) => `P${idx + 1}(${p.length} ký tự)`).join(' & ')}`);
       const results = await Promise.all(
         parts.map(async (part) => {
           try {
@@ -313,7 +316,7 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       );
     } catch (splitError: any) {
       if (isSafetyOrEmptyError(splitError)) {
-        console.warn("[analyzeGlossary Fallback] Đoạn văn bản bị bộ lọc an toàn chặn toàn bộ. Trả về danh sách trống an toàn:", splitError.message);
+        logger.warn("[analyzeGlossary Fallback] Đoạn văn bản bị bộ lọc an toàn chặn toàn bộ. Trả về danh sách trống an toàn:", splitError.message);
         result = { suggestions: [], successKeyIndex: startKeyIndex };
       } else {
         throw splitError;
@@ -351,7 +354,7 @@ export async function analyzeGlossary(req: Request, res: Response): Promise<void
       ...(hasTruncatedChunks ? { truncated: true, originalLength: text.length, analyzedLength: totalAnalyzedLength } : {})
     });
   } catch (error: any) {
-    console.error("Lỗi phân tích Glossary:", error);
+    logger.error("Lỗi phân tích Glossary:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích thuật ngữ." });
   }
 }
@@ -369,7 +372,7 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
     const { apiKeys, model, startKeyIndex = 0 } = req.body;
 
     const parsedGlossary = parseGlossaryFromMd(text);
-    console.log(`[analyze-guidelines] Regex parse: ${parsedGlossary.length} thuật ngữ.`);
+    logger.info(`[analyze-guidelines] Regex parse: ${parsedGlossary.length} thuật ngữ.`);
 
     const guidelinesSection = text.slice(0, MAX_CHARS_FOR_GUIDELINES_ANALYSIS);
     const isGuidelinesTruncated = text.length > MAX_CHARS_FOR_GUIDELINES_ANALYSIS;
@@ -427,7 +430,7 @@ export async function analyzeGuidelines(req: Request, res: Response): Promise<vo
       ...(isGuidelinesTruncated ? { truncated: true, originalLength: text.length, analyzedLength: MAX_CHARS_FOR_GUIDELINES_ANALYSIS } : {})
     });
   } catch (error: any) {
-    console.error("Lỗi phân tích cẩm nang hướng dẫn dịch thuật .md:", error);
+    logger.error("Lỗi phân tích cẩm nang hướng dẫn dịch thuật .md:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích cẩm nang hướng dẫn." });
   }
 }
@@ -487,11 +490,11 @@ export async function extractGlossary(req: Request, res: Response): Promise<void
     res.json({ glossary: validatedGlossary, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
     if (isSafetyOrEmptyError(error)) {
-      console.warn("[extractGlossary Fallback] Trích xuất nhanh bị chặn bởi bộ lọc. Trả về mảng rỗng.");
+      logger.warn("[extractGlossary Fallback] Trích xuất nhanh bị chặn bởi bộ lọc. Trả về mảng rỗng.");
       res.json({ glossary: [], successKeyIndex: req.body.startKeyIndex || 0, warning: "Bị chặn bởi bộ lọc an toàn." });
       return;
     }
-    console.error("Lỗi extract-glossary:", error);
+    logger.error("Lỗi extract-glossary:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi trích xuất thuật ngữ." });
   }
 }
@@ -551,7 +554,7 @@ export async function quickTranslateTerm(req: Request, res: Response): Promise<v
     const parsed = safeParseJson(resultText);
     res.json({ term: parsed, successKeyIndex: rotationResult.successKeyIndex });
   } catch (error: any) {
-    console.error("Lỗi quick-translate-term:", error);
+    logger.error("Lỗi quick-translate-term:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi phân tích thuật ngữ." });
   }
 }

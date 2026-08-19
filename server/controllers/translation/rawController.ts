@@ -5,6 +5,9 @@ import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGu
 import { translationChunkCache } from "../../utils/chunkCache";
 import { validateAndSnapBackEntities, findCanonicalSubstring } from "@shared/sinoNormalize";
 import { validateTranslateRawBody } from "../../utils/validation";
+import { Logger } from "../../utils/logger";
+
+const logger = new Logger("RawTranslation");
 
 /**
  * Gọi trực tiếp tác vụ dịch thô Giai đoạn 1 từ Gemini API
@@ -159,7 +162,7 @@ ${substitutedText}`;
   try {
     parsed = safeParseJson(resultText);
   } catch (err) {
-    console.error("[JSON Extract Failure] Nội dung lỗi thô:", resultText);
+    logger.error("[JSON Extract Failure] Nội dung lỗi thô:", resultText);
     throw new Error(`Mô hình trả về văn bản không thể giải mã JSON: ${resultText.substring(0, 100)}`);
   }
 
@@ -213,7 +216,7 @@ export async function translateRawWithContentSplit(
   });
   const cached = translationChunkCache.get(cacheKey);
   if (cached && cached.text) {
-    console.log(`[Cache Hit - Phase 1] Tận dụng bản dịch lưu đệm (${cached.text.length} ký tự)`);
+    logger.info(`[Cache Hit - Phase 1] Tận dụng bản dịch lưu đệm (${cached.text.length} ký tự)`);
     return {
       rawTranslation: cached.text,
       discoveredEntities: cached.discoveredEntities || [],
@@ -264,7 +267,7 @@ export async function translateRawWithContentSplit(
       return directRes;
     } catch (leafErr: any) {
       if (depth > 0) {
-        console.warn(`[Raw Translation Leaf Fallback] Đoạn lá (depth ${depth}, ~${text.length} ký tự) bị lỗi/chặn bộ lọc. Kích hoạt cứu nguy:`, leafErr.message);
+        logger.warn(`[Raw Translation Leaf Fallback] Đoạn lá (depth ${depth}, ~${text.length} ký tự) bị lỗi/chặn bộ lọc. Kích hoạt cứu nguy:`, leafErr.message);
         return {
           rawTranslation: `[Chưa dịch được đoạn này do bộ lọc an toàn: ${text.substring(0, 40)}...]`,
           discoveredEntities: [],
@@ -286,7 +289,7 @@ export async function translateRawWithContentSplit(
 
     if (!result.rawTranslation || result.rawTranslation.trim().length === 0) {
       if (model && model.toLowerCase().includes('gemma')) {
-        console.warn("[Gemma Fallback] Phát hiện Gemma lỗi cấu trúc JSON. Kích hoạt cuộc gọi cứu nguy Plain-Text...");
+        logger.warn("[Gemma Fallback] Phát hiện Gemma lỗi cấu trúc JSON. Kích hoạt cuộc gọi cứu nguy Plain-Text...");
 
         const plainResult = await generateWithRotation(
             apiKeys,
@@ -323,7 +326,7 @@ export async function translateRawWithContentSplit(
 
     if (isSafetyOrEmptyError(error)) {
       const partsCount = depth >= 2 ? 3 : 2;
-      console.warn(`[Divide & Conquer Adaptive Split] Phát hiện vi phạm bộ lọc / lỗi rỗng tại Độ sâu ${depth}. Tiến hành chia ${partsCount} phần (văn bản dài ${text.length} ký tự)...`);
+      logger.warn(`[Divide & Conquer Adaptive Split] Phát hiện vi phạm bộ lọc / lỗi rỗng tại Độ sâu ${depth}. Tiến hành chia ${partsCount} phần (văn bản dài ${text.length} ký tự)...`);
 
       await sleep((depth + 1) * 750);
 
@@ -331,7 +334,7 @@ export async function translateRawWithContentSplit(
 
       if (parts.length <= 1) {
         if (depth > 0) {
-          console.warn(`[Divide & Conquer Raw Fallback] Không thể chia nhỏ hơn tại depth ${depth}. Kích hoạt cứu nguy đoạn này.`);
+          logger.warn(`[Divide & Conquer Raw Fallback] Không thể chia nhỏ hơn tại depth ${depth}. Kích hoạt cứu nguy đoạn này.`);
           return {
             rawTranslation: `[Chưa dịch được đoạn này do bộ lọc an toàn: ${text.substring(0, 40)}...]`,
             discoveredEntities: [],
@@ -342,7 +345,7 @@ export async function translateRawWithContentSplit(
         throw error;
       }
 
-      console.log(`[Divide & Conquer Adaptive Split] Chia thành ${parts.length} phần: ${parts.map((p, idx) => `P${idx + 1}(${p.length} ký tự)`).join(' & ')}`);
+      logger.info(`[Divide & Conquer Adaptive Split] Chia thành ${parts.length} phần: ${parts.map((p, idx) => `P${idx + 1}(${p.length} ký tự)`).join(' & ')}`);
       const results = await Promise.all(
         parts.map(async (part, index) => {
           const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
@@ -361,7 +364,7 @@ export async function translateRawWithContentSplit(
               description
             );
           } catch (partErr: any) {
-            console.warn(`[Divide & Conquer Fallback] Đoạn (${part.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
+            logger.warn(`[Divide & Conquer Fallback] Đoạn (${part.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
             return {
               rawTranslation: `[Chưa dịch được đoạn này do bộ lọc an toàn: ${part.substring(0, 40)}...]`,
               discoveredEntities: [],
@@ -437,7 +440,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
       isPartial: Boolean(isPartial)
     });
   } catch (error: any) {
-    console.error("Lỗi dịch thô:", error);
+    logger.error("Lỗi dịch thô:", error);
     res.status(500).json({ error: error.message || "Đã xảy ra lỗi khi thực hiện dịch thô.", ...(isOverloadError(error) ? { errorType: 'overload' } : {}) });
   }
 }

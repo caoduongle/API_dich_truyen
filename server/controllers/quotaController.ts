@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { quotaService, getDayInLosAngeles } from '../services/quotaService';
 import { getKeyRuntimeStatus } from '../services/geminiService';
 import { modelInfoService } from '../services/modelInfoService';
+import { Logger } from '../utils/logger';
+
+const logger = new Logger('QuotaController');
 
 /**
  * Lấy snapshot trạng thái Quota & Mức sử dụng thời gian thực
@@ -29,7 +32,7 @@ export async function getQuotaStatusHandler(req: Request, res: Response): Promis
       keys: keysWithRuntime,
     });
   } catch (err: any) {
-    console.error('[quotaController] Lỗi khi lấy trạng thái quota:', err);
+    logger.error('[quotaController] Lỗi khi lấy trạng thái quota:', err);
     res.status(500).json({
       error: 'Không thể lấy thông tin trạng thái hạn ngạch lúc này.',
     });
@@ -57,7 +60,7 @@ export async function getModelsForKeyHandler(req: Request, res: Response): Promi
 
     res.json(result);
   } catch (err: any) {
-    console.error('[quotaController] Lỗi khi tra cứu model cho khóa:', err.message || err);
+    logger.error('[quotaController] Lỗi khi tra cứu model cho khóa:', err.message || err);
     res.status(500).json({
       error: err.message || 'Lỗi khi tra cứu danh sách mô hình từ nhà cung cấp.',
     });

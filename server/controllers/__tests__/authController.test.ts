@@ -141,15 +141,60 @@ describe("Auth Module: authStore, authController, and authMiddleware", () => {
       expect(nextMock).toHaveBeenCalledTimes(1);
     });
 
-    it("should allow public routes without token even when auth is required", async () => {
+    it("should allow all legitimate exact public routes in PUBLIC_API_PATHS without token", async () => {
       process.env.ACCESS_PASSWORD = "SecretPassword";
-      (req as any).path = "/auth/login";
-      await authMiddleware(req as Request, res as Response, nextMock);
-      expect(nextMock).toHaveBeenCalledTimes(1);
+      const validPublicPaths = [
+        "/auth/login",
+        "/auth/status",
+        "/health",
+        "/api/auth/login",
+        "/api/auth/status",
+        "/api/health",
+      ];
 
-      (req as any).path = "/health";
-      await authMiddleware(req as Request, res as Response, nextMock);
-      expect(nextMock).toHaveBeenCalledTimes(2);
+      for (let i = 0; i < validPublicPaths.length; i++) {
+        const p = validPublicPaths[i];
+        const loopNext = vi.fn();
+        const loopReq = { path: p, headers: {}, body: {}, query: {} };
+        await authMiddleware(loopReq as Request, res as Response, loopNext);
+        expect(loopNext).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    /**
+     * Context Engineering Principle #9: Test mục đích an toàn.
+     * TẠI SAO hành vi này quan trọng:
+     * Việc dùng so khớp hậu tố (endsWith) cho phép bất kỳ route mới nào trong tương lai
+     * nếu có đuôi là /health, /auth/login hoặc /auth/status (ví dụ: /api/fake/health, /admin/auth/status)
+     * bị bypass xác thực ngoài ý muốn, tạo lỗ hổng Path Confusion và vượt rào mật khẩu máy chủ.
+     * Vì vậy, middleware bắt buộc PHẢI so khớp chính xác (exact match) với whitelist PUBLIC_API_PATHS.
+     */
+    it("should reject pseudo-public routes ending with /health, /auth/login, or /auth/status to prevent path confusion attacks (Principle #9)", async () => {
+      process.env.ACCESS_PASSWORD = "SecretPassword";
+      const spoofedRoutes = [
+        "/api/fake/health",
+        "/x/auth/login",
+        "/something/auth/status",
+        "/api/admin/health",
+        "/service/v1/auth/login",
+        "/api/nested/route/auth/status",
+      ];
+
+      for (const route of spoofedRoutes) {
+        const loopNext = vi.fn();
+        const loopJson = vi.fn();
+        const loopStatus = vi.fn().mockReturnValue({ json: loopJson });
+        const loopRes = { status: loopStatus, json: loopJson };
+        const loopReq = { path: route, headers: {}, body: {}, query: {} };
+
+        await authMiddleware(loopReq as Request, loopRes as unknown as Response, loopNext);
+
+        expect(loopNext).not.toHaveBeenCalled();
+        expect(loopStatus).toHaveBeenCalledWith(401);
+        expect(loopJson).toHaveBeenCalledWith(
+          expect.objectContaining({ authRequired: true })
+        );
+      }
     });
 
     it("should block protected route with 401 when no token is provided", async () => {
