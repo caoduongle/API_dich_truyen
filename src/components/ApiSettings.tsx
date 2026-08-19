@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { 
-  Key, Plus, Trash2, Eye, EyeOff, ClipboardPaste, Cpu
+  Key, Plus, Trash2, Eye, EyeOff, ClipboardPaste, Cpu, Sliders, BarChart3
 } from 'lucide-react';
 import { AVAILABLE_MODELS } from '../constants/models';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
+import { QuotaPanel } from './QuotaPanel';
+import { cn } from '../lib/cn';
 
 interface ApiSettingsProps {
   apiKeys: string[];
@@ -39,6 +41,7 @@ export default function ApiSettings({
   enableSegmentTranslation,
   setEnableSegmentTranslation,
 }: ApiSettingsProps) {
+  const [activeTab, setActiveTab] = useState<'config' | 'quota'>('config');
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());
 
   const toggleReveal = (index: number) => {
@@ -74,26 +77,64 @@ export default function ApiSettings({
         </Button>
       }
     >
-      <div className="space-y-5">
-        {/* Model selector */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5">
-            <Cpu className="w-3.5 h-3.5 text-polish" />
-            Mô hình AI
-          </label>
-          <select
-            value={selectedModel}
-            onChange={e => onSaveModel(e.target.value)}
-            className="w-full text-sm border border-parchment-2 bg-ink rounded-[2px] px-3 py-2 text-text-main font-semibold focus:outline-none focus:border-polish cursor-pointer"
+      <div className="space-y-4">
+        {/* Tab Switcher */}
+        <div className="flex items-center border-b border-parchment-2 pb-2.5 gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('config')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-[2px] cursor-pointer transition-colors border',
+              activeTab === 'config'
+                ? 'bg-parchment-2 text-text-main border-polish/40 shadow-xs'
+                : 'bg-transparent text-text-muted border-transparent hover:text-text-main hover:bg-parchment-2/40'
+            )}
           >
-            {AVAILABLE_MODELS.map(m => (
-              <option key={m.id} value={m.id} className="bg-parchment text-text-main">{m.label}</option>
-            ))}
-          </select>
-          <p className="text-[11px] text-text-muted">
-            Áp dụng ngay lập tức cho tất cả tính năng dịch thuật.
-          </p>
+            <Sliders className="w-3.5 h-3.5 text-polish" />
+            Cấu hình AI
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('quota')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-[2px] cursor-pointer transition-colors border',
+              activeTab === 'quota'
+                ? 'bg-parchment-2 text-text-main border-polish/40 shadow-xs'
+                : 'bg-transparent text-text-muted border-transparent hover:text-text-main hover:bg-parchment-2/40'
+            )}
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-polish" />
+            Quota &amp; Hạn mức
+          </button>
         </div>
+
+        {activeTab === 'quota' ? (
+          <QuotaPanel 
+            apiKeys={apiKeys} 
+            selectedModel={selectedModel} 
+            onSwitchToConfigTab={() => setActiveTab('config')} 
+          />
+        ) : (
+          <div className="space-y-5">
+            {/* Model selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-polish" />
+                Mô hình AI
+              </label>
+              <select
+                value={selectedModel}
+                onChange={e => onSaveModel(e.target.value)}
+                className="w-full text-sm border border-parchment-2 bg-ink rounded-[2px] px-3 py-2 text-text-main font-semibold focus:outline-none focus:border-polish cursor-pointer"
+              >
+                {AVAILABLE_MODELS.map(m => (
+                  <option key={m.id} value={m.id} className="bg-parchment text-text-main">{m.label}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-text-muted">
+                Áp dụng ngay lập tức cho tất cả tính năng dịch thuật.
+              </p>
+            </div>
 
         {/* Cài đặt chất lượng & Kiểm duyệt */}
         <div className="space-y-3 pt-3 border-t border-parchment-2">
@@ -226,6 +267,8 @@ export default function ApiSettings({
           </p>
         </div>
       </div>
-    </Modal>
+    )}
+  </div>
+</Modal>
   );
 }

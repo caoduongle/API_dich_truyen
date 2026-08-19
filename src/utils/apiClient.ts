@@ -333,3 +333,100 @@ export async function apiFetch(
 
   return response;
 }
+
+// --- QUOTA & USAGE TRACKING CLIENT APIS ---
+
+export interface KeyRuntimeStatus {
+  isBlacklisted: boolean;
+  blacklistRemainingMs: number;
+  isRateLimited: boolean;
+  nextAllowedRemainingMs: number;
+}
+
+export interface ModelUsageStats {
+  requestsTotal: number;
+  requestsToday: number;
+  requestsThisMinute: number;
+  errorsTotal: number;
+}
+
+export interface KeyQuotaFullSnapshot {
+  index: number;
+  keyHash: string;
+  maskedKey: string;
+  requestsTotal: number;
+  requestsToday: number;
+  requestsThisMinute: number;
+  errorsTotal: number;
+  byModel: Record<string, ModelUsageStats>;
+  runtime: KeyRuntimeStatus;
+  lastRequestTimestamp?: number;
+}
+
+export interface QuotaStatusResponse {
+  timestamp: string;
+  timezone: string;
+  currentDayPST: string;
+  keys: KeyQuotaFullSnapshot[];
+}
+
+export interface ModelInfoItem {
+  name: string;
+  displayName: string;
+  description?: string;
+  supportedGenerationMethods?: string[];
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
+}
+
+export interface ModelsForKeyResponse {
+  keyHash: string;
+  maskedKey: string;
+  cached: boolean;
+  models: ModelInfoItem[];
+}
+
+/**
+ * Lấy snapshot trạng thái Quota & Mức sử dụng thời gian thực từ máy chủ.
+ */
+export async function fetchQuotaStatus(keys?: string[]): Promise<QuotaStatusResponse> {
+  const payload: { apiKeys?: string[] } = {};
+  if (keys && keys.length > 0) {
+    payload.apiKeys = keys.filter(k => typeof k === 'string' && k.trim().length > 0);
+  }
+
+  const res = await apiFetch('/api/quota-status', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || `Lỗi tải trạng thái Quota (HTTP ${res.status})`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Kiểm tra danh sách mô hình thực tế mà một API key có quyền truy cập.
+ */
+export async function fetchModelsForKey(keyIndex: number, keys?: string[]): Promise<ModelsForKeyResponse> {
+  const payload: { keyIndex: number; apiKeys?: string[] } = { keyIndex };
+  if (keys && keys.length > 0) {
+    payload.apiKeys = keys.filter(k => typeof k === 'string' && k.trim().length > 0);
+  }
+
+  const res = await apiFetch('/api/models-for-key', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || `Lỗi tra cứu mô hình cho khóa (HTTP ${res.status})`);
+  }
+
+  return await res.json();
+}
+

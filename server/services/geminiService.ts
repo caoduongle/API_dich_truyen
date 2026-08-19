@@ -2,6 +2,7 @@ import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { safeParseJson, redactApiKey } from "../utils/text";
 import { DEFAULT_MODEL_ID } from "../constants/models";
 import { AI_SERVICE_CONFIG } from "@shared/constants";
+import { quotaService } from "./quotaService";
 
 const {
   MIN_REQUEST_INTERVAL_PER_KEY_MS: MIN_REQUEST_INTERVAL_MS,
@@ -71,6 +72,45 @@ export const _testMaps = {
   nextAllowedTimeByKey,
   stopGeminiCleanup
 };
+
+export interface KeyRuntimeStatus {
+  isBlacklisted: boolean;
+  blacklistRemainingMs: number;
+  isRateLimited: boolean;
+  nextAllowedRemainingMs: number;
+}
+
+/**
+ * Đọc trạng thái Circuit Breaker / Cooldown / Rate Limit tức thời của một API key
+ */
+export function getKeyRuntimeStatus(key: string): KeyRuntimeStatus {
+  if (!key || !key.trim()) {
+    return {
+      isBlacklisted: false,
+      blacklistRemainingMs: 0,
+      isRateLimited: false,
+      nextAllowedRemainingMs: 0,
+    };
+  }
+
+  const trimmed = key.trim();
+  const now = Date.now();
+
+  const blacklistExpiry = blacklistedKeys.get(trimmed) || 0;
+  const isBlacklisted = blacklistExpiry > now;
+  const blacklistRemainingMs = isBlacklisted ? blacklistExpiry - now : 0;
+
+  const nextAllowed = nextAllowedTimeByKey.get(trimmed) || 0;
+  const isRateLimited = nextAllowed > now;
+  const nextAllowedRemainingMs = isRateLimited ? nextAllowed - now : 0;
+
+  return {
+    isBlacklisted,
+    blacklistRemainingMs,
+    isRateLimited,
+    nextAllowedRemainingMs,
+  };
+}
 
 // --- OVERLOAD (503) RETRY & COOLDOWN ---
 const OVERLOAD_BASE_DELAY_MS = 3000;
@@ -307,6 +347,7 @@ export async function generateWithRotation(
 
             // Thành công → reset cooldown toàn cục (model đã hồi phục)
             overloadCooldownUntil = 0;
+            quotaService.recordUsage(key, model, 'success');
 
             let rawText = response.text ?? "";
             if (!rawText && candidate?.content?.parts?.length) {
@@ -330,6 +371,7 @@ export async function generateWithRotation(
           } catch (innerErr: any) {
             if (isOverloadError(innerErr) && overloadAttempt < MAX_OVERLOAD_RETRIES) {
               overloadAttempt++;
+              quotaService.recordUsage(key, model, 'overloaded');
               const retryDelay = OVERLOAD_BASE_DELAY_MS * Math.pow(2, overloadAttempt - 1) + Math.floor(Math.random() * 1000);
               console.warn(`[Overload Retry] Model quá tải (503), thử lại key ${i + 1} lần ${overloadAttempt}/${MAX_OVERLOAD_RETRIES} sau ${retryDelay}ms...`);
 
@@ -349,6 +391,26 @@ export async function generateWithRotation(
         console.error(`[Rotation Error] Lỗi khóa ${i + 1}: ${redactApiKey(errMsg, keysToTry)}`);
         console.error(`[Rotation Error] Chi tiết:`, redactApiKey(errDetail, keysToTry));
         lastError = err;
+
+        // Ghi nhận quota usage theo loại kết quả lỗi
+        if (isSafetyOrEmptyError(err)) {
+          quotaService.recordUsage(key, model, 'safety');
+        } else if (isOverloadError(err)) {
+          quotaService.recordUsage(key, model, 'overloaded');
+        } else {
+          const errStr = (err.message || String(err)).toLowerCase();
+          if (
+            errStr.includes("429") ||
+            errStr.includes("quota") ||
+            errStr.includes("rate") ||
+            errStr.includes("exhausted") ||
+            errStr.includes("limit")
+          ) {
+            quotaService.recordUsage(key, model, 'quota_exceeded');
+          } else {
+            quotaService.recordUsage(key, model, 'error');
+          }
+        }
 
         // Nếu lỗi overload (503) đã hết retry → log rõ, KHÔNG blacklist key
         if (isOverloadError(err)) {

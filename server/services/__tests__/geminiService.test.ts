@@ -107,5 +107,32 @@ describe("Gemini Service API Key Cleanup", () => {
       expect(capturedContents).toContain("[KẾT THÚC DỮ LIỆU ĐẦU VÀO - HÃY TRẢ VỀ KẾT QUẢ THEO ĐÚNG HƯỚNG DẪN HỆ THỐNG PHÍA TRÊN]");
     });
   });
+
+  describe("getKeyRuntimeStatus", () => {
+    it("should return accurate circuit breaker and rate limit cooldown remaining time", async () => {
+      const { getKeyRuntimeStatus, _testMaps } = await import("../geminiService");
+      const testKey = "AIzaSyRuntimeStatusTestKey123";
+      const now = Date.now();
+
+      // Key not blacklisted or rate limited
+      let status = getKeyRuntimeStatus(testKey);
+      expect(status.isBlacklisted).toBe(false);
+      expect(status.blacklistRemainingMs).toBe(0);
+      expect(status.isRateLimited).toBe(false);
+      expect(status.nextAllowedRemainingMs).toBe(0);
+
+      // Key blacklisted for 60 seconds
+      _testMaps.blacklistedKeys.set(testKey, now + 60000);
+      status = getKeyRuntimeStatus(testKey);
+      expect(status.isBlacklisted).toBe(true);
+      expect(status.blacklistRemainingMs).toBeGreaterThan(0);
+
+      // Key rate limited for 5 seconds
+      _testMaps.nextAllowedTimeByKey.set(testKey, now + 5000);
+      status = getKeyRuntimeStatus(testKey);
+      expect(status.isRateLimited).toBe(true);
+      expect(status.nextAllowedRemainingMs).toBeGreaterThan(0);
+    });
+  });
 });
 

@@ -23,6 +23,10 @@ import {
   loginHandler,
   logoutHandler
 } from "../controllers/authController";
+import {
+  getQuotaStatusHandler,
+  getModelsForKeyHandler
+} from "../controllers/quotaController";
 import { authMiddleware } from "../middleware/authMiddleware";
 import { createRateLimiter } from "../middleware/rateLimiter";
 import { sessionStore } from "../services/sessionStore";
@@ -157,6 +161,10 @@ router.post("/qa-critique", validateModelMiddleware, resolveApiKeysMiddleware, q
 
 // --- Routes for Bilingual alignment ---
 router.post("/align-chapter", validateModelMiddleware, resolveApiKeysMiddleware, alignChapter);
+
+// --- Routes for Quota & Usage Tracking ---
+router.post("/quota-status", resolveApiKeysMiddleware, getQuotaStatusHandler);
+router.post("/models-for-key", resolveApiKeysMiddleware, getModelsForKeyHandler);
 
 // --- Health Check & System Diagnostics Endpoint ---
 router.get("/health", async (_req: Request, res: Response) => {
