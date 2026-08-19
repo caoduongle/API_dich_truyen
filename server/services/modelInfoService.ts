@@ -367,6 +367,23 @@ class ModelInfoService {
   }
 
   /**
+   * Kiểm tra nhanh khả năng tương thích của 1 model với 1 API key từ cache đã biết
+   * (Trả về true nếu model có trong danh sách, false nếu key đã được inspect và không có model này, hoặc 'uninspected' nếu chưa có cache)
+   */
+  public getCachedModelSupport(apiKey: string, modelId: string): boolean | 'uninspected' {
+    if (!apiKey || !modelId) return 'uninspected';
+    const cleanKey = apiKey.trim();
+    const keyHash = hashApiKey(cleanKey);
+    const cached = this.cache.get(keyHash);
+    if (!cached || !cached.models || cached.models.length === 0) {
+      return 'uninspected';
+    }
+    const cleanModelName = modelId.replace(/^models\//i, '').trim().toLowerCase();
+    const found = cached.models.some(m => m.name.replace(/^models\//i, '').trim().toLowerCase() === cleanModelName);
+    return found;
+  }
+
+  /**
    * Xóa toàn bộ cache (dùng cho testing)
    */
   public clearCache(): void {

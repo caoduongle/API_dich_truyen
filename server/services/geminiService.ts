@@ -3,8 +3,36 @@ import { safeParseJson, redactApiKey } from "../utils/text";
 import { DEFAULT_MODEL_ID } from "../constants/models";
 import { AI_SERVICE_CONFIG } from "@shared/constants";
 import { quotaService } from "./quotaService";
+import { modelInfoService } from "./modelInfoService";
 import { normalizeUpstreamError } from "../utils/errorClassifier";
 import { AIErrorCode } from "../constants/errors";
+
+/**
+ * Tính toán khoảng cách an toàn (mili-giây) giữa các request cho một API Key cụ thể
+ * Dựa trên RPM cấu hình cho key đó, hoặc tier mặc định của Model.
+ * Áp dụng hệ số an toàn 0.9 và giới hạn sàn tối thiểu 400ms trên server.
+ */
+export function computePerKeyIntervalMs(
+  keyRpm?: number,
+  modelId?: string,
+  safetyFloorMs: number = 400
+): number {
+  if (typeof keyRpm === 'number' && keyRpm > 0) {
+    return Math.max(safetyFloorMs, Math.ceil(60000 / (keyRpm * 0.9)));
+  }
+
+  const norm = (modelId || '').replace(/^models\//i, '').trim().toLowerCase();
+  if (norm.includes('pro')) {
+    return 6000; // ~10 RPM an toàn cho Pro models
+  }
+  if (norm.includes('flash-lite')) {
+    return 3500; // ~17 RPM cho Flash Lite
+  }
+  if (norm.includes('gemma')) {
+    return 2000; // ~30 RPM cho Gemma local
+  }
+  return 4445; // ~15 RPM mặc định Free Tier Flash models
+}
 
 const {
   MIN_REQUEST_INTERVAL_PER_KEY_MS: MIN_REQUEST_INTERVAL_MS,
@@ -190,7 +218,8 @@ export async function generateWithRotation(
     responseSchema?: any,
     temperature?: number,
     startKeyIndex: number = 0,
-    customRpm?: number
+    customRpm?: number,
+    perKeyRpm?: Record<string, number> | number[]
 ): Promise<{ text: string; successKeyIndex: number }> {
   // Backpressure check
   if (activeConcurrentRequests >= MAX_CONCURRENT_REQUESTS) {
@@ -222,22 +251,61 @@ export async function generateWithRotation(
     }
 
     // Đánh giá và sắp xếp candidate keys theo Predictive Score & Health
+    const nowBeforeEval = Date.now();
     const scoredKeys = rawKeys.map((key, originalIndex) => {
-      const scoreResult = quotaService.calculateKeyScore(key, model, 2500);
+      // 1. Xác định RPM riêng cho key này
+      let keyRpm: number | undefined;
+      if (perKeyRpm) {
+        if (Array.isArray(perKeyRpm) && typeof perKeyRpm[originalIndex] === 'number') {
+          keyRpm = perKeyRpm[originalIndex];
+        } else if (typeof perKeyRpm === 'object' && perKeyRpm !== null) {
+          keyRpm = (perKeyRpm as Record<string, number>)[key] || (perKeyRpm as Record<string, number>)[String(originalIndex)];
+        }
+      }
+      if (!keyRpm && typeof customRpm === 'number' && customRpm > 0) {
+        keyRpm = customRpm;
+      }
+
+      // 2. Tính khoảng cách pacing riêng cho key này
+      const keyIntervalMs = computePerKeyIntervalMs(keyRpm, model);
+
+      // 3. Tính độ trễ pacing hiện tại của key
+      const keyNextAllowed = nextAllowedTimeByKey.get(key) || 0;
+      const pacingDelayMs = Math.max(0, keyNextAllowed - nowBeforeEval);
+
+      // 4. Kiểm tra model support trong cache
+      const isModelSupported = modelInfoService.getCachedModelSupport(key, model);
+
+      // 5. Chấm điểm chi tiết
+      const scoreResult = quotaService.calculateKeyScore(key, model, {
+        estimatedTokens: 2500,
+        keyRpm,
+        isModelSupported,
+        pacingDelayMs,
+      }, nowBeforeEval);
+
       return {
         key,
         originalIndex,
+        keyRpm,
+        keyIntervalMs,
         score: scoreResult.score,
         isEligible: scoreResult.isEligible,
         rejectReason: scoreResult.rejectReason,
+        pacingDelayMs,
       };
     });
 
     // Sắp xếp: Ưu tiên keys eligible và score cao nhất
     scoredKeys.sort((a, b) => b.score - a.score);
 
-    // Xoay vòng mượt mà nếu startKeyIndex được chỉ định rõ
-    const keysToTry = scoredKeys.map(s => ({ key: s.key, index: s.originalIndex }));
+    // Xoay vòng theo danh sách đã được chấm điểm
+    const keysToTry = scoredKeys.map(s => ({
+      key: s.key,
+      index: s.originalIndex,
+      keyIntervalMs: s.keyIntervalMs,
+      isEligible: s.isEligible,
+    }));
 
     let lastError: any = null;
     const requestStartTime = Date.now();
@@ -248,7 +316,8 @@ export async function generateWithRotation(
       let anyNonOverloadFailure = false;
 
       for (let k = 0; k < keysToTry.length; k++) {
-        const { key, index: i } = keysToTry[k];
+        const candidate = keysToTry[k];
+        const { key, index: i, keyIntervalMs } = candidate;
 
         // 1. Kiểm tra Circuit Breaker / Key Health
         const keyHealth = quotaService.getKeyHealth(key);
@@ -263,11 +332,8 @@ export async function generateWithRotation(
           continue;
         }
 
-        // 2. Rate Limiter theo key & Custom RPM động
-        const effectiveKeyIntervalMs = (typeof customRpm === 'number' && customRpm > 0)
-          ? Math.max(400, Math.ceil(60000 / (customRpm * 0.9)))
-          : MIN_REQUEST_INTERVAL_MS;
-
+        // 2. Per-key Rate Limiter: Tính pacing và cập nhật nextAllowedTime riêng cho key này
+        const effectiveKeyIntervalMs = keyIntervalMs || computePerKeyIntervalMs(undefined, model);
         const keyNextAllowed = nextAllowedTimeByKey.get(key) || 0;
         const nowForRate = Date.now();
         let keyDelay = 0;

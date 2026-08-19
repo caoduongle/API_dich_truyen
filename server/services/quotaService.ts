@@ -82,6 +82,15 @@ export interface KeyQuotaSnapshot {
   lastRequestTimestamp?: number;
 }
 
+export interface KeyScoreOptions {
+  estimatedTokens?: number;
+  keyRpm?: number;
+  keyMaxTpm?: number;
+  keyMaxRpd?: number;
+  isModelSupported?: boolean | 'uninspected';
+  pacingDelayMs?: number;
+}
+
 export function hashApiKey(key: string): string {
   if (!key) return '';
   return crypto.createHash('sha256').update(key.trim()).digest('hex');
@@ -296,10 +305,9 @@ class QuotaService {
     timestamp: number = Date.now()
   ): void {
     if (!key || !key.trim()) return;
-    const stats = this.getOrCreateStats(key, timestamp);
+    this.recordUsage(key, modelName, 'error', timestamp);
 
-    stats.errorsTotal++;
-    stats.consecutiveErrors++;
+    const stats = this.getOrCreateStats(key, timestamp);
 
     switch (error.code) {
       case AIErrorCode.AUTH_FAILED:
@@ -330,45 +338,129 @@ class QuotaService {
         }
         break;
     }
-
-    this.recordUsage(key, modelName, 'error', timestamp);
   }
 
   /**
    * Chấm điểm độ ưu tiên của một API Key cho request dự kiến (Predictive Candidate Scoring)
+   * Tích hợp kiểm tra đa chiều: Health, Model Compatibility, RPM sliding window, TPM, RPD, Idle time và Pacing readiness.
    */
   public calculateKeyScore(
     key: string,
-    _modelName: string,
-    estimatedTokens: number = 2000,
+    modelName: string,
+    estimatedTokensOrOptions: number | KeyScoreOptions = 2000,
     now: number = Date.now()
-  ): { score: number; isEligible: boolean; rejectReason?: string } {
+  ): {
+    score: number;
+    isEligible: boolean;
+    rejectReason?: string;
+    scoreBreakdown?: {
+      rpmCapacityScore: number;
+      tpmCapacityScore: number;
+      idleTimeScore: number;
+      pacingReadinessBonus: number;
+      errorPenalty: number;
+      modelSupportBonus: number;
+    };
+  } {
+    const options: KeyScoreOptions = typeof estimatedTokensOrOptions === 'number'
+      ? { estimatedTokens: estimatedTokensOrOptions }
+      : (estimatedTokensOrOptions || {});
+
+    const estimatedTokens = options.estimatedTokens ?? 2000;
+    const isPro = modelName.toLowerCase().includes('pro');
+    const effectiveRpm = options.keyRpm || (isPro ? 10 : 15);
+    const effectiveMaxTpm = options.keyMaxTpm || 1000000;
+    const effectiveMaxRpd = options.keyMaxRpd || (isPro ? 1000 : 1500);
+
+    // 1. Kiểm tra Circuit Breaker / Key Health / Cooldown
     const health = this.getKeyHealth(key, now);
     if (!health.isAvailable) {
-      return { score: -1000, isEligible: false, rejectReason: `Key đang ở trạng thái ${health.state} (Cooldown: ${health.cooldownRemainingMs}ms)` };
+      return {
+        score: -1000,
+        isEligible: false,
+        rejectReason: `Key đang ở trạng thái ${health.state} (Cooldown: ${health.cooldownRemainingMs}ms)`,
+      };
+    }
+
+    // 2. Kiểm tra tính tương thích của Model (nếu đã xác minh và không hỗ trợ)
+    if (options.isModelSupported === false) {
+      return {
+        score: -800,
+        isEligible: false,
+        rejectReason: `Key không hỗ trợ mô hình "${modelName}"`,
+      };
     }
 
     const stats = this.getOrCreateStats(key, now);
     const minuteThreshold = now - 60000;
     const recentCalls = stats.recentCalls.filter(c => c.timestamp > minuteThreshold);
+    const requestsThisMinute = recentCalls.length;
     const currentTokensThisMinute = recentCalls.reduce((sum, c) => sum + c.tokens, 0);
 
-    // Kiểm tra Predictive TPM (Hạn mức định mức 1,000,000 TPM cho Gemini Flash)
-    const MAX_SAFE_TPM = 1000000;
-    if (currentTokensThisMinute + estimatedTokens > MAX_SAFE_TPM * 0.95) {
-      return { score: -500, isEligible: false, rejectReason: `Dự toán token (${estimatedTokens}) sẽ vượt ngưỡng an toàn TPM (${currentTokensThisMinute}/${MAX_SAFE_TPM})` };
+    // 3. Kiểm tra hạn mức RPM trượt trong 60 giây
+    if (requestsThisMinute >= effectiveRpm) {
+      return {
+        score: -400,
+        isEligible: false,
+        rejectReason: `Key đã chạm giới hạn RPM trong phút hiện tại (${requestsThisMinute}/${effectiveRpm} RPM)`,
+      };
     }
 
-    // Scoring: Điểm càng cao càng ưu tiên
-    // 1. Quota còn lại trong 1 phút (max 1000 điểm)
-    const tpmCapacityScore = Math.max(0, (MAX_SAFE_TPM - currentTokensThisMinute) / 1000);
-    // 2. Thời gian rảnh rỗi kể từ lần dùng cuối (càng lâu càng tốt, tối đa 500 điểm)
-    const idleSeconds = stats.lastRequestTimestamp ? Math.min(500, Math.floor((now - stats.lastRequestTimestamp) / 1000)) : 500;
-    // 3. Phạt lỗi liên tiếp (-150 điểm mỗi lỗi)
-    const errorPenalty = stats.consecutiveErrors * 150;
+    // 4. Kiểm tra Predictive TPM trong 60 giây
+    if (currentTokensThisMinute + estimatedTokens > effectiveMaxTpm * 0.95) {
+      return {
+        score: -500,
+        isEligible: false,
+        rejectReason: `Dự toán token (${estimatedTokens}) sẽ vượt ngưỡng an toàn TPM (${currentTokensThisMinute}/${effectiveMaxTpm} TPM)`,
+      };
+    }
 
-    const totalScore = tpmCapacityScore + idleSeconds - errorPenalty;
-    return { score: totalScore, isEligible: true };
+    // 5. Kiểm tra hạn mức RPD trong ngày
+    const currentDay = getDayInLosAngeles(now);
+    const requestsToday = stats.lastResetDay === currentDay ? stats.requestsToday : 0;
+    if (requestsToday >= effectiveMaxRpd) {
+      return {
+        score: -600,
+        isEligible: false,
+        rejectReason: `Key đã chạm giới hạn RPD trong ngày (${requestsToday}/${effectiveMaxRpd} RPD)`,
+      };
+    }
+
+    // ── TÍNH TOÁN COMPOSITE SCORING ──
+    // a. Điểm dung lượng TPM còn lại (tối đa 500 điểm)
+    const tpmCapacityScore = Math.max(0, ((effectiveMaxTpm - currentTokensThisMinute) / effectiveMaxTpm) * 500);
+
+    // b. Điểm dung lượng RPM còn lại (tối đa 500 điểm)
+    const rpmCapacityScore = Math.max(0, ((effectiveRpm - requestsThisMinute) / effectiveRpm) * 500);
+
+    // c. Điểm rảnh rỗi kể từ lần dùng cuối (tối đa 600 điểm, tự động phân phối xoay vòng)
+    const idleSeconds = stats.lastRequestTimestamp ? Math.min(600, Math.floor((now - stats.lastRequestTimestamp) / 1000)) : 600;
+    const idleTimeScore = idleSeconds;
+
+    // d. Điểm sẵn sàng Pacing (thưởng 300 điểm nếu key không phải chờ hoãn)
+    const pacingDelay = options.pacingDelayMs || 0;
+    const pacingReadinessBonus = pacingDelay <= 0 ? 300 : Math.max(-200, 200 - Math.floor(pacingDelay / 10));
+
+    // e. Phạt lỗi liên tiếp (-200 điểm / lỗi)
+    const errorPenalty = stats.consecutiveErrors * 200;
+
+    // f. Thưởng model được xác minh trực tiếp (+100 điểm)
+    const modelSupportBonus = options.isModelSupported === true ? 100 : 0;
+
+    const totalScore = tpmCapacityScore + rpmCapacityScore + idleTimeScore + pacingReadinessBonus - errorPenalty + modelSupportBonus;
+
+    return {
+      score: Math.round(totalScore * 10) / 10,
+      isEligible: true,
+      scoreBreakdown: {
+        rpmCapacityScore: Math.round(rpmCapacityScore),
+        tpmCapacityScore: Math.round(tpmCapacityScore),
+        idleTimeScore,
+        pacingReadinessBonus: Math.round(pacingReadinessBonus),
+        errorPenalty,
+        modelSupportBonus,
+      },
+    };
   }
 
   /**
