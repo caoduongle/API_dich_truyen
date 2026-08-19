@@ -257,9 +257,9 @@ export default function ApiSettings({
     validKeyCount
   );
 
-  const presets = availableModels.filter(m => m.source === 'preset');
-  const discovered = availableModels.filter(m => m.source === 'discovered');
-  const custom = availableModels.filter(m => m.source === 'custom');
+  const presets = availableModels.filter(m => m.source === 'preset' && m.status !== 'shutdown');
+  const discovered = availableModels.filter(m => m.source === 'discovered' && m.status !== 'shutdown');
+  const custom = availableModels.filter(m => m.source === 'custom' && m.status !== 'shutdown');
 
   return (
     <Modal

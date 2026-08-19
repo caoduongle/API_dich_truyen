@@ -411,10 +411,49 @@ describe('modelRegistry utils', () => {
       expect(flash?.capabilities.generateContent).toBe(true);
     });
 
+    it('classifies active preset models correctly', () => {
+      const presets = getPresetModels();
+      const activePresets = presets.filter(p => p.status === 'active');
+      const activeIds = activePresets.map(p => p.id);
+
+      expect(activeIds).toContain('gemini-3.1-flash-lite');
+      expect(activeIds).toContain('gemini-2.5-flash');
+      expect(activeIds).toContain('gemini-2.5-pro');
+      expect(activeIds).toContain('gemma-4-31b-it');
+    });
+
+    it('classifies decommissioned Gemini models as shutdown with replacement metadata', () => {
+      const presets = getPresetModels();
+      const shutdownPresets = presets.filter(p => p.status === 'shutdown');
+      const shutdownIds = shutdownPresets.map(p => p.id);
+
+      expect(shutdownIds).toContain('gemini-2.0-flash');
+      expect(shutdownIds).toContain('gemini-2.0-flash-lite');
+      expect(shutdownIds).toContain('gemini-1.5-flash');
+      expect(shutdownIds).toContain('gemini-1.5-pro');
+
+      const g2Flash = getModelDefinition('gemini-2.0-flash');
+      expect(g2Flash?.status).toBe('shutdown');
+      expect(g2Flash?.replacementId).toBe('gemini-2.5-flash');
+      expect(g2Flash?.shutdownAt).toBe('2026-06-01');
+
+      const g2Lite = getModelDefinition('gemini-2.0-flash-lite');
+      expect(g2Lite?.status).toBe('shutdown');
+      expect(g2Lite?.replacementId).toBe('gemini-3.1-flash-lite');
+
+      const g15Flash = getModelDefinition('gemini-1.5-flash');
+      expect(g15Flash?.status).toBe('shutdown');
+      expect(g15Flash?.replacementId).toBe('gemini-2.5-flash');
+    });
+
     it('migrates invalid or empty model string to DEFAULT_MODEL_ID', () => {
-      const res = migrateModelSelection('');
-      expect(res.wasMigrated).toBe(true);
-      expect(res.effectiveModelId).toBe(DEFAULT_MODEL_ID);
+      const resEmpty = migrateModelSelection('');
+      expect(resEmpty.wasMigrated).toBe(true);
+      expect(resEmpty.effectiveModelId).toBe(DEFAULT_MODEL_ID);
+
+      const resInvalid = migrateModelSelection('../path-traversal');
+      expect(resInvalid.wasMigrated).toBe(true);
+      expect(resInvalid.effectiveModelId).toBe(DEFAULT_MODEL_ID);
     });
 
     it('keeps active model unchanged without migration', () => {
@@ -423,6 +462,37 @@ describe('modelRegistry utils', () => {
       expect(res.isShutdown).toBe(false);
       expect(res.isDeprecated).toBe(false);
       expect(res.effectiveModelId).toBe('gemini-2.5-flash');
+    });
+
+    it('automatically migrates shutdown models to designated active replacements', () => {
+      const res20 = migrateModelSelection('gemini-2.0-flash');
+      expect(res20.wasMigrated).toBe(true);
+      expect(res20.isShutdown).toBe(true);
+      expect(res20.effectiveModelId).toBe('gemini-2.5-flash');
+      expect(res20.replacementId).toBe('gemini-2.5-flash');
+      expect(res20.reason).toContain('ngừng hoạt động');
+
+      const res20Lite = migrateModelSelection('gemini-2.0-flash-lite');
+      expect(res20Lite.wasMigrated).toBe(true);
+      expect(res20Lite.isShutdown).toBe(true);
+      expect(res20Lite.effectiveModelId).toBe('gemini-3.1-flash-lite');
+
+      const res15 = migrateModelSelection('gemini-1.5-flash');
+      expect(res15.wasMigrated).toBe(true);
+      expect(res15.isShutdown).toBe(true);
+      expect(res15.effectiveModelId).toBe('gemini-2.5-flash');
+
+      const res15Pro = migrateModelSelection('gemini-1.5-pro');
+      expect(res15Pro.wasMigrated).toBe(true);
+      expect(res15Pro.isShutdown).toBe(true);
+      expect(res15Pro.effectiveModelId).toBe('gemini-2.5-pro');
+    });
+
+    it('retains unregistered custom models without failing', () => {
+      const res = migrateModelSelection('my-custom-unregistered-model');
+      expect(res.wasMigrated).toBe(false);
+      expect(res.effectiveModelId).toBe('my-custom-unregistered-model');
+      expect(res.isShutdown).toBe(false);
     });
   });
 });

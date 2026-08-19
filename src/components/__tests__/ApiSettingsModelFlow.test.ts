@@ -324,4 +324,33 @@ describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
     expect(isTpmNearLimit(850_000, maxTpm)).toBe(true);
     expect(isTpmNearLimit(950_000, maxTpm)).toBe(true);
   });
+
+  // Test 11: Presets filtering exclusively presents active models for user selection
+  it('Test 11 — presets filtering excludes shutdown models from active selectable list', () => {
+    const registered = getRegisteredModels();
+    const selectablePresets = registered.filter(m => m.source === 'preset' && m.status !== 'shutdown');
+    const selectableIds = selectablePresets.map(m => m.id);
+
+    expect(selectableIds).toContain('gemini-3.1-flash-lite');
+    expect(selectableIds).toContain('gemini-2.5-flash');
+    expect(selectableIds).toContain('gemini-2.5-pro');
+    expect(selectableIds).toContain('gemma-4-31b-it');
+
+    // Decommissioned models MUST NOT be present in selectable options
+    expect(selectableIds).not.toContain('gemini-2.0-flash');
+    expect(selectableIds).not.toContain('gemini-2.0-flash-lite');
+    expect(selectableIds).not.toContain('gemini-1.5-flash');
+    expect(selectableIds).not.toContain('gemini-1.5-pro');
+  });
+
+  // Test 12: Deprecated and Shutdown model metadata diagnostics
+  it('Test 12 — model definitions provide complete lifecycle properties for UI badges', () => {
+    const registered = getRegisteredModels();
+    const shutdownModel = registered.find(m => m.id === 'gemini-2.0-flash');
+
+    expect(shutdownModel).toBeDefined();
+    expect(shutdownModel?.status).toBe('shutdown');
+    expect(shutdownModel?.replacementId).toBe('gemini-2.5-flash');
+    expect(shutdownModel?.shutdownAt).toBe('2026-06-01');
+  });
 });

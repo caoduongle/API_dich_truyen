@@ -30,6 +30,15 @@ Phần mềm dịch truyện chữ Trung Quốc sang tiếng Việt sử dụng 
 - Dịch liên tiếp nhiều chương không cần thao tác thủ công.
 - Tự động chia nhỏ (Divide & Conquer) để xử lý các văn bản có độ dài vượt quá giới hạn của AI.
 
+### 🧠 Danh Sách Mô Hình AI Hỗ Trợ & Quản Lý Vòng Đời (Model Lifecycle)
+- **Mô hình Khuyên dùng (Active)**:
+  - `gemini-3.1-flash-lite`: Nhanh, chi phí tối ưu, độ trễ thấp (Mặc định).
+  - `gemini-2.5-flash`: Độ ổn định cao, văn phong tốt, xử lý ngữ cảnh dài.
+  - `gemini-2.5-pro`: Khả năng suy luận mạnh mẽ nhất, phục vụ các đoạn văn khó hoặc văn phong cổ trang phức tạp.
+  - `gemma-4-31b-it`: Hỗ trợ mô hình mã nguồn mở cục bộ.
+- **Tự động chuyển đổi mô hình hết hạn (Shutdown Migration)**:
+  - Hệ thống tự động nhận diện các phiên bản cũ đã ngừng hoạt động (`gemini-2.0-flash`, `gemini-1.5-flash`,...) và chuyển đổi mượt mà sang mô hình kế thừa tương đương mà không làm gián đoạn hay crash ứng dụng.
+
 ---
 
 ## 🚀 Hướng dẫn Cài đặt

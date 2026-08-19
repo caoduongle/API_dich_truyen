@@ -71,6 +71,8 @@ export function getPresetModels(): RegisteredModelDef[] {
     description: m.description,
     inputTokenLimit: m.inputTokenLimit,
     outputTokenLimit: m.outputTokenLimit,
+    deprecatedAt: m.deprecatedAt,
+    shutdownAt: m.shutdownAt,
   }));
 }
 
