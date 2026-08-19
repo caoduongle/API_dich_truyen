@@ -1,6 +1,60 @@
 import { AVAILABLE_MODELS } from '../constants/models';
 import { KeyQuotaFullSnapshot, ModelInfoItem, ModelUsageStats } from './apiClient';
 
+export const DISCOVERED_MODELS_STORAGE_KEY = 'gemini_discovered_models';
+export const CUSTOM_MODELS_STORAGE_KEY = 'gemini_custom_models';
+
+export type ModelSource = 'preset' | 'discovered' | 'custom';
+
+export interface RegisteredModelDef {
+  id: string;
+  label: string;
+  source: ModelSource;
+  description?: string;
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
+  addedAt?: string;
+}
+
+export const MODEL_ID_REGEX = /^[a-zA-Z0-9_\-\.\/]{1,128}$/;
+
+function getStorageItem(key: string): string | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(key);
+    }
+  } catch {}
+  return null;
+}
+
+function setStorageItem(key: string, value: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, value);
+    }
+  } catch {}
+}
+
+function removeStorageItem(key: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+  } catch {}
+}
+
+/**
+ * Kiểm tra định dạng ID model hợp lệ
+ */
+export function isValidModelIdFormat(model: unknown): boolean {
+  if (typeof model !== 'string') return false;
+  const trimmed = model.trim();
+  if (!trimmed || trimmed.length > 128) return false;
+  if (trimmed.includes('..')) return false; // Ngăn chặn path traversal
+  if (/[\x00-\x1F\x7F]/.test(trimmed)) return false; // Từ chối ký tự điều khiển
+  return MODEL_ID_REGEX.test(trimmed);
+}
+
 /**
  * Chuẩn hóa mã định danh model (bỏ tiền tố 'models/' nếu có và chuyển thành chữ thường).
  */
@@ -10,11 +64,216 @@ export function normalizeModelId(id: string): string {
 }
 
 /**
- * Lấy tên hiển thị tiếng Việt / mô tả của một Model ID từ AVAILABLE_MODELS.
+ * Danh sách model Presets mặc định
+ */
+export function getPresetModels(): RegisteredModelDef[] {
+  return AVAILABLE_MODELS.map(m => ({
+    id: m.id,
+    label: m.label,
+    source: 'preset' as ModelSource,
+  }));
+}
+
+/**
+ * Lấy danh sách model đã phát hiện từ localStorage
+ */
+export function getDiscoveredModels(): RegisteredModelDef[] {
+  try {
+    const raw = getStorageItem(DISCOVERED_MODELS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(m => m && typeof m.id === 'string' && isValidModelIdFormat(m.id));
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Lấy danh sách model tự nhập từ localStorage
+ */
+export function getCustomModels(): RegisteredModelDef[] {
+  try {
+    const raw = getStorageItem(CUSTOM_MODELS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(m => m && typeof m.id === 'string' && isValidModelIdFormat(m.id));
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Lấy toàn bộ danh sách model đã đăng ký trong hệ thống (Presets + Discovered + Custom)
+ * Tự động khử trùng lặp (Ưu tiên Preset -> Custom -> Discovered).
+ */
+export function getRegisteredModels(): RegisteredModelDef[] {
+  const presets = getPresetModels();
+  const discovered = getDiscoveredModels();
+  const custom = getCustomModels();
+
+  const seenNormIds = new Set<string>();
+  const result: RegisteredModelDef[] = [];
+
+  // 1. Thêm Presets
+  for (const m of presets) {
+    const norm = normalizeModelId(m.id);
+    seenNormIds.add(norm);
+    result.push(m);
+  }
+
+  // 2. Thêm Custom models
+  for (const m of custom) {
+    const norm = normalizeModelId(m.id);
+    if (!seenNormIds.has(norm)) {
+      seenNormIds.add(norm);
+      result.push(m);
+    }
+  }
+
+  // 3. Thêm Discovered models
+  for (const m of discovered) {
+    const norm = normalizeModelId(m.id);
+    if (!seenNormIds.has(norm)) {
+      seenNormIds.add(norm);
+      result.push(m);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Lưu danh sách model khám phá từ API Key vào localStorage
+ * Chỉ lưu các model có hỗ trợ sinh nội dung (generateContent) và chưa có trong Presets.
+ */
+export function saveDiscoveredModels(models: ModelInfoItem[]): RegisteredModelDef[] {
+  if (!models || models.length === 0) {
+    return getDiscoveredModels();
+  }
+
+  const presets = getPresetModels();
+  const presetNormSet = new Set(presets.map(p => normalizeModelId(p.id)));
+
+  const currentDiscovered = getDiscoveredModels();
+  const discoveredMap = new Map<string, RegisteredModelDef>();
+
+  for (const d of currentDiscovered) {
+    discoveredMap.set(normalizeModelId(d.id), d);
+  }
+
+  for (const item of models) {
+    if (!item || !item.name) continue;
+
+    // Lọc: nếu có supportedGenerationMethods thì kiểm tra có 'generateContent' không
+    if (item.supportedGenerationMethods && Array.isArray(item.supportedGenerationMethods)) {
+      const canGenerate = item.supportedGenerationMethods.some(m => 
+        m.toLowerCase().includes('generatecontent')
+      );
+      if (!canGenerate) continue;
+    }
+
+    const cleanId = item.name.replace(/^models\//i, '');
+    if (!isValidModelIdFormat(cleanId)) continue;
+
+    const norm = normalizeModelId(cleanId);
+    if (presetNormSet.has(norm)) continue; // Đã có trong presets
+
+    discoveredMap.set(norm, {
+      id: cleanId,
+      label: item.displayName ? `${item.displayName} (${cleanId})` : cleanId,
+      source: 'discovered',
+      description: item.description,
+      inputTokenLimit: item.inputTokenLimit,
+      outputTokenLimit: item.outputTokenLimit,
+      addedAt: new Date().toISOString(),
+    });
+  }
+
+  const updated = Array.from(discoveredMap.values());
+  setStorageItem(DISCOVERED_MODELS_STORAGE_KEY, JSON.stringify(updated));
+
+  return updated;
+}
+
+/**
+ * Thêm một model tự nhập vào registry
+ */
+export function addCustomModel(
+  modelId: string, 
+  label?: string
+): { success: boolean; model?: RegisteredModelDef; error?: string } {
+  const cleanId = modelId.trim().replace(/^models\//i, '');
+  if (!isValidModelIdFormat(cleanId)) {
+    return { 
+      success: false, 
+      error: 'ID Model không hợp lệ. Chỉ chấp nhận chữ cái, số, gạch ngang (-), gạch dưới (_), dấu chấm (.) và gạch chéo (/), tối đa 128 ký tự.' 
+    };
+  }
+
+  const presets = getPresetModels();
+  const norm = normalizeModelId(cleanId);
+  if (presets.some(p => normalizeModelId(p.id) === norm)) {
+    return {
+      success: false,
+      error: 'Model này đã có sẵn trong danh sách Mô hình khuyên dùng mặc định.',
+    };
+  }
+
+  const currentCustom = getCustomModels();
+  const exists = currentCustom.some(c => normalizeModelId(c.id) === norm);
+  if (exists) {
+    return {
+      success: false,
+      error: 'Model này đã tồn tại trong danh sách tự nhập.',
+    };
+  }
+
+  const newModel: RegisteredModelDef = {
+    id: cleanId,
+    label: label?.trim() || cleanId,
+    source: 'custom',
+    addedAt: new Date().toISOString(),
+  };
+
+  const updated = [...currentCustom, newModel];
+  setStorageItem(CUSTOM_MODELS_STORAGE_KEY, JSON.stringify(updated));
+
+  return { success: true, model: newModel };
+}
+
+/**
+ * Xóa một model tự nhập khỏi registry
+ */
+export function removeCustomModel(modelId: string): RegisteredModelDef[] {
+  const norm = normalizeModelId(modelId);
+  const currentCustom = getCustomModels();
+  const updated = currentCustom.filter(c => normalizeModelId(c.id) !== norm);
+
+  setStorageItem(CUSTOM_MODELS_STORAGE_KEY, JSON.stringify(updated));
+
+  return updated;
+}
+
+/**
+ * Xóa toàn bộ danh sách model đã phát hiện
+ */
+export function clearDiscoveredModels(): void {
+  removeStorageItem(DISCOVERED_MODELS_STORAGE_KEY);
+}
+
+/**
+ * Lấy tên hiển thị tiếng Việt / mô tả của một Model ID từ Registered Models.
  */
 export function getModelDisplayName(modelId: string): string {
   const norm = normalizeModelId(modelId);
-  const found = AVAILABLE_MODELS.find(m => normalizeModelId(m.id) === norm);
+  const registered = getRegisteredModels();
+  const found = registered.find(m => normalizeModelId(m.id) === norm);
   return found ? found.label : modelId;
 }
 

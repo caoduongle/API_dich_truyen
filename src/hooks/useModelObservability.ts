@@ -5,6 +5,7 @@ import {
   KeyQuotaFullSnapshot, 
   ModelInfoItem 
 } from '../utils/apiClient';
+import { saveDiscoveredModels } from '../utils/modelRegistry';
 
 export interface ModelObservabilityState {
   snapshotKeys: KeyQuotaFullSnapshot[];
@@ -21,7 +22,10 @@ export interface ModelObservabilityState {
   clearInspectResult: (keyIndex: number) => void;
 }
 
-export function useModelObservability(apiKeys: string[]): ModelObservabilityState {
+export function useModelObservability(
+  apiKeys: string[],
+  onModelsDiscovered?: (models: ModelInfoItem[]) => void
+): ModelObservabilityState {
   const [snapshotKeys, setSnapshotKeys] = useState<KeyQuotaFullSnapshot[]>([]);
   const [loadingQuota, setLoadingQuota] = useState(false);
   const [quotaError, setQuotaError] = useState<string | null>(null);
@@ -38,6 +42,9 @@ export function useModelObservability(apiKeys: string[]): ModelObservabilityStat
   const cleanKeysKey = cleanKeys.join(',');
   const cleanKeysRef = useRef(cleanKeys);
   cleanKeysRef.current = cleanKeys;
+
+  const onDiscoveredRef = useRef(onModelsDiscovered);
+  onDiscoveredRef.current = onModelsDiscovered;
 
   const loadQuotaStatus = useCallback(async () => {
     const currentClean = cleanKeysRef.current;
@@ -106,7 +113,16 @@ export function useModelObservability(apiKeys: string[]): ModelObservabilityStat
 
     try {
       const res = await fetchModelsForKey(keyIndex, currentClean);
-      setInspectResults(prev => ({ ...prev, [keyIndex]: res.models || [] }));
+      const models = res.models || [];
+      setInspectResults(prev => ({ ...prev, [keyIndex]: models }));
+
+      // Tự động lưu và kích hoạt callback đăng ký model khám phá
+      if (models.length > 0) {
+        saveDiscoveredModels(models);
+        if (onDiscoveredRef.current) {
+          onDiscoveredRef.current(models);
+        }
+      }
     } catch (err: any) {
       setInspectErrors(prev => ({ ...prev, [keyIndex]: err.message || 'Lỗi kiểm tra model' }));
     } finally {

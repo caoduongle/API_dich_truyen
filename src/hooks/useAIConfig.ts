@@ -1,7 +1,18 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useNotifications } from '../components/NotificationSystem';
-import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
-import { syncSessionKeysToServer, registerSessionSyncCallback } from '../utils/apiClient';
+import { DEFAULT_MODEL_ID } from '../constants/models';
+import { syncSessionKeysToServer, registerSessionSyncCallback, ModelInfoItem } from '../utils/apiClient';
+import { 
+  getDiscoveredModels, 
+  getCustomModels, 
+  getRegisteredModels, 
+  saveDiscoveredModels, 
+  addCustomModel, 
+  removeCustomModel, 
+  clearDiscoveredModels, 
+  RegisteredModelDef,
+  normalizeModelId
+} from '../utils/modelRegistry';
 
 export function useAIConfig() {
     const { showToast } = useNotifications();
@@ -16,13 +27,21 @@ export function useAIConfig() {
         return [];
     });
 
+    const [discoveredModels, setDiscoveredModels] = useState<RegisteredModelDef[]>(() => getDiscoveredModels());
+    const [customModels, setCustomModels] = useState<RegisteredModelDef[]>(() => getCustomModels());
+
+    const availableModels = useMemo<RegisteredModelDef[]>(() => {
+        return getRegisteredModels();
+    }, [discoveredModels, customModels]);
+
     const [selectedModel, setSelectedModel] = useState<string>(() => {
         const stored = localStorage.getItem('gemini_selected_model');
-        // Nếu giá trị đã lưu không nằm trong danh sách model hợp lệ
-        // (ví dụ: giá trị cũ 'gemini-3.5-flash' đã bị loại bỏ), tự động
-        // fallback về DEFAULT_MODEL_ID để tránh lệch dropdown.
-        if (stored && AVAILABLE_MODELS.some(m => m.id === stored)) {
-            return stored;
+        if (stored) {
+            const all = getRegisteredModels();
+            const normStored = normalizeModelId(stored);
+            if (all.some(m => normalizeModelId(m.id) === normStored)) {
+                return stored;
+            }
         }
         return DEFAULT_MODEL_ID;
     });
@@ -78,6 +97,39 @@ export function useAIConfig() {
         localStorage.setItem('gemini_selected_model', model);
     }, []);
 
+    const handleRegisterDiscoveredModels = useCallback((models: ModelInfoItem[]) => {
+        const updated = saveDiscoveredModels(models);
+        setDiscoveredModels(updated);
+    }, []);
+
+    const handleAddCustomModel = useCallback((modelId: string, label?: string) => {
+        const res = addCustomModel(modelId, label);
+        if (res.success && res.model) {
+            setCustomModels(getCustomModels());
+            handleSaveModel(res.model.id);
+            showToast({ message: `Đã thêm và kích hoạt model tùy chỉnh: ${res.model.id}`, type: 'success' });
+            return { success: true };
+        } else {
+            showToast({ message: res.error || 'Không thể thêm model tùy chỉnh.', type: 'warning' });
+            return { success: false, error: res.error };
+        }
+    }, [handleSaveModel, showToast]);
+
+    const handleRemoveCustomModel = useCallback((modelId: string) => {
+        const updated = removeCustomModel(modelId);
+        setCustomModels(updated);
+        if (normalizeModelId(selectedModel) === normalizeModelId(modelId)) {
+            handleSaveModel(DEFAULT_MODEL_ID);
+        }
+        showToast({ message: `Đã xóa model tùy chỉnh: ${modelId}`, type: 'info' });
+    }, [selectedModel, handleSaveModel, showToast]);
+
+    const handleClearDiscoveredModels = useCallback(() => {
+        clearDiscoveredModels();
+        setDiscoveredModels([]);
+        showToast({ message: 'Đã xóa bộ nhớ đệm model khám phá từ API Key.', type: 'info' });
+    }, [showToast]);
+
     const handleAddApiKey = useCallback(() => {
         setApiKeys(prev => [...prev, '']);
     }, []);
@@ -114,14 +166,21 @@ export function useAIConfig() {
         } catch (_) {
             showToast({ message: "Lỗi truy xuất bộ nhớ Clipboard của trình duyệt. Bạn có thể tự dán thủ công.", type: 'error' });
         }
-    }, []);
+    }, [showToast]);
 
     return {
         apiKeys,
         selectedModel,
+        availableModels,
+        discoveredModels,
+        customModels,
         showApiSettings,
         setShowApiSettings,
         handleSaveModel,
+        registerDiscoveredModels: handleRegisterDiscoveredModels,
+        addCustomModel: handleAddCustomModel,
+        removeCustomModel: handleRemoveCustomModel,
+        clearDiscoveredModels: handleClearDiscoveredModels,
         handleAddApiKey,
         handleUpdateKeyIndex,
         handleDeleteKeyIndex,

@@ -1,14 +1,61 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   normalizeModelId,
   getModelDisplayName,
   computeModelStatsSummary,
   getKeyModelStats,
   checkKeySupportForModel,
+  isValidModelIdFormat,
+  getPresetModels,
+  getDiscoveredModels,
+  getCustomModels,
+  getRegisteredModels,
+  saveDiscoveredModels,
+  addCustomModel,
+  removeCustomModel,
+  clearDiscoveredModels,
 } from '../modelRegistry';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../apiClient';
 
 describe('modelRegistry utils', () => {
+  let mockStorage: Record<string, string> = {};
+
+  beforeEach(() => {
+    mockStorage = {};
+    const storageMock = {
+      getItem: (key: string) => mockStorage[key] || null,
+      setItem: (key: string, value: string) => {
+        mockStorage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete mockStorage[key];
+      },
+      clear: () => {
+        mockStorage = {};
+      },
+    };
+    vi.stubGlobal('localStorage', storageMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe('isValidModelIdFormat', () => {
+    it('validates safe model strings properly', () => {
+      expect(isValidModelIdFormat('gemini-2.5-flash')).toBe(true);
+      expect(isValidModelIdFormat('gemini-2.0-flash-lite-preview-02-05')).toBe(true);
+      expect(isValidModelIdFormat('tunedModels/my-model-1')).toBe(true);
+      expect(isValidModelIdFormat('custom.model_v1')).toBe(true);
+
+      expect(isValidModelIdFormat('../evil/path')).toBe(false);
+      expect(isValidModelIdFormat('has space')).toBe(false);
+      expect(isValidModelIdFormat('\0nullbyte')).toBe(false);
+      expect(isValidModelIdFormat('')).toBe(false);
+      expect(isValidModelIdFormat('a'.repeat(129))).toBe(false);
+    });
+  });
+
   describe('normalizeModelId', () => {
     it('strips leading models/ prefix and lowercases string', () => {
       expect(normalizeModelId('models/gemini-2.5-flash')).toBe('gemini-2.5-flash');
@@ -18,11 +65,77 @@ describe('modelRegistry utils', () => {
     });
   });
 
+  describe('Dynamic Registry: saveDiscoveredModels & getRegisteredModels', () => {
+    it('filters models with generateContent and deduplicates with presets', () => {
+      const mockApiModels: ModelInfoItem[] = [
+        {
+          name: 'models/gemini-2.5-flash', // Trùng Preset -> Không trùng lặp
+          displayName: 'Gemini 2.5 Flash',
+          supportedGenerationMethods: ['generateContent'],
+        },
+        {
+          name: 'models/text-embedding-004', // Không có generateContent -> Bị lọc bỏ
+          displayName: 'Text Embedding 004',
+          supportedGenerationMethods: ['embedContent'],
+        },
+        {
+          name: 'models/gemini-2.0-flash-exp', // Model mới hợp lệ -> Được lưu
+          displayName: 'Gemini 2.0 Flash Experimental',
+          supportedGenerationMethods: ['generateContent'],
+        },
+      ];
+
+      const saved = saveDiscoveredModels(mockApiModels);
+      expect(saved.length).toBe(1);
+      expect(saved[0].id).toBe('gemini-2.0-flash-exp');
+      expect(saved[0].source).toBe('discovered');
+
+      const allRegistered = getRegisteredModels();
+      // 5 Presets + 1 Discovered = 6
+      expect(allRegistered.length).toBe(getPresetModels().length + 1);
+      expect(allRegistered.some(m => m.id === 'gemini-2.0-flash-exp')).toBe(true);
+    });
+  });
+
+  describe('Dynamic Registry: addCustomModel & removeCustomModel', () => {
+    it('adds valid custom model and prevents adding existing presets', () => {
+      const res = addCustomModel('tunedModels/my-special-model', 'My Fine-tuned Novel Model');
+      expect(res.success).toBe(true);
+      expect(res.model?.id).toBe('tunedModels/my-special-model');
+      expect(res.model?.source).toBe('custom');
+
+      const customList = getCustomModels();
+      expect(customList.length).toBe(1);
+
+      // Attempting to add a duplicate of preset must fail
+      const dupPreset = addCustomModel('gemini-2.5-flash');
+      expect(dupPreset.success).toBe(false);
+      expect(dupPreset.error).toContain('khuyên dùng');
+
+      // Attempting to add duplicate custom model must fail
+      const dupCustom = addCustomModel('tunedModels/my-special-model');
+      expect(dupCustom.success).toBe(false);
+      expect(dupCustom.error).toContain('tồn tại');
+    });
+
+    it('removes custom model cleanly', () => {
+      addCustomModel('custom-model-1');
+      addCustomModel('custom-model-2');
+      expect(getCustomModels().length).toBe(2);
+
+      const afterRemove = removeCustomModel('custom-model-1');
+      expect(afterRemove.length).toBe(1);
+      expect(afterRemove[0].id).toBe('custom-model-2');
+    });
+  });
+
   describe('getModelDisplayName', () => {
-    it('resolves Vietnamese label from AVAILABLE_MODELS', () => {
+    it('resolves Vietnamese label from AVAILABLE_MODELS and registered models', () => {
       expect(getModelDisplayName('gemini-2.5-flash')).toContain('Gemini 2.5 Flash');
       expect(getModelDisplayName('models/gemini-3.1-flash-lite')).toContain('Gemini 3.1 Flash Lite');
-      expect(getModelDisplayName('unknown-model')).toBe('unknown-model');
+
+      addCustomModel('my-custom-model', 'Bản Dịch Thần Thoại V1');
+      expect(getModelDisplayName('my-custom-model')).toBe('Bản Dịch Thần Thoại V1');
     });
   });
 

@@ -53,16 +53,26 @@ router.get("/auth/status", getAuthStatusHandler);
 router.post("/auth/login", authLoginRateLimiter, loginHandler);
 router.post("/auth/logout", logoutHandler);
 
+export const MODEL_ID_REGEX = /^[a-zA-Z0-9_\-\.\/]{1,128}$/;
+
+export function isValidModelId(model: unknown): boolean {
+  if (typeof model !== 'string') return false;
+  const trimmed = model.trim();
+  if (!trimmed || trimmed.length > 128) return false;
+  if (trimmed.includes('..')) return false; // Ngăn chặn path traversal
+  if (/[\x00-\x1F\x7F]/.test(trimmed)) return false; // Từ chối ký tự điều khiển
+  return MODEL_ID_REGEX.test(trimmed);
+}
+
 // --- MIDDLEWARE: Kiểm tra model hợp lệ ---
-// Chỉ chấp nhận các giá trị model nằm trong whitelist (đồng bộ với AVAILABLE_MODELS frontend)
-// để ngăn client gửi tên model tuỳ ý.
-function validateModelMiddleware(req: Request, res: Response, next: NextFunction): void {
+// Chấp nhận các model hợp lệ theo Regex an toàn, ngăn chặn chuỗi độc hại hoặc path traversal.
+export function validateModelMiddleware(req: Request, res: Response, next: NextFunction): void {
   const { model } = req.body;
   // Cho phép bỏ trống (backend sẽ dùng DEFAULT_MODEL_ID)
   if (model !== undefined && model !== null && model !== '') {
-    if (!ALLOWED_MODEL_IDS.includes(model)) {
+    if (!isValidModelId(model)) {
       res.status(400).json({
-        error: `Mô hình AI "${model}" không được hỗ trợ. Các mô hình hợp lệ: ${ALLOWED_MODEL_IDS.join(', ')}`
+        error: `Mô hình AI "${model}" không hợp lệ. Định dạng ID model chỉ được chứa chữ cái, số, gạch ngang, gạch dưới, dấu chấm hoặc dấu gạch chéo (tối đa 128 ký tự).`
       });
       return;
     }

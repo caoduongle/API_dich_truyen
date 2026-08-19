@@ -28,6 +28,7 @@ interface CustomLimit {
 interface QuotaPanelProps {
   apiKeys: string[];
   selectedModel: string;
+  onSelectModel?: (model: string) => void;
   onSwitchToConfigTab?: () => void;
   observability?: ModelObservabilityState;
 }
@@ -35,6 +36,7 @@ interface QuotaPanelProps {
 export function QuotaPanel({ 
   apiKeys, 
   selectedModel, 
+  onSelectModel,
   onSwitchToConfigTab,
   observability: externalObservability,
 }: QuotaPanelProps) {
@@ -462,30 +464,45 @@ export function QuotaPanel({
                       Ẩn
                     </button>
                   </div>
-                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                  <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
                     {inspectData.map(m => {
+                      const cleanModelId = m.name.replace(/^models\//i, '');
                       const isThisSelected = normalizeModelId(m.name) === normSelected;
                       return (
                         <div 
                           key={m.name} 
-                          className={`flex items-center justify-between px-2 py-1 rounded-[2px] border ${
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-[2px] border ${
                             isThisSelected 
                               ? 'bg-polish/10 border-polish/40 font-semibold' 
-                              : 'bg-parchment-2/20 border-transparent'
+                              : 'bg-parchment-2/20 border-transparent hover:border-parchment-2'
                           }`}
                         >
-                          <div className="flex items-center gap-1.5">
-                            <CheckCircle2 className={`w-3 h-3 ${isThisSelected ? 'text-polish' : 'text-text-muted'}`} />
-                            <span className={`font-mono text-[11px] ${isThisSelected ? 'text-polish font-bold' : 'text-text-main'}`}>
-                              {m.name.replace('models/', '')}
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${isThisSelected ? 'text-polish' : 'text-text-muted'}`} />
+                            <span className={`font-mono text-[11px] truncate ${isThisSelected ? 'text-polish font-bold' : 'text-text-main'}`}>
+                              {cleanModelId}
                             </span>
-                            {isThisSelected && (
-                              <span className="text-[9px] bg-polish text-white px-1 py-0.2 rounded-[2px]">
-                                Đang dùng
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-text-muted truncate max-w-[140px] hidden sm:inline-block">
+                              {m.displayName}
+                            </span>
+                            {isThisSelected ? (
+                              <span className="text-[9px] bg-polish text-white px-1.5 py-0.5 rounded-[2px] font-bold">
+                                Đang chọn
                               </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onSelectModel?.(cleanModelId)}
+                                className="text-[10px] font-bold text-polish hover:text-white bg-polish/10 hover:bg-polish px-2 py-0.5 rounded-[2px] transition-colors cursor-pointer"
+                                title="Áp dụng model này ngay lập tức cho dịch thuật"
+                              >
+                                Dùng model này
+                              </button>
                             )}
                           </div>
-                          <span className="text-[10px] text-text-muted truncate max-w-[180px]">{m.displayName}</span>
                         </div>
                       );
                     })}

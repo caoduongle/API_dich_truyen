@@ -1,16 +1,23 @@
 import React, { useState } from 'react';
 import { 
   Key, Plus, Trash2, Eye, EyeOff, ClipboardPaste, Cpu, Sliders, BarChart3,
-  AlertTriangle, CheckCircle2, Clock
+  AlertTriangle, CheckCircle2, Clock, Sparkles, X
 } from 'lucide-react';
-import { AVAILABLE_MODELS } from '../constants/models';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { QuotaPanel } from './QuotaPanel';
 import { cn } from '../lib/cn';
 import { useModelObservability } from '../hooks/useModelObservability';
-import { computeModelStatsSummary, ModelStatsSummary } from '../utils/modelRegistry';
+import { useAIConfigContext } from '../context/AIConfigContext';
+import { 
+  computeModelStatsSummary, 
+  ModelStatsSummary,
+  getRegisteredModels,
+  getPresetModels,
+  RegisteredModelDef,
+  isValidModelIdFormat
+} from '../utils/modelRegistry';
 
 interface ApiSettingsProps {
   apiKeys: string[];
@@ -136,8 +143,23 @@ export default function ApiSettings({
   const [activeTab, setActiveTab] = useState<'config' | 'quota'>('config');
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());
 
+  // Lấy danh sách dynamic models từ AIConfigContext
+  const {
+    availableModels,
+    discoveredModels,
+    customModels,
+    addCustomModel,
+    removeCustomModel,
+    registerDiscoveredModels,
+  } = useAIConfigContext();
+
+  // State cho form nhập model tùy chỉnh
+  const [showAddCustom, setShowAddCustom] = useState(false);
+  const [customModelIdInput, setCustomModelIdInput] = useState('');
+  const [customModelLabelInput, setCustomModelLabelInput] = useState('');
+
   // Observability state duy trì xuyên suốt cả 2 tab
-  const observability = useModelObservability(apiKeys);
+  const observability = useModelObservability(apiKeys, registerDiscoveredModels);
 
   const toggleReveal = (index: number) => {
     setRevealedKeys(prev => {
@@ -148,6 +170,18 @@ export default function ApiSettings({
     });
   };
 
+  const handleCreateCustomModel = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customModelIdInput.trim()) return;
+
+    const res = addCustomModel(customModelIdInput.trim(), customModelLabelInput.trim() || undefined);
+    if (res.success) {
+      setCustomModelIdInput('');
+      setCustomModelLabelInput('');
+      setShowAddCustom(false);
+    }
+  };
+
   const validKeyCount = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0).length;
 
   const modelSummary = computeModelStatsSummary(
@@ -156,6 +190,10 @@ export default function ApiSettings({
     observability.inspectResults,
     validKeyCount
   );
+
+  const presets = availableModels.filter(m => m.source === 'preset');
+  const discovered = availableModels.filter(m => m.source === 'discovered');
+  const custom = availableModels.filter(m => m.source === 'custom');
 
   return (
     <Modal
@@ -214,6 +252,7 @@ export default function ApiSettings({
           <QuotaPanel 
             apiKeys={apiKeys} 
             selectedModel={selectedModel} 
+            onSelectModel={onSaveModel}
             onSwitchToConfigTab={() => setActiveTab('config')} 
             observability={observability}
           />
@@ -221,19 +260,138 @@ export default function ApiSettings({
           <div className="space-y-5">
             {/* Model selector */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5">
-                <Cpu className="w-3.5 h-3.5 text-polish" />
-                Mô hình AI
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5 text-polish" />
+                  Mô hình AI
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAddCustom(!showAddCustom)}
+                  className="text-[11px] font-bold text-polish hover:text-[#A03522] flex items-center gap-1 cursor-pointer"
+                >
+                  {showAddCustom ? (
+                    <>
+                      <X className="w-3 h-3" /> Đóng nhập tay
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3 h-3" /> Nhập model tùy chỉnh...
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Form nhập model tùy chỉnh */}
+              {showAddCustom && (
+                <form onSubmit={handleCreateCustomModel} className="bg-ink/80 border border-parchment-2 rounded-[2px] p-3 space-y-2.5 animate-fadeIn">
+                  <div className="text-[11px] font-bold text-text-main flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-polish" />
+                    Thêm Model Fine-Tuned hoặc Preview
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Mã Model ID *</label>
+                      <input
+                        type="text"
+                        placeholder="Ví dụ: tunedModels/my-model hoặc gemini-exp-1206"
+                        value={customModelIdInput}
+                        onChange={e => setCustomModelIdInput(e.target.value)}
+                        className="w-full text-xs bg-parchment border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-text-main font-mono focus:outline-none focus:border-polish"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Tên hiển thị (Tùy chọn)</label>
+                      <input
+                        type="text"
+                        placeholder="Ví dụ: Bản dịch Chuyên Sâu Tiên Hiệp"
+                        value={customModelLabelInput}
+                        onChange={e => setCustomModelLabelInput(e.target.value)}
+                        className="w-full text-xs bg-parchment border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-text-main focus:outline-none focus:border-polish"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowAddCustom(false)}
+                    >
+                      Hủy
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      size="sm"
+                      disabled={!customModelIdInput.trim() || !isValidModelIdFormat(customModelIdInput.trim())}
+                    >
+                      Thêm &amp; Sử dụng
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              {/* Grouped Select Dropdown */}
               <select
                 value={selectedModel}
                 onChange={e => onSaveModel(e.target.value)}
                 className="w-full text-sm border border-parchment-2 bg-ink rounded-[2px] px-3 py-2 text-text-main font-semibold focus:outline-none focus:border-polish cursor-pointer"
               >
-                {AVAILABLE_MODELS.map(m => (
-                  <option key={m.id} value={m.id} className="bg-parchment text-text-main">{m.label}</option>
-                ))}
+                <optgroup label="Mô hình khuyên dùng (Presets)" className="bg-ink text-text-main font-bold">
+                  {presets.map(m => (
+                    <option key={m.id} value={m.id} className="bg-parchment text-text-main font-normal">
+                      {m.label}
+                    </option>
+                  ))}
+                </optgroup>
+
+                {discovered.length > 0 && (
+                  <optgroup label="Mô hình tìm thấy từ API Key (Discovered)" className="bg-ink text-text-main font-bold">
+                    {discovered.map(m => (
+                      <option key={m.id} value={m.id} className="bg-parchment text-text-main font-normal">
+                        {m.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+
+                {custom.length > 0 && (
+                  <optgroup label="Mô hình tự nhập (Custom)" className="bg-ink text-text-main font-bold">
+                    {custom.map(m => (
+                      <option key={m.id} value={m.id} className="bg-parchment text-text-main font-normal">
+                        {m.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
+
+              {/* Custom Models List with Delete option */}
+              {custom.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                    Quản lý model tự nhập ({custom.length}):
+                  </div>
+                  <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                    {custom.map(c => (
+                      <div key={c.id} className="flex items-center justify-between bg-parchment-2/20 border border-parchment-2 px-2 py-1 rounded-[2px] text-xs">
+                        <span className="font-mono text-[11px] text-text-main truncate max-w-[260px]">{c.id}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeCustomModel(c.id)}
+                          className="text-text-muted hover:text-polish p-1 transition-colors cursor-pointer"
+                          title="Xóa model này"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Model Summary Card */}
               <ModelSummaryCard 

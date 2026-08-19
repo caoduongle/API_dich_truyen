@@ -1,13 +1,41 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   computeModelStatsSummary,
   getKeyModelStats,
   checkKeySupportForModel,
   normalizeModelId,
+  saveDiscoveredModels,
+  getRegisteredModels,
+  addCustomModel,
+  getCustomModels,
+  getDiscoveredModels,
 } from '../../utils/modelRegistry';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../../utils/apiClient';
 
 describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
+  let mockStorage: Record<string, string> = {};
+
+  beforeEach(() => {
+    mockStorage = {};
+    const storageMock = {
+      getItem: (key: string) => mockStorage[key] || null,
+      setItem: (key: string, value: string) => {
+        mockStorage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete mockStorage[key];
+      },
+      clear: () => {
+        mockStorage = {};
+      },
+    };
+    vi.stubGlobal('localStorage', storageMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   // Test 1: selectedModel không đổi khi check model
   it('Test 1 — selectedModel is strictly decoupled and never mutated by model checking', () => {
     let selectedModel = 'gemini-3.1-flash-lite';
@@ -217,5 +245,46 @@ describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
 
     expect(checkKeySupportForModel(inspectData0, 'gemini-2.5-flash')).toBe(true);
     expect(checkKeySupportForModel(inspectData1, 'gemini-2.5-flash')).toBe(false);
+  });
+
+  // Test 7: Discovered models can be dynamically selected and applied
+  it('Test 7 — dynamic model discovery automatically registers models and enables quick selection', () => {
+    const mockDiscoveredApi: ModelInfoItem[] = [
+      {
+        name: 'models/gemini-2.0-flash-lite-preview-02-05',
+        displayName: 'Gemini 2.0 Flash Lite Preview',
+        supportedGenerationMethods: ['generateContent'],
+      },
+    ];
+
+    const saved = saveDiscoveredModels(mockDiscoveredApi);
+    expect(saved.length).toBe(1);
+
+    const registered = getRegisteredModels();
+    expect(registered.some(m => m.id === 'gemini-2.0-flash-lite-preview-02-05')).toBe(true);
+
+    let selectedModel = 'gemini-3.1-flash-lite';
+    const handleSelectModel = vi.fn((model: string) => {
+      selectedModel = model;
+    });
+
+    // User clicks "Dùng model này" on discovered model
+    handleSelectModel('gemini-2.0-flash-lite-preview-02-05');
+    expect(selectedModel).toBe('gemini-2.0-flash-lite-preview-02-05');
+  });
+
+  // Test 8: Custom fine-tuned models can be added and selected
+  it('Test 8 — custom fine-tuned model addition integrates into registered models', () => {
+    const res = addCustomModel('tunedModels/my-novel-v1', 'Tiểu Thuyết Tiên Hiệp V1');
+    expect(res.success).toBe(true);
+
+    const customList = getCustomModels();
+    expect(customList.some(c => c.id === 'tunedModels/my-novel-v1')).toBe(true);
+
+    const registered = getRegisteredModels();
+    const found = registered.find(m => m.id === 'tunedModels/my-novel-v1');
+    expect(found).toBeDefined();
+    expect(found?.source).toBe('custom');
+    expect(found?.label).toBe('Tiểu Thuyết Tiên Hiệp V1');
   });
 });

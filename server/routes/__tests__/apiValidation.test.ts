@@ -123,6 +123,49 @@ describe("API Request Body Validation Integration Tests", () => {
       expect(res.status).toBe(400);
       expect(body.error).toContain("Văn bản gốc");
     });
+
+    it("should accept valid dynamic model IDs (discovery / tunedModels / preview)", async () => {
+      const dynamicModels = [
+        "gemini-2.0-flash-lite-preview-02-05",
+        "gemini-exp-1206",
+        "models/gemini-2.5-flash",
+        "tunedModels/my-custom-v1",
+        "custom_model.v2",
+      ];
+
+      for (const model of dynamicModels) {
+        const res = await fetch(`${baseUrl}/api/translate-raw`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: "萧炎", apiKeys: validApiKeys, model }),
+        });
+
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it("should reject malicious or invalid model IDs (path traversal, control chars, spaces)", async () => {
+      const invalidModels = [
+        "../etc/passwd",
+        "model with space",
+        "model\0nullbyte",
+        "model\nnewline",
+        "a".repeat(129),
+        "<script>alert(1)</script>",
+      ];
+
+      for (const model of invalidModels) {
+        const res = await fetch(`${baseUrl}/api/translate-raw`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: "萧炎", apiKeys: validApiKeys, model }),
+        });
+
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error).toContain("không hợp lệ");
+      }
+    });
   });
 
   describe("POST /api/polish-translation", () => {
