@@ -32,7 +32,7 @@ describe('Server-Side Canonical Model Validation', () => {
     expect(isValidModelId('a'.repeat(129))).toBe(false);
   });
 
-  it('middleware should allow valid models or default if empty', () => {
+  it('middleware should allow valid verified preset models or default if empty', async () => {
     let nextCalled = false;
     const req: any = { body: { model: 'gemini-2.5-flash' } };
     const res: any = {
@@ -42,11 +42,17 @@ describe('Server-Side Canonical Model Validation', () => {
     };
     const next = () => { nextCalled = true; };
 
-    validateModelMiddleware(req, res, next);
+    await validateModelMiddleware(req, res, next);
     expect(nextCalled).toBe(true);
+
+    // Empty model should default
+    let defaultNextCalled = false;
+    const emptyReq: any = { body: {} };
+    await validateModelMiddleware(emptyReq, res, () => { defaultNextCalled = true; });
+    expect(defaultNextCalled).toBe(true);
   });
 
-  it('middleware should reject invalid model IDs with 400', () => {
+  it('middleware should reject invalid model IDs with 400', async () => {
     let statusCode = 0;
     let jsonResult: any = null;
     const req: any = { body: { model: 'malicious/../model' } };
@@ -60,8 +66,29 @@ describe('Server-Side Canonical Model Validation', () => {
     };
     const next = () => {};
 
-    validateModelMiddleware(req, res, next);
+    await validateModelMiddleware(req, res, next);
     expect(statusCode).toBe(400);
     expect(jsonResult?.error).toBeDefined();
   });
+
+  it('middleware should reject unverified models with MODEL_UNVERIFIED', async () => {
+    let statusCode = 0;
+    let jsonResult: any = null;
+    const req: any = { body: { model: 'unknown-unverified-model-123' } };
+    const res: any = {
+      status: (code: number) => {
+        statusCode = code;
+        return {
+          json: (data: any) => { jsonResult = data; },
+        };
+      },
+    };
+    const next = () => {};
+
+    await validateModelMiddleware(req, res, next);
+    expect(statusCode).toBe(400);
+    expect(jsonResult?.code).toBe('MODEL_UNVERIFIED');
+    expect(jsonResult?.error).toContain('chưa được xác minh');
+  });
 });
+

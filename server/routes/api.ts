@@ -25,7 +25,8 @@ import {
 } from "../controllers/authController";
 import {
   getQuotaStatusHandler,
-  getModelsForKeyHandler
+  getModelsForKeyHandler,
+  verifyModelHandler
 } from "../controllers/quotaController";
 import { authMiddleware } from "../middleware/authMiddleware";
 import { createRateLimiter } from "../middleware/rateLimiter";
@@ -33,6 +34,7 @@ import { idempotencyMiddleware } from "../middleware/idempotencyMiddleware";
 import { sessionStore } from "../services/sessionStore";
 import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models";
 import { metricsService } from "../services/metricsService";
+import { modelInfoService } from "../services/modelInfoService";
 import { SERVER_CONFIG } from "@shared/constants";
 
 const router = Router();
@@ -66,15 +68,26 @@ export function isValidModelId(model: unknown): boolean {
   return MODEL_ID_REGEX.test(trimmed);
 }
 
-// --- MIDDLEWARE: Kiểm tra model hợp lệ ---
-// Chấp nhận các model hợp lệ theo Regex an toàn, ngăn chặn chuỗi độc hại hoặc path traversal.
-export function validateModelMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const { model } = req.body;
+// --- MIDDLEWARE: Kiểm tra model hợp lệ & đã xác minh ---
+// Đảm bảo model có định dạng an toàn và đã được xác minh hỗ trợ dịch thuật (generateContent).
+export async function validateModelMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const { model, apiKeys } = req.body || {};
   // Cho phép bỏ trống (backend sẽ dùng DEFAULT_MODEL_ID)
   if (model !== undefined && model !== null && model !== '') {
     if (!isValidModelId(model)) {
       res.status(400).json({
         error: `Mô hình AI "${model}" không hợp lệ. Định dạng ID model chỉ được chứa chữ cái, số, gạch ngang, gạch dưới, dấu chấm hoặc dấu gạch chéo (tối đa 128 ký tự).`
+      });
+      return;
+    }
+
+    const validKeys = Array.isArray(apiKeys) ? apiKeys : [];
+    const isVerified = await modelInfoService.isModelVerified(model, validKeys);
+    if (!isVerified) {
+      res.status(400).json({
+        error: `Mô hình AI "${model}" chưa được xác minh hoặc không tương thích với quy trình dịch thuật. Vui lòng kiểm tra và xác minh mô hình trong Cấu hình AI.`,
+        code: 'MODEL_UNVERIFIED',
+        model,
       });
       return;
     }
@@ -176,23 +189,24 @@ router.get("/session-keys/status", getSessionStatusHandler);
 router.delete("/session-keys", deleteSessionHandler);
 
 // --- Routes for Glossary & Guidelines Analysis ---
-router.post("/analyze-glossary", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, analyzeGlossary);
-router.post("/analyze-guidelines", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, analyzeGuidelines);
-router.post("/extract-glossary", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, extractGlossary);
-router.post("/quick-translate-term", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, quickTranslateTerm);
+router.post("/analyze-glossary", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, analyzeGlossary);
+router.post("/analyze-guidelines", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, analyzeGuidelines);
+router.post("/extract-glossary", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, extractGlossary);
+router.post("/quick-translate-term", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, quickTranslateTerm);
 
 // --- Routes for Translation Tasks ---
-router.post("/translate-raw", idempotencyMiddleware, extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, translateRaw);
-router.post("/polish-translation", idempotencyMiddleware, extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, polishTranslation);
-router.post("/qa-critique", idempotencyMiddleware, extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, qaCritique);
-
+router.post("/translate-raw", idempotencyMiddleware, extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, translateRaw);
+router.post("/polish-translation", idempotencyMiddleware, extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, polishTranslation);
+router.post("/qa-critique", idempotencyMiddleware, extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, qaCritique);
 
 // --- Routes for Bilingual alignment ---
-router.post("/align-chapter", extractCustomRpmMiddleware, validateModelMiddleware, resolveApiKeysMiddleware, alignChapter);
+router.post("/align-chapter", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, alignChapter);
 
-// --- Routes for Quota & Usage Tracking ---
+// --- Routes for Quota & Usage Tracking & Model Verification ---
 router.post("/quota-status", resolveApiKeysMiddleware, getQuotaStatusHandler);
 router.post("/models-for-key", resolveApiKeysMiddleware, getModelsForKeyHandler);
+router.post("/verify-model", resolveApiKeysMiddleware, verifyModelHandler);
+
 
 // --- Health Check & System Diagnostics Endpoint ---
 router.get("/health", async (_req: Request, res: Response) => {

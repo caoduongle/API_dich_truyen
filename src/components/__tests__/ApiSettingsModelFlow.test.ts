@@ -353,4 +353,38 @@ describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
     expect(shutdownModel?.replacementId).toBe('gemini-2.5-flash');
     expect(shutdownModel?.shutdownAt).toBe('2026-06-01');
   });
+
+  // Test 13: Discovered models are normalized with verified status
+  it('Test 13 — dynamic model discovery normalizes verified metadata for UI rendering', () => {
+    const mockDiscoveredApi: ModelInfoItem[] = [
+      {
+        name: 'models/gemini-2.5-flash-custom',
+        displayName: 'Gemini 2.5 Flash Custom',
+        supportedGenerationMethods: ['generateContent'],
+      },
+    ];
+
+    saveDiscoveredModels(mockDiscoveredApi);
+    const registered = getRegisteredModels();
+    const found = registered.find(m => m.id === 'gemini-2.5-flash-custom');
+
+    expect(found).toBeDefined();
+    expect(found?.verified).toBe(true);
+    expect(found?.lastVerifiedAt).toBeDefined();
+  });
+
+  // Test 14: Verified status badge rendering for active preset and custom models
+  it('Test 14 — active presets and custom models reflect verified state', () => {
+    const registered = getRegisteredModels();
+    const activePreset = registered.find(m => m.id === 'gemini-2.5-flash');
+    expect(activePreset?.verified).toBe(true);
+
+    const customRes = addCustomModel('tunedModels/test-model', 'Test Label', {
+      verified: true,
+      capabilities: { generateContent: true },
+    });
+    expect(customRes.success).toBe(true);
+    expect(customRes.model?.verified).toBe(true);
+  });
 });
+

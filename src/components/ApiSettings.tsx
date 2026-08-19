@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Key, Plus, Trash2, Eye, EyeOff, ClipboardPaste, Cpu, Sliders, BarChart3,
-  AlertTriangle, CheckCircle2, Clock, Sparkles, X, Zap
+  AlertTriangle, CheckCircle2, Clock, Sparkles, X, Zap, Loader2, ShieldCheck
 } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
@@ -10,6 +10,7 @@ import { QuotaPanel } from './QuotaPanel';
 import { cn } from '../lib/cn';
 import { useModelObservability } from '../hooks/useModelObservability';
 import { useAIConfigContext } from '../context/AIConfigContext';
+import { verifyModel } from '../utils/apiClient';
 import { 
   computeModelStatsSummary, 
   ModelStatsSummary,
@@ -50,6 +51,7 @@ function ModelSummaryCard({
   const modelDef = getModelDefinition(summary.modelId);
   const isDeprecated = modelDef?.status === 'deprecated';
   const isShutdown = modelDef?.status === 'shutdown';
+  const isVerified = modelDef?.verified === true;
 
   let customRpm: number | undefined;
   try {
@@ -78,6 +80,12 @@ function ModelSummaryCard({
         </div>
 
         <div className="flex items-center gap-1.5">
+          {isVerified && (
+            <Badge tone="polish">
+              <ShieldCheck className="w-3 h-3 text-polish" />
+              Đã xác minh
+            </Badge>
+          )}
           {isDeprecated && (
             <Badge tone="warning">
               <AlertTriangle className="w-3 h-3 text-amber-400" />
@@ -223,6 +231,8 @@ export default function ApiSettings({
   const [showAddCustom, setShowAddCustom] = useState(false);
   const [customModelIdInput, setCustomModelIdInput] = useState('');
   const [customModelLabelInput, setCustomModelLabelInput] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
 
   // Observability state duy trì xuyên suốt cả 2 tab
   const observability = useModelObservability(apiKeys, registerDiscoveredModels);
@@ -236,15 +246,35 @@ export default function ApiSettings({
     });
   };
 
-  const handleCreateCustomModel = (e: React.FormEvent) => {
+  const handleCreateCustomModel = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customModelIdInput.trim()) return;
+    const cleanId = customModelIdInput.trim();
+    if (!cleanId) return;
 
-    const res = addCustomModel(customModelIdInput.trim(), customModelLabelInput.trim() || undefined);
-    if (res.success) {
-      setCustomModelIdInput('');
-      setCustomModelLabelInput('');
-      setShowAddCustom(false);
+    setVerifyError(null);
+    setIsVerifying(true);
+
+    try {
+      const verifyRes = await verifyModel(cleanId, customModelLabelInput.trim() || undefined, apiKeys);
+      if (!verifyRes.success || !verifyRes.verified) {
+        setVerifyError(verifyRes.error || 'Xác minh mô hình thất bại. Vui lòng kiểm tra lại ID model hoặc API Key.');
+        setIsVerifying(false);
+        return;
+      }
+
+      const res = addCustomModel(cleanId, customModelLabelInput.trim() || undefined, verifyRes.model);
+      if (res.success) {
+        setCustomModelIdInput('');
+        setCustomModelLabelInput('');
+        setVerifyError(null);
+        setShowAddCustom(false);
+      } else {
+        setVerifyError(res.error || 'Không thể thêm model vào danh sách.');
+      }
+    } catch (err: any) {
+      setVerifyError(err.message || 'Lỗi kết nối khi xác minh mô hình.');
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -334,7 +364,10 @@ export default function ApiSettings({
 
                 <button
                   type="button"
-                  onClick={() => setShowAddCustom(!showAddCustom)}
+                  onClick={() => {
+                    setShowAddCustom(!showAddCustom);
+                    setVerifyError(null);
+                  }}
                   className="text-[11px] font-bold text-polish hover:text-[#A03522] flex items-center gap-1 cursor-pointer"
                 >
                   {showAddCustom ? (
@@ -354,8 +387,16 @@ export default function ApiSettings({
                 <form onSubmit={handleCreateCustomModel} className="bg-ink/80 border border-parchment-2 rounded-[2px] p-3 space-y-2.5 animate-fadeIn">
                   <div className="text-[11px] font-bold text-text-main flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5 text-polish" />
-                    Thêm Model Fine-Tuned hoặc Preview
+                    Thêm &amp; Xác minh Model Tùy chỉnh (Fine-Tuned / Preview)
                   </div>
+
+                  {verifyError && (
+                    <div className="bg-red-950/40 border border-red-800/80 rounded-[2px] p-2 text-xs text-red-300 flex items-start gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                      <span>{verifyError}</span>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[9px] uppercase font-bold text-text-muted mb-0.5">Mã Model ID *</label>
@@ -365,6 +406,7 @@ export default function ApiSettings({
                         value={customModelIdInput}
                         onChange={e => setCustomModelIdInput(e.target.value)}
                         className="w-full text-xs bg-parchment border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-text-main font-mono focus:outline-none focus:border-polish"
+                        disabled={isVerifying}
                         required
                       />
                     </div>
@@ -376,6 +418,7 @@ export default function ApiSettings({
                         value={customModelLabelInput}
                         onChange={e => setCustomModelLabelInput(e.target.value)}
                         className="w-full text-xs bg-parchment border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-text-main focus:outline-none focus:border-polish"
+                        disabled={isVerifying}
                       />
                     </div>
                   </div>
@@ -384,7 +427,11 @@ export default function ApiSettings({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => setShowAddCustom(false)}
+                      onClick={() => {
+                        setShowAddCustom(false);
+                        setVerifyError(null);
+                      }}
+                      disabled={isVerifying}
                     >
                       Hủy
                     </Button>
@@ -392,9 +439,16 @@ export default function ApiSettings({
                       type="submit"
                       variant="primary"
                       size="sm"
-                      disabled={!customModelIdInput.trim() || !isValidModelIdFormat(customModelIdInput.trim())}
+                      disabled={isVerifying || !customModelIdInput.trim() || !isValidModelIdFormat(customModelIdInput.trim())}
                     >
-                      Thêm &amp; Sử dụng
+                      {isVerifying ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Đang xác minh...
+                        </>
+                      ) : (
+                        'Xác minh & Thêm'
+                      )}
                     </Button>
                   </div>
                 </form>
@@ -444,7 +498,14 @@ export default function ApiSettings({
                   <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
                     {custom.map(c => (
                       <div key={c.id} className="flex items-center justify-between bg-parchment-2/20 border border-parchment-2 px-2 py-1 rounded-[2px] text-xs">
-                        <span className="font-mono text-[11px] text-text-main truncate max-w-[260px]">{c.id}</span>
+                        <div className="flex items-center gap-1.5 truncate max-w-[260px]">
+                          <span className="font-mono text-[11px] text-text-main truncate">{c.label || c.id}</span>
+                          {c.verified && (
+                            <span className="text-[10px] text-polish flex items-center gap-0.5 shrink-0" title="Đã xác minh">
+                              <CheckCircle2 className="w-3 h-3" />
+                            </span>
+                          )}
+                        </div>
                         <button
                           type="button"
                           onClick={() => removeCustomModel(c.id)}

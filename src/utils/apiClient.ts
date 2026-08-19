@@ -1,3 +1,5 @@
+import type { ModelDefinition } from '@shared/models';
+
 const SESSION_TOKEN_STORAGE_KEY = 'gemini_session_token';
 const AUTH_TOKEN_STORAGE_KEY = 'gemini_auth_token';
 
@@ -459,4 +461,42 @@ export async function fetchModelsForKey(keyIndex: number, keys?: string[]): Prom
 
   return await res.json();
 }
+
+export interface VerifyModelResponse {
+  success: boolean;
+  verified: boolean;
+  model?: ModelDefinition;
+  error?: string;
+  errorCode?: string;
+  checkedAt: string;
+}
+
+/**
+ * Xác minh tính hợp lệ và khả năng dịch thuật của 1 model với máy chủ/Google AI Studio.
+ */
+export async function verifyModel(modelId: string, label?: string, keys?: string[]): Promise<VerifyModelResponse> {
+  const payload: { modelId: string; label?: string; apiKeys?: string[] } = { modelId, label };
+  if (keys && keys.length > 0) {
+    payload.apiKeys = keys.filter(k => typeof k === 'string' && k.trim().length > 0);
+  }
+
+  const res = await apiFetch('/api/verify-model', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      success: false,
+      verified: false,
+      error: data.error || `Xác minh mô hình thất bại (HTTP ${res.status})`,
+      errorCode: data.errorCode || 'API_ERROR',
+      checkedAt: data.checkedAt || new Date().toISOString(),
+    };
+  }
+
+  return data;
+}
+
 

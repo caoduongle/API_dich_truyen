@@ -69,3 +69,46 @@ export async function getModelsForKeyHandler(req: Request, res: Response): Promi
     });
   }
 }
+
+/**
+ * Xác minh 1 model ID cụ thể có tồn tại và hỗ trợ dịch thuật
+ * Endpoint: POST /api/verify-model
+ */
+export async function verifyModelHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { modelId, label } = req.body || {};
+    const apiKeys: string[] = Array.isArray(req.body?.apiKeys) ? req.body.apiKeys : [];
+
+    if (!modelId || typeof modelId !== 'string' || !modelId.trim()) {
+      res.status(400).json({
+        success: false,
+        verified: false,
+        error: 'Vui lòng cung cấp mã định danh mô hình (modelId).',
+        errorCode: 'INVALID_FORMAT',
+        checkedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const primaryKey = apiKeys.find((k: string) => typeof k === 'string' && k.trim().length > 0);
+
+    const verifiedModel = await modelInfoService.verifySingleModel(modelId, primaryKey, label);
+
+    res.json({
+      success: true,
+      verified: true,
+      model: verifiedModel,
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    logger.warn('[quotaController] Xác minh mô hình thất bại:', err.message || err);
+    res.status(400).json({
+      success: false,
+      verified: false,
+      error: err.message || 'Không thể xác minh mô hình từ nhà cung cấp.',
+      errorCode: err.message?.includes('generateContent') ? 'UNSUPPORTED_METHODS' : 'MODEL_NOT_FOUND',
+      checkedAt: new Date().toISOString(),
+    });
+  }
+}
+

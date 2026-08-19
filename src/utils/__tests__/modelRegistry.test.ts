@@ -101,19 +101,28 @@ describe('modelRegistry utils', () => {
       const allRegistered = getRegisteredModels();
       // 5 Presets + 1 Discovered = 6
       expect(allRegistered.length).toBe(getPresetModels().length + 1);
-      expect(allRegistered.some(m => m.id === 'gemini-2.0-flash-exp')).toBe(true);
+      const disc = allRegistered.find(m => m.id === 'gemini-2.0-flash-exp');
+      expect(disc).toBeDefined();
+      expect(disc?.verified).toBe(true);
+      expect(disc?.lastVerifiedAt).toBeDefined();
     });
   });
 
-  describe('Dynamic Registry: addCustomModel & removeCustomModel', () => {
-    it('adds valid custom model and prevents adding existing presets', () => {
-      const res = addCustomModel('tunedModels/my-special-model', 'My Fine-tuned Novel Model');
+  describe('Dynamic Registry: addCustomModel & removeCustomModel with verification metadata', () => {
+    it('adds valid custom model and preserves verified metadata', () => {
+      const res = addCustomModel('tunedModels/my-special-model', 'My Fine-tuned Novel Model', {
+        verified: true,
+        capabilities: { generateContent: true, structuredOutput: true },
+      });
       expect(res.success).toBe(true);
       expect(res.model?.id).toBe('tunedModels/my-special-model');
       expect(res.model?.source).toBe('custom');
+      expect(res.model?.verified).toBe(true);
+      expect(res.model?.lastVerifiedAt).toBeDefined();
 
       const customList = getCustomModels();
       expect(customList.length).toBe(1);
+      expect(customList[0].verified).toBe(true);
 
       // Attempting to add a duplicate of preset must fail
       const dupPreset = addCustomModel('gemini-2.5-flash');
@@ -136,6 +145,18 @@ describe('modelRegistry utils', () => {
       expect(afterRemove[0].id).toBe('custom-model-2');
     });
   });
+
+  describe('Verified Presets Status', () => {
+    it('marks active presets as verified and shutdown presets as unverified', () => {
+      const presets = getPresetModels();
+      const activeFlash = presets.find(p => p.id === 'gemini-2.5-flash');
+      const shutdownFlash = presets.find(p => p.id === 'gemini-2.0-flash');
+
+      expect(activeFlash?.verified).toBe(true);
+      expect(shutdownFlash?.verified).toBe(false);
+    });
+  });
+
 
   describe('getModelDisplayName', () => {
     it('resolves Vietnamese label from AVAILABLE_MODELS and registered models', () => {

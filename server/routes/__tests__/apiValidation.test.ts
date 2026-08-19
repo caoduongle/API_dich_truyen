@@ -124,16 +124,27 @@ describe("API Request Body Validation Integration Tests", () => {
       expect(body.error).toContain("Văn bản gốc");
     });
 
-    it("should accept valid dynamic model IDs (discovery / tunedModels / preview)", async () => {
-      const dynamicModels = [
-        "gemini-2.0-flash-lite-preview-02-05",
-        "gemini-exp-1206",
+    it("should accept valid verified preset and registered dynamic model IDs", async () => {
+      const { modelInfoService } = await import("../../services/modelInfoService");
+      
+      // Đăng ký trước 1 custom model vào verified cache
+      modelInfoService.registerVerifiedModel({
+        id: "tunedModels/my-custom-v1",
+        label: "Tuned Custom V1",
+        source: "custom",
+        status: "active",
+        verified: true,
+        capabilities: { generateContent: true },
+      });
+
+      const validModels = [
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash",
         "models/gemini-2.5-flash",
         "tunedModels/my-custom-v1",
-        "custom_model.v2",
       ];
 
-      for (const model of dynamicModels) {
+      for (const model of validModels) {
         const res = await fetch(`${baseUrl}/api/translate-raw`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -142,6 +153,19 @@ describe("API Request Body Validation Integration Tests", () => {
 
         expect(res.status).toBe(200);
       }
+    });
+
+    it("should reject unverified model IDs with 400 and MODEL_UNVERIFIED", async () => {
+      const res = await fetch(`${baseUrl}/api/translate-raw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "萧炎", apiKeys: validApiKeys, model: "unverified-arbitrary-model" }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.code).toBe("MODEL_UNVERIFIED");
+      expect(body.error).toContain("chưa được xác minh");
     });
 
     it("should reject malicious or invalid model IDs (path traversal, control chars, spaces)", async () => {
@@ -167,6 +191,36 @@ describe("API Request Body Validation Integration Tests", () => {
       }
     });
   });
+
+  describe("POST /api/verify-model", () => {
+    it("should return 200 with verified true for preset models", async () => {
+      const res = await fetch(`${baseUrl}/api/verify-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId: "gemini-2.5-flash", apiKeys: validApiKeys }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.verified).toBe(true);
+      expect(body.model?.id).toBe("gemini-2.5-flash");
+    });
+
+    it("should return 400 if modelId is missing or empty", async () => {
+      const res = await fetch(`${baseUrl}/api/verify-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId: "", apiKeys: validApiKeys }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.success).toBe(false);
+      expect(body.errorCode).toBe("INVALID_FORMAT");
+    });
+  });
+
 
   describe("POST /api/polish-translation", () => {
     it("should return 400 if rawTranslation is missing or whitespace only", async () => {

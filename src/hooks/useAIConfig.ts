@@ -170,18 +170,19 @@ export function useAIConfig() {
         });
     }, []);
 
-    const handleAddCustomModel = useCallback((modelId: string, label?: string) => {
-        const res = addCustomModel(modelId, label);
+    const handleAddCustomModel = useCallback((modelId: string, label?: string, verifiedDef?: Partial<RegisteredModelDef>) => {
+        const res = addCustomModel(modelId, label, verifiedDef);
         if (res.success && res.model) {
             setCustomModels(getCustomModels());
             handleSaveModel(res.model.id);
             showToast({ message: `Đã thêm và kích hoạt model tùy chỉnh: ${res.model.id}`, type: 'success' });
-            return { success: true };
+            return { success: true, model: res.model };
         } else {
             showToast({ message: res.error || 'Không thể thêm model tùy chỉnh.', type: 'warning' });
             return { success: false, error: res.error };
         }
     }, [handleSaveModel, showToast]);
+
 
     const handleRemoveCustomModel = useCallback((modelId: string) => {
         const updated = removeCustomModel(modelId);

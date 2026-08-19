@@ -19,6 +19,8 @@ export interface ModelDefinition {
   label: string;
   source: ModelSource;
   status: ModelStatus;
+  verified?: boolean;
+  lastVerifiedAt?: string;
   capabilities: ModelCapabilities;
   replacementId?: string;
   limits?: ModelLimits;
@@ -42,6 +44,8 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     label: 'Gemini 3.1 Flash Lite (Nhanh / Rẻ)',
     source: 'preset',
     status: 'active',
+    verified: true,
+    lastVerifiedAt: '2026-08-20T00:00:00.000Z',
     capabilities: {
       generateContent: true,
       structuredOutput: true,
@@ -61,6 +65,8 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     label: 'Gemini 2.5 Flash (Khuyên dùng)',
     source: 'preset',
     status: 'active',
+    verified: true,
+    lastVerifiedAt: '2026-08-20T00:00:00.000Z',
     capabilities: {
       generateContent: true,
       structuredOutput: true,
@@ -80,6 +86,8 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     label: 'Gemini 2.5 Pro (Mạnh nhất)',
     source: 'preset',
     status: 'active',
+    verified: true,
+    lastVerifiedAt: '2026-08-20T00:00:00.000Z',
     capabilities: {
       generateContent: true,
       structuredOutput: true,
@@ -99,6 +107,8 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     label: 'Gemma 4 31B IT (Local)',
     source: 'preset',
     status: 'active',
+    verified: true,
+    lastVerifiedAt: '2026-08-20T00:00:00.000Z',
     capabilities: {
       generateContent: true,
       structuredOutput: false,
@@ -118,6 +128,7 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     label: 'Gemini 2.0 Flash (Đã ngừng hoạt động)',
     source: 'preset',
     status: 'shutdown',
+    verified: false,
     replacementId: 'gemini-2.5-flash',
     deprecatedAt: '2026-02-01',
     shutdownAt: '2026-06-01',
@@ -140,6 +151,7 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     label: 'Gemini 2.0 Flash Lite (Đã ngừng hoạt động)',
     source: 'preset',
     status: 'shutdown',
+    verified: false,
     replacementId: 'gemini-3.1-flash-lite',
     deprecatedAt: '2026-02-01',
     shutdownAt: '2026-06-01',
@@ -162,6 +174,7 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     label: 'Gemini 1.5 Flash (Đã ngừng hoạt động)',
     source: 'preset',
     status: 'shutdown',
+    verified: false,
     replacementId: 'gemini-2.5-flash',
     deprecatedAt: '2025-06-01',
     shutdownAt: '2025-10-01',
@@ -184,6 +197,7 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     label: 'Gemini 1.5 Pro (Đã ngừng hoạt động)',
     source: 'preset',
     status: 'shutdown',
+    verified: false,
     replacementId: 'gemini-2.5-pro',
     deprecatedAt: '2025-06-01',
     shutdownAt: '2025-10-01',

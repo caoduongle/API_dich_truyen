@@ -59,12 +59,17 @@ export function normalizeModelId(id: string): string {
 /**
  * Danh sách model Presets mặc định
  */
+/**
+ * Danh sách model Presets mặc định
+ */
 export function getPresetModels(): RegisteredModelDef[] {
   return AVAILABLE_MODELS.map(m => ({
     id: m.id,
     label: m.label,
     source: 'preset' as ModelSource,
     status: m.status || 'active',
+    verified: m.verified !== undefined ? m.verified : m.status !== 'shutdown',
+    lastVerifiedAt: m.lastVerifiedAt,
     capabilities: m.capabilities || { generateContent: true },
     limits: m.limits,
     replacementId: m.replacementId,
@@ -92,6 +97,8 @@ export function getDiscoveredModels(): RegisteredModelDef[] {
           label: m.label || m.id,
           source: 'discovered' as ModelSource,
           status: (m.status as ModelStatus) || 'active',
+          verified: m.verified !== undefined ? Boolean(m.verified) : true,
+          lastVerifiedAt: m.lastVerifiedAt || m.addedAt,
           capabilities: m.capabilities || { generateContent: true },
           limits: m.limits,
           replacementId: m.replacementId,
@@ -123,6 +130,8 @@ export function getCustomModels(): RegisteredModelDef[] {
           label: m.label || m.id,
           source: 'custom' as ModelSource,
           status: (m.status as ModelStatus) || 'active',
+          verified: m.verified !== undefined ? Boolean(m.verified) : true,
+          lastVerifiedAt: m.lastVerifiedAt || m.addedAt,
           capabilities: m.capabilities || { generateContent: true },
           limits: m.limits,
           replacementId: m.replacementId,
@@ -292,6 +301,8 @@ export function saveDiscoveredModels(models: ModelInfoItem[]): RegisteredModelDe
       label: item.displayName ? `${item.displayName} (${cleanId})` : cleanId,
       source: 'discovered',
       status: 'active',
+      verified: true,
+      lastVerifiedAt: new Date().toISOString(),
       capabilities: {
         generateContent: canGenerate,
         vision: true,
@@ -311,11 +322,12 @@ export function saveDiscoveredModels(models: ModelInfoItem[]): RegisteredModelDe
 }
 
 /**
- * Thêm một model tự nhập vào registry
+ * Thêm một model tự nhập vào registry (hỗ trợ metadata đã xác minh)
  */
 export function addCustomModel(
   modelId: string, 
-  label?: string
+  label?: string,
+  verifiedDef?: Partial<RegisteredModelDef>
 ): { success: boolean; model?: RegisteredModelDef; error?: string } {
   const cleanId = modelId.trim().replace(/^models\//i, '');
   if (!isValidModelIdFormat(cleanId)) {
@@ -348,9 +360,19 @@ export function addCustomModel(
     label: label?.trim() || cleanId,
     source: 'custom',
     status: 'active',
-    capabilities: {
+    verified: verifiedDef?.verified !== undefined ? verifiedDef.verified : true,
+    lastVerifiedAt: verifiedDef?.lastVerifiedAt || new Date().toISOString(),
+    capabilities: verifiedDef?.capabilities || {
       generateContent: true,
     },
+    limits: verifiedDef?.limits || {
+      defaultRpm: cleanId.toLowerCase().includes('pro') ? 10 : 15,
+      defaultTpm: 1000000,
+      defaultRpd: 1500,
+    },
+    description: verifiedDef?.description,
+    inputTokenLimit: verifiedDef?.inputTokenLimit,
+    outputTokenLimit: verifiedDef?.outputTokenLimit,
     addedAt: new Date().toISOString(),
   };
 
