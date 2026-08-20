@@ -26,12 +26,18 @@ export async function getQuotaStatusHandler(req: Request, res: Response): Promis
     });
 
     const summary = quotaService.getLogicalSummary();
+    const scheduler = quotaService.getSchedulerTelemetry();
+    const byModel = quotaService.getAggregatedModelStats();
+    const recentAttempts = quotaService.getRecentAttempts(20);
 
     res.json({
       timestamp: new Date().toISOString(),
       timezone: 'America/Los_Angeles',
       currentDayPST: getDayInLosAngeles(),
       summary,
+      scheduler,
+      byModel,
+      recentAttempts,
       keys: keysWithRuntime,
     });
   } catch (err: any) {

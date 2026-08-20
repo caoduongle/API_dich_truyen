@@ -23,7 +23,8 @@ export async function callRawTranslationDirect(
     model: string | undefined,
     startKeyIndex: number = 0,
     description?: string,
-    customRpm?: number
+    customRpm?: number,
+    requestId?: string
 ): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number }> {
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
@@ -155,7 +156,9 @@ ${substitutedText}`;
       schema,
       0.3,
       startKeyIndex,
-      customRpm
+      customRpm,
+      undefined,
+      requestId
   );
   const resultText = rotationResult.text;
   if (!resultText) {
@@ -208,7 +211,8 @@ export async function translateRawWithContentSplit(
     startKeyIndex: number = 0,
     description?: string,
     enableSegmentTranslation?: boolean,
-    customRpm?: number
+    customRpm?: number,
+    requestId?: string
 ): Promise<{ rawTranslation: string; discoveredEntities: any[]; successKeyIndex: number; isPartial?: boolean }> {
   const glossaryFingerprint = Array.isArray(glossary)
     ? glossary.map(g => `${g.chinese || ''}:${g.vietnamese || ''}`).join('|')
@@ -247,7 +251,8 @@ export async function translateRawWithContentSplit(
         model,
         currentKeyIdx,
         description,
-        customRpm
+        customRpm,
+        requestId
       );
       translatedParagraphs.push(res.rawTranslation);
       currentKeyIdx = res.successKeyIndex;
@@ -266,7 +271,7 @@ export async function translateRawWithContentSplit(
 
   if (estimateTokenCount(text) < 90 || depth > 4) {
     try {
-      const directRes = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description, customRpm);
+      const directRes = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description, customRpm, requestId);
       if (directRes.rawTranslation) {
         translationChunkCache.set(cacheKey, { text: directRes.rawTranslation, discoveredEntities: directRes.discoveredEntities });
       }
@@ -291,7 +296,7 @@ export async function translateRawWithContentSplit(
   }
 
   try {
-    const result = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description, customRpm);
+    const result = await callRawTranslationDirect(text, genre, tone, glossary, apiKeys, model, startKeyIndex, description, customRpm, requestId);
 
     if (!result.rawTranslation || result.rawTranslation.trim().length === 0) {
       if (model && model.toLowerCase().includes('gemma')) {
@@ -305,7 +310,9 @@ export async function translateRawWithContentSplit(
             undefined,
             0.3,
             startKeyIndex,
-            customRpm
+            customRpm,
+            undefined,
+            requestId
         );
 
         if (plainResult.text && plainResult.text.trim().length > 0) {
@@ -370,7 +377,8 @@ export async function translateRawWithContentSplit(
               staggeredKeyIndex,
               description,
               false,
-              customRpm
+              customRpm,
+              requestId
             );
           } catch (partErr: any) {
             logger.warn(`[Divide & Conquer Fallback] Đoạn (${part.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
@@ -418,7 +426,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
   try {
     const validation = validateTranslateRawBody(req.body);
     if (!validation.valid) {
-      res.status(400).json({ error: validation.error });
+      res.status(400).json({ error: validation.error, requestId: req.id });
       return;
     }
 
@@ -435,7 +443,8 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
         startKeyIndex,
         description,
         enableSegmentTranslation,
-        customRpm
+        customRpm,
+        req.id
     );
 
     const resolvedChapterId = sourceChapterId || chapterId;
@@ -447,7 +456,8 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
       rawTranslation: rawTranslation || "",
       discoveredEntities: finalEntities,
       successKeyIndex,
-      isPartial: Boolean(isPartial)
+      isPartial: Boolean(isPartial),
+      requestId: req.id
     });
   } catch (error: any) {
     logger.error("Lỗi dịch thô:", error);
@@ -456,6 +466,7 @@ export async function translateRaw(req: Request, res: Response): Promise<void> {
       error: normalized.message || "Đã xảy ra lỗi khi thực hiện dịch thô.",
       code: normalized.code,
       isRetryable: normalized.isRetryable,
+      requestId: req.id,
       ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
       ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
     });

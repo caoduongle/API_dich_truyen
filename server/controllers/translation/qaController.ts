@@ -91,7 +91,9 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
         schema,
         0.15,
         startKeyIndex,
-        customRpm
+        customRpm,
+        undefined,
+        req.id
     );
     const resultText = rotationResult.text;
     if (resultText) {
@@ -99,10 +101,11 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
       res.json({
         isValid: parsed?.isValid ?? true,
         issues: Array.isArray(parsed?.issues) ? parsed.issues : [],
-        successKeyIndex: rotationResult.successKeyIndex
+        successKeyIndex: rotationResult.successKeyIndex,
+        requestId: req.id
       });
     } else {
-      res.json({ isValid: true, issues: [], successKeyIndex: startKeyIndex });
+      res.json({ isValid: true, issues: [], successKeyIndex: startKeyIndex, requestId: req.id });
     }
   } catch (error: any) {
     logger.error("[QA Critique Error] Thất bại rà soát kiểm duyệt:", error);
@@ -111,6 +114,7 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
       error: normalized.message || "Đã xảy ra lỗi khi chạy kiểm duyệt AI.",
       code: normalized.code,
       isRetryable: normalized.isRetryable,
+      requestId: req.id,
       ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
       ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
     });

@@ -6,6 +6,8 @@ import { quotaService, KeyHealthState } from "./quotaService";
 import { modelInfoService } from "./modelInfoService";
 import { normalizeUpstreamError } from "../utils/errorClassifier";
 import { AIErrorCode } from "../constants/errors";
+import { logAttemptTelemetry } from "../utils/telemetryLogger";
+import { generateRequestId } from "../middleware/tracingMiddleware";
 
 /**
  * Tính toán khoảng cách an toàn (mili-giây) giữa các request cho một API Key cụ thể
@@ -184,20 +186,26 @@ export async function generateWithRotation(
     temperature?: number,
     startKeyIndex: number = 0,
     customRpm?: number,
-    perKeyRpm?: Record<string, number> | number[]
-): Promise<{ text: string; successKeyIndex: number }> {
+    perKeyRpm?: Record<string, number> | number[],
+    requestId?: string
+): Promise<{ text: string; successKeyIndex: number; requestId?: string }> {
   // Backpressure check
   if (activeConcurrentRequests >= MAX_CONCURRENT_REQUESTS) {
     throw new Error('Hệ thống dịch thuật hiện đang quá tải số lượng yêu cầu đồng thời. Vui lòng thử lại sau giây lát.');
   }
 
   activeConcurrentRequests++;
+  const activeRequestId = (typeof requestId === 'string' && requestId.trim())
+    ? requestId.trim()
+    : generateRequestId();
+
   try {
     // --- GIẢM TỐC TOÀN CỤC KHI MODEL QUÁ TẢI ---
     const nowBeforeKeys = Date.now();
     if (nowBeforeKeys < overloadCooldownUntil) {
       const cooldownDelay = overloadCooldownUntil - nowBeforeKeys;
       console.log(`[Overload Cooldown] Model đang quá tải, hoãn thêm ${cooldownDelay}ms trước khi gửi request...`);
+      quotaService.recordQueueWait(cooldownDelay);
       await sleep(cooldownDelay);
     }
 
@@ -216,6 +224,7 @@ export async function generateWithRotation(
     }
 
     // Đánh giá và sắp xếp candidate keys theo Predictive Score & Health
+    quotaService.recordKeySelection(rawKeys.length);
     const nowBeforeEval = Date.now();
     const scoredKeys = rawKeys.map((key, originalIndex) => {
       // 1. Xác định RPM riêng cho key này
@@ -248,6 +257,17 @@ export async function generateWithRotation(
         isModelSupported,
         pacingDelayMs,
       }, nowBeforeEval);
+
+      if (!scoreResult.isEligible) {
+        let mappedReason = 'unknown';
+        const rej = scoreResult.rejectReason || '';
+        if (rej.includes('không hỗ trợ mô hình')) mappedReason = 'unsupported_model';
+        else if (rej.includes('RPM')) mappedReason = 'rate_limited_pacing';
+        else if (rej.includes('RPD') || rej.includes('TPM')) mappedReason = 'quota_exhausted';
+        else if (rej.includes('Disabled')) mappedReason = 'disabled';
+        else if (rej.includes('Cooldown')) mappedReason = 'in_cooldown';
+        quotaService.recordKeyRejection(mappedReason);
+      }
 
       return {
         key,
@@ -288,6 +308,8 @@ export async function generateWithRotation(
         // 1. Kiểm tra Key Health State
         const keyHealth = quotaService.getKeyHealth(key);
         if (!keyHealth.isAvailable) {
+          const reason = keyHealth.circuitBreaker === 'Open' ? 'circuit_breaker_open' : (keyHealth.state === 'Disabled' ? 'disabled' : 'in_cooldown');
+          quotaService.recordKeyRejection(reason);
           console.log(`[Key Health] Bỏ qua khóa ${i + 1}/${rawKeys.length} (Trạng thái: ${keyHealth.state}, Lý do: ${keyHealth.transitionReason || 'Không khả dụng'}, Cooldown: ${keyHealth.cooldownRemainingMs}ms).`);
           continue;
         }
@@ -306,12 +328,14 @@ export async function generateWithRotation(
         }
 
         if (keyDelay > 0) {
+          quotaService.recordQueueWait(keyDelay);
           console.log(`[Rate Limit] Key ${i + 1}: Đang hoãn ${keyDelay}ms (khoảng cách an toàn ${effectiveKeyIntervalMs}ms) cho key này...`);
           await sleep(keyDelay);
         }
 
+        const attemptStartTime = Date.now();
         try {
-          console.log(`[Rotation] Thử khóa ${i + 1}/${rawKeys.length} với model "${model}"`);
+          console.log(`[Rotation] Thử khóa ${i + 1}/${rawKeys.length} với model "${model}" [req:${activeRequestId}]`);
           totalProviderAttempts++;
           const ai = new GoogleGenAI({
             apiKey: key,
@@ -362,8 +386,8 @@ export async function generateWithRotation(
                 config
               });
 
-              const candidate = response.candidates?.[0];
-              const finishReason = candidate?.finishReason;
+              const candidatePart = response.candidates?.[0];
+              const finishReason = candidatePart?.finishReason;
               const promptFeedback = response.promptFeedback;
 
               if (promptFeedback?.blockReason && promptFeedback.blockReason !== 'BLOCKED_REASON_UNSPECIFIED') {
@@ -387,7 +411,7 @@ export async function generateWithRotation(
                   `Nội dung bị chặn bởi bộ lọc an toàn của Gemini (FinishReason: ${finishReason})`,
                   {
                     finishReason,
-                    safetyRatings: candidate?.safetyRatings,
+                    safetyRatings: candidatePart?.safetyRatings,
                   }
                 );
               }
@@ -396,16 +420,43 @@ export async function generateWithRotation(
               const promptTokens = response?.usageMetadata?.promptTokenCount || 0;
               const outputTokens = response?.usageMetadata?.candidatesTokenCount || 0;
               const totalTokens = response?.usageMetadata?.totalTokenCount || (promptTokens + outputTokens);
+              const attemptLatencyMs = Date.now() - attemptStartTime;
 
               quotaService.recordUsage(key, model, 'success', Date.now(), {
                 promptTokens,
                 outputTokens,
                 totalTokens,
+              }, attemptLatencyMs);
+
+              // Ghi log & attempt trace
+              quotaService.recordAttemptTrace({
+                requestId: activeRequestId,
+                modelId: model,
+                keyIdentifier: key,
+                keyIndex: i,
+                attempt: totalProviderAttempts,
+                status: 'success',
+                errorCode: null,
+                latencyMs: attemptLatencyMs,
+                queueWaitMs: keyDelay,
+                timestamp: Date.now(),
+              });
+              logAttemptTelemetry({
+                requestId: activeRequestId,
+                modelId: model,
+                keyIdentifier: key,
+                keyIndex: i,
+                attempt: totalProviderAttempts,
+                status: 'success',
+                errorCode: null,
+                latencyMs: attemptLatencyMs,
+                queueWaitMs: keyDelay,
+                timestamp: Date.now(),
               });
 
               let rawText = response.text ?? "";
-              if (!rawText && candidate?.content?.parts?.length) {
-                rawText = candidate.content.parts.map((p: any) => p.text || "").join("");
+              if (!rawText && candidatePart?.content?.parts?.length) {
+                rawText = candidatePart.content.parts.map((p: any) => p.text || "").join("");
               }
 
               if (isGemma) {
@@ -424,18 +475,46 @@ export async function generateWithRotation(
 
               return {
                 text: rawText,
-                successKeyIndex: i
+                successKeyIndex: i,
+                requestId: activeRequestId,
               };
             } catch (innerErr: any) {
               const normalizedInner = normalizeUpstreamError(innerErr, rawKeys);
               if (normalizedInner.code === AIErrorCode.OVERLOADED && overloadAttempt < MAX_OVERLOAD_RETRIES) {
                 overloadAttempt++;
                 totalProviderAttempts++;
-                quotaService.recordUsage(key, model, 'overloaded');
+                const innerLatency = Date.now() - attemptStartTime;
+                quotaService.recordUsage(key, model, 'overloaded', Date.now(), undefined, innerLatency);
+                quotaService.recordAttemptTrace({
+                  requestId: activeRequestId,
+                  modelId: model,
+                  keyIdentifier: key,
+                  keyIndex: i,
+                  attempt: totalProviderAttempts,
+                  status: 'failure',
+                  errorCode: normalizedInner.code,
+                  latencyMs: innerLatency,
+                  queueWaitMs: keyDelay,
+                  timestamp: Date.now(),
+                });
+                logAttemptTelemetry({
+                  requestId: activeRequestId,
+                  modelId: model,
+                  keyIdentifier: key,
+                  keyIndex: i,
+                  attempt: totalProviderAttempts,
+                  status: 'failure',
+                  errorCode: normalizedInner.code,
+                  latencyMs: innerLatency,
+                  queueWaitMs: keyDelay,
+                  timestamp: Date.now(),
+                });
+
                 const retryDelay = OVERLOAD_BASE_DELAY_MS * Math.pow(2, overloadAttempt - 1) + Math.floor(Math.random() * 1000);
                 console.warn(`[Overload Retry] Model quá tải (503), thử lại key ${i + 1} lần ${overloadAttempt}/${MAX_OVERLOAD_RETRIES} sau ${retryDelay}ms...`);
 
                 overloadCooldownUntil = Math.max(overloadCooldownUntil, Date.now() + 8000);
+                quotaService.recordQueueWait(retryDelay);
                 await sleep(retryDelay);
                 continue;
               }
@@ -443,12 +522,38 @@ export async function generateWithRotation(
             }
           }
         } catch (err: any) {
+          const attemptLatencyMs = Date.now() - attemptStartTime;
           const normalized = normalizeUpstreamError(err, rawKeys);
-          console.error(`[Error Normalized] Khóa ${i + 1} gặp lỗi [${normalized.code}]: ${normalized.message}`);
+          console.error(`[Error Normalized] Khóa ${i + 1} gặp lỗi [${normalized.code}]: ${normalized.message} [req:${activeRequestId}]`);
           lastError = err;
 
           // Ghi nhận vào Quota Service
-          quotaService.recordCategorizedError(key, model, normalized);
+          quotaService.recordCategorizedError(key, model, normalized, Date.now(), attemptLatencyMs);
+
+          quotaService.recordAttemptTrace({
+            requestId: activeRequestId,
+            modelId: model,
+            keyIdentifier: key,
+            keyIndex: i,
+            attempt: totalProviderAttempts,
+            status: 'failure',
+            errorCode: normalized.code,
+            latencyMs: attemptLatencyMs,
+            queueWaitMs: keyDelay,
+            timestamp: Date.now(),
+          });
+          logAttemptTelemetry({
+            requestId: activeRequestId,
+            modelId: model,
+            keyIdentifier: key,
+            keyIndex: i,
+            attempt: totalProviderAttempts,
+            status: 'failure',
+            errorCode: normalized.code,
+            latencyMs: attemptLatencyMs,
+            queueWaitMs: keyDelay,
+            timestamp: Date.now(),
+          });
 
           // Xử lý theo recommendedAction chuẩn hóa
           if (normalized.recommendedAction === 'fail_immediately') {
@@ -480,6 +585,7 @@ export async function generateWithRotation(
       outerPass++;
       const outerDelay = OUTER_PASS_BASE_DELAY_MS * outerPass + Math.floor(Math.random() * 1500);
       console.warn(`[Overload Outer Retry] Toàn bộ ${rawKeys.length} khóa đều quá tải. Chờ ${outerDelay}ms (lần ${outerPass}/${MAX_OUTER_OVERLOAD_PASSES})...`);
+      quotaService.recordQueueWait(outerDelay);
       await sleep(outerDelay);
     }
 

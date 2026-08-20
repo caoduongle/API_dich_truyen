@@ -14,6 +14,14 @@ export type KeyHealthState =
 
 export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
 
+export type KeyRejectionReason =
+  | 'in_cooldown'
+  | 'circuit_breaker_open'
+  | 'rate_limited_pacing'
+  | 'unsupported_model'
+  | 'quota_exhausted'
+  | 'disabled';
+
 export interface TokenStats {
   promptTokens: number;
   outputTokens: number;
@@ -25,11 +33,58 @@ export interface CallLogEntry {
   tokens: number;
 }
 
+export interface RequestAttemptLog {
+  requestId: string;
+  modelId: string;
+  keyIdentifier: string; // Masked key or hash
+  keyIndex: number;
+  attempt: number;
+  status: 'success' | 'failure';
+  errorCode: string | null;
+  latencyMs: number;
+  queueWaitMs: number;
+  timestamp: number;
+}
+
+export interface SchedulerTelemetry {
+  selectionCount: number;
+  queueWaitTotalMs: number;
+  queueWaitAvgMs: number;
+  rejectedTotal: number;
+  rejectedByReason: Record<string, number>;
+}
+
+export interface ModelObservabilityMetrics {
+  requestsTotal: number;
+  requestsToday: number;
+  errorsTotal: number;
+  errorsToday: number;
+  totalLatencyMs: number;
+  avgLatencyMs: number;
+  minLatencyMs: number;
+  maxLatencyMs: number;
+  tokensTotal: number;
+  tokensToday: number;
+}
+
+export interface KeyObservabilityMetrics {
+  attemptsTotal: number;
+  attemptsToday: number;
+  errorsTotal: number;
+  quotaEventsTotal: number;
+  cooldownEventsTotal: number;
+}
+
 export interface ModelUsageStats {
   requestsTotal: number;
   requestsToday: number;
   requestsThisMinute: number;
   errorsTotal: number;
+  errorsToday?: number;
+  totalLatencyMs?: number;
+  avgLatencyMs?: number;
+  minLatencyMs?: number;
+  maxLatencyMs?: number;
   tokensTotal: number;
   tokensToday: number;
   tokensThisMinute: number;
@@ -39,8 +94,12 @@ interface InternalModelStats {
   requestsTotal: number;
   requestsToday: number;
   errorsTotal: number;
+  errorsToday: number;
   tokensTotal: number;
   tokensToday: number;
+  totalLatencyMs: number;
+  minLatencyMs: number;
+  maxLatencyMs: number;
   recentCalls: CallLogEntry[];
   lastResetDay: string;
 }
@@ -65,6 +124,8 @@ interface InternalKeyStats {
   circuitBreakerStatus: CircuitBreakerStatus;
   cooldownUntil: number;
   disabledReason?: string;
+  quotaEventsTotal: number;
+  cooldownEventsTotal: number;
 }
 
 export interface LogicalSummaryStats {
@@ -113,6 +174,8 @@ export interface KeyQuotaSnapshot {
   requestsThisMinute: number;
   errorsTotal: number;
   consecutiveErrors: number;
+  quotaEventsTotal: number;
+  cooldownEventsTotal: number;
   tokensTotal: number;
   tokensToday: number;
   tokensThisMinute: number;
@@ -177,6 +240,24 @@ class QuotaService {
   };
   private modelLogicalStatsMap = new Map<string, ModelLogicalStats>();
 
+  private schedulerStats: SchedulerTelemetry = {
+    selectionCount: 0,
+    queueWaitTotalMs: 0,
+    queueWaitAvgMs: 0,
+    rejectedTotal: 0,
+    rejectedByReason: {
+      in_cooldown: 0,
+      circuit_breaker_open: 0,
+      rate_limited_pacing: 0,
+      unsupported_model: 0,
+      quota_exhausted: 0,
+      disabled: 0,
+    },
+  };
+
+  private recentAttempts: RequestAttemptLog[] = [];
+  private readonly MAX_RECENT_ATTEMPTS = 200;
+
   private getOrCreateStats(key: string, timestamp: number = Date.now()): InternalKeyStats {
     const trimmedKey = key.trim();
     const keyHash = hashApiKey(trimmedKey);
@@ -203,6 +284,8 @@ class QuotaService {
         lastTransitionAt: timestamp,
         circuitBreakerStatus: 'Closed',
         cooldownUntil: 0,
+        quotaEventsTotal: 0,
+        cooldownEventsTotal: 0,
       };
       this.keyStatsMap.set(keyHash, stats);
     }
@@ -282,14 +365,15 @@ class QuotaService {
   }
 
   /**
-   * Ghi nhận 1 lượt sử dụng API key và model tương ứng với số token tiêu thụ
+   * Ghi nhận 1 lượt sử dụng API key và model tương ứng với số token tiêu thụ và độ trễ
    */
   public recordUsage(
     key: string,
     modelName: string,
     status: QuotaAttemptStatus,
     timestamp: number = Date.now(),
-    tokenStats?: TokenStats
+    tokenStats?: TokenStats,
+    latencyMs?: number
   ): void {
     if (!key || !key.trim()) return;
 
@@ -325,10 +409,13 @@ class QuotaService {
       stats.consecutiveErrors++;
 
       if (status === 'quota_exceeded') {
+        stats.quotaEventsTotal++;
+        stats.cooldownEventsTotal++;
         stats.healthState = 'QuotaExhausted';
         stats.transitionReason = '429: Hạn mức ngày đã hết (RPD)';
         stats.lastTransitionAt = timestamp;
       } else if (status === 'overloaded') {
+        stats.cooldownEventsTotal++;
         stats.healthState = 'Cooldown';
         stats.transitionReason = '503: Mô hình quá tải';
         stats.lastTransitionAt = timestamp;
@@ -339,10 +426,12 @@ class QuotaService {
           stats.transitionReason = 'Vượt ngưỡng lỗi liên tiếp (Circuit Breaker ngắt mạch)';
           stats.lastTransitionAt = timestamp;
           stats.cooldownUntil = timestamp + CIRCUIT_BREAKER_COOLDOWN_MS;
+          stats.cooldownEventsTotal++;
         } else {
           stats.healthState = 'Degraded';
           stats.transitionReason = 'Gặp lỗi tạm thời (Hiệu năng suy giảm)';
           stats.lastTransitionAt = timestamp;
+          stats.cooldownEventsTotal++;
         }
       }
     }
@@ -358,8 +447,12 @@ class QuotaService {
         requestsTotal: 0,
         requestsToday: 0,
         errorsTotal: 0,
+        errorsToday: 0,
         tokensTotal: 0,
         tokensToday: 0,
+        totalLatencyMs: 0,
+        minLatencyMs: 0,
+        maxLatencyMs: 0,
         recentCalls: [],
         lastResetDay: currentDay,
       };
@@ -368,6 +461,7 @@ class QuotaService {
 
     if (modelStats.lastResetDay !== currentDay) {
       modelStats.requestsToday = 0;
+      modelStats.errorsToday = 0;
       modelStats.tokensToday = 0;
       modelStats.lastResetDay = currentDay;
     }
@@ -379,8 +473,15 @@ class QuotaService {
     modelStats.recentCalls.push({ timestamp, tokens });
     modelStats.recentCalls = modelStats.recentCalls.filter(c => c.timestamp > minuteThreshold);
 
+    if (typeof latencyMs === 'number' && latencyMs >= 0) {
+      modelStats.totalLatencyMs += latencyMs;
+      modelStats.minLatencyMs = modelStats.minLatencyMs === 0 ? latencyMs : Math.min(modelStats.minLatencyMs, latencyMs);
+      modelStats.maxLatencyMs = Math.max(modelStats.maxLatencyMs, latencyMs);
+    }
+
     if (status !== 'success') {
       modelStats.errorsTotal++;
+      modelStats.errorsToday++;
     }
   }
 
@@ -391,10 +492,11 @@ class QuotaService {
     key: string,
     modelName: string,
     error: AIErrorNormalized,
-    timestamp: number = Date.now()
+    timestamp: number = Date.now(),
+    latencyMs?: number
   ): void {
     if (!key || !key.trim()) return;
-    this.recordUsage(key, modelName, 'error', timestamp);
+    this.recordUsage(key, modelName, 'error', timestamp, undefined, latencyMs);
 
     const stats = this.getOrCreateStats(key, timestamp);
 
@@ -408,6 +510,7 @@ class QuotaService {
         break;
 
       case AIErrorCode.QUOTA_EXCEEDED:
+        stats.quotaEventsTotal++;
         stats.healthState = 'QuotaExhausted';
         stats.transitionReason = '429: Hạn mức token/request theo ngày (RPD) đã cạn kiệt';
         stats.lastTransitionAt = timestamp;
@@ -416,6 +519,7 @@ class QuotaService {
         break;
 
       case AIErrorCode.RATE_LIMITED:
+        stats.quotaEventsTotal++;
         stats.healthState = 'RateLimited';
         stats.transitionReason = '429: Đã chạm giới hạn tốc độ (RPM/TPM)';
         stats.lastTransitionAt = timestamp;
@@ -501,6 +605,7 @@ class QuotaService {
     // 1. Kiểm tra Circuit Breaker / Key Health / Cooldown
     const health = this.getKeyHealth(key, now);
     if (!health.isAvailable) {
+      const reasonKey = health.circuitBreaker === 'Open' ? 'circuit_breaker_open' : 'in_cooldown';
       return {
         score: -1000,
         isEligible: false,
@@ -590,6 +695,68 @@ class QuotaService {
   }
 
   /**
+   * Ghi nhận dấu vết lượt gọi provider attempt (Attempt Trace)
+   */
+  public recordAttemptTrace(trace: RequestAttemptLog): void {
+    if (!trace) return;
+    this.recentAttempts.push(trace);
+    if (this.recentAttempts.length > this.MAX_RECENT_ATTEMPTS) {
+      this.recentAttempts.shift();
+    }
+  }
+
+  /**
+   * Lấy danh sách các attempt traces gần đây nhất (Bounded Rolling Buffer)
+   */
+  public getRecentAttempts(limit: number = 50): RequestAttemptLog[] {
+    const safeLimit = Math.max(1, Math.min(limit, this.MAX_RECENT_ATTEMPTS));
+    return [...this.recentAttempts].slice(-safeLimit);
+  }
+
+  /**
+   * Ghi nhận số lượt đánh giá / lựa chọn khóa trong Scheduler
+   */
+  public recordKeySelection(count: number = 1): void {
+    this.schedulerStats.selectionCount += Math.max(1, count);
+  }
+
+  /**
+   * Ghi nhận lượt từ chối khóa và phân loại lý do từ chối
+   */
+  public recordKeyRejection(reason: KeyRejectionReason | string, count: number = 1): void {
+    const inc = Math.max(1, count);
+    this.schedulerStats.rejectedTotal += inc;
+    const cleanReason = (reason || 'unknown').toLowerCase().trim();
+    this.schedulerStats.rejectedByReason[cleanReason] = (this.schedulerStats.rejectedByReason[cleanReason] || 0) + inc;
+  }
+
+  /**
+   * Ghi nhận độ trễ hàng đợi / pacing chờ đợi trước khi gọi upstream API
+   */
+  public recordQueueWait(durationMs: number): void {
+    if (typeof durationMs === 'number' && durationMs > 0) {
+      this.schedulerStats.queueWaitTotalMs += durationMs;
+      const count = Math.max(1, this.schedulerStats.selectionCount || this.logicalStats.logicalRequestsTotal || 1);
+      this.schedulerStats.queueWaitAvgMs = Math.round((this.schedulerStats.queueWaitTotalMs / count) * 100) / 100;
+    }
+  }
+
+  /**
+   * Đọc thống kê vận hành Scheduler Telemetry
+   */
+  public getSchedulerTelemetry(): SchedulerTelemetry {
+    const count = Math.max(1, this.schedulerStats.selectionCount || this.logicalStats.logicalRequestsTotal || 1);
+    const avg = this.schedulerStats.queueWaitTotalMs > 0
+      ? Math.round((this.schedulerStats.queueWaitTotalMs / count) * 100) / 100
+      : 0;
+    return {
+      ...this.schedulerStats,
+      queueWaitAvgMs: avg,
+      rejectedByReason: { ...this.schedulerStats.rejectedByReason },
+    };
+  }
+
+  /**
    * Đặt trạng thái Vô hiệu hóa thủ công cho 1 API key
    */
   public setKeyDisabled(key: string, disabled: boolean, reason?: string): void {
@@ -601,6 +768,7 @@ class QuotaService {
       stats.lastTransitionAt = Date.now();
       stats.disabledReason = reason;
       stats.circuitBreakerStatus = 'Open';
+      stats.cooldownEventsTotal++;
     } else {
       stats.healthState = 'Healthy';
       stats.transitionReason = 'Kích hoạt lại thủ công bởi người dùng';
@@ -642,6 +810,8 @@ class QuotaService {
           requestsThisMinute: 0,
           errorsTotal: 0,
           consecutiveErrors: 0,
+          quotaEventsTotal: 0,
+          cooldownEventsTotal: 0,
           tokensTotal: 0,
           tokensToday: 0,
           tokensThisMinute: 0,
@@ -659,11 +829,18 @@ class QuotaService {
       const byModelSnapshot: Record<string, ModelUsageStats> = {};
       for (const [model, mStats] of stats.byModel.entries()) {
         const mRecentCalls = mStats.recentCalls.filter(c => c.timestamp > minuteThreshold);
+        const avgLat = mStats.requestsTotal > 0 ? Math.round((mStats.totalLatencyMs / mStats.requestsTotal) * 10) / 10 : 0;
+
         byModelSnapshot[model] = {
           requestsTotal: mStats.requestsTotal,
           requestsToday: mStats.lastResetDay === currentDay ? mStats.requestsToday : 0,
           requestsThisMinute: mRecentCalls.length,
           errorsTotal: mStats.errorsTotal,
+          errorsToday: mStats.lastResetDay === currentDay ? mStats.errorsToday : 0,
+          totalLatencyMs: mStats.totalLatencyMs,
+          avgLatencyMs: avgLat,
+          minLatencyMs: mStats.minLatencyMs,
+          maxLatencyMs: mStats.maxLatencyMs,
           tokensTotal: mStats.tokensTotal,
           tokensToday: mStats.lastResetDay === currentDay ? mStats.tokensToday : 0,
           tokensThisMinute: mRecentCalls.reduce((sum, c) => sum + c.tokens, 0),
@@ -685,6 +862,8 @@ class QuotaService {
         requestsThisMinute,
         errorsTotal: stats.errorsTotal,
         consecutiveErrors: stats.consecutiveErrors,
+        quotaEventsTotal: stats.quotaEventsTotal,
+        cooldownEventsTotal: stats.cooldownEventsTotal,
         tokensTotal: stats.tokensTotal,
         tokensToday,
         tokensThisMinute,
@@ -692,6 +871,83 @@ class QuotaService {
         lastRequestTimestamp: stats.lastRequestTimestamp,
       };
     });
+  }
+
+  /**
+   * Lấy thống kê chi tiết của tất cả các mô hình AI đã từng gọi
+   */
+  public getAggregatedModelStats(timestamp: number = Date.now()): Record<string, ModelUsageStats> {
+    const aggregated: Record<string, {
+      requestsTotal: number;
+      requestsToday: number;
+      requestsThisMinute: number;
+      errorsTotal: number;
+      errorsToday: number;
+      totalLatencyMs: number;
+      minLatencyMs: number;
+      maxLatencyMs: number;
+      tokensTotal: number;
+      tokensToday: number;
+      tokensThisMinute: number;
+    }> = {};
+
+    const currentDay = getDayInLosAngeles(timestamp);
+    const minuteThreshold = timestamp - 60000;
+
+    for (const stats of this.keyStatsMap.values()) {
+      for (const [model, mStats] of stats.byModel.entries()) {
+        if (!aggregated[model]) {
+          aggregated[model] = {
+            requestsTotal: 0,
+            requestsToday: 0,
+            requestsThisMinute: 0,
+            errorsTotal: 0,
+            errorsToday: 0,
+            totalLatencyMs: 0,
+            minLatencyMs: 0,
+            maxLatencyMs: 0,
+            tokensTotal: 0,
+            tokensToday: 0,
+            tokensThisMinute: 0,
+          };
+        }
+
+        const agg = aggregated[model];
+        const mRecentCalls = mStats.recentCalls.filter(c => c.timestamp > minuteThreshold);
+        agg.requestsTotal += mStats.requestsTotal;
+        agg.requestsToday += mStats.lastResetDay === currentDay ? mStats.requestsToday : 0;
+        agg.requestsThisMinute += mRecentCalls.length;
+        agg.errorsTotal += mStats.errorsTotal;
+        agg.errorsToday += mStats.lastResetDay === currentDay ? mStats.errorsToday : 0;
+        agg.totalLatencyMs += mStats.totalLatencyMs;
+        agg.minLatencyMs = agg.minLatencyMs === 0 ? mStats.minLatencyMs : Math.min(agg.minLatencyMs, mStats.minLatencyMs || agg.minLatencyMs);
+        agg.maxLatencyMs = Math.max(agg.maxLatencyMs, mStats.maxLatencyMs);
+        agg.tokensTotal += mStats.tokensTotal;
+        agg.tokensToday += mStats.lastResetDay === currentDay ? mStats.tokensToday : 0;
+        agg.tokensThisMinute += mRecentCalls.reduce((sum, c) => sum + c.tokens, 0);
+      }
+    }
+
+    const result: Record<string, ModelUsageStats> = {};
+    for (const [model, agg] of Object.entries(aggregated)) {
+      const avgLat = agg.requestsTotal > 0 ? Math.round((agg.totalLatencyMs / agg.requestsTotal) * 10) / 10 : 0;
+      result[model] = {
+        requestsTotal: agg.requestsTotal,
+        requestsToday: agg.requestsToday,
+        requestsThisMinute: agg.requestsThisMinute,
+        errorsTotal: agg.errorsTotal,
+        errorsToday: agg.errorsToday,
+        totalLatencyMs: agg.totalLatencyMs,
+        avgLatencyMs: avgLat,
+        minLatencyMs: agg.minLatencyMs,
+        maxLatencyMs: agg.maxLatencyMs,
+        tokensTotal: agg.tokensTotal,
+        tokensToday: agg.tokensToday,
+        tokensThisMinute: agg.tokensThisMinute,
+      };
+    }
+
+    return result;
   }
 
   /**
@@ -806,6 +1062,21 @@ class QuotaService {
   public resetAll(): void {
     this.keyStatsMap.clear();
     this.modelLogicalStatsMap.clear();
+    this.recentAttempts = [];
+    this.schedulerStats = {
+      selectionCount: 0,
+      queueWaitTotalMs: 0,
+      queueWaitAvgMs: 0,
+      rejectedTotal: 0,
+      rejectedByReason: {
+        in_cooldown: 0,
+        circuit_breaker_open: 0,
+        rate_limited_pacing: 0,
+        unsupported_model: 0,
+        quota_exhausted: 0,
+        disabled: 0,
+      },
+    };
     this.logicalStats = {
       logicalRequestsTotal: 0,
       logicalRequestsToday: 0,

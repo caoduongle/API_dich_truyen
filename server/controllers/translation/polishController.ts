@@ -26,7 +26,8 @@ export async function callPolishDirect(
     model: string | undefined,
     startKeyIndex: number = 0,
     description?: string,
-    customRpm?: number
+    customRpm?: number,
+    requestId?: string
 ): Promise<{ polishedTranslation: string; successKeyIndex: number }> {
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
@@ -148,7 +149,9 @@ Nguyên tắc:
       schema,
       0.45,
       startKeyIndex,
-      customRpm
+      customRpm,
+      undefined,
+      requestId
   );
   const resultText = rotationResult.text;
   if (!resultText) {
@@ -200,7 +203,8 @@ export async function polishWithContentSplit(
     startKeyIndex: number = 0,
     description?: string,
     enableSegmentTranslation?: boolean,
-    customRpm?: number
+    customRpm?: number,
+    requestId?: string
 ): Promise<{ polishedTranslation: string; successKeyIndex: number; isPartial?: boolean }> {
   const glossaryFingerprint = Array.isArray(glossary)
     ? glossary.map(g => `${g.chinese || ''}:${g.vietnamese || ''}`).join('|')
@@ -243,7 +247,8 @@ export async function polishWithContentSplit(
         model,
         currentKeyIdx,
         description,
-        customRpm
+        customRpm,
+        requestId
       );
       polishedParagraphs.push(res.polishedTranslation);
       currentKeyIdx = res.successKeyIndex;
@@ -258,16 +263,29 @@ export async function polishWithContentSplit(
 
   if (estimateTokenCount(sourceText) < 90 || depth > 4) {
     try {
-      const directRes = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description, customRpm);
+      const directRes = await callPolishDirect(
+        sourceText,
+        rawTranslation,
+        genre,
+        tone,
+        glossary,
+        additionalInstructions,
+        apiKeys,
+        model,
+        startKeyIndex,
+        description,
+        customRpm,
+        requestId
+      );
       if (directRes.polishedTranslation) {
         translationChunkCache.set(cacheKey, { text: directRes.polishedTranslation });
       }
       return directRes;
     } catch (leafErr: any) {
       if (depth > 0) {
-        logger.warn(`[Polish Leaf Fallback] Đoạn lá (depth ${depth}, ~${sourceText.length} ký tự) bị lỗi/chặn bộ lọc. Sử dụng bản dịch thô thay thế:`, leafErr.message);
+        logger.warn(`[Polish Leaf Fallback] Đoạn lá (${sourceText.length} ký tự) bị lỗi/chặn bộ lọc. Dùng bản thô thay thế:`, leafErr.message);
         return {
-          polishedTranslation: rawTranslation || `[Lỗi chuốt văn đoạn: ${sourceText.substring(0, 40)}...]`,
+          polishedTranslation: rawTranslation || `[Chưa chuốt văn được đoạn này: ${sourceText.substring(0, 40)}...]`,
           successKeyIndex: startKeyIndex,
           isPartial: true
         };
@@ -276,26 +294,42 @@ export async function polishWithContentSplit(
     }
   }
 
+  // Sleep Backoff: Tránh gửi dồn dập các nhánh đệ quy song song cùng lúc
   if (depth > 0) {
     await sleep(depth * 600);
   }
 
   try {
-    const result = await callPolishDirect(sourceText, rawTranslation, genre, tone, glossary, additionalInstructions, apiKeys, model, startKeyIndex, description, customRpm);
+    const result = await callPolishDirect(
+      sourceText,
+      rawTranslation,
+      genre,
+      tone,
+      glossary,
+      additionalInstructions,
+      apiKeys,
+      model,
+      startKeyIndex,
+      description,
+      customRpm,
+      requestId
+    );
 
     if (!result.polishedTranslation || result.polishedTranslation.trim().length === 0) {
       if (model && model.toLowerCase().includes('gemma')) {
-        logger.warn("[Gemma Fallback - Polish] Kích hoạt cứu nguy Plain-Text chuốt văn...");
+        logger.warn("[Gemma Fallback - Polish] Phát hiện Gemma lỗi JSON chuốt văn. Kích hoạt cuộc gọi cứu nguy Plain-Text...");
 
         const plainResult = await generateWithRotation(
             apiKeys,
             model,
-            `Bạn là biên tập viên văn học. Hãy chuốt mượt đoạn văn dịch sau sang tiếng Việt tự nhiên theo thể loại ${genre} với tông giọng ${tone}. Tuyệt đối KHÔNG trả về định dạng JSON, chỉ trả ra văn bản chuốt hoàn chỉnh.`,
-            `Bản thô:\n${rawTranslation}\n\nBản gốc Trung:\n${sourceText}`,
+            `Bạn là biên tập viên văn học truyện chữ chuyên nghiệp. Hãy chuốt lại đoạn văn dịch sau sang tiếng Việt tự nhiên, mượt mà theo thể loại ${genre} với tông giọng ${tone}. Tuyệt đối KHÔNG trả về định dạng JSON, không giải thích, chỉ trả ra văn bản chuốt thuần túy.`,
+            `[BẢN GỐC TIẾNG TRUNG]\n${sourceText}\n\n[BẢN DỊCH THÔ CẦN CHUỐT]\n${rawTranslation}`,
             undefined,
-            0.4,
+            0.45,
             startKeyIndex,
-            customRpm
+            customRpm,
+            undefined,
+            requestId
         );
 
         if (plainResult.text && plainResult.text.trim().length > 0) {
@@ -362,7 +396,8 @@ export async function polishWithContentSplit(
               staggeredKeyIndex,
               description,
               false,
-              customRpm
+              customRpm,
+              requestId
             );
           } catch (partErr: any) {
             logger.warn(`[Divide & Conquer Fallback Polish] Đoạn (${srcPart.length} ký tự) bị lỗi sau khi chia nhỏ:`, partErr.message);
@@ -407,7 +442,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
   try {
     const validation = validatePolishBody(req.body);
     if (!validation.valid) {
-      res.status(400).json({ error: validation.error });
+      res.status(400).json({ error: validation.error, requestId: req.id });
       return;
     }
 
@@ -416,7 +451,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
     let newlyDiscoveredDuringPolish: any[] = [];
     let keyIndexAfterCheck = startKeyIndex;
 
-    if (sourceText && isExtractionEnabled !== false) {
+    if (isExtractionEnabled) {
       logger.info("[Polish API] Tiến hành kích hoạt rà soát bổ sung thuật ngữ bị sót...");
       const checkResults = await checkLeftoverGlossary(sourceText, glossary || [], apiKeys, model, startKeyIndex, customRpm);
       keyIndexAfterCheck = checkResults.successKeyIndex;
@@ -459,14 +494,16 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
         keyIndexAfterCheck,
         description,
         enableSegmentTranslation,
-        customRpm
+        customRpm,
+        req.id
     );
 
     res.json({
       polishedTranslation: polishedTranslation || "",
       newlyDiscoveredDuringPolish,
       successKeyIndex,
-      isPartial: Boolean(isPartial)
+      isPartial: Boolean(isPartial),
+      requestId: req.id
     });
   } catch (error: any) {
     logger.error("Lỗi tối ưu văn phong:", error);
@@ -475,6 +512,7 @@ export async function polishTranslation(req: Request, res: Response): Promise<vo
       error: normalized.message || "Đã xảy ra lỗi khi tối ưu biên tập.",
       code: normalized.code,
       isRetryable: normalized.isRetryable,
+      requestId: req.id,
       ...(normalized.retryAfterSec ? { retryAfterSec: normalized.retryAfterSec } : {}),
       ...(normalized.code === AIErrorCode.OVERLOADED ? { errorType: 'overload' } : {})
     });
