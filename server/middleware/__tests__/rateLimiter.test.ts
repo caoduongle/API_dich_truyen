@@ -117,7 +117,7 @@ describe("Rate Limiter Middleware", () => {
       );
     });
 
-    it("should fail open and call next if Redis throws an error", async () => {
+    it("should gracefully fallback to in-memory limiting if Redis throws an error", async () => {
       process.env.REDIS_URL = "redis://localhost:6379";
       const rateLimiter = createRateLimiter();
 

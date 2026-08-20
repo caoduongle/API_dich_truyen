@@ -50,7 +50,7 @@ app.use(metricsMiddleware);
 app.use(express.json({ limit: SERVER_CONFIG.BODY_SIZE_LIMIT }));
 
 // Rate-limit theo IP cho toàn bộ API endpoints (chống lạm dụng khi không có auth)
-app.use("/api", createRateLimiter());
+app.use("/api", createRateLimiter({ endpointType: 'translation' }));
 
 // Gắn các API endpoints từ router
 app.use("/api", apiRouter);

@@ -42,6 +42,7 @@ const router = Router();
 
 // --- Dedicated Auth Rate Limiter cho đăng nhập ---
 const authLoginRateLimiter = createRateLimiter({
+  endpointType: 'auth',
   windowMs: SERVER_CONFIG.AUTH_RATE_LIMIT_WINDOW_MS,
   maxRequests: SERVER_CONFIG.AUTH_RATE_LIMIT_MAX_REQUESTS,
   keyPrefix: "ratelimit:login:",
