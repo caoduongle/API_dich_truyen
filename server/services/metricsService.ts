@@ -19,6 +19,30 @@ export class MetricsService {
   private statusCodes: Record<string, number> = {};
   private paths: Record<string, PathMetric> = {};
 
+  // Core Law 3: Provider attempt != Logical user request disambiguation
+  private logicalRequestsTotal: number = 0;
+  private successfulLogicalRequests: number = 0;
+  private failedLogicalRequests: number = 0;
+  private providerAttemptsTotal: number = 0;
+  private retriesTotal: number = 0;
+
+  recordLogicalRequest(isSuccess: boolean = true): void {
+    this.logicalRequestsTotal++;
+    if (isSuccess) {
+      this.successfulLogicalRequests++;
+    } else {
+      this.failedLogicalRequests++;
+    }
+  }
+
+  recordProviderAttempt(modelId?: string, isSuccess: boolean = true, latencyMs?: number): void {
+    this.providerAttemptsTotal++;
+  }
+
+  recordRetry(): void {
+    this.retriesTotal++;
+  }
+
   recordRequest(method: string, path: string, statusCode: number, latencyMs: number): void {
     this.totalRequests++;
     this.totalLatencyMs += latencyMs;
@@ -125,6 +149,12 @@ export class MetricsService {
       statusCodes: this.statusCodes,
       endpoints: formattedPaths,
       memory: this.getMemoryUsage(),
+      // Disambiguated metrics
+      logicalRequestsTotal: this.logicalRequestsTotal,
+      successfulLogicalRequests: this.successfulLogicalRequests,
+      failedLogicalRequests: this.failedLogicalRequests,
+      providerAttemptsTotal: this.providerAttemptsTotal,
+      retriesTotal: this.retriesTotal,
     };
   }
 
@@ -135,6 +165,11 @@ export class MetricsService {
     this.totalLatencyMs = 0;
     this.statusCodes = {};
     this.paths = {};
+    this.logicalRequestsTotal = 0;
+    this.successfulLogicalRequests = 0;
+    this.failedLogicalRequests = 0;
+    this.providerAttemptsTotal = 0;
+    this.retriesTotal = 0;
   }
 }
 

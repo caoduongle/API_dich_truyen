@@ -3,7 +3,7 @@ import type Redis from "ioredis";
 import { redisManager } from "./redisService";
 
 export interface SessionData {
-  apiKeys: string[];
+  encryptedKeys: string;
   createdAt: number;
   lastAccessedAt: number;
   expiresAt: number;
@@ -17,6 +17,56 @@ export interface SessionInfo {
 
 export const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 giờ
 const SESSION_PREFIX = "session_keys:";
+const ENCRYPTION_SALT = "api_dich_truyen_session_salt_2026";
+
+/**
+ * Lấy khóa mã hóa 32 bytes từ biến môi trường ENCRYPTION_MASTER_KEY
+ */
+export function getEncryptionKey(): Buffer {
+  const rawMaster = process.env.ENCRYPTION_MASTER_KEY || "default_dev_master_key_for_session_encryption_only";
+  return crypto.scryptSync(rawMaster, ENCRYPTION_SALT, 32);
+}
+
+/**
+ * Mã hóa danh sách API keys thành chuỗi định dạng AES-256-GCM: iv_hex:authTag_hex:ciphertext_hex
+ */
+export function encryptApiKeys(apiKeys: string[]): string {
+  const iv = crypto.randomBytes(12); // 12 bytes IV cho GCM
+  const key = getEncryptionKey();
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const plaintext = JSON.stringify(apiKeys);
+  let ciphertext = cipher.update(plaintext, "utf8", "hex");
+  ciphertext += cipher.final("hex");
+  const authTag = cipher.getAuthTag().toString("hex");
+  return `${iv.toString("hex")}:${authTag}:${ciphertext}`;
+}
+
+/**
+ * Giải mã chuỗi AES-256-GCM thành danh sách API keys
+ */
+export function decryptApiKeys(encryptedPayload: string): string[] {
+  if (!encryptedPayload || typeof encryptedPayload !== "string") return [];
+  const parts = encryptedPayload.split(":");
+  if (parts.length !== 3) {
+    // Hỗ trợ tương thích ngược nếu lưu mảng JSON thô
+    try {
+      const parsed = JSON.parse(encryptedPayload);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+    throw new Error("Dữ liệu khóa phiên bị sai định dạng hoặc bị can thiệp trái phép.");
+  }
+
+  const [ivHex, authTagHex, ciphertextHex] = parts;
+  const iv = Buffer.from(ivHex, "hex");
+  const authTag = Buffer.from(authTagHex, "hex");
+  const key = getEncryptionKey();
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(authTag);
+  let decrypted = decipher.update(ciphertextHex, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  const parsed = JSON.parse(decrypted);
+  return Array.isArray(parsed) ? parsed : [];
+}
 
 class SessionStore {
   private memorySessions = new Map<string, SessionData>();
@@ -92,13 +142,13 @@ class SessionStore {
   }
 
   /**
-   * Tạo phiên làm việc mới lưu danh sách API keys và trả về session token.
+   * Tạo phiên làm việc mới lưu danh sách API keys đã mã hóa và trả về session token.
    */
   async createSession(
     apiKeys: string[],
     ttlMs: number = DEFAULT_SESSION_TTL_MS
   ): Promise<{ sessionToken: string; keyCount: number; expiresAt: string }> {
-    const sessionToken = crypto.randomUUID();
+    const sessionToken = `session_${crypto.randomUUID()}`;
     const cleanKeys = Array.isArray(apiKeys)
       ? apiKeys.map((k) => (typeof k === "string" ? k.trim() : "")).filter(Boolean)
       : [];
@@ -106,8 +156,9 @@ class SessionStore {
     const now = Date.now();
     const expiresAt = now + ttlMs;
 
+    const encryptedKeys = encryptApiKeys(cleanKeys);
     const sessionData: SessionData = {
-      apiKeys: cleanKeys,
+      encryptedKeys,
       createdAt: now,
       lastAccessedAt: now,
       expiresAt,
@@ -163,7 +214,7 @@ class SessionStore {
           slidingWindowMs
         );
 
-        return data.apiKeys;
+        return decryptApiKeys(data.encryptedKeys);
       } catch (err) {
         console.error("[SessionStore] Redis get error, checking memory:", err);
       }
@@ -179,7 +230,7 @@ class SessionStore {
 
     data.lastAccessedAt = now;
     data.expiresAt = now + slidingWindowMs;
-    return data.apiKeys;
+    return decryptApiKeys(data.encryptedKeys);
   }
 
   /**

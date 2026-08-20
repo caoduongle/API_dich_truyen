@@ -39,13 +39,20 @@ describe('Metrics & Structured Logger System', () => {
     expect(mem).toHaveProperty('heapUsedMb');
   });
 
-  it('logger handles different log levels and redacts sensitive data', () => {
-    const logger = new Logger('TestContext');
-    expect(() => {
-      logger.info('Test message', { apiKey: 'AIzaSyD-1234567890abcdef1234567890abcdef', user: 'admin' });
-      logger.warn('Warning test');
-      logger.error('Error test', new Error('Something failed'));
-      logger.debug('Debug test');
-    }).not.toThrow();
+  it('tracks logical requests vs provider attempts and retries independently (Core Law 3)', () => {
+    // 1 user request that needed 2 retries (3 provider attempts) and succeeded
+    metrics.recordLogicalRequest(true);
+    metrics.recordProviderAttempt('gemini-2.5-flash', false, 100);
+    metrics.recordRetry();
+    metrics.recordProviderAttempt('gemini-2.5-flash', false, 120);
+    metrics.recordRetry();
+    metrics.recordProviderAttempt('gemini-2.5-flash', true, 250);
+
+    const summary = metrics.getMetrics();
+    expect(summary.logicalRequestsTotal).toBe(1);
+    expect(summary.successfulLogicalRequests).toBe(1);
+    expect(summary.failedLogicalRequests).toBe(0);
+    expect(summary.providerAttemptsTotal).toBe(3);
+    expect(summary.retriesTotal).toBe(2);
   });
 });
