@@ -15,57 +15,142 @@ export interface SessionInfo {
   expiresAt?: string;
 }
 
+export interface DecryptedKeysResult {
+  keys: string[];
+  isMigrated: boolean;
+  sourceFormat: 'v1_gcm' | 'v0_gcm' | 'legacy_plaintext';
+}
+
+export class SessionDecryptionError extends Error {
+  readonly isDecryptionError = true;
+  constructor(message: string = 'Không thể giải mã dữ liệu khóa phiên: tính toàn vẹn bị vi phạm hoặc sai khóa bảo mật.') {
+    super(message);
+    this.name = 'SessionDecryptionError';
+  }
+}
+
 export const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 giờ
 const SESSION_PREFIX = "session_keys:";
 const ENCRYPTION_SALT = "api_dich_truyen_session_salt_2026";
 
 /**
- * Lấy khóa mã hóa 32 bytes từ biến môi trường ENCRYPTION_MASTER_KEY
+ * Lấy khóa mã hóa 32 bytes từ biến môi trường ENCRYPTION_MASTER_KEY hoặc SESSION_SECRET
  */
-export function getEncryptionKey(): Buffer {
-  const rawMaster = process.env.ENCRYPTION_MASTER_KEY || "default_dev_master_key_for_session_encryption_only";
+export function getEncryptionKey(overrideSecret?: string): Buffer {
+  const rawMaster = overrideSecret || process.env.ENCRYPTION_MASTER_KEY || process.env.SESSION_SECRET || "default_dev_master_key_for_session_encryption_only";
   return crypto.scryptSync(rawMaster, ENCRYPTION_SALT, 32);
 }
 
 /**
- * Mã hóa danh sách API keys thành chuỗi định dạng AES-256-GCM: iv_hex:authTag_hex:ciphertext_hex
+ * Mã hóa danh sách API keys thành chuỗi định dạng AES-256-GCM v1: enc:v1:iv_hex:authTag_hex:ciphertext_hex
  */
-export function encryptApiKeys(apiKeys: string[]): string {
-  const iv = crypto.randomBytes(12); // 12 bytes IV cho GCM
-  const key = getEncryptionKey();
+export function encryptApiKeys(apiKeys: string[], masterKeyBuffer?: Buffer): string {
+  const iv = crypto.randomBytes(12); // 12 bytes IV chuẩn cho GCM
+  const key = masterKeyBuffer || getEncryptionKey();
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  const plaintext = JSON.stringify(apiKeys);
+  const cleanKeys = Array.isArray(apiKeys)
+    ? apiKeys.map((k) => (typeof k === "string" ? k.trim() : "")).filter(Boolean)
+    : [];
+  const plaintext = JSON.stringify(cleanKeys);
   let ciphertext = cipher.update(plaintext, "utf8", "hex");
   ciphertext += cipher.final("hex");
   const authTag = cipher.getAuthTag().toString("hex");
-  return `${iv.toString("hex")}:${authTag}:${ciphertext}`;
+  return `enc:v1:${iv.toString("hex")}:${authTag}:${ciphertext}`;
+}
+
+/**
+ * Giải mã chuỗi phong bì bản mã thành danh sách API keys kèm cờ trạng thái di trú
+ */
+export function decryptApiKeysWithStatus(
+  encryptedPayload: string,
+  masterKeyBuffer?: Buffer
+): DecryptedKeysResult {
+  if (!encryptedPayload || typeof encryptedPayload !== "string") {
+    return { keys: [], isMigrated: false, sourceFormat: 'v1_gcm' };
+  }
+
+  const trimmed = encryptedPayload.trim();
+
+  // Định dạng chuẩn v1: enc:v1:<iv>:<authTag>:<ciphertext>
+  if (trimmed.startsWith("enc:v1:")) {
+    const parts = trimmed.split(":");
+    if (parts.length !== 5) {
+      throw new SessionDecryptionError("Dữ liệu khóa phiên bị sai định dạng phong bì bản mã v1.");
+    }
+    const [, , ivHex, authTagHex, ciphertextHex] = parts;
+    try {
+      const iv = Buffer.from(ivHex, "hex");
+      const authTag = Buffer.from(authTagHex, "hex");
+      const key = masterKeyBuffer || getEncryptionKey();
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(authTag);
+      let decrypted = decipher.update(ciphertextHex, "hex", "utf8");
+      decrypted += decipher.final("utf8");
+      const parsed = JSON.parse(decrypted);
+      return {
+        keys: Array.isArray(parsed) ? parsed : [],
+        isMigrated: false,
+        sourceFormat: 'v1_gcm',
+      };
+    } catch (err: any) {
+      throw new SessionDecryptionError();
+    }
+  }
+
+  // Định dạng v0 cũ: <iv>:<authTag>:<ciphertext> (không có tiền tố enc:v1:)
+  const v0Parts = trimmed.split(":");
+  if (v0Parts.length === 3 && v0Parts[0].length === 24 && v0Parts[1].length === 32) {
+    const [ivHex, authTagHex, ciphertextHex] = v0Parts;
+    try {
+      const iv = Buffer.from(ivHex, "hex");
+      const authTag = Buffer.from(authTagHex, "hex");
+      const key = masterKeyBuffer || getEncryptionKey();
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(authTag);
+      let decrypted = decipher.update(ciphertextHex, "hex", "utf8");
+      decrypted += decipher.final("utf8");
+      const parsed = JSON.parse(decrypted);
+      return {
+        keys: Array.isArray(parsed) ? parsed : [],
+        isMigrated: true,
+        sourceFormat: 'v0_gcm',
+      };
+    } catch (err: any) {
+      throw new SessionDecryptionError();
+    }
+  }
+
+  // Định dạng legacy plaintext (mảng JSON thuần hoặc chuỗi key trực tiếp)
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return {
+        keys: parsed.map((k) => String(k).trim()).filter(Boolean),
+        isMigrated: true,
+        sourceFormat: 'legacy_plaintext',
+      };
+    }
+  } catch {}
+
+  if (trimmed.startsWith("AIzaSy") || trimmed.includes("AIza")) {
+    return {
+      keys: [trimmed],
+      isMigrated: true,
+      sourceFormat: 'legacy_plaintext',
+    };
+  }
+
+  throw new SessionDecryptionError("Dữ liệu khóa phiên không nhận dạng được hoặc bị can thiệp trái phép.");
 }
 
 /**
  * Giải mã chuỗi AES-256-GCM thành danh sách API keys
  */
-export function decryptApiKeys(encryptedPayload: string): string[] {
-  if (!encryptedPayload || typeof encryptedPayload !== "string") return [];
-  const parts = encryptedPayload.split(":");
-  if (parts.length !== 3) {
-    // Hỗ trợ tương thích ngược nếu lưu mảng JSON thô
-    try {
-      const parsed = JSON.parse(encryptedPayload);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {}
-    throw new Error("Dữ liệu khóa phiên bị sai định dạng hoặc bị can thiệp trái phép.");
-  }
-
-  const [ivHex, authTagHex, ciphertextHex] = parts;
-  const iv = Buffer.from(ivHex, "hex");
-  const authTag = Buffer.from(authTagHex, "hex");
-  const key = getEncryptionKey();
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(authTag);
-  let decrypted = decipher.update(ciphertextHex, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  const parsed = JSON.parse(decrypted);
-  return Array.isArray(parsed) ? parsed : [];
+export function decryptApiKeys(
+  encryptedPayload: string,
+  masterKeyBuffer?: Buffer
+): string[] {
+  return decryptApiKeysWithStatus(encryptedPayload, masterKeyBuffer).keys;
 }
 
 class SessionStore {
@@ -142,7 +227,7 @@ class SessionStore {
   }
 
   /**
-   * Tạo phiên làm việc mới lưu danh sách API keys đã mã hóa và trả về session token.
+   * Tạo phiên làm việc mới lưu danh sách API keys đã mã hóa v1 và trả về session token.
    */
   async createSession(
     apiKeys: string[],
@@ -188,7 +273,7 @@ class SessionStore {
   }
 
   /**
-   * Lấy danh sách API keys từ session token và gia hạn thời gian sống.
+   * Lấy danh sách API keys từ session token, tự động di trú định dạng cũ và gia hạn thời gian sống.
    */
   async getSessionKeys(sessionToken: string, slidingWindowMs: number = DEFAULT_SESSION_TTL_MS): Promise<string[] | null> {
     if (!sessionToken || typeof sessionToken !== "string") {
@@ -202,11 +287,27 @@ class SessionStore {
         const raw = await this.redisClient.get(`${SESSION_PREFIX}${sessionToken}`);
         if (!raw) return null;
 
-        const data: SessionData = JSON.parse(raw);
+        let data: SessionData;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          data = {
+            encryptedKeys: raw,
+            createdAt: now,
+            lastAccessedAt: now,
+            expiresAt: now + slidingWindowMs,
+          };
+        }
+
+        const { keys, isMigrated } = decryptApiKeysWithStatus(data.encryptedKeys);
         data.lastAccessedAt = now;
         data.expiresAt = now + slidingWindowMs;
 
-        // Cập nhật sliding window
+        // Nếu phát hiện định dạng cũ -> tự động nâng cấp sang enc:v1: và lưu đè vào Redis
+        if (isMigrated) {
+          data.encryptedKeys = encryptApiKeys(keys);
+        }
+
         await this.redisClient.set(
           `${SESSION_PREFIX}${sessionToken}`,
           JSON.stringify(data),
@@ -214,9 +315,9 @@ class SessionStore {
           slidingWindowMs
         );
 
-        return decryptApiKeys(data.encryptedKeys);
+        return keys;
       } catch (err) {
-        console.error("[SessionStore] Redis get error, checking memory:", err);
+        console.error("[SessionStore] Redis get/decryption error, checking memory:", err);
       }
     }
 
@@ -228,9 +329,18 @@ class SessionStore {
       return null;
     }
 
-    data.lastAccessedAt = now;
-    data.expiresAt = now + slidingWindowMs;
-    return decryptApiKeys(data.encryptedKeys);
+    try {
+      const { keys, isMigrated } = decryptApiKeysWithStatus(data.encryptedKeys);
+      data.lastAccessedAt = now;
+      data.expiresAt = now + slidingWindowMs;
+      if (isMigrated) {
+        data.encryptedKeys = encryptApiKeys(keys);
+      }
+      return keys;
+    } catch (err) {
+      console.error("[SessionStore] Memory session decryption error:", err);
+      return null;
+    }
   }
 
   /**

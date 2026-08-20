@@ -24,7 +24,8 @@ describe("SessionStore AES-256-GCM Encryption & Lifecycle", () => {
     expect(typeof encrypted).toBe("string");
 
     const parts = encrypted.split(":");
-    expect(parts).toHaveLength(3); // iv:authTag:ciphertext
+    expect(encrypted.startsWith("enc:v1:")).toBe(true);
+    expect(parts).toHaveLength(5); // enc:v1:iv:authTag:ciphertext
 
     // Ciphertext must NOT contain plaintext keys
     for (const key of TEST_API_KEYS) {

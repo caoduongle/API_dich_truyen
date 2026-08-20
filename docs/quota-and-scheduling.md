@@ -152,3 +152,19 @@ Hệ thống cô lập vùng ảnh hưởng khi gặp sự cố, loại bỏ ho�
    - Chỉ kích hoạt khi có bằng chứng sự cố diện rộng thực tế ($\ge 2$ mô hình khác nhau VÀ $\ge 2$ nhóm khác nhau đồng thời lỗi 503/Network Error trong 5 giây gần nhất).
 5. **`Self-Healing Recovery` (Tự Động Chữa Lành)**:
    - Sau khi hết thời gian Cooldown TTL, các trạng thái tự động phục hồi về `Available` / `Healthy` mà không cần can thiệp thủ công.
+
+---
+
+## 10. Mã Hóa Khóa API Khi Lưu Trữ (API Key Encryption at Rest)
+
+Bảo vệ toàn diện thông tin xác thực của người dùng trong bộ nhớ đệm máy chủ và Redis:
+1. **Thuật Toán & Phong Bì Bản Mã (AES-256-GCM v1)**:
+   - Khóa API được mã hóa xác thực đối xứng bằng **AES-256-GCM** với định dạng phong bì phiên bản:
+     $$\text{enc:v1:}\langle\text{iv\_hex}\rangle\text{:}\langle\text{authTag\_hex}\rangle\text{:}\langle\text{ciphertext\_hex}\rangle$$
+   - Vector khởi tạo IV (12 bytes) được sinh ngẫu nhiên cho mỗi phiên; thẻ xác thực Auth Tag (16 bytes) ngăn chặn 100% các cuộc tấn công can thiệp sửa đổi bản mã.
+2. **Cô Lập Khóa Bí Mật (Secret Isolation)**:
+   - Master Encryption Key được phái sinh an toàn từ biến môi trường qua hàm băm `scrypt` (32 bytes); **tuyệt đối không lưu trữ trong Redis hay trả về Client**.
+3. **Di Trú Tự Động Không Downtime (Zero-Downtime Lazy Migration)**:
+   - Khi đọc phiên làm việc cũ lưu plaintext hoặc format v0, hệ thống tự động giải mã, mã hóa lại sang chuẩn `enc:v1:` và lưu đè vào Redis để loại bỏ hoàn toàn dữ liệu thô mà không làm crash active session.
+4. **Bảo Mật Đa Kênh (Zero-Leak Redaction)**:
+   - Khóa API không bao giờ xuất hiện ở dạng plaintext trong console logs, error traces, URL query parameters, hoặc response payload.
