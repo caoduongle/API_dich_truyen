@@ -189,9 +189,12 @@ describe("Rate Limiter Middleware", () => {
 
       expect(mockEval).toHaveBeenCalledWith(
         expect.any(String),
-        1,
-        "ratelimit:login:9.9.9.9",
-        900000
+        2,
+        expect.stringContaining("ratelimit:login:9.9.9.9"),
+        expect.stringContaining("ratelimit:login:9.9.9.9"),
+        900000,
+        10,
+        expect.any(Number)
       );
       expect(next).toHaveBeenCalled();
     });

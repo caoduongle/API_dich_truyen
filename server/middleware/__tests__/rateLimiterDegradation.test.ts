@@ -48,7 +48,15 @@ describe("Redis Graceful Degradation & Differentiated Local Fallback", () => {
 
       await limiter(req, res, next);
 
-      expect(mockEval).toHaveBeenCalledWith(expect.any(String), 1, "ratelimit:10.0.0.1", 60000);
+      expect(mockEval).toHaveBeenCalledWith(
+        expect.any(String),
+        2,
+        expect.stringContaining("ratelimit:translation:10.0.0.1"),
+        expect.stringContaining("ratelimit:translation:10.0.0.1"),
+        60000,
+        60,
+        expect.any(Number)
+      );
       expect(next).toHaveBeenCalledTimes(1);
 
       const status = getRateLimiterStatus();
