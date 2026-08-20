@@ -184,3 +184,16 @@ Bảo vệ toàn diện thông tin xác thực của người dùng trong bộ n
    - Khi năng lực mô hình ở trạng thái `unknown`, hệ thống tự động gửi yêu cầu thăm dò tối giản (`Ping`) tới Google GenAI API để kiểm chứng khả năng chạy thực tế trước khi xác nhận `verified = true`.
 4. **Xử Lý An Toàn Dị Tật (Malformed Resilience)**:
    - Toàn bộ dữ liệu metadata được xử lý qua bộ lọc an toàn, ngăn chặn hoàn toàn lỗi `TypeError` hoặc crash tiến trình.
+
+---
+
+## 12. Bảo Mật Xác Thực Header Cho Model Discovery (Zero URL Key Leakage)
+
+Bảo vệ khóa API khỏi rò rỉ qua các tầng trung gian mạng (Web Server Access Logs, Proxy Logs, URL caches):
+1. **Header Authentication Chuẩn Tắc**:
+   - Toàn bộ các yêu cầu HTTP gửi tới Google AI Studio (`listModels`, `getSingleModel`, `probeGenerate`) sử dụng HTTP Header:
+     $$\text{x-goog-api-key: }\langle\text{API\_KEY}\rangle$$
+2. **Loại Bỏ Hoàn Toàn `?key=` Khỏi URL**:
+   - 100% các URL gửi đi đều là URL REST chuẩn sạch, không chứa tham số truy vấn mang thông tin xác thực.
+3. **Khử Nhiễm Nhật Ký Đa Kênh**:
+   - Thông báo lỗi và đối tượng nhật ký luôn được làm sạch qua `redactApiKey`, đảm bảo không rò rỉ khóa bí mật ra hệ thống giám sát.

@@ -20,6 +20,18 @@ export interface ModelCapabilityEvaluation {
 }
 
 /**
+ * Xây dựng headers chuẩn cho request outbound tới Google AI Studio API
+ * Tuyệt đối không gửi API key qua URL query parameters.
+ */
+export function buildGoogleApiHeaders(apiKey: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'User-Agent': 'aistudio-build',
+    'x-goog-api-key': (apiKey || '').trim(),
+  };
+}
+
+/**
  * Đánh giá trạng thái năng lực tạo nội dung của mô hình từ danh sách supportedGenerationMethods.
  * Tri-State Semantics:
  * - 'supported': Thuộc tính là mảng và chứa chuỗi 'generateContent'.
@@ -67,13 +79,10 @@ class ModelInfoService {
     }, REQUEST_TIMEOUT_MS);
 
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(trimmedKey)}`;
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models';
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'aistudio-build',
-        },
+        headers: buildGoogleApiHeaders(trimmedKey),
         signal: controller.signal,
       });
 
@@ -214,13 +223,10 @@ class ModelInfoService {
     const cleanModelName = modelId.startsWith('models/') ? modelId : `models/${modelId}`;
 
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/${encodeURIComponent(cleanModelName)}?key=${encodeURIComponent(trimmedKey)}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/${encodeURIComponent(cleanModelName)}`;
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'aistudio-build',
-        },
+        headers: buildGoogleApiHeaders(trimmedKey),
         signal: controller.signal,
       });
 
@@ -265,13 +271,10 @@ class ModelInfoService {
     const cleanModelName = modelId.startsWith('models/') ? modelId : `models/${modelId}`;
 
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/${encodeURIComponent(cleanModelName)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/${encodeURIComponent(cleanModelName)}:generateContent`;
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'aistudio-build',
-        },
+        headers: buildGoogleApiHeaders(apiKey),
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: 'Ping' }] }],
           generationConfig: { maxOutputTokens: 5 },
