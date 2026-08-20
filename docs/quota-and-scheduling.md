@@ -248,3 +248,16 @@ Loại bỏ 100% sự chồng chéo ngữ nghĩa và phân định rõ ràng cá
    - `keyCooldowns`: Số lần khóa bị đưa vào trạng thái cooldown.
 4. **Tương Thích Ngược Hoàn Toàn (Backward Compatibility)**:
    - Các trường cũ (`requestsTotal`, `providerAttemptsTotal`) được giữ lại dưới dạng aliases đánh dấu `@deprecated` để không gây breaking change ngầm cho frontend và consumers.
+
+---
+
+## 16. Xác Nhận projectId Thay Vì Tin Tuyệt Đối (Project ID Verification & Source Metadata)
+
+Phân định rành mạch nguồn gốc và trạng thái xác thực của dự án:
+1. **3 Trạng Thái Project Phân Định Rõ Ràng**:
+   - `userDeclaredProject`: `source = 'user'`, `status = 'declared'`. Do người dùng nhập từ UI/payload cấu hình, chưa có bằng chứng từ Google Cloud API.
+   - `providerVerifiedProject`: `source = 'provider'`, `status = 'verified'`. Đã được Google GenAI API xác thực chính thức (qua token introspection hoặc discovery probe).
+   - `unknownProject`: `source = 'inferred'`, `status = 'unknown'`. Khóa API hoạt động độc lập, không gắn với projectId.
+2. **Ngữ Nghĩa Bộ Lập Lịch (Scheduler Invariant)**:
+   - Khi Quota Group chỉ mang trạng thái `userDeclaredProject`, Scheduler **tuyệt đối không tự ý giả định là Same Provider Quota Bucket** (chia sẻ hạn ngạch cứng), trừ khi người dùng đã explicitly gom nhóm các khóa đó vào cùng 1 Quota Group.
+   - Khi mang trạng thái `providerVerifiedProject`, hệ thống bảo đảm 100% chia sẻ cùng Provider Quota Bucket.

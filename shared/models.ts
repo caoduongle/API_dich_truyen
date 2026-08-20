@@ -360,9 +360,20 @@ export interface ApiKeyEntity {
   observedAttempts: KeyObservedAttempts;
 }
 
+export type ProjectBindingSource = 'user' | 'provider' | 'inferred';
+export type ProjectVerificationStatus = 'declared' | 'verified' | 'unknown';
+
+export interface ProjectMetadata {
+  projectId?: string;
+  source: ProjectBindingSource;
+  status: ProjectVerificationStatus;
+  verifiedAtMs?: number;
+}
+
 export interface QuotaGroup {
   id: string;
   projectId?: string;
+  projectMetadata?: ProjectMetadata;
   name?: string;
   keyIds: string[];
   configuredLimits: ConfiguredQuota;
@@ -378,6 +389,7 @@ export interface QuotaGroup {
 export interface QuotaGroupConfigInput {
   id?: string;
   projectId?: string;
+  projectMetadata?: ProjectMetadata;
   name?: string;
   configuredRpm?: number;
   configuredTpm?: number;

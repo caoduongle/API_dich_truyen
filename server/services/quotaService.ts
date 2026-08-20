@@ -18,6 +18,9 @@ import {
   CanonicalLogicalMetrics,
   CanonicalProviderMetrics,
   KeyActivityMetrics,
+  ProjectBindingSource,
+  ProjectVerificationStatus,
+  ProjectMetadata,
 } from '../../shared/models';
 
 export type {
@@ -37,6 +40,9 @@ export type {
   CanonicalLogicalMetrics,
   CanonicalProviderMetrics,
   KeyActivityMetrics,
+  ProjectBindingSource,
+  ProjectVerificationStatus,
+  ProjectMetadata,
 };
 export { PACING_SAFETY_FLOOR_SERVER_MS };
 
@@ -556,6 +562,22 @@ class QuotaService {
     const id = input.id || (input.projectId ? `group_${input.projectId}` : `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
     const keyIds = (input.keyIds || []).map((k: string) => k.trim()).filter(Boolean);
 
+    let projectMetadata: ProjectMetadata;
+    if (input.projectMetadata) {
+      projectMetadata = { ...input.projectMetadata };
+    } else if (input.projectId && input.projectId.trim()) {
+      projectMetadata = {
+        projectId: input.projectId.trim(),
+        source: 'user',
+        status: 'declared',
+      };
+    } else {
+      projectMetadata = {
+        source: 'inferred',
+        status: 'unknown',
+      };
+    }
+
     let group = this.groupsMap.get(id);
     if (!group) {
       const configuredLimits: ConfiguredQuota = {
@@ -570,7 +592,8 @@ class QuotaService {
 
       group = {
         id,
-        projectId: input.projectId,
+        projectId: input.projectId || projectMetadata.projectId,
+        projectMetadata,
         name: input.name || (input.projectId ? `Project ${input.projectId}` : `Quota Group ${id}`),
         keyIds,
         configuredLimits,
@@ -597,7 +620,17 @@ class QuotaService {
     } else {
       group.keyIds = Array.from(new Set([...group.keyIds, ...keyIds]));
       if (input.name) group.name = input.name;
-      if (input.projectId) group.projectId = input.projectId;
+      if (input.projectMetadata) {
+        group.projectMetadata = { ...input.projectMetadata };
+        if (input.projectMetadata.projectId) group.projectId = input.projectMetadata.projectId;
+      } else if (input.projectId) {
+        group.projectId = input.projectId;
+        group.projectMetadata = {
+          projectId: input.projectId.trim(),
+          source: 'user',
+          status: 'declared',
+        };
+      }
       if (input.configuredRpm !== undefined) group.configuredLimits.configuredRpm = input.configuredRpm;
       if (input.configuredTpm !== undefined) group.configuredLimits.configuredTpm = input.configuredTpm;
       if (input.configuredRpd !== undefined) group.configuredLimits.configuredRpd = input.configuredRpd;
@@ -618,6 +651,57 @@ class QuotaService {
     }
 
     return group;
+  }
+
+  /**
+   * Xác nhận chính thức projectId từ Provider upstream
+   */
+  public verifyGroupProject(
+    groupId: string,
+    verifiedProjectId: string,
+    verifiedAtMs: number = Date.now()
+  ): boolean {
+    if (!groupId || !verifiedProjectId) return false;
+    const group = this.groupsMap.get(groupId);
+    if (!group) return false;
+
+    const cleanPrj = verifiedProjectId.trim();
+    group.projectId = cleanPrj;
+    group.projectMetadata = {
+      projectId: cleanPrj,
+      source: 'provider',
+      status: 'verified',
+      verifiedAtMs,
+    };
+    return true;
+  }
+
+  /**
+   * Kiểm tra xem 2 API keys có chắc chắn thuộc cùng một Provider Quota Bucket hay không
+   * - Cùng thuộc 1 Quota Group (do user explicit cấu hình hoặc đã được provider verify)
+   * - Nếu khác Quota Group: Chỉ coi là cùng Provider Bucket nếu CẢ HAI đều có status === 'verified' và cùng projectId
+   */
+  public areKeysInSameVerifiedBucket(keyA: string, keyB: string): boolean {
+    if (!keyA || !keyB) return false;
+    const grpAId = this.getGroupIdForKey(keyA);
+    const grpBId = this.getGroupIdForKey(keyB);
+    if (!grpAId || !grpBId) return false;
+    if (grpAId === grpBId) return true;
+
+    const grpA = this.groupsMap.get(grpAId);
+    const grpB = this.groupsMap.get(grpBId);
+    if (!grpA || !grpB) return false;
+
+    if (
+      grpA.projectMetadata?.status === 'verified' &&
+      grpB.projectMetadata?.status === 'verified' &&
+      grpA.projectMetadata?.projectId &&
+      grpA.projectMetadata.projectId === grpB.projectMetadata?.projectId
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
