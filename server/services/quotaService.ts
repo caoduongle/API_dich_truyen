@@ -12,6 +12,8 @@ import {
   QuotaGroupConfigInput,
   ApiKeyEntity,
   ScheduleLease,
+  ModelCooldownRecord,
+  ProviderOutageStatus,
   PACING_SAFETY_FLOOR_SERVER_MS,
 } from '../../shared/models';
 
@@ -27,6 +29,8 @@ export type {
   QuotaGroupConfigInput,
   ApiKeyEntity,
   ScheduleLease,
+  ModelCooldownRecord,
+  ProviderOutageStatus,
 };
 export { PACING_SAFETY_FLOOR_SERVER_MS };
 
@@ -41,7 +45,9 @@ export type KeyRejectionReason =
   | 'disabled'
   | 'no_healthy_keys'
   | 'group_rate_limited'
-  | 'group_quota_exhausted';
+  | 'group_quota_exhausted'
+  | 'model_overloaded'
+  | 'provider_outage';
 
 export interface TokenStats {
   promptTokens: number;
@@ -73,6 +79,9 @@ export interface SchedulerTelemetry {
   queueWaitAvgMs: number;
   rejectedTotal: number;
   rejectedByReason: Record<string, number>;
+  activeModelCooldowns?: Record<string, number>;
+  activeGroupCooldowns?: Record<string, number>;
+  isProviderOutage?: boolean;
 }
 
 export interface ModelObservabilityMetrics {
@@ -290,6 +299,126 @@ class QuotaService {
 
   private recentAttempts: RequestAttemptLog[] = [];
   private readonly MAX_RECENT_ATTEMPTS = 200;
+
+  private modelCooldownsMap = new Map<string, ModelCooldownRecord>();
+  private providerOutageUntilMs: number = 0;
+  private recentProviderFailures: Array<{ modelName: string; groupId: string; timestamp: number }> = [];
+
+  /**
+   * Chuẩn hóa tên Model để tra cứu Cooldown
+   */
+  public normalizeModelName(modelName: string): string {
+    return (modelName || '').replace(/^models\//i, '').trim().toLowerCase();
+  }
+
+  /**
+   * Kích hoạt Cooldown cho một mô hình cụ thể khi gặp 503 Overload
+   */
+  public triggerModelCooldown(
+    modelName: string,
+    durationMs: number = 3000,
+    reason?: string,
+    now: number = Date.now()
+  ): void {
+    const norm = this.normalizeModelName(modelName);
+    if (!norm) return;
+    const record = this.modelCooldownsMap.get(norm) || {
+      modelName: norm,
+      cooldownUntilMs: 0,
+      consecutiveOverloads: 0,
+      lastOverloadAtMs: 0,
+    };
+    record.consecutiveOverloads++;
+    record.lastOverloadAtMs = now;
+    record.reason = reason || '503 Model Overloaded';
+    const backoffFactor = Math.min(5, Math.pow(1.5, record.consecutiveOverloads - 1));
+    const totalCooldownMs = Math.min(30000, Math.round(durationMs * backoffFactor));
+    record.cooldownUntilMs = now + totalCooldownMs;
+    this.modelCooldownsMap.set(norm, record);
+  }
+
+  /**
+   * Kiểm tra trạng thái Cooldown của một Model cụ thể
+   */
+  public getModelCooldownStatus(
+    modelName: string,
+    now: number = Date.now()
+  ): { inCooldown: boolean; remainingMs: number; reason?: string } {
+    const norm = this.normalizeModelName(modelName);
+    if (!norm) return { inCooldown: false, remainingMs: 0 };
+    const record = this.modelCooldownsMap.get(norm);
+    if (record && record.cooldownUntilMs > now) {
+      return {
+        inCooldown: true,
+        remainingMs: record.cooldownUntilMs - now,
+        reason: record.reason,
+      };
+    }
+    return { inCooldown: false, remainingMs: 0 };
+  }
+
+  /**
+   * Lấy danh sách các Model đang trong thời gian Cooldown
+   */
+  public getActiveModelCooldowns(now: number = Date.now()): Record<string, number> {
+    const active: Record<string, number> = {};
+    for (const [model, record] of this.modelCooldownsMap.entries()) {
+      if (record.cooldownUntilMs > now) {
+        active[model] = record.cooldownUntilMs - now;
+      }
+    }
+    return active;
+  }
+
+  /**
+   * Ghi nhận sự cố hệ thống để theo dõi Provider-Wide Outage
+   */
+  public recordUpstreamFailureEvent(
+    modelName: string,
+    groupId: string,
+    timestamp: number = Date.now()
+  ): boolean {
+    const norm = this.normalizeModelName(modelName);
+    this.recentProviderFailures.push({ modelName: norm, groupId, timestamp });
+    const windowThreshold = timestamp - 5000;
+    this.recentProviderFailures = this.recentProviderFailures.filter(e => e.timestamp > windowThreshold);
+
+    const distinctModels = new Set(this.recentProviderFailures.map(e => e.modelName));
+    const distinctGroups = new Set(this.recentProviderFailures.map(e => e.groupId));
+
+    // Ngưỡng phát hiện sự cố diện rộng: >= 2 models VÀ >= 2 groups đồng thời lỗi trong 5s
+    if (distinctModels.size >= 2 && distinctGroups.size >= 2) {
+      this.providerOutageUntilMs = Math.max(this.providerOutageUntilMs, timestamp + 5000);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Kiểm tra trạng thái Provider Outage
+   */
+  public getProviderOutageStatus(now: number = Date.now()): { isOutage: boolean; remainingMs: number } {
+    if (this.providerOutageUntilMs > now) {
+      return {
+        isOutage: true,
+        remainingMs: this.providerOutageUntilMs - now,
+      };
+    }
+    return { isOutage: false, remainingMs: 0 };
+  }
+
+  /**
+   * Lấy danh sách các Quota Group đang trong thời gian Cooldown
+   */
+  public getActiveGroupCooldowns(now: number = Date.now()): Record<string, number> {
+    const active: Record<string, number> = {};
+    for (const group of this.groupsMap.values()) {
+      if (group.cooldownUntilMs > now) {
+        active[group.id] = group.cooldownUntilMs - now;
+      }
+    }
+    return active;
+  }
 
   /**
    * Tính toán khoảng cách an toàn (Pacing Interval in ms) cho Quota Group hoặc Model
@@ -700,8 +829,37 @@ class QuotaService {
     estimatedTokens: number = 2000,
     now: number = Date.now()
   ): ScheduleLease {
-    const evaluatedGroups = this.evaluateQuotaGroups(candidateKeys, modelName, estimatedTokens, now);
     const leaseId = `lease_${now}_${Math.random().toString(36).slice(2, 8)}`;
+
+    // 1. Kiểm tra sự cố diện rộng toàn nhà cung cấp (Provider-Wide Outage)
+    const providerOutage = this.getProviderOutageStatus(now);
+    if (providerOutage.isOutage) {
+      this.recordKeyRejection('provider_outage');
+      return {
+        leaseId,
+        isEligible: false,
+        delayMs: providerOutage.remainingMs,
+        effectiveIntervalMs: 4445,
+        rejectReason: 'Toàn bộ hạ tầng Google AI đang tạm thời gián đoạn diện rộng (Provider Outage).',
+        earliestAvailableInMs: providerOutage.remainingMs,
+      };
+    }
+
+    // 2. Kiểm tra Cooldown theo từng mô hình cụ thể (Model-Specific Cooldown)
+    const modelCooldown = this.getModelCooldownStatus(modelName, now);
+    if (modelCooldown.inCooldown) {
+      this.recordKeyRejection('model_overloaded');
+      return {
+        leaseId,
+        isEligible: false,
+        delayMs: modelCooldown.remainingMs,
+        effectiveIntervalMs: 4445,
+        rejectReason: `Mô hình ${modelName} hiện đang quá tải phía Google (${modelCooldown.reason || '503 Cooldown'}).`,
+        earliestAvailableInMs: modelCooldown.remainingMs,
+      };
+    }
+
+    const evaluatedGroups = this.evaluateQuotaGroups(candidateKeys, modelName, estimatedTokens, now);
 
     if (evaluatedGroups.length === 0) {
       return {
@@ -1122,6 +1280,11 @@ class QuotaService {
         stats.transitionReason = '503: Mô hình AI của Google hiện đang quá tải';
         stats.lastTransitionAt = timestamp;
         stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 3000);
+        this.triggerModelCooldown(modelName, (error.retryAfterSec || 3) * 1000, '503 Model Overloaded', timestamp);
+        {
+          const grpId = this.getGroupIdForKey(key);
+          if (grpId) this.recordUpstreamFailureEvent(modelName, grpId, timestamp);
+        }
         break;
 
       case AIErrorCode.NETWORK_ERROR:
@@ -1129,6 +1292,10 @@ class QuotaService {
         stats.transitionReason = '502: Lỗi kết nối mạng tới dịch vụ AI';
         stats.lastTransitionAt = timestamp;
         stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 3000);
+        {
+          const grpId = this.getGroupIdForKey(key);
+          if (grpId) this.recordUpstreamFailureEvent(modelName, grpId, timestamp);
+        }
         break;
 
       case AIErrorCode.TIMEOUT:
@@ -1194,7 +1361,7 @@ class QuotaService {
     }
   }
 
-  public getSchedulerTelemetry(): SchedulerTelemetry {
+  public getSchedulerTelemetry(now: number = Date.now()): SchedulerTelemetry {
     const count = Math.max(1, this.schedulerStats.selectionCount || this.logicalStats.logicalRequestsTotal || 1);
     const avg = this.schedulerStats.queueWaitTotalMs > 0
       ? Math.round((this.schedulerStats.queueWaitTotalMs / count) * 100) / 100
@@ -1203,6 +1370,9 @@ class QuotaService {
       ...this.schedulerStats,
       queueWaitAvgMs: avg,
       rejectedByReason: { ...this.schedulerStats.rejectedByReason },
+      activeModelCooldowns: this.getActiveModelCooldowns(now),
+      activeGroupCooldowns: this.getActiveGroupCooldowns(now),
+      isProviderOutage: this.getProviderOutageStatus(now).isOutage,
     };
   }
 
@@ -1494,6 +1664,9 @@ class QuotaService {
     this.keyStatsMap.clear();
     this.groupPstResetDay.clear();
     this.modelLogicalStatsMap.clear();
+    this.modelCooldownsMap.clear();
+    this.providerOutageUntilMs = 0;
+    this.recentProviderFailures = [];
     this.recentAttempts = [];
     this.schedulerStats = {
       selectionCount: 0,
@@ -1510,6 +1683,8 @@ class QuotaService {
         no_healthy_keys: 0,
         group_rate_limited: 0,
         group_quota_exhausted: 0,
+        model_overloaded: 0,
+        provider_outage: 0,
       },
     };
     this.logicalStats = {

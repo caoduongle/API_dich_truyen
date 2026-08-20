@@ -135,3 +135,20 @@ Hệ thống tuân thủ nghiêm ngặt nguyên tắc **Một Nguồn Sự Thậ
 2. **`geminiService` (Stateless Executor)**:
    - Chuẩn hóa luồng chấp hành 4 bước: $\text{Prepare Request} \longrightarrow \text{Ask Scheduler (Acquire Lease)} \longrightarrow \text{Sleep Once (if delayMs > 0)} \longrightarrow \text{Execute & Report Result}$.
    - Tuyệt đối không tự duy trì các bảng đồng hồ riêng (`nextAllowedTimeByKey`, `nextAllowedTimeByGroup`) hay tự tính toán các khoảng nghỉ phân tán, triệt tiêu 100% hiện tượng nghẽn kép (**Zero Double-Throttling / Zero Double-Sleep**).
+
+---
+
+## 9. Phân Vùng Phạm Vi Cooldown Quá Tải (4-Tier Scoped Cooldown Hierarchy)
+
+Hệ thống cô lập vùng ảnh hưởng khi gặp sự cố, loại bỏ hoàn toàn việc dùng biến cooldown toàn cục làm nghẽn chéo các luồng không liên quan:
+1. **`Model-Specific Cooldown` (Cấp Mô Hình)**:
+   - Khi Model A (`gemini-2.5-pro`) gặp lỗi HTTP 503 Overloaded, Scheduler Authority chỉ tạm dừng Model A.
+   - Các mô hình khác (`gemini-2.5-flash`, `gemini-3.1-flash-lite`) trên cùng hoặc khác QuotaGroup tiếp tục được cấp phép với `delayMs = 0`.
+2. **`QuotaGroup Cooldown` (Cấp Nhóm Dự Án)**:
+   - Khi Project A gặp lỗi 429 hoặc 503, chỉ Group A bị Cooldown; Group B (Project B) vẫn hoạt động song song độc lập.
+3. **`Key-Specific Failure` (Cấp Khóa API)**:
+   - Khóa bị lỗi xác thực 401 hoặc cạn hạn ngạch 429 chỉ cô lập riêng khóa đó; nhóm tiếp tục luân chuyển sang khóa khả dụng khác.
+4. **`Provider-Wide Outage` (Cấp Toàn Nhà Cung Cấp)**:
+   - Chỉ kích hoạt khi có bằng chứng sự cố diện rộng thực tế ($\ge 2$ mô hình khác nhau VÀ $\ge 2$ nhóm khác nhau đồng thời lỗi 503/Network Error trong 5 giây gần nhất).
+5. **`Self-Healing Recovery` (Tự Động Chữa Lành)**:
+   - Sau khi hết thời gian Cooldown TTL, các trạng thái tự động phục hồi về `Available` / `Healthy` mà không cần can thiệp thủ công.

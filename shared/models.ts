@@ -366,3 +366,24 @@ export interface ScheduleLease {
   earliestAvailableInMs?: number;
 }
 
+/**
+ * Bản ghi Cooldown của từng Model
+ */
+export interface ModelCooldownRecord {
+  modelName: string;
+  cooldownUntilMs: number;
+  consecutiveOverloads: number;
+  lastOverloadAtMs: number;
+  reason?: string;
+}
+
+/**
+ * Trạng thái sự cố diện rộng toàn nhà cung cấp
+ */
+export interface ProviderOutageStatus {
+  isOutage: boolean;
+  outageUntilMs: number;
+  remainingMs: number;
+  failureEventsCount: number;
+}
+
