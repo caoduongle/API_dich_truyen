@@ -687,7 +687,7 @@ export default function ApiSettings({
               </div>
 
               <p className="text-[11px] text-text-muted leading-relaxed">
-                Hỗ trợ nhiều keys để hệ thống tự xoay vòng, tránh giới hạn tốc độ khi dịch hàng loạt. Mỗi dòng / dấu phẩy là một key.
+                Hệ thống tự động gom nhóm khóa theo Project / Quota Group và quản lý hạn ngạch RPM/TPM độc lập. Thêm nhiều khóa thuộc các dự án khác nhau để mở rộng dung lượng dịch.
               </p>
             </div>
           </div>

@@ -408,8 +408,45 @@ export interface LogicalSummaryStats {
   lastResetDay: string;
 }
 
+export interface QuotaGroupDisplayItem {
+  id: string;
+  projectId?: string;
+  name?: string;
+  healthState: string;
+  configuredLimits: {
+    configuredRpm?: number;
+    configuredTpm?: number;
+    configuredRpd?: number;
+  };
+  providerQuota: {
+    rpm: number;
+    tpm: number;
+    rpd?: number;
+    isVerified: boolean;
+  };
+  observedUsage: {
+    requestsTotal: number;
+    requestsToday: number;
+    requestsThisMinute: number;
+    tokensTotal: number;
+    tokensToday: number;
+    tokensThisMinute: number;
+    errorsTotal: number;
+    errorsToday: number;
+    lastRequestTimestamp?: number;
+  };
+  schedulingHint: {
+    effectiveIntervalMs: number;
+    safetyFloorMs: number;
+    isCustom: boolean;
+    estimatedThroughputRpm: number;
+  };
+  cooldownRemainingMs: number;
+  keys: KeyQuotaFullSnapshot[];
+}
+
 export interface KeyQuotaFullSnapshot {
-  index: number;
+  index?: number;
   keyHash: string;
   maskedKey: string;
   providerAttemptsTotal?: number;
@@ -424,6 +461,10 @@ export interface KeyQuotaFullSnapshot {
   tokensThisMinute?: number;
   byModel: Record<string, ModelUsageStats>;
   runtime: KeyRuntimeStatus;
+  healthState?: string;
+  transitionReason?: string;
+  circuitBreakerState?: string;
+  cooldownRemainingMs?: number;
   lastRequestTimestamp?: number;
 }
 
@@ -432,7 +473,28 @@ export interface QuotaStatusResponse {
   timezone: string;
   currentDayPST: string;
   summary?: LogicalSummaryStats;
+  groups?: QuotaGroupDisplayItem[];
   keys: KeyQuotaFullSnapshot[];
+}
+
+export async function configureQuotaGroups(groups: Array<{
+  id?: string;
+  projectId?: string;
+  name?: string;
+  configuredRpm?: number;
+  configuredTpm?: number;
+  configuredRpd?: number;
+  keyIds: string[];
+}>): Promise<{ status: string; updatedGroupsCount: number }> {
+  const res = await apiFetch('/api/quota-groups/configure', {
+    method: 'POST',
+    body: JSON.stringify({ groups }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Lỗi cấu hình nhóm hạn mức (HTTP ${res.status})`);
+  }
+  return res.json();
 }
 
 export interface ModelInfoItem {

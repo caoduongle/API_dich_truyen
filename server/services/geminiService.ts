@@ -10,8 +10,8 @@ import { logAttemptTelemetry } from "../utils/telemetryLogger";
 import { generateRequestId } from "../middleware/tracingMiddleware";
 
 /**
- * Tính toán khoảng cách an toàn (mili-giây) giữa các request cho một API Key cụ thể
- * Dựa trên RPM cấu hình cho key đó, hoặc tier mặc định của Model.
+ * Tính toán khoảng cách an toàn (mili-giây) giữa các request cho một API Key hoặc Quota Group
+ * Dựa trên RPM cấu hình cho group/key đó, hoặc tier mặc định của Model.
  * Áp dụng hệ số an toàn 0.9 và giới hạn sàn tối thiểu 400ms trên server.
  */
 export function computePerKeyIntervalMs(
@@ -62,20 +62,26 @@ const DEFAULT_SAFETY_SETTINGS = [
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// --- RATE LIMITER THEO TỪNG API KEY ---
+// --- RATE LIMITER THEO TỪNG API KEY & QUOTA GROUP ---
 const nextAllowedTimeByKey = new Map<string, number>();
+const nextAllowedTimeByGroup = new Map<string, number>();
 
 // --- QUEUE BACKPRESSURE & CONCURRENCY CONTROLLER ---
 let activeConcurrentRequests = 0;
 const MAX_CONCURRENT_REQUESTS = 50;
 
 /**
- * Dọn dẹp các key stale khỏi nextAllowedTimeByKey
+ * Dọn dẹp các key và group stale khỏi rate limiter maps
  */
 export function cleanupStaleKeys(now: number = Date.now()): void {
   for (const [key, nextAllowed] of nextAllowedTimeByKey) {
     if (now - nextAllowed > STALE_THRESHOLD_MS) {
       nextAllowedTimeByKey.delete(key);
+    }
+  }
+  for (const [groupId, nextAllowed] of nextAllowedTimeByGroup) {
+    if (now - nextAllowed > STALE_THRESHOLD_MS) {
+      nextAllowedTimeByGroup.delete(groupId);
     }
   }
 }
@@ -101,6 +107,7 @@ export function stopGeminiCleanup(): void {
 // Exported for testing purposes
 export const _testMaps = {
   nextAllowedTimeByKey,
+  nextAllowedTimeByGroup,
   cleanupStaleKeys,
   stopGeminiCleanup,
   getActiveConcurrentRequests: () => activeConcurrentRequests,
@@ -223,11 +230,8 @@ export async function generateWithRotation(
       model = `models/${model}`;
     }
 
-    // Đánh giá và sắp xếp candidate keys theo Predictive Score & Health
-    quotaService.recordKeySelection(rawKeys.length);
-    const nowBeforeEval = Date.now();
-    const scoredKeys = rawKeys.map((key, originalIndex) => {
-      // 1. Xác định RPM riêng cho key này
+    // Đảm bảo tất cả keys được phân loại vào QuotaGroup
+    rawKeys.forEach((key, originalIndex) => {
       let keyRpm: number | undefined;
       if (perKeyRpm) {
         if (Array.isArray(perKeyRpm) && typeof perKeyRpm[originalIndex] === 'number') {
@@ -239,58 +243,27 @@ export async function generateWithRotation(
       if (!keyRpm && typeof customRpm === 'number' && customRpm > 0) {
         keyRpm = customRpm;
       }
-
-      // 2. Tính khoảng cách pacing riêng cho key này
-      const keyIntervalMs = computePerKeyIntervalMs(keyRpm, model);
-
-      // 3. Tính độ trễ pacing hiện tại của key
-      const keyNextAllowed = nextAllowedTimeByKey.get(key) || 0;
-      const pacingDelayMs = Math.max(0, keyNextAllowed - nowBeforeEval);
-
-      // 4. Kiểm tra model support trong cache
-      const isModelSupported = modelInfoService.getCachedModelSupport(key, model);
-
-      // 5. Chấm điểm chi tiết
-      const scoreResult = quotaService.calculateKeyScore(key, model, {
-        estimatedTokens: 2500,
-        keyRpm,
-        isModelSupported,
-        pacingDelayMs,
-      }, nowBeforeEval);
-
-      if (!scoreResult.isEligible) {
-        let mappedReason = 'unknown';
-        const rej = scoreResult.rejectReason || '';
-        if (rej.includes('không hỗ trợ mô hình')) mappedReason = 'unsupported_model';
-        else if (rej.includes('RPM')) mappedReason = 'rate_limited_pacing';
-        else if (rej.includes('RPD') || rej.includes('TPM')) mappedReason = 'quota_exhausted';
-        else if (rej.includes('Disabled')) mappedReason = 'disabled';
-        else if (rej.includes('Cooldown')) mappedReason = 'in_cooldown';
-        quotaService.recordKeyRejection(mappedReason);
-      }
-
-      return {
-        key,
-        originalIndex,
-        keyRpm,
-        keyIntervalMs,
-        score: scoreResult.score,
-        isEligible: scoreResult.isEligible,
-        rejectReason: scoreResult.rejectReason,
-        pacingDelayMs,
-      };
+      quotaService.ensureKeyGroup(key, undefined, keyRpm);
     });
 
-    // Sắp xếp: Ưu tiên keys eligible và score cao nhất
-    scoredKeys.sort((a, b) => b.score - a.score);
+    // Đánh giá và sắp xếp các QuotaGroup theo Predictive Score & Capacity
+    quotaService.recordKeySelection(rawKeys.length);
+    const nowBeforeEval = Date.now();
+    const scoredGroups = quotaService.evaluateQuotaGroups(rawKeys, model, 2500, nowBeforeEval);
 
-    // Xoay vòng theo danh sách đã được chấm điểm
-    const keysToTry = scoredKeys.map(s => ({
-      key: s.key,
-      index: s.originalIndex,
-      keyIntervalMs: s.keyIntervalMs,
-      isEligible: s.isEligible,
-    }));
+    for (const groupEval of scoredGroups) {
+      if (!groupEval.isEligible && groupEval.rejectReason) {
+        let mappedReason = 'unknown';
+        const rej = groupEval.rejectReason;
+        if (rej.includes('không hỗ trợ mô hình')) mappedReason = 'unsupported_model';
+        else if (rej.includes('RPM')) mappedReason = 'group_rate_limited';
+        else if (rej.includes('TPM') || rej.includes('RPD')) mappedReason = 'group_quota_exhausted';
+        else if (rej.includes('Disabled')) mappedReason = 'disabled';
+        else if (rej.includes('Cooldown')) mappedReason = 'in_cooldown';
+        else if (rej.includes('không có API key nào')) mappedReason = 'no_healthy_keys';
+        quotaService.recordKeyRejection(mappedReason);
+      }
+    }
 
     let lastError: any = null;
     const requestStartTime = Date.now();
@@ -301,41 +274,44 @@ export async function generateWithRotation(
       let anyOverloadFailure = false;
       let anyNonOverloadFailure = false;
 
-      for (let k = 0; k < keysToTry.length; k++) {
-        const candidate = keysToTry[k];
-        const { key, index: i, keyIntervalMs } = candidate;
+      // Xoay vòng qua các QuotaGroup đã chấm điểm
+      for (const groupResult of scoredGroups) {
+        const { group } = groupResult;
+        const groupId = group.id;
 
-        // 1. Kiểm tra Key Health State
-        const keyHealth = quotaService.getKeyHealth(key);
-        if (!keyHealth.isAvailable) {
-          const reason = keyHealth.circuitBreaker === 'Open' ? 'circuit_breaker_open' : (keyHealth.state === 'Disabled' ? 'disabled' : 'in_cooldown');
-          quotaService.recordKeyRejection(reason);
-          console.log(`[Key Health] Bỏ qua khóa ${i + 1}/${rawKeys.length} (Trạng thái: ${keyHealth.state}, Lý do: ${keyHealth.transitionReason || 'Không khả dụng'}, Cooldown: ${keyHealth.cooldownRemainingMs}ms).`);
+        // Chọn key tối ưu nhất trong QuotaGroup này
+        const candidate = quotaService.selectBestKeyInGroup(groupId, rawKeys, Date.now());
+        if (!candidate) {
+          quotaService.recordKeyRejection('no_healthy_keys');
           continue;
         }
 
-        // 2. Per-key Rate Limiter: Tính pacing và cập nhật nextAllowedTime riêng cho key này
-        const effectiveKeyIntervalMs = keyIntervalMs || computePerKeyIntervalMs(undefined, model);
-        const keyNextAllowed = nextAllowedTimeByKey.get(key) || 0;
+        const key = candidate.key;
+        const keyIndex = rawKeys.indexOf(key);
+
+        // Quota Group Rate Limiter: Tính pacing và cập nhật nextAllowedTime ở cấp độ Group
+        const effectiveGroupInterval = group.schedulingHint.effectiveIntervalMs || computePerKeyIntervalMs(undefined, model);
+        const groupNextAllowed = nextAllowedTimeByGroup.get(groupId) || 0;
         const nowForRate = Date.now();
-        let keyDelay = 0;
+        let groupDelay = 0;
 
-        if (nowForRate < keyNextAllowed) {
-          keyDelay = keyNextAllowed - nowForRate;
-          nextAllowedTimeByKey.set(key, keyNextAllowed + effectiveKeyIntervalMs);
+        if (nowForRate < groupNextAllowed) {
+          groupDelay = groupNextAllowed - nowForRate;
+          nextAllowedTimeByGroup.set(groupId, groupNextAllowed + effectiveGroupInterval);
         } else {
-          nextAllowedTimeByKey.set(key, nowForRate + effectiveKeyIntervalMs);
+          nextAllowedTimeByGroup.set(groupId, nowForRate + effectiveGroupInterval);
         }
+        nextAllowedTimeByKey.set(key, nextAllowedTimeByGroup.get(groupId)!);
 
-        if (keyDelay > 0) {
-          quotaService.recordQueueWait(keyDelay);
-          console.log(`[Rate Limit] Key ${i + 1}: Đang hoãn ${keyDelay}ms (khoảng cách an toàn ${effectiveKeyIntervalMs}ms) cho key này...`);
-          await sleep(keyDelay);
+        if (groupDelay > 0) {
+          quotaService.recordQueueWait(groupDelay);
+          console.log(`[Rate Limit] Group "${group.name || groupId}": Đang hoãn ${groupDelay}ms (khoảng cách an toàn ${effectiveGroupInterval}ms)...`);
+          await sleep(groupDelay);
         }
 
         const attemptStartTime = Date.now();
         try {
-          console.log(`[Rotation] Thử khóa ${i + 1}/${rawKeys.length} với model "${model}" [req:${activeRequestId}]`);
+          console.log(`[Rotation] Thử group "${group.name || groupId}" qua key ${keyIndex + 1}/${rawKeys.length} với model "${model}" [req:${activeRequestId}]`);
           totalProviderAttempts++;
           const ai = new GoogleGenAI({
             apiKey: key,
@@ -388,69 +364,58 @@ export async function generateWithRotation(
 
               const candidatePart = response.candidates?.[0];
               const finishReason = candidatePart?.finishReason;
-              const promptFeedback = response.promptFeedback;
 
-              if (promptFeedback?.blockReason && promptFeedback.blockReason !== 'BLOCKED_REASON_UNSPECIFIED') {
+              if (finishReason === 'SAFETY') {
+                const safetyRatings = candidatePart?.safetyRatings;
+                console.warn(`[Gemini Service] Phản hồi bị chặn bởi bộ lọc an toàn của Google (finishReason: SAFETY)`);
                 throw new SafetyFilterError(
-                  `Nội dung bị chặn từ cấp độ prompt bởi bộ lọc an toàn (Lý do: ${promptFeedback.blockReason})`,
-                  {
-                    blockReason: promptFeedback.blockReason,
-                    safetyRatings: promptFeedback.safetyRatings,
-                  }
+                  `Nội dung dịch bị bộ lọc an toàn của Google AI từ chối xử lý (finishReason: SAFETY). Vui lòng kiểm tra lại văn bản nguồn.`,
+                  { finishReason, safetyRatings }
                 );
               }
 
-              if (
-                finishReason === 'SAFETY' ||
-                finishReason === 'RECITATION' ||
-                finishReason === 'BLOCKLIST' ||
-                finishReason === 'PROHIBITED_CONTENT' ||
-                finishReason === 'SPII'
-              ) {
+              if (response.promptFeedback?.blockReason) {
+                const blockReason = response.promptFeedback.blockReason;
+                const safetyRatings = response.promptFeedback.safetyRatings;
+                console.warn(`[Gemini Service] Đoạn văn bản đầu vào bị chặn (blockReason: ${blockReason})`);
                 throw new SafetyFilterError(
-                  `Nội dung bị chặn bởi bộ lọc an toàn của Gemini (FinishReason: ${finishReason})`,
-                  {
-                    finishReason,
-                    safetyRatings: candidatePart?.safetyRatings,
-                  }
+                  `Văn bản nguồn bị bộ lọc an toàn của Google AI từ chối (blockReason: ${blockReason}).`,
+                  { blockReason, safetyRatings }
                 );
               }
 
-              overloadCooldownUntil = 0;
-              const promptTokens = response?.usageMetadata?.promptTokenCount || 0;
-              const outputTokens = response?.usageMetadata?.candidatesTokenCount || 0;
-              const totalTokens = response?.usageMetadata?.totalTokenCount || (promptTokens + outputTokens);
+              // Ghi nhận thành công ở cấp độ Group
               const attemptLatencyMs = Date.now() - attemptStartTime;
+              const usageMetadata = response.usageMetadata;
+              const tokenStats = usageMetadata ? {
+                promptTokens: usageMetadata.promptTokenCount || 0,
+                outputTokens: usageMetadata.candidatesTokenCount || 0,
+                totalTokens: usageMetadata.totalTokenCount || 0,
+              } : undefined;
 
-              quotaService.recordUsage(key, model, 'success', Date.now(), {
-                promptTokens,
-                outputTokens,
-                totalTokens,
-              }, attemptLatencyMs);
-
-              // Ghi log & attempt trace
+              quotaService.recordGroupUsage(groupId, key, model, 'success', Date.now(), tokenStats, attemptLatencyMs);
               quotaService.recordAttemptTrace({
                 requestId: activeRequestId,
                 modelId: model,
                 keyIdentifier: key,
-                keyIndex: i,
+                keyIndex,
                 attempt: totalProviderAttempts,
                 status: 'success',
                 errorCode: null,
                 latencyMs: attemptLatencyMs,
-                queueWaitMs: keyDelay,
+                queueWaitMs: groupDelay,
                 timestamp: Date.now(),
               });
               logAttemptTelemetry({
                 requestId: activeRequestId,
                 modelId: model,
                 keyIdentifier: key,
-                keyIndex: i,
+                keyIndex,
                 attempt: totalProviderAttempts,
                 status: 'success',
                 errorCode: null,
                 latencyMs: attemptLatencyMs,
-                queueWaitMs: keyDelay,
+                queueWaitMs: groupDelay,
                 timestamp: Date.now(),
               });
 
@@ -475,7 +440,7 @@ export async function generateWithRotation(
 
               return {
                 text: rawText,
-                successKeyIndex: i,
+                successKeyIndex: keyIndex,
                 requestId: activeRequestId,
               };
             } catch (innerErr: any) {
@@ -484,34 +449,34 @@ export async function generateWithRotation(
                 overloadAttempt++;
                 totalProviderAttempts++;
                 const innerLatency = Date.now() - attemptStartTime;
-                quotaService.recordUsage(key, model, 'overloaded', Date.now(), undefined, innerLatency);
+                quotaService.recordGroupUsage(groupId, key, model, 'overloaded', Date.now(), undefined, innerLatency);
                 quotaService.recordAttemptTrace({
                   requestId: activeRequestId,
                   modelId: model,
                   keyIdentifier: key,
-                  keyIndex: i,
+                  keyIndex,
                   attempt: totalProviderAttempts,
                   status: 'failure',
                   errorCode: normalizedInner.code,
                   latencyMs: innerLatency,
-                  queueWaitMs: keyDelay,
+                  queueWaitMs: groupDelay,
                   timestamp: Date.now(),
                 });
                 logAttemptTelemetry({
                   requestId: activeRequestId,
                   modelId: model,
                   keyIdentifier: key,
-                  keyIndex: i,
+                  keyIndex,
                   attempt: totalProviderAttempts,
                   status: 'failure',
                   errorCode: normalizedInner.code,
                   latencyMs: innerLatency,
-                  queueWaitMs: keyDelay,
+                  queueWaitMs: groupDelay,
                   timestamp: Date.now(),
                 });
 
                 const retryDelay = OVERLOAD_BASE_DELAY_MS * Math.pow(2, overloadAttempt - 1) + Math.floor(Math.random() * 1000);
-                console.warn(`[Overload Retry] Model quá tải (503), thử lại key ${i + 1} lần ${overloadAttempt}/${MAX_OVERLOAD_RETRIES} sau ${retryDelay}ms...`);
+                console.warn(`[Overload Retry] Model quá tải (503), thử lại key ${keyIndex + 1} lần ${overloadAttempt}/${MAX_OVERLOAD_RETRIES} sau ${retryDelay}ms...`);
 
                 overloadCooldownUntil = Math.max(overloadCooldownUntil, Date.now() + 8000);
                 quotaService.recordQueueWait(retryDelay);
@@ -524,34 +489,40 @@ export async function generateWithRotation(
         } catch (err: any) {
           const attemptLatencyMs = Date.now() - attemptStartTime;
           const normalized = normalizeUpstreamError(err, rawKeys);
-          console.error(`[Error Normalized] Khóa ${i + 1} gặp lỗi [${normalized.code}]: ${normalized.message} [req:${activeRequestId}]`);
+          console.error(`[Error Normalized] Key ${keyIndex + 1} gặp lỗi [${normalized.code}]: ${normalized.message} [req:${activeRequestId}]`);
           lastError = err;
 
-          // Ghi nhận vào Quota Service
+          // Ghi nhận lỗi chi tiết vào Quota Service
           quotaService.recordCategorizedError(key, model, normalized, Date.now(), attemptLatencyMs);
+
+          // Nếu là lỗi Rate Limit / Quota Exceeded 429: kích hoạt Cooldown cho toàn bộ Quota Group và chuyển group khác
+          if (normalized.code === AIErrorCode.RATE_LIMITED || normalized.code === AIErrorCode.QUOTA_EXCEEDED) {
+            const cooldownSec = normalized.retryAfterSec || 5;
+            quotaService.triggerGroupCooldown(groupId, cooldownSec * 1000, '429 Rate Limit / Quota Exceeded', Date.now());
+          }
 
           quotaService.recordAttemptTrace({
             requestId: activeRequestId,
             modelId: model,
             keyIdentifier: key,
-            keyIndex: i,
+            keyIndex,
             attempt: totalProviderAttempts,
             status: 'failure',
             errorCode: normalized.code,
             latencyMs: attemptLatencyMs,
-            queueWaitMs: keyDelay,
+            queueWaitMs: groupDelay,
             timestamp: Date.now(),
           });
           logAttemptTelemetry({
             requestId: activeRequestId,
             modelId: model,
             keyIdentifier: key,
-            keyIndex: i,
+            keyIndex,
             attempt: totalProviderAttempts,
             status: 'failure',
             errorCode: normalized.code,
             latencyMs: attemptLatencyMs,
-            queueWaitMs: keyDelay,
+            queueWaitMs: groupDelay,
             timestamp: Date.now(),
           });
 

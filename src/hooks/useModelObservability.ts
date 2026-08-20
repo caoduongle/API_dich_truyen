@@ -3,6 +3,7 @@ import {
   fetchQuotaStatus, 
   fetchModelsForKey, 
   KeyQuotaFullSnapshot, 
+  QuotaGroupDisplayItem,
   ModelInfoItem,
   QuotaStatusResponse,
   LogicalSummaryStats
@@ -11,6 +12,7 @@ import { saveDiscoveredModels } from '../utils/modelRegistry';
 
 export interface ModelObservabilityState {
   snapshotKeys: KeyQuotaFullSnapshot[];
+  groups: QuotaGroupDisplayItem[];
   summary: LogicalSummaryStats | null;
   loadingQuota: boolean;
   quotaError: string | null;
@@ -43,6 +45,7 @@ export function useModelObservability(
   onModelsDiscovered?: (models: ModelInfoItem[]) => void
 ): ModelObservabilityState {
   const [snapshotKeys, setSnapshotKeys] = useState<KeyQuotaFullSnapshot[]>([]);
+  const [groups, setGroups] = useState<QuotaGroupDisplayItem[]>([]);
   const [summary, setSummary] = useState<LogicalSummaryStats | null>(null);
   const [loadingQuota, setLoadingQuota] = useState(false);
   const [quotaError, setQuotaError] = useState<string | null>(null);
@@ -67,6 +70,7 @@ export function useModelObservability(
     const currentClean = cleanKeysRef.current;
     if (currentClean.length === 0) {
       setSnapshotKeys([]);
+      setGroups([]);
       setSummary(null);
       return;
     }
@@ -79,6 +83,7 @@ export function useModelObservability(
       if (isFresh) {
         const cached = globalQuotaCache.data;
         setSnapshotKeys(cached.keys || []);
+        setGroups(cached.groups || []);
         setSummary(cached.summary || null);
         setTimezone(cached.timezone || 'America/Los_Angeles');
         setCurrentDayPST(cached.currentDayPST || '');
@@ -97,6 +102,7 @@ export function useModelObservability(
         keysKey: currentKeysKey,
       };
       setSnapshotKeys(data.keys || []);
+      setGroups(data.groups || []);
       setSummary(data.summary || null);
       setTimezone(data.timezone || 'America/Los_Angeles');
       setCurrentDayPST(data.currentDayPST || '');
@@ -143,6 +149,7 @@ export function useModelObservability(
 
   return {
     snapshotKeys,
+    groups,
     summary,
     loadingQuota,
     quotaError,

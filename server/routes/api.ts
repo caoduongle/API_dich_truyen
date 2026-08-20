@@ -25,6 +25,7 @@ import {
 } from "../controllers/authController";
 import {
   getQuotaStatusHandler,
+  configureQuotaGroupsHandler,
   getModelsForKeyHandler,
   verifyModelHandler
 } from "../controllers/quotaController";
@@ -206,6 +207,7 @@ router.post("/align-chapter", extractCustomRpmMiddleware, resolveApiKeysMiddlewa
 
 // --- Routes for Quota & Usage Tracking & Model Verification ---
 router.post("/quota-status", resolveApiKeysMiddleware, getQuotaStatusHandler);
+router.post("/quota-groups/configure", configureQuotaGroupsHandler);
 router.post("/models-for-key", resolveApiKeysMiddleware, getModelsForKeyHandler);
 router.post("/verify-model", resolveApiKeysMiddleware, verifyModelHandler);
 

@@ -1,18 +1,34 @@
 import crypto from 'crypto';
 import { AIErrorCode, AIErrorNormalized } from '../constants/errors';
+import {
+  ProviderQuota,
+  ConfiguredQuota,
+  GroupObservedUsage,
+  GroupSchedulingHint,
+  GroupHealthState,
+  KeyHealthState,
+  CircuitBreakerStatus,
+  QuotaGroup,
+  QuotaGroupConfigInput,
+  ApiKeyEntity,
+  PACING_SAFETY_FLOOR_SERVER_MS,
+} from '../../shared/models';
+
+export type {
+  ProviderQuota,
+  ConfiguredQuota,
+  GroupObservedUsage,
+  GroupSchedulingHint,
+  GroupHealthState,
+  KeyHealthState,
+  CircuitBreakerStatus,
+  QuotaGroup,
+  QuotaGroupConfigInput,
+  ApiKeyEntity,
+};
+export { PACING_SAFETY_FLOOR_SERVER_MS };
 
 export type QuotaAttemptStatus = 'success' | 'overloaded' | 'quota_exceeded' | 'safety' | 'error';
-
-export type KeyHealthState =
-  | 'Healthy'
-  | 'Degraded'
-  | 'RateLimited'
-  | 'QuotaExhausted'
-  | 'AuthFailed'
-  | 'Cooldown'
-  | 'Disabled';
-
-export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
 
 export type KeyRejectionReason =
   | 'in_cooldown'
@@ -20,7 +36,10 @@ export type KeyRejectionReason =
   | 'rate_limited_pacing'
   | 'unsupported_model'
   | 'quota_exhausted'
-  | 'disabled';
+  | 'disabled'
+  | 'no_healthy_keys'
+  | 'group_rate_limited'
+  | 'group_quota_exhausted';
 
 export interface TokenStats {
   promptTokens: number;
@@ -165,7 +184,6 @@ export interface KeyQuotaSnapshot {
   transitionReason?: string;
   circuitBreakerState: CircuitBreakerStatus;
   cooldownRemainingMs: number;
-  // Provider Attempt Metrics (Aliased with requestsTotal/requestsToday for compatibility)
   providerAttemptsTotal: number;
   providerAttemptsToday: number;
   providerAttemptsThisMinute: number;
@@ -190,6 +208,20 @@ export interface KeyScoreOptions {
   keyMaxRpd?: number;
   isModelSupported?: boolean | 'uninspected';
   pacingDelayMs?: number;
+}
+
+export interface GroupScoreResult {
+  group: QuotaGroup;
+  isEligible: boolean;
+  rejectReason?: string;
+  score: number;
+  scoreBreakdown: {
+    rpmCapacityScore: number;
+    tpmCapacityScore: number;
+    idleTimeScore: number;
+    pacingReadinessBonus: number;
+    errorPenalty: number;
+  };
 }
 
 export function hashApiKey(key: string): string {
@@ -220,7 +252,11 @@ const CIRCUIT_BREAKER_CONSECUTIVE_THRESHOLD = 3;
 const CIRCUIT_BREAKER_COOLDOWN_MS = 5 * 60 * 1000; // 5 phút
 
 class QuotaService {
+  private groupsMap = new Map<string, QuotaGroup>();
+  private keyToGroupId = new Map<string, string>();
   private keyStatsMap = new Map<string, InternalKeyStats>();
+  private groupPstResetDay = new Map<string, string>();
+
   private logicalStats: LogicalSummaryStats = {
     logicalRequestsTotal: 0,
     logicalRequestsToday: 0,
@@ -252,11 +288,396 @@ class QuotaService {
       unsupported_model: 0,
       quota_exhausted: 0,
       disabled: 0,
+      no_healthy_keys: 0,
+      group_rate_limited: 0,
+      group_quota_exhausted: 0,
     },
   };
 
   private recentAttempts: RequestAttemptLog[] = [];
   private readonly MAX_RECENT_ATTEMPTS = 200;
+
+  /**
+   * Tính toán khoảng cách an toàn (Pacing Interval in ms) cho Quota Group hoặc Model
+   */
+  public computeGroupInterval(rpm?: number, modelName?: string): number {
+    let baseRpm = rpm;
+    if (!baseRpm || baseRpm <= 0) {
+      const isPro = modelName ? modelName.toLowerCase().includes('pro') : false;
+      const isFlashLite = modelName ? modelName.toLowerCase().includes('flash-lite') : false;
+      const isGemma = modelName ? modelName.toLowerCase().includes('gemma') : false;
+      if (isPro) return 6000;
+      if (isFlashLite) return 3500;
+      if (isGemma) return 2000;
+      return 4445;
+    }
+    const safePacingRpm = baseRpm * 0.9;
+    const intervalMs = Math.ceil(60000 / safePacingRpm);
+    return Math.max(PACING_SAFETY_FLOOR_SERVER_MS, intervalMs);
+  }
+
+  /**
+   * Đăng ký hoặc cập nhật một QuotaGroup
+   */
+  public registerQuotaGroup(input: QuotaGroupConfigInput): QuotaGroup {
+    const id = input.id || (input.projectId ? `group_${input.projectId}` : `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+    const keyIds = (input.keyIds || []).map((k: string) => k.trim()).filter(Boolean);
+    const effectiveRpm = input.configuredRpm || 15;
+
+    let group = this.groupsMap.get(id);
+    if (!group) {
+      group = {
+        id,
+        projectId: input.projectId,
+        name: input.name || (input.projectId ? `Project ${input.projectId}` : `Quota Group ${id}`),
+        keyIds,
+        configuredLimits: {
+          configuredRpm: input.configuredRpm,
+          configuredTpm: input.configuredTpm,
+          configuredRpd: input.configuredRpd,
+        },
+        providerQuota: {
+          rpm: 15,
+          tpm: 1000000,
+          rpd: 1500,
+          isVerified: false,
+        },
+        observedUsage: {
+          requestsTotal: 0,
+          requestsToday: 0,
+          requestsThisMinute: 0,
+          tokensTotal: 0,
+          tokensToday: 0,
+          tokensThisMinute: 0,
+          errorsTotal: 0,
+          errorsToday: 0,
+          lastRequestTimestamp: 0,
+        },
+        schedulingHint: {
+          effectiveIntervalMs: this.computeGroupInterval(input.configuredRpm),
+          safetyFloorMs: PACING_SAFETY_FLOOR_SERVER_MS,
+          isCustom: typeof input.configuredRpm === 'number' && input.configuredRpm > 0,
+          estimatedThroughputRpm: typeof input.configuredRpm === 'number' && input.configuredRpm > 0 ? input.configuredRpm * 0.9 : 13.5,
+        },
+        healthState: 'Available',
+        cooldownUntilMs: 0,
+        nextAllowedTimeMs: 0,
+        callLog: [],
+      };
+      this.groupsMap.set(id, group);
+      this.groupPstResetDay.set(id, getDayInLosAngeles());
+    } else {
+      group.keyIds = Array.from(new Set([...group.keyIds, ...keyIds]));
+      if (input.name) group.name = input.name;
+      if (input.projectId) group.projectId = input.projectId;
+      if (input.configuredRpm !== undefined) group.configuredLimits.configuredRpm = input.configuredRpm;
+      if (input.configuredTpm !== undefined) group.configuredLimits.configuredTpm = input.configuredTpm;
+      if (input.configuredRpd !== undefined) group.configuredLimits.configuredRpd = input.configuredRpd;
+      group.schedulingHint = {
+        effectiveIntervalMs: this.computeGroupInterval(group.configuredLimits.configuredRpm || group.providerQuota.rpm),
+        safetyFloorMs: PACING_SAFETY_FLOOR_SERVER_MS,
+        isCustom: typeof group.configuredLimits.configuredRpm === 'number' && group.configuredLimits.configuredRpm > 0,
+        estimatedThroughputRpm: typeof group.configuredLimits.configuredRpm === 'number' && group.configuredLimits.configuredRpm > 0 ? group.configuredLimits.configuredRpm * 0.9 : 13.5,
+      };
+    }
+
+    for (const key of keyIds) {
+      const keyHash = hashApiKey(key);
+      this.keyToGroupId.set(keyHash, id);
+      this.keyToGroupId.set(key, id);
+      this.getOrCreateStats(key);
+    }
+
+    return group;
+  }
+
+  /**
+   * Đảm bảo một API key luôn được gán vào 1 QuotaGroup (Backward compatibility)
+   */
+  public ensureKeyGroup(key: string, customGroupId?: string, customRpm?: number): QuotaGroup {
+    if (!key || !key.trim()) {
+      return this.registerQuotaGroup({ id: 'group_default', keyIds: [] });
+    }
+    const trimmed = key.trim();
+    const keyHash = hashApiKey(trimmed);
+    const existingGroupId = this.keyToGroupId.get(keyHash) || this.keyToGroupId.get(trimmed);
+    if (existingGroupId && this.groupsMap.has(existingGroupId)) {
+      const grp = this.groupsMap.get(existingGroupId)!;
+      if (customRpm && !grp.configuredLimits.configuredRpm) {
+        grp.configuredLimits.configuredRpm = customRpm;
+        grp.schedulingHint.effectiveIntervalMs = this.computeGroupInterval(customRpm);
+        grp.schedulingHint.isCustom = true;
+      }
+      return grp;
+    }
+
+    const targetGroupId = customGroupId || (customRpm ? `group_custom_${customRpm}` : `group_${keyHash.slice(0, 10)}`);
+    return this.registerQuotaGroup({
+      id: targetGroupId,
+      configuredRpm: customRpm,
+      keyIds: [trimmed],
+    });
+  }
+
+  public getQuotaGroup(groupId: string): QuotaGroup | undefined {
+    return this.groupsMap.get(groupId);
+  }
+
+  public getAllQuotaGroups(): QuotaGroup[] {
+    return Array.from(this.groupsMap.values());
+  }
+
+  public getGroupIdForKey(key: string): string | undefined {
+    if (!key) return undefined;
+    const trimmed = key.trim();
+    return this.keyToGroupId.get(hashApiKey(trimmed)) || this.keyToGroupId.get(trimmed);
+  }
+
+  /**
+   * Đánh giá và chấm điểm danh sách Quota Group cho request dự kiến
+   */
+  public evaluateQuotaGroups(
+    candidateKeys: string[],
+    modelName: string,
+    estimatedTokens: number = 2000,
+    now: number = Date.now()
+  ): GroupScoreResult[] {
+    const isPro = modelName.toLowerCase().includes('pro');
+    const currentDay = getDayInLosAngeles(now);
+
+    // Thu thập tất cả các groups liên quan tới candidateKeys
+    const relevantGroupIds = new Set<string>();
+    for (const key of candidateKeys) {
+      const grp = this.ensureKeyGroup(key);
+      relevantGroupIds.add(grp.id);
+    }
+
+    const results: GroupScoreResult[] = [];
+
+    for (const groupId of relevantGroupIds) {
+      const group = this.groupsMap.get(groupId);
+      if (!group) continue;
+
+      // 1. Quota Recovery: Reset ngày theo giờ PST
+      const lastReset = this.groupPstResetDay.get(groupId) || currentDay;
+      if (lastReset !== currentDay) {
+        group.observedUsage.requestsToday = 0;
+        group.observedUsage.tokensToday = 0;
+        group.observedUsage.errorsToday = 0;
+        this.groupPstResetDay.set(groupId, currentDay);
+        if (group.healthState === 'Exhausted') {
+          group.healthState = 'Available';
+        }
+      }
+
+      // 2. Phục hồi Cooldown TTL của Group
+      if (group.cooldownUntilMs > 0 && now >= group.cooldownUntilMs) {
+        group.cooldownUntilMs = 0;
+        if (group.healthState === 'InCooldown' || group.healthState === 'RateLimited') {
+          group.healthState = 'Available';
+        }
+      }
+
+      // 3. Tính toán Sliding Window 60s của Group
+      const minuteThreshold = now - 60000;
+      if (!group.callLog) group.callLog = [];
+      group.callLog = group.callLog.filter((c: { timestamp: number; tokens: number }) => c.timestamp > minuteThreshold);
+      const requestsThisMinute = group.callLog.length;
+      const currentTokensThisMinute = group.callLog.reduce((sum: number, c: { timestamp: number; tokens: number }) => sum + c.tokens, 0);
+
+      group.observedUsage.requestsThisMinute = requestsThisMinute;
+      group.observedUsage.tokensThisMinute = currentTokensThisMinute;
+
+      const effectiveRpm = group.configuredLimits.configuredRpm || group.providerQuota.rpm || (isPro ? 10 : 15);
+      const effectiveTpm = group.configuredLimits.configuredTpm || group.providerQuota.tpm || 1000000;
+      const effectiveRpd = group.configuredLimits.configuredRpd || group.providerQuota.rpd || (isPro ? 1000 : 1500);
+
+      // 4. Kiểm tra sức khỏe của các keys trong group
+      const memberKeys = group.keyIds.filter((k: string) => {
+        const candidateSet = new Set(candidateKeys.map((ck: string) => ck.trim()));
+        return candidateSet.has(k) || candidateSet.has(hashApiKey(k));
+      });
+
+      const hasHealthyKey = (memberKeys.length > 0 ? memberKeys : group.keyIds).some((k: string) => {
+        const h = this.getKeyHealth(k, now);
+        return h.isAvailable;
+      });
+
+      let isEligible = true;
+      let rejectReason: string | undefined;
+
+      if (group.healthState === 'Disabled') {
+        isEligible = false;
+        rejectReason = 'Group đã bị vô hiệu hóa';
+      } else if (group.cooldownUntilMs > now) {
+        isEligible = false;
+        rejectReason = `Group đang trong trạng thái Cooldown (${group.cooldownUntilMs - now}ms)`;
+      } else if (!hasHealthyKey) {
+        isEligible = false;
+        rejectReason = 'Group không có API key nào đang khả dụng (Healthy/Cooldown)';
+      } else if (requestsThisMinute >= effectiveRpm) {
+        isEligible = false;
+        rejectReason = `Group đã đạt giới hạn RPM (${requestsThisMinute}/${effectiveRpm} RPM)`;
+      } else if (currentTokensThisMinute + estimatedTokens > effectiveTpm * 0.95) {
+        isEligible = false;
+        rejectReason = `Group dự kiến vượt hạn mức TPM (${currentTokensThisMinute + estimatedTokens}/${effectiveTpm} TPM)`;
+      } else if (group.observedUsage.requestsToday >= effectiveRpd) {
+        isEligible = false;
+        rejectReason = `Group đã đạt giới hạn RPD trong ngày (${group.observedUsage.requestsToday}/${effectiveRpd} RPD)`;
+      }
+
+      // 5. Composite Group Scoring
+      const rpmCapacityScore = Math.max(0, ((effectiveRpm - requestsThisMinute) / effectiveRpm) * 500);
+      const tpmCapacityScore = Math.max(0, ((effectiveTpm - currentTokensThisMinute) / effectiveTpm) * 500);
+      const idleSeconds = group.observedUsage.lastRequestTimestamp ? Math.min(600, Math.floor((now - group.observedUsage.lastRequestTimestamp) / 1000)) : 600;
+      const idleTimeScore = idleSeconds;
+
+      const pacingDelay = Math.max(0, group.nextAllowedTimeMs - now);
+      const pacingReadinessBonus = pacingDelay <= 0 ? 300 : Math.max(-200, 200 - Math.floor(pacingDelay / 10));
+      const errorPenalty = group.observedUsage.errorsToday * 50;
+
+      const totalScore = isEligible
+        ? Math.round((rpmCapacityScore + tpmCapacityScore + idleTimeScore + pacingReadinessBonus - errorPenalty) * 10) / 10
+        : -1000;
+
+      results.push({
+        group,
+        isEligible,
+        rejectReason,
+        score: totalScore,
+        scoreBreakdown: {
+          rpmCapacityScore: Math.round(rpmCapacityScore),
+          tpmCapacityScore: Math.round(tpmCapacityScore),
+          idleTimeScore,
+          pacingReadinessBonus: Math.round(pacingReadinessBonus),
+          errorPenalty,
+        },
+      });
+    }
+
+    // Sắp xếp: Ưu tiên group eligible và điểm cao nhất
+    results.sort((a, b) => b.score - a.score);
+    return results;
+  }
+
+  /**
+   * Chọn API Key tối ưu nhất trong một Quota Group
+   */
+  public selectBestKeyInGroup(
+    groupId: string,
+    candidateRawKeys?: string[],
+    now: number = Date.now()
+  ): {
+    key: string;
+    keyHash: string;
+    score: number;
+    pacingDelayMs: number;
+  } | null {
+    const group = this.groupsMap.get(groupId);
+    if (!group) return null;
+
+    let memberKeys = group.keyIds;
+    if (candidateRawKeys && candidateRawKeys.length > 0) {
+      const candidateSet = new Set(candidateRawKeys.map((k: string) => k.trim()));
+      const filtered = memberKeys.filter((k: string) => candidateSet.has(k) || candidateSet.has(hashApiKey(k)));
+      if (filtered.length > 0) memberKeys = filtered;
+    }
+
+    const scoredCandidates: Array<{ key: string; keyHash: string; score: number; pacingDelayMs: number }> = [];
+
+    for (const rawKey of memberKeys) {
+      const keyHash = hashApiKey(rawKey);
+      const health = this.getKeyHealth(rawKey, now);
+      if (!health.isAvailable) {
+        continue;
+      }
+
+      const stats = this.getOrCreateStats(rawKey, now);
+      const healthBonus = health.state === 'Healthy' ? 200 : 100;
+      const idleSeconds = stats.lastRequestTimestamp ? Math.min(600, Math.floor((now - stats.lastRequestTimestamp) / 1000)) : 600;
+      const errorPenalty = stats.consecutiveErrors * 200;
+
+      const score = healthBonus + idleSeconds - errorPenalty;
+      scoredCandidates.push({
+        key: rawKey,
+        keyHash,
+        score,
+        pacingDelayMs: 0,
+      });
+    }
+
+    if (scoredCandidates.length === 0) return null;
+    scoredCandidates.sort((a, b) => b.score - a.score);
+    return scoredCandidates[0];
+  }
+
+  /**
+   * Kích hoạt Cooldown cho toàn bộ Quota Group khi gặp lỗi 429 quota exhaustion
+   */
+  public triggerGroupCooldown(
+    groupId: string,
+    durationMs: number = 5000,
+    reason?: string,
+    now: number = Date.now()
+  ): void {
+    const group = this.groupsMap.get(groupId);
+    if (!group) return;
+    group.cooldownUntilMs = now + durationMs;
+    group.healthState = 'InCooldown';
+  }
+
+  /**
+   * Ghi nhận sử dụng ở cấp độ QuotaGroup và Key
+   */
+  public recordGroupUsage(
+    groupId: string,
+    key: string,
+    modelName: string,
+    status: QuotaAttemptStatus,
+    timestamp: number = Date.now(),
+    tokenStats?: TokenStats,
+    latencyMs?: number
+  ): void {
+    let group = this.groupsMap.get(groupId);
+    if (!group) {
+      group = this.ensureKeyGroup(key, groupId);
+    }
+
+    const currentDay = getDayInLosAngeles(timestamp);
+    if (!group.callLog) group.callLog = [];
+    const tokens = tokenStats?.totalTokens || 0;
+
+    const lastReset = this.groupPstResetDay.get(group.id) || currentDay;
+    if (lastReset !== currentDay) {
+      group.observedUsage.requestsToday = 0;
+      group.observedUsage.tokensToday = 0;
+      group.observedUsage.errorsToday = 0;
+      this.groupPstResetDay.set(group.id, currentDay);
+      if (group.healthState === 'Exhausted') {
+        group.healthState = 'Available';
+      }
+    }
+
+    group.observedUsage.requestsTotal++;
+    group.observedUsage.requestsToday++;
+    group.observedUsage.tokensTotal += tokens;
+    group.observedUsage.tokensToday += tokens;
+    group.observedUsage.lastRequestTimestamp = timestamp;
+    group.callLog.push({ timestamp, tokens });
+
+    const minuteThreshold = timestamp - 60000;
+    group.callLog = group.callLog.filter((c: { timestamp: number; tokens: number }) => c.timestamp > minuteThreshold);
+    group.observedUsage.requestsThisMinute = group.callLog.length;
+    group.observedUsage.tokensThisMinute = group.callLog.reduce((s: number, c: { timestamp: number; tokens: number }) => s + c.tokens, 0);
+
+    if (status !== 'success') {
+      group.observedUsage.errorsTotal++;
+      group.observedUsage.errorsToday++;
+    }
+
+    // Ghi nhận chi tiết vào keyStats
+    this.recordUsage(key, modelName, status, timestamp, tokenStats, latencyMs);
+  }
 
   private getOrCreateStats(key: string, timestamp: number = Date.now()): InternalKeyStats {
     const trimmedKey = key.trim();
@@ -365,7 +786,7 @@ class QuotaService {
   }
 
   /**
-   * Ghi nhận 1 lượt sử dụng API key và model tương ứng với số token tiêu thụ và độ trễ
+   * Ghi nhận 1 lượt sử dụng API key và model tương ứng
    */
   public recordUsage(
     key: string,
@@ -412,7 +833,7 @@ class QuotaService {
         stats.quotaEventsTotal++;
         stats.cooldownEventsTotal++;
         stats.healthState = 'QuotaExhausted';
-        stats.transitionReason = '429: Hạn mức ngày đã hết (RPD)';
+        stats.transitionReason = '429: Hạn mức token/request theo ngày (RPD) đã cạn kiệt';
         stats.lastTransitionAt = timestamp;
       } else if (status === 'overloaded') {
         stats.cooldownEventsTotal++;
@@ -572,7 +993,7 @@ class QuotaService {
 
   /**
    * Chấm điểm độ ưu tiên của một API Key cho request dự kiến (Predictive Candidate Scoring)
-   * Tích hợp kiểm tra đa chiều: Health, Model Compatibility, RPM sliding window, TPM, RPD, Idle time và Pacing readiness.
+   * Tương thích ngược với hệ thống per-key cũ
    */
   public calculateKeyScore(
     key: string,
@@ -605,7 +1026,6 @@ class QuotaService {
     // 1. Kiểm tra Circuit Breaker / Key Health / Cooldown
     const health = this.getKeyHealth(key, now);
     if (!health.isAvailable) {
-      const reasonKey = health.circuitBreaker === 'Open' ? 'circuit_breaker_open' : 'in_cooldown';
       return {
         score: -1000,
         isEligible: false,
@@ -613,7 +1033,7 @@ class QuotaService {
       };
     }
 
-    // 2. Kiểm tra tính tương thích của Model (nếu đã xác minh và không hỗ trợ)
+    // 2. Kiểm tra tính tương thích của Model
     if (options.isModelSupported === false) {
       return {
         score: -800,
@@ -657,25 +1077,14 @@ class QuotaService {
       };
     }
 
-    // ── TÍNH TOÁN COMPOSITE SCORING ──
-    // a. Điểm dung lượng TPM còn lại (tối đa 500 điểm)
     const tpmCapacityScore = Math.max(0, ((effectiveMaxTpm - currentTokensThisMinute) / effectiveMaxTpm) * 500);
-
-    // b. Điểm dung lượng RPM còn lại (tối đa 500 điểm)
     const rpmCapacityScore = Math.max(0, ((effectiveRpm - requestsThisMinute) / effectiveRpm) * 500);
-
-    // c. Điểm rảnh rỗi kể từ lần dùng cuối (tối đa 600 điểm, tự động phân phối xoay vòng)
     const idleSeconds = stats.lastRequestTimestamp ? Math.min(600, Math.floor((now - stats.lastRequestTimestamp) / 1000)) : 600;
     const idleTimeScore = idleSeconds;
 
-    // d. Điểm sẵn sàng Pacing (thưởng 300 điểm nếu key không phải chờ hoãn)
     const pacingDelay = options.pacingDelayMs || 0;
     const pacingReadinessBonus = pacingDelay <= 0 ? 300 : Math.max(-200, 200 - Math.floor(pacingDelay / 10));
-
-    // e. Phạt lỗi liên tiếp (-200 điểm / lỗi)
     const errorPenalty = stats.consecutiveErrors * 200;
-
-    // f. Thưởng model được xác minh trực tiếp (+100 điểm)
     const modelSupportBonus = options.isModelSupported === true ? 100 : 0;
 
     const totalScore = tpmCapacityScore + rpmCapacityScore + idleTimeScore + pacingReadinessBonus - errorPenalty + modelSupportBonus;
@@ -694,9 +1103,6 @@ class QuotaService {
     };
   }
 
-  /**
-   * Ghi nhận dấu vết lượt gọi provider attempt (Attempt Trace)
-   */
   public recordAttemptTrace(trace: RequestAttemptLog): void {
     if (!trace) return;
     this.recentAttempts.push(trace);
@@ -705,24 +1111,15 @@ class QuotaService {
     }
   }
 
-  /**
-   * Lấy danh sách các attempt traces gần đây nhất (Bounded Rolling Buffer)
-   */
   public getRecentAttempts(limit: number = 50): RequestAttemptLog[] {
     const safeLimit = Math.max(1, Math.min(limit, this.MAX_RECENT_ATTEMPTS));
     return [...this.recentAttempts].slice(-safeLimit);
   }
 
-  /**
-   * Ghi nhận số lượt đánh giá / lựa chọn khóa trong Scheduler
-   */
   public recordKeySelection(count: number = 1): void {
     this.schedulerStats.selectionCount += Math.max(1, count);
   }
 
-  /**
-   * Ghi nhận lượt từ chối khóa và phân loại lý do từ chối
-   */
   public recordKeyRejection(reason: KeyRejectionReason | string, count: number = 1): void {
     const inc = Math.max(1, count);
     this.schedulerStats.rejectedTotal += inc;
@@ -730,9 +1127,6 @@ class QuotaService {
     this.schedulerStats.rejectedByReason[cleanReason] = (this.schedulerStats.rejectedByReason[cleanReason] || 0) + inc;
   }
 
-  /**
-   * Ghi nhận độ trễ hàng đợi / pacing chờ đợi trước khi gọi upstream API
-   */
   public recordQueueWait(durationMs: number): void {
     if (typeof durationMs === 'number' && durationMs > 0) {
       this.schedulerStats.queueWaitTotalMs += durationMs;
@@ -741,9 +1135,6 @@ class QuotaService {
     }
   }
 
-  /**
-   * Đọc thống kê vận hành Scheduler Telemetry
-   */
   public getSchedulerTelemetry(): SchedulerTelemetry {
     const count = Math.max(1, this.schedulerStats.selectionCount || this.logicalStats.logicalRequestsTotal || 1);
     const avg = this.schedulerStats.queueWaitTotalMs > 0
@@ -756,9 +1147,6 @@ class QuotaService {
     };
   }
 
-  /**
-   * Đặt trạng thái Vô hiệu hóa thủ công cho 1 API key
-   */
   public setKeyDisabled(key: string, disabled: boolean, reason?: string): void {
     if (!key || !key.trim()) return;
     const stats = this.getOrCreateStats(key);
@@ -780,9 +1168,6 @@ class QuotaService {
     }
   }
 
-  /**
-   * Lấy snapshot thống kê sử dụng và token metrics cho danh sách keys
-   */
   public getQuotaSnapshot(keys: string[], timestamp: number = Date.now()): KeyQuotaSnapshot[] {
     const currentDay = getDayInLosAngeles(timestamp);
     const minuteThreshold = timestamp - 60000;
@@ -873,9 +1258,6 @@ class QuotaService {
     });
   }
 
-  /**
-   * Lấy thống kê chi tiết của tất cả các mô hình AI đã từng gọi
-   */
   public getAggregatedModelStats(timestamp: number = Date.now()): Record<string, ModelUsageStats> {
     const aggregated: Record<string, {
       requestsTotal: number;
@@ -950,10 +1332,6 @@ class QuotaService {
     return result;
   }
 
-  /**
-   * Ghi nhận vòng đời của một yêu cầu dịch logic (Logical Translation Request)
-   * Tách biệt rõ ràng giữa số lần người dùng gửi yêu cầu và số lần gọi API thực tế (Provider Attempts/Retries)
-   */
   public recordLogicalRequest(
     modelName: string,
     status: 'success' | 'failure',
@@ -963,7 +1341,6 @@ class QuotaService {
   ): void {
     const currentDay = getDayInLosAngeles(timestamp);
 
-    // Kiểm tra reset ngày cho logicalStats
     if (this.logicalStats.lastResetDay !== currentDay) {
       this.logicalStats.logicalRequestsToday = 0;
       this.logicalStats.successfulRequestsToday = 0;
@@ -999,7 +1376,6 @@ class QuotaService {
       this.logicalStats.failedAttemptsToday += safeAttempts;
     }
 
-    // Ghi nhận theo Model
     const normalizedModel = modelName ? (modelName.startsWith('models/') ? modelName : `models/${modelName}`) : 'unknown';
     let mStats = this.modelLogicalStatsMap.get(normalizedModel);
     if (!mStats) {
@@ -1038,9 +1414,6 @@ class QuotaService {
     }
   }
 
-  /**
-   * Lấy thống kê tổng hợp toàn hệ thống (Logical & Provider Summary)
-   */
   public getLogicalSummary(timestamp: number = Date.now()): LogicalSummaryStats {
     const currentDay = getDayInLosAngeles(timestamp);
     if (this.logicalStats.lastResetDay !== currentDay) {
@@ -1056,11 +1429,11 @@ class QuotaService {
     return { ...this.logicalStats };
   }
 
-  /**
-   * Reset toàn bộ dữ liệu in-memory (dùng cho testing)
-   */
   public resetAll(): void {
+    this.groupsMap.clear();
+    this.keyToGroupId.clear();
     this.keyStatsMap.clear();
+    this.groupPstResetDay.clear();
     this.modelLogicalStatsMap.clear();
     this.recentAttempts = [];
     this.schedulerStats = {
@@ -1075,6 +1448,9 @@ class QuotaService {
         unsupported_model: 0,
         quota_exhausted: 0,
         disabled: 0,
+        no_healthy_keys: 0,
+        group_rate_limited: 0,
+        group_quota_exhausted: 0,
       },
     };
     this.logicalStats = {

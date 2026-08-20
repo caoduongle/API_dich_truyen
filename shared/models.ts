@@ -225,3 +225,112 @@ export const MAX_API_KEYS_PER_REQUEST = 20;
 
 export const PACING_SAFETY_FLOOR_SERVER_MS = 400;
 export const PACING_SAFETY_FLOOR_CLIENT_MS = 500;
+
+/**
+ * ── 4-TIER QUOTA DATA CLASSIFICATION ──
+ * providerQuota: Official provider limits from Google documentation or metadata (isVerified=false by default).
+ * configuredQuota: User-configured scheduling hints/limits.
+ * observedUsage: Empirical request counts, token volumes, and errors observed at runtime.
+ * schedulingHint: Inferred pacing intervals and safety delays.
+ */
+
+export interface ProviderQuota {
+  rpm: number;
+  tpm: number;
+  rpd?: number;
+  isVerified: boolean;
+  verifiedAt?: string;
+}
+
+export interface ConfiguredQuota {
+  configuredRpm?: number;
+  configuredTpm?: number;
+  configuredRpd?: number;
+  customPacingFloorMs?: number;
+}
+
+export interface GroupObservedUsage {
+  requestsTotal: number;
+  requestsToday: number;
+  requestsThisMinute: number;
+  tokensTotal: number;
+  tokensToday: number;
+  tokensThisMinute: number;
+  errorsTotal: number;
+  errorsToday: number;
+  lastRequestTimestamp: number;
+}
+
+export interface GroupSchedulingHint {
+  effectiveIntervalMs: number;
+  safetyFloorMs: number;
+  isCustom: boolean;
+  estimatedThroughputRpm: number;
+}
+
+export type GroupHealthState =
+  | 'Available'
+  | 'RateLimited'
+  | 'Exhausted'
+  | 'InCooldown'
+  | 'NoHealthyKeys'
+  | 'Disabled';
+
+export type KeyHealthState =
+  | 'Healthy'
+  | 'Degraded'
+  | 'RateLimited'
+  | 'QuotaExhausted'
+  | 'AuthFailed'
+  | 'Cooldown'
+  | 'Disabled';
+
+export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
+
+export interface KeyObservedAttempts {
+  attemptsTotal: number;
+  attemptsToday: number;
+  successfulAttempts: number;
+  failedAttempts: number;
+  lastErrorCode?: string | null;
+  consecutiveFailures: number;
+}
+
+export interface ApiKeyEntity {
+  id: string; // key hash / identifier
+  groupId: string;
+  maskedKey: string;
+  healthState: KeyHealthState;
+  circuitBreaker: CircuitBreakerStatus;
+  circuitBreakerFailures: number;
+  cooldownUntilMs: number;
+  lastUsedAtMs: number;
+  transitionReason?: string;
+  observedAttempts: KeyObservedAttempts;
+}
+
+export interface QuotaGroup {
+  id: string;
+  projectId?: string;
+  name?: string;
+  keyIds: string[];
+  configuredLimits: ConfiguredQuota;
+  providerQuota: ProviderQuota;
+  observedUsage: GroupObservedUsage;
+  schedulingHint: GroupSchedulingHint;
+  healthState: GroupHealthState;
+  cooldownUntilMs: number;
+  nextAllowedTimeMs: number;
+  callLog?: Array<{ timestamp: number; tokens: number }>;
+}
+
+export interface QuotaGroupConfigInput {
+  id?: string;
+  projectId?: string;
+  name?: string;
+  configuredRpm?: number;
+  configuredTpm?: number;
+  configuredRpd?: number;
+  keyIds: string[];
+}
+

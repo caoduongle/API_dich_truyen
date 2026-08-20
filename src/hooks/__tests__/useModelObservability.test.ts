@@ -16,6 +16,7 @@ describe('useModelObservability Hook', () => {
   it('defines the required observability interface contracts', () => {
     const mockState: ReturnType<typeof useModelObservability> = {
       snapshotKeys: [],
+      groups: [],
       summary: null,
       loadingQuota: false,
       quotaError: null,
