@@ -212,3 +212,19 @@ Loại bỏ hoàn toàn hiện tượng Thundering Herd và tối ưu hóa lưu 
 3. **Bounded Memory & Race-Safe**:
    - Tất cả các in-flight promises luôn được giải phóng trong khối `finally`.
    - Timer dọn dẹp định kỳ tự động loại bỏ các bản ghi hết hạn khỏi bộ nhớ.
+
+---
+
+## 14. Cổng Kiểm Soát Đồng Thời Kèm Hàng Đợi Có Giới Hạn (Bounded Concurrency Queue & Backpressure)
+
+Đảm bảo kiểm soát tải đồng thời chuẩn mực cho các tác vụ dịch thuật và dịch hàng loạt (Batch Translation):
+1. **Ngữ Nghĩa Hàng Đợi Có Giới Hạn (Bounded Concurrency Queue)**:
+   - `maxConcurrent = 50`: Tối đa 50 yêu cầu in-flight đồng thời thực thi trực tiếp với Google Gemini API.
+   - `maxDepth = 100`: Cho phép tối đa 100 yêu cầu xếp hàng chờ trong bộ nhớ.
+   - **Yêu cầu thứ 51**: Không bị reject đột ngột mà được đưa vào hàng đợi chờ và tự động kích hoạt ngay khi 1 slot trong 50 slots trước đó hoàn thành (`drainNext`).
+2. **Cơ Chế Áp Lực Ngược Nghiêm Ngặt (Strict Backpressure)**:
+   - Nghiêm cấm hàng đợi vô hạn (No Unbounded Queues). Khi đạt tới 150 requests ($50 + 100$), yêu cầu thứ 151 trở đi sẽ bị từ chối ngay lập tức với lỗi `QUEUE_FULL`.
+3. **Timeout, Cancellation & Failure Isolation**:
+   - Tự động hủy nếu chờ quá 30 giây trong hàng đợi (`QUEUE_TIMEOUT`).
+   - Hỗ trợ `AbortSignal` để hủy tức thời khi người dùng dừng tác vụ.
+   - Khe chạy luôn được giải phóng an toàn 100% trong khối `finally` kể cả khi tác vụ ném ngoại lệ (`Error`).

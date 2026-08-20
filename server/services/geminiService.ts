@@ -8,6 +8,7 @@ import { normalizeUpstreamError } from "../utils/errorClassifier";
 import { AIErrorCode } from "../constants/errors";
 import { logAttemptTelemetry } from "../utils/telemetryLogger";
 import { generateRequestId } from "../middleware/tracingMiddleware";
+import { geminiConcurrencyGate } from "./concurrencyGate";
 
 /**
  * Tính toán khoảng cách an toàn (mili-giây) giữa các request cho một Quota Group
@@ -66,9 +67,6 @@ const DEFAULT_SAFETY_SETTINGS = [
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // --- QUEUE BACKPRESSURE & CONCURRENCY CONTROLLER ---
-let activeConcurrentRequests = 0;
-const MAX_CONCURRENT_REQUESTS = 50;
-
 const nextAllowedTimeByKey = new Map<string, number>();
 const nextAllowedTimeByGroup = new Map<string, number>();
 
@@ -112,8 +110,8 @@ export const _testMaps = {
   nextAllowedTimeByGroup,
   cleanupStaleKeys,
   stopGeminiCleanup,
-  getActiveConcurrentRequests: () => activeConcurrentRequests,
-  resetActiveRequests: () => { activeConcurrentRequests = 0; },
+  getActiveConcurrentRequests: () => geminiConcurrencyGate.getMetrics().activeCount,
+  resetActiveRequests: () => { geminiConcurrencyGate.resetForTesting(); },
 };
 
 export interface KeyRuntimeStatus {
@@ -197,17 +195,11 @@ export async function generateWithRotation(
     perKeyRpm?: Record<string, number> | number[],
     requestId?: string
 ): Promise<{ text: string; successKeyIndex: number; requestId?: string }> {
-  // Backpressure check
-  if (activeConcurrentRequests >= MAX_CONCURRENT_REQUESTS) {
-    throw new Error('Hệ thống dịch thuật hiện đang quá tải số lượng yêu cầu đồng thời. Vui lòng thử lại sau giây lát.');
-  }
+  return geminiConcurrencyGate.execute(async () => {
+    const activeRequestId = (typeof requestId === 'string' && requestId.trim())
+      ? requestId.trim()
+      : generateRequestId();
 
-  activeConcurrentRequests++;
-  const activeRequestId = (typeof requestId === 'string' && requestId.trim())
-    ? requestId.trim()
-    : generateRequestId();
-
-  try {
     const rawKeys = (Array.isArray(apiKeys) && apiKeys.length > 0)
         ? apiKeys.map(k => k.trim()).filter(Boolean)
         : [process.env.GEMINI_API_KEY || ""];
@@ -456,7 +448,5 @@ export async function generateWithRotation(
     const rawLastMsg = String(lastError?.message || lastError || "Không xác định");
     const sanitizedLastMsg = redactApiKey(rawLastMsg, rawKeys);
     throw new Error(`ALL_KEYS_EXHAUSTED: Đã thử toàn bộ ${rawKeys.length} khóa API đều thất bại. Lỗi cuối: ${sanitizedLastMsg}`);
-  } finally {
-    activeConcurrentRequests = Math.max(0, activeConcurrentRequests - 1);
-  }
+  });
 }
