@@ -3,7 +3,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService";
 import { normalizeUpstreamError } from "../../utils/errorClassifier";
 import { AIErrorCode } from "../../constants/errors";
-import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody, sanitizePromptInput } from "../../utils/text";
+import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody, sanitizePromptInput, ensureChapterTitlePreserved, validateTranslationOutput } from "../../utils/text";
 import { translationChunkCache } from "../../utils/chunkCache";
 import { checkLeftoverGlossary } from "../glossaryController";
 import { isHanEquivalent } from "@shared/sinoNormalize";
@@ -119,6 +119,7 @@ ${getGenreStyleGuide(genre)}
 - Hãy chuốt lại câu cú tiếng Việt cho mượt mà, bay bổng, loại bỏ hoàn toàn cảm giác "dịch máy", giữ đúng tông giọng ${tone}.
 - Đảm bảo mạch văn trôi chảy, danh từ riêng chuẩn xác theo từ điển và âm Hán Việt.
 - BẢO TOÀN NGUYÊN VẸN CẤU TRÚC ĐOẠN VĂN: Tuyệt đối không tự ý gộp đoạn, không tách đoạn, không nối các dòng hội thoại lại với nhau. Số lượng đoạn văn ở bản chuốt phải tương ứng chính xác với số đoạn ở bản dịch thô!
+- TIÊU ĐỀ CHƯƠNG LÀ BẤT BIẾN: Nếu dòng đầu tiên của bản dịch thô là tiêu đề chương (ví dụ: "Chương 1: ..."), bạn BẮT BUỘC phải giữ lại nguyên vẹn tiêu đề này trên dòng đầu tiên của bản chuốt, ngăn cách với thân bài bằng dòng trống. TUYỆT ĐỐI KHÔNG xóa, không gộp tiêu đề chương vào đoạn văn mở đầu.
 - CHỈ TRẢ VỀ DUY NHẤT ĐỐI TƯỢNG JSON với thuộc tính "polishedTranslation". Không viết thêm bất kỳ lời dẫn nào ngoài JSON.`;
 
   const systemInstruction = `Bạn là một biên tập viên văn học và dịch giả đại tài, chuyên gia trau chuốt tiểu thuyết ngôn tình, tiên hiệp, kiếm hiệp, đô thị Trung - Việt.
@@ -128,14 +129,15 @@ Nguyên tắc:
 1. Giữ nguyên 100% cốt truyện, nhân vật và đại từ xưng hô đã được định hình ở giai đoạn 1.
 2. Tuân thủ tuyệt đối từ điển riêng được cung cấp.
 3. Câu văn phải thuần Việt, uyển chuyển, tự nhiên như tác phẩm được sáng tác bởi tác giả Việt Nam.
-4. ĐẶC BIỆT: Giữ nguyên số lượng đoạn và cách ngắt dòng, tuyệt đối không gộp các đoạn văn lại với nhau.`;
+4. ĐẶC BIỆT: Giữ nguyên số lượng đoạn và cách ngắt dòng, tuyệt đối không gộp các đoạn văn lại với nhau.
+5. ĐẶC BIỆT VỀ TIÊU ĐỀ CHƯƠNG: Nếu bản dịch thô có tiêu đề chương ở dòng đầu tiên, phải giữ nguyên vẹn tiêu đề đó trên dòng đầu tiên của bản chuốt, cách thân chương bằng dòng trống (\\n\\n). Tuyệt đối không xóa hoặc gộp tiêu đề chương vào thân bài.`;
 
   const schema = {
     type: Type.OBJECT,
     properties: {
       polishedTranslation: {
         type: Type.STRING,
-        description: "Bản dịch đã được chau chuốt mượt mà, chuẩn văn phong văn học tiếng Việt."
+        description: "Bản dịch đã được chau chuốt mượt mà, chuẩn văn phong văn học tiếng Việt, giữ nguyên tiêu đề chương ở dòng đầu tiên nếu có."
       }
     },
     required: ["polishedTranslation"]
@@ -181,8 +183,11 @@ Nguyên tắc:
     }
   }
 
-  // Tự động phân tách tiêu đề và thân chương nếu bị dính dòng
-  finalPolishedTranslation = separateChapterTitleAndBody(finalPolishedTranslation);
+  // Tự động bảo toàn và khôi phục tiêu đề chương nếu bị AI Phase 2 lược bỏ
+  finalPolishedTranslation = ensureChapterTitlePreserved(rawTranslation, finalPolishedTranslation);
+
+  // Xác thực bản dịch chuốt không rỗng và không sót tỉ lệ chữ Hán bất thường (> 10%)
+  validateTranslationOutput(finalPolishedTranslation);
 
   return {
     polishedTranslation: finalPolishedTranslation || "",
@@ -253,7 +258,8 @@ export async function polishWithContentSplit(
       polishedParagraphs.push(res.polishedTranslation);
       currentKeyIdx = res.successKeyIndex;
     }
-    const combinedTranslation = polishedParagraphs.join("\n\n");
+    let combinedTranslation = polishedParagraphs.join("\n\n");
+    combinedTranslation = ensureChapterTitlePreserved(rawTranslation, combinedTranslation);
     translationChunkCache.set(cacheKey, { text: combinedTranslation });
     return {
       polishedTranslation: combinedTranslation,
@@ -417,7 +423,10 @@ export async function polishWithContentSplit(
         throw error;
       }
 
-      const combinedPolished = results.map(r => r.polishedTranslation).join("\n\n").trim();
+      let combinedPolished = results.map(r => r.polishedTranslation).join("\n\n").trim();
+      if (depth === 0) {
+        combinedPolished = ensureChapterTitlePreserved(rawTranslation, combinedPolished);
+      }
       const lastSuccessKey = results.findLast((r: any) => !r.isPartial)?.successKeyIndex ?? results[results.length - 1].successKeyIndex;
 
       if (!hasPartial) {

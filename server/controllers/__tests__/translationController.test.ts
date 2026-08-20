@@ -112,6 +112,60 @@ describe('Translation Controller Suite', () => {
       );
       expect(mockGenerate.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
+
+    it('triggers Divide & Conquer retry when model returns mostly untranslated Chinese text (BUG 2 Fix)', async () => {
+      const mockGenerate = vi.mocked(geminiService.generateWithRotation);
+      const mockSafety = vi.mocked(geminiService.isSafetyOrEmptyError);
+      mockSafety.mockImplementation((err: any) => {
+        const msg = String(err?.message || err);
+        return msg.includes('UNTRANSLATED_CHINESE_LEFTOVER') || msg.includes('chứa tỉ lệ chữ Hán');
+      });
+
+      // Lần 1: Model trả về nguyên tác tiếng Trung (chưa dịch)
+      mockGenerate.mockResolvedValueOnce({
+        text: JSON.stringify({
+          rawTranslation: '第一章 陨落的天才。萧炎盘膝坐在石床上，闭目修炼。深夜时分，远处的警笛声传来。'.repeat(10),
+          discoveredEntities: [],
+        }),
+        successKeyIndex: 0,
+      });
+
+      // Các lần chia sau: Dịch thành công sang tiếng Việt
+      mockGenerate.mockResolvedValue({
+        text: JSON.stringify({
+          rawTranslation: 'Chương 1: Thiên Tài Sa Sút. Tiêu Viêm ngồi xếp bằng trên giường đá tu luyện.',
+          discoveredEntities: [],
+        }),
+        successKeyIndex: 0,
+      });
+
+      const longText = '第一章 陨落的天才。萧炎盘膝坐在石床上，闭目修炼。'.repeat(30);
+
+      const req = {
+        body: {
+          text: longText,
+          genre: 'Tiên Hiệp',
+          tone: 'Trang trọng',
+          glossary: [],
+          apiKeys: ['test-key'],
+          model: 'gemini-2.5-flash',
+        },
+      } as any;
+
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as any;
+
+      await translateRaw(req, res);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawTranslation: expect.stringContaining('Chương 1: Thiên Tài Sa Sút'),
+        })
+      );
+      // Confirms retry was triggered (at least 2 generate calls)
+      expect(mockGenerate.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
   });
 
   describe('polishTranslation', () => {
@@ -126,28 +180,28 @@ describe('Translation Controller Suite', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('successfully polishes raw translation with style guide', async () => {
+    it('automatically restores chapter title when AI Phase 2 omits it (BUG 1 Fix)', async () => {
       const mockGenerate = vi.mocked(geminiService.generateWithRotation);
       mockGenerate.mockReset();
       const mockSafety = vi.mocked(geminiService.isSafetyOrEmptyError);
       mockSafety.mockReturnValue(false);
 
+      // AI Phase 2 omits the title and returns only the body paragraphs
       mockGenerate.mockResolvedValueOnce({
         text: JSON.stringify({
-          polishedTranslation: 'Chương 1: Phế sài trỗi dậy. Gió đêm vi vu thổi qua rèm cửa.',
+          polishedTranslation: 'Gió đêm vi vu thổi qua rèm cửa sổ, không gian tĩnh lặng lạ thường.',
         }),
         successKeyIndex: 0,
       });
 
       const req = {
         body: {
-          rawTranslation: 'Chương 1: Phế sài quật khởi. Gió đêm thổi rèm cửa.',
-          sourceText: '第一章 废柴崛起。夜风吹动窗帘。',
+          rawTranslation: 'Chương 1: Phế Sài Quật Khởi\n\nGió đêm thổi rèm cửa sổ, không gian tĩnh lặng.',
+          sourceText: '第一章 废柴崛起。\n\n夜风吹动窗帘。',
           genre: 'Huyền Huyễn',
-          tone: 'Cổ phong, trau chuốt',
+          tone: 'Cổ phong',
           apiKeys: ['test-key'],
           model: 'gemini-2.5-flash',
-          isExtractionEnabled: false,
         },
       } as any;
 
@@ -159,7 +213,7 @@ describe('Translation Controller Suite', () => {
       await polishTranslation(req, res);
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          polishedTranslation: 'Chương 1: Phế sài trỗi dậy\n\nGió đêm vi vu thổi qua rèm cửa.',
+          polishedTranslation: expect.stringMatching(/^Chương 1: Phế Sài Quật Khởi\n\nGió đêm vi vu thổi qua rèm cửa sổ/),
         })
       );
     });

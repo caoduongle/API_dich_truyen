@@ -3,7 +3,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError } from "../../services/geminiService";
 import { normalizeUpstreamError } from "../../utils/errorClassifier";
 import { AIErrorCode } from "../../constants/errors";
-import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody, sanitizePromptInput } from "../../utils/text";
+import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGuide, escapeRegex, LITERARY_TRANSLATION_FRAMING, separateChapterTitleAndBody, sanitizePromptInput, validateTranslationOutput } from "../../utils/text";
 import { translationChunkCache } from "../../utils/chunkCache";
 import { validateAndSnapBackEntities, findCanonicalSubstring } from "@shared/sinoNormalize";
 import { validateTranslateRawBody } from "../../utils/validation";
@@ -192,6 +192,9 @@ ${substitutedText}`;
 
   // Tự động phân tách tiêu đề và thân chương nếu bị dính dòng
   finalRawTranslation = separateChapterTitleAndBody(finalRawTranslation);
+
+  // Xác thực bản dịch không rỗng và không sót tỉ lệ chữ Hán bất thường (> 10%)
+  validateTranslationOutput(finalRawTranslation);
 
   return {
     rawTranslation: finalRawTranslation || "",

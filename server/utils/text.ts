@@ -25,6 +25,65 @@ export function sanitizePromptInput(text: string): string {
   return withoutZeroWidth.replace(/[\u{E0000}-\u{E007F}]/gu, "");
 }
 
+export const CHINESE_CHAR_REGEX = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g;
+export const CHAPTER_TITLE_REGEX = /^(?:Chương|Chapter|Hồi|Quyển|Tập|Thứ\s+\d+\s*chương|第\s*[\d零一二三四五六七八九十百千万]+\s*[章节回卷])\s*(?:\d+|[IVXLCDM]+|[a-zA-ZÀ-ỹ0-9零一二三四五六七八九十百千万]+)?(?:\s*[:.\-—\s].*)?$/iu;
+
+/**
+ * Kiểm tra xem một dòng văn bản có phải là tiêu đề chương hợp lệ hay không
+ */
+export function isChapterTitleLine(line: string): boolean {
+  if (!line || typeof line !== 'string') return false;
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  return CHAPTER_TITLE_REGEX.test(trimmed);
+}
+
+/**
+ * Trích xuất tiêu đề chương từ văn bản (nếu dòng đầu tiên là tiêu đề chương)
+ */
+export function extractChapterTitle(text: string): string | null {
+  if (!text || typeof text !== 'string') return null;
+  const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length > 0 && isChapterTitleLine(lines[0])) {
+    return lines[0];
+  }
+  return null;
+}
+
+/**
+ * Đếm số lượng ký tự chữ Hán trong văn bản
+ */
+export function countChineseCharacters(text: string): number {
+  if (!text || typeof text !== 'string') return 0;
+  const matches = text.match(CHINESE_CHAR_REGEX);
+  return matches ? matches.length : 0;
+}
+
+/**
+ * Tính tỉ lệ ký tự Hán trên tổng số ký tự không khoảng trắng (0.0 đến 1.0)
+ */
+export function calculateChineseCharRatio(text: string): number {
+  if (!text || typeof text !== 'string') return 0;
+  const nonWhitespace = text.replace(/\s+/g, '');
+  if (nonWhitespace.length === 0) return 0;
+  const zhCount = countChineseCharacters(nonWhitespace);
+  return zhCount / nonWhitespace.length;
+}
+
+/**
+ * Xác thực văn bản dịch thuật, ném lỗi UNTRANSLATED_CHINESE_LEFTOVER nếu tỉ lệ chữ Hán vượt ngưỡng
+ */
+export function validateTranslationOutput(text: string, minLength: number = 50, maxRatio: number = 0.10): void {
+  if (!text || typeof text !== 'string' || text.trim() === '') {
+    throw new Error("Không nhận được phản hồi dịch từ AI (kết quả trả về trống).");
+  }
+  const trimmed = text.trim();
+  const ratio = calculateChineseCharRatio(trimmed);
+  if (trimmed.length >= minLength && ratio > maxRatio) {
+    throw new Error(`UNTRANSLATED_CHINESE_LEFTOVER: Bản dịch chứa tỉ lệ chữ Hán bất thường (${(ratio * 100).toFixed(1)}% > ${(maxRatio * 100)}%), nghi ngờ AI chưa dịch.`);
+  }
+}
+
 /**
  * Tự động phát hiện và tách dòng nếu tiêu đề chương bị dính liền với câu văn mở đầu
  */
@@ -51,6 +110,30 @@ export function separateChapterTitleAndBody(text: string): string {
   }
 
   return trimmed;
+}
+
+/**
+ * Bảo toàn và khôi phục tiêu đề chương từ bản dịch thô (Phase 1) sang bản chuốt (Phase 2)
+ * Nếu Phase 2 bị AI lược bỏ tiêu đề, tự động khôi phục tiêu đề từ Phase 1.
+ */
+export function ensureChapterTitlePreserved(rawText: string, polishedText: string): string {
+  if (!rawText || typeof rawText !== 'string') return separateChapterTitleAndBody(polishedText || "");
+  if (!polishedText || typeof polishedText !== 'string') return "";
+
+  const rawTitle = extractChapterTitle(rawText);
+  if (!rawTitle) {
+    return separateChapterTitleAndBody(polishedText);
+  }
+
+  const cleanedPolished = separateChapterTitleAndBody(polishedText).trim();
+  const polishedTitle = extractChapterTitle(cleanedPolished);
+
+  if (!polishedTitle) {
+    // Phase 2 dropped the chapter title -> prepend the raw chapter title from Phase 1
+    return [rawTitle, "", cleanedPolished].join('\n');
+  }
+
+  return cleanedPolished;
 }
 
 export function getGenreStyleGuide(genre: string): string {

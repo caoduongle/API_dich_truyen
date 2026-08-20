@@ -8,7 +8,13 @@ import {
   getGenreStyleGuide,
   LITERARY_TRANSLATION_FRAMING,
   ANTI_INJECTION_DEFENSE_DIRECTIVE,
-  sanitizePromptInput
+  sanitizePromptInput,
+  isChapterTitleLine,
+  extractChapterTitle,
+  ensureChapterTitlePreserved,
+  countChineseCharacters,
+  calculateChineseCharRatio,
+  validateTranslationOutput
 } from '../text';
 
 describe('text utils', () => {
@@ -189,6 +195,88 @@ describe('text utils', () => {
       expect(sanitizePromptInput('')).toBe('');
       expect(sanitizePromptInput(null as any)).toBe('');
       expect(sanitizePromptInput(undefined as any)).toBe('');
+    });
+  });
+
+  describe('isChapterTitleLine & extractChapterTitle (BUG 1)', () => {
+    it('should identify Vietnamese chapter titles accurately', () => {
+      expect(isChapterTitleLine('Chương 1: Đài Phát Thanh Kinh Hoàng')).toBe(true);
+      expect(isChapterTitleLine('Chương 123 - Trở Lại')).toBe(true);
+      expect(isChapterTitleLine('Hồi 5: Đại Náo Thiên Cung')).toBe(true);
+      expect(isChapterTitleLine('Quyển 2: Ma Giới')).toBe(true);
+      expect(isChapterTitleLine('Chapter 10: The Beginning')).toBe(true);
+      expect(isChapterTitleLine('第十章 恐怖')).toBe(true);
+    });
+
+    it('should reject normal prose lines as chapter titles', () => {
+      expect(isChapterTitleLine('Đêm khuya thanh vắng, tiếng còi xe vang lên.')).toBe(false);
+      expect(isChapterTitleLine('Lâm Phong nhìn lên bầu trời.')).toBe(false);
+      expect(isChapterTitleLine('')).toBe(false);
+    });
+
+    it('should extract chapter title from beginning of text', () => {
+      const text = 'Chương 1: Khởi Đầu\n\nNội dung chương một.';
+      expect(extractChapterTitle(text)).toBe('Chương 1: Khởi Đầu');
+    });
+
+    it('should return null when text does not start with a chapter title', () => {
+      const text = 'Đêm khuya tĩnh mịch.\nChương 1: Giữa bài viết.';
+      expect(extractChapterTitle(text)).toBeNull();
+    });
+  });
+
+  describe('ensureChapterTitlePreserved (BUG 1)', () => {
+    it('should preserve existing chapter title in polished text', () => {
+      const raw = 'Chương 1: Đài Phát Thanh\n\nBản dịch thô thân bài.';
+      const polished = 'Chương 1: Đài Phát Thanh\n\nBản chuốt thân bài mượt mà.';
+      const result = ensureChapterTitlePreserved(raw, polished);
+      expect(result).toBe('Chương 1: Đài Phát Thanh\n\nBản chuốt thân bài mượt mà.');
+    });
+
+    it('should restore chapter title when AI Phase 2 dropped it', () => {
+      const raw = 'Chương 1: Đài Phát Thanh Kinh Hoàng\n\nBản dịch thô câu mở đầu.';
+      const polishedWithoutTitle = 'Đêm khuya tĩnh mịch, câu mở đầu đã được trau chuốt tuyệt vời.';
+      const result = ensureChapterTitlePreserved(raw, polishedWithoutTitle);
+      
+      expect(result.startsWith('Chương 1: Đài Phát Thanh Kinh Hoàng\n\n')).toBe(true);
+      expect(result).toContain('Đêm khuya tĩnh mịch, câu mở đầu đã được trau chuốt tuyệt vời.');
+    });
+
+    it('should not add title if raw text had no chapter title', () => {
+      const raw = 'Đêm khuya thanh vắng, câu mở đầu.';
+      const polished = 'Đêm khuya tĩnh mịch, câu mở đầu mượt mà.';
+      const result = ensureChapterTitlePreserved(raw, polished);
+      expect(result).toBe('Đêm khuya tĩnh mịch, câu mở đầu mượt mà.');
+    });
+  });
+
+  describe('Chinese Character Detection & validateTranslationOutput (BUG 2)', () => {
+    it('should count Chinese characters accurately', () => {
+      const zh = '深夜时分，远处的警笛声传来。';
+      expect(countChineseCharacters(zh)).toBe(12);
+      expect(countChineseCharacters('Văn bản tiếng Việt thuần túy.')).toBe(0);
+    });
+
+    it('should calculate Chinese character ratio accurately', () => {
+      const mixed = 'Chương 1: [Lâm Phong] 站在窗前，神色凝重。';
+      const ratio = calculateChineseCharRatio(mixed);
+      expect(ratio).toBeGreaterThan(0.2); // > 20%
+      expect(calculateChineseCharRatio('Văn bản tiếng Việt hoàn toàn không có chữ Hán.')).toBe(0);
+    });
+
+    it('should throw UNTRANSLATED_CHINESE_LEFTOVER when ratio exceeds 10% on long text', () => {
+      const untranslated = '深夜时分，远处的警笛声隐约传来。[Lâm Phong]站在窗前，神色凝重地注视着街道。这已经是第三个夜晚。';
+      expect(() => validateTranslationOutput(untranslated, 50, 0.10)).toThrow(/UNTRANSLATED_CHINESE_LEFTOVER/);
+    });
+
+    it('should pass validation for clean Vietnamese text', () => {
+      const cleanVn = 'Đêm khuya tĩnh mịch, từ nơi xa vọng lại tiếng còi xe cảnh sát xé toạc màn đêm thanh vắng.';
+      expect(() => validateTranslationOutput(cleanVn, 50, 0.10)).not.toThrow();
+    });
+
+    it('should throw for empty or whitespace-only text', () => {
+      expect(() => validateTranslationOutput('')).toThrow(/kết quả trả về trống/);
+      expect(() => validateTranslationOutput('   ')).toThrow(/kết quả trả về trống/);
     });
   });
 });

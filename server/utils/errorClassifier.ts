@@ -53,7 +53,11 @@ export function normalizeUpstreamError(
     lowerMsg.includes('recitation') ||
     lowerMsg.includes('trống') ||
     lowerMsg.includes('bộ lọc') ||
-    lowerMsg.includes('empty')
+    lowerMsg.includes('empty') ||
+    lowerMsg.includes('untranslated_chinese_leftover') ||
+    lowerMsg.includes('tỉ lệ chữ hán') ||
+    lowerMsg.includes('tỷ lệ chữ hán') ||
+    lowerMsg.includes('chưa dịch')
   ) {
     return {
       code: AIErrorCode.SAFETY_BLOCKED,
