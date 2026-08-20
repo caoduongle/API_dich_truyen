@@ -12,17 +12,23 @@ vi.mock("ioredis", () => {
   };
 });
 
+import { resetRateLimiterForTesting } from "../rateLimiter";
+import { redisManager } from "../../services/redisService";
+
 describe("Rate Limiter Middleware", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    redisManager.resetForTesting();
+    resetRateLimiterForTesting();
     process.env = { ...originalEnv };
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    redisManager.resetForTesting();
   });
 
   describe("In-Memory Mode (no REDIS_URL)", () => {

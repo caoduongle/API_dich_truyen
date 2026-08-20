@@ -7,6 +7,7 @@ import apiRouter from "./server/routes/api";
 import { createRateLimiter } from "./server/middleware/rateLimiter";
 import { metricsMiddleware } from "./server/middleware/metricsMiddleware";
 import { SERVER_CONFIG } from "@shared/constants";
+import { redisManager } from "./server/services/redisService";
 
 import { requestIdMiddleware } from "./server/middleware/tracingMiddleware";
 
@@ -79,8 +80,14 @@ async function startServer() {
     }
   });
 
-  const shutdown = () => {
+  const shutdown = async () => {
     console.log("\n[Server] Shutting down server gracefully...");
+    try {
+      await redisManager.close();
+      console.log("[Server] Redis connections closed.");
+    } catch (err) {
+      console.error("[Server] Error closing Redis connections:", err);
+    }
     server.close(() => {
       console.log("[Server] HTTP server closed.");
       process.exit(0);

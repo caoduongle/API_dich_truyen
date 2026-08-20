@@ -1,5 +1,6 @@
 import crypto from "crypto";
-import Redis from "ioredis";
+import type Redis from "ioredis";
+import { redisManager } from "./redisService";
 
 export interface SessionData {
   apiKeys: string[];
@@ -19,23 +20,18 @@ const SESSION_PREFIX = "session_keys:";
 
 class SessionStore {
   private memorySessions = new Map<string, SessionData>();
-  private redisClient: Redis | null = null;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private _customRedisClient: Redis | null = null;
+
+  private get redisClient(): Redis | null {
+    return this._customRedisClient ?? redisManager.getClient();
+  }
+
+  private set redisClient(client: Redis | null) {
+    this._customRedisClient = client;
+  }
 
   constructor() {
-    const redisUrl = process.env.REDIS_URL;
-    if (redisUrl) {
-      try {
-        this.redisClient = new Redis(redisUrl);
-        this.redisClient.on("error", (err) => {
-          console.error("[SessionStore] Redis connection error:", err);
-        });
-      } catch (err) {
-        console.error("[SessionStore] Failed to initialize Redis client:", err);
-        this.redisClient = null;
-      }
-    }
-
     // In-memory cleanup interval
     this.cleanupInterval = setInterval(() => {
       const now = Date.now();

@@ -1,5 +1,6 @@
 import crypto from "crypto";
-import Redis from "ioredis";
+import type Redis from "ioredis";
+import { redisManager } from "./redisService";
 
 export const DEFAULT_AUTH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 ngày
 const AUTH_TOKEN_PREFIX = "auth_token:";
@@ -11,23 +12,18 @@ interface TokenData {
 
 class AuthStore {
   private memoryTokens = new Map<string, TokenData>();
-  private redisClient: Redis | null = null;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private _customRedisClient: Redis | null = null;
+
+  private get redisClient(): Redis | null {
+    return this._customRedisClient ?? redisManager.getClient();
+  }
+
+  private set redisClient(client: Redis | null) {
+    this._customRedisClient = client;
+  }
 
   constructor() {
-    const redisUrl = process.env.REDIS_URL;
-    if (redisUrl) {
-      try {
-        this.redisClient = new Redis(redisUrl);
-        this.redisClient.on("error", (err) => {
-          console.error("[AuthStore] Redis connection error:", err);
-        });
-      } catch (err) {
-        console.error("[AuthStore] Failed to initialize Redis client:", err);
-        this.redisClient = null;
-      }
-    }
-
     // In-memory token cleanup
     this.cleanupInterval = setInterval(() => {
       const now = Date.now();

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
-import Redis from "ioredis";
+import type Redis from "ioredis";
 import { SERVER_CONFIG } from "@shared/constants";
+import { redisManager } from "../services/redisService";
 
 export type RateLimiterEndpointType = 'auth' | 'translation' | 'non-critical';
 export type RateLimiterRedisStatus = 'connected' | 'degraded' | 'disconnected';
@@ -92,7 +93,7 @@ export function createRateLimiter(options?: RateLimiterOptions) {
   const windowMs = options?.windowMs ?? defaultWindowMs;
   const maxRequests = options?.maxRequests ?? defaultMaxRequests;
   const keyPrefix = options?.keyPrefix ?? defaultKeyPrefix;
-  const redisUrl = process.env.REDIS_URL;
+  const redisClient = redisManager.getClient();
 
   // Bounded in-memory fallback store
   const localCounts = new Map<string, { count: number; resetTime: number }>();
@@ -135,7 +136,7 @@ export function createRateLimiter(options?: RateLimiterOptions) {
     existing.count++;
     if (existing.count > maxRequests) {
       const remainingSeconds = Math.ceil((existing.resetTime - now) / 1000);
-      const errorMsg = options?.message || defaultMessage || `Quá nhiều yêu cầu. Vui lòng chờ ${remainingSeconds} giây rồi thử lại.`;
+      const errorMsg = options?.message || (endpointType === 'auth' ? defaultMessage : `Quá nhiều yêu cầu. Vui lòng chờ ${remainingSeconds} giây rồi thử lại.`);
       res.status(429).json({
         error: errorMsg,
         code: 'RATE_LIMITED',
@@ -147,14 +148,9 @@ export function createRateLimiter(options?: RateLimiterOptions) {
     next();
   };
 
-  if (redisUrl) {
+  if (redisClient) {
     let isRedisHealthy = true;
     globalRedisStatus = 'connected';
-    const redisClient = new Redis(redisUrl, {
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-      retryStrategy: (times) => Math.min(times * 500, 5000),
-    });
 
     const handleRedisError = (err: any) => {
       const now = Date.now();
@@ -211,7 +207,7 @@ export function createRateLimiter(options?: RateLimiterOptions) {
 
         if (count > maxRequests) {
           const remainingSeconds = Math.ceil(Math.max(0, pttl) / 1000);
-          const errorMsg = options?.message || `Quá nhiều yêu cầu. Vui lòng chờ ${remainingSeconds} giây rồi thử lại.`;
+          const errorMsg = options?.message || (endpointType === 'auth' ? defaultMessage : `Quá nhiều yêu cầu. Vui lòng chờ ${remainingSeconds} giây rồi thử lại.`);
           res.status(429).json({
             error: errorMsg,
             code: 'RATE_LIMITED',
