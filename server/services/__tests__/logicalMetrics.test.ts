@@ -5,7 +5,6 @@ import { _testMaps } from '../geminiService';
 describe('Decoupling Logical Requests and Provider Attempts', () => {
   beforeEach(() => {
     quotaService.resetAll();
-    _testMaps.blacklistedKeys.clear();
     _testMaps.nextAllowedTimeByKey.clear();
     _testMaps.resetActiveRequests();
     vi.restoreAllMocks();

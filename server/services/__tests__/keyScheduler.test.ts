@@ -8,7 +8,6 @@ describe('Quota-Aware Per-Key RPM Scheduler', () => {
   beforeEach(() => {
     quotaService.resetAll();
     modelInfoService.clearCache();
-    _testMaps.blacklistedKeys.clear();
     _testMaps.nextAllowedTimeByKey.clear();
     _testMaps.resetActiveRequests();
     vi.restoreAllMocks();

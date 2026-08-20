@@ -36,17 +36,20 @@ export const DEFAULT_CUSTOM_LIMIT: CustomLimit = {
 
 export interface CountdownBadgeProps {
   remainingMs: number;
-  type: 'blacklist' | 'rateLimit';
+  type?: 'blacklist' | 'rateLimit' | 'cooldown';
+  label?: string;
+  reason?: string;
   className?: string;
 }
 
 /**
- * Component lá đếm lùi thời gian ngắt mạch / hoãn rate limit.
+ * Component lá đếm lùi thời gian tạm dừng / hoãn rate limit.
  * Tự quản lý interval 1s nội bộ, hoàn toàn cách ly và không gây re-render component cha.
  */
 export const CountdownBadge = React.memo(function CountdownBadge({
   remainingMs,
-  type,
+  type = 'cooldown',
+  reason,
   className,
 }: CountdownBadgeProps) {
   const [timeLeftMs, setTimeLeftMs] = useState(remainingMs);
@@ -73,7 +76,7 @@ export const CountdownBadge = React.memo(function CountdownBadge({
 
   if (timeLeftMs <= 0) {
     return (
-      <Badge tone="polish" className={className}>
+      <Badge tone="polish" className={className} title={reason}>
         <CheckCircle2 className="w-3 h-3 text-polish" />
         Hoạt động
       </Badge>
@@ -91,17 +94,17 @@ export const CountdownBadge = React.memo(function CountdownBadge({
     return `${seconds}s`;
   };
 
-  if (type === 'blacklist') {
+  if (type === 'cooldown' || type === 'blacklist') {
     return (
-      <Badge tone="warning" className={`animate-pulse ${className || ''}`}>
+      <Badge tone="warning" className={`animate-pulse ${className || ''}`} title={reason}>
         <AlertTriangle className="w-3 h-3 text-amber-400" />
-        Ngắt mạch ({formatRemainingTime(timeLeftMs)})
+        Tạm dừng ({formatRemainingTime(timeLeftMs)})
       </Badge>
     );
   }
 
   return (
-    <Badge tone="neutral" className={className}>
+    <Badge tone="neutral" className={className} title={reason}>
       <Clock className="w-3 h-3 text-text-muted" />
       Đang hoãn ({formatRemainingTime(timeLeftMs)})
     </Badge>
@@ -148,14 +151,14 @@ export const KeyCardItem = React.memo(function KeyCardItem({
   const tokensTotal = item.tokensTotal || 0;
 
   const rpmPercent = Math.min(100, Math.round((item.requestsThisMinute / safeLimit.maxRpm) * 100));
-  const tpmPercent = Math.min(100, Math.round((tokensThisMinute / safeLimit.maxTpm) * 100));
   const rpdPercent = Math.min(100, Math.round((item.requestsToday / safeLimit.maxRpd) * 100));
-
-  const isBlacklisted = item.runtime?.isBlacklisted && (item.runtime.blacklistRemainingMs || 0) > 0;
-  const isRateLimited = item.runtime?.isRateLimited && (item.runtime.nextAllowedRemainingMs || 0) > 0;
+  const tpmPercent = Math.min(100, Math.round((tokensThisMinute / safeLimit.maxTpm) * 100));
 
   const keyModelStats = getKeyModelStats(item, selectedModel);
   const normSelected = normalizeModelId(selectedModel);
+
+  const healthState = item.runtime?.healthState;
+  const reason = item.runtime?.transitionReason;
 
   return (
     <div className="border border-parchment-2 bg-ink rounded-[2px] p-3.5 space-y-3 transition-colors hover:border-parchment-2/80">
@@ -171,22 +174,65 @@ export const KeyCardItem = React.memo(function KeyCardItem({
         </div>
 
         <div className="flex items-center gap-1.5">
-          {isBlacklisted ? (
-            <CountdownBadge 
-              remainingMs={item.runtime.blacklistRemainingMs} 
-              type="blacklist" 
-            />
-          ) : isRateLimited ? (
-            <CountdownBadge 
-              remainingMs={item.runtime.nextAllowedRemainingMs} 
-              type="rateLimit" 
-            />
-          ) : (
-            <Badge tone="polish">
-              <CheckCircle2 className="w-3 h-3 text-polish" />
-              Hoạt động
-            </Badge>
-          )}
+          {(() => {
+            if (healthState === 'AuthFailed') {
+              return (
+                <Badge tone="neutral" className="border-red-500/40 text-red-400 bg-red-950/20" title={reason}>
+                  <AlertTriangle className="w-3 h-3 text-red-400" />
+                  Khóa không hợp lệ
+                </Badge>
+              );
+            }
+            if (healthState === 'QuotaExhausted') {
+              return (
+                <Badge tone="warning" title={reason}>
+                  <AlertTriangle className="w-3 h-3 text-amber-400" />
+                  Hết hạn mức ngày
+                </Badge>
+              );
+            }
+            if (healthState === 'Disabled') {
+              return (
+                <Badge tone="neutral" title={reason}>
+                  <Clock className="w-3 h-3 text-text-muted" />
+                  Tạm dừng
+                </Badge>
+              );
+            }
+            if (healthState === 'Degraded') {
+              return (
+                <Badge tone="warning" title={reason}>
+                  <AlertTriangle className="w-3 h-3 text-amber-400" />
+                  Hiệu năng giảm
+                </Badge>
+              );
+            }
+            if (healthState === 'RateLimited' || (item.runtime?.isRateLimited && (item.runtime.nextAllowedRemainingMs || 0) > 0)) {
+              const cd = item.runtime?.blacklistRemainingMs || item.runtime?.nextAllowedRemainingMs || 0;
+              return (
+                <CountdownBadge 
+                  remainingMs={cd} 
+                  type="rateLimit" 
+                  reason={reason}
+                />
+              );
+            }
+            if (healthState === 'Cooldown' || (item.runtime?.isBlacklisted && (item.runtime?.blacklistRemainingMs || 0) > 0)) {
+              return (
+                <CountdownBadge 
+                  remainingMs={item.runtime?.blacklistRemainingMs || 0} 
+                  type="cooldown" 
+                  reason={reason}
+                />
+              );
+            }
+            return (
+              <Badge tone="polish" title={reason}>
+                <CheckCircle2 className="w-3 h-3 text-polish" />
+                Hoạt động
+              </Badge>
+            );
+          })()}
 
           <Button
             variant="outline"

@@ -2,7 +2,7 @@ import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { safeParseJson, redactApiKey } from "../utils/text";
 import { DEFAULT_MODEL_ID } from "../constants/models";
 import { AI_SERVICE_CONFIG } from "@shared/constants";
-import { quotaService } from "./quotaService";
+import { quotaService, KeyHealthState } from "./quotaService";
 import { modelInfoService } from "./modelInfoService";
 import { normalizeUpstreamError } from "../utils/errorClassifier";
 import { AIErrorCode } from "../constants/errors";
@@ -34,13 +34,10 @@ export function computePerKeyIntervalMs(
   return 4445; // ~15 RPM mặc định Free Tier Flash models
 }
 
-const {
-  MIN_REQUEST_INTERVAL_PER_KEY_MS: MIN_REQUEST_INTERVAL_MS,
-  BLACKLIST_COOLDOWN_MS,
-  MAX_OVERLOAD_RETRIES,
-  CLEANUP_INTERVAL_MS,
-  STALE_KEY_THRESHOLD_MS: STALE_THRESHOLD_MS,
-} = AI_SERVICE_CONFIG;
+const STALE_THRESHOLD_MS = AI_SERVICE_CONFIG.STALE_KEY_THRESHOLD_MS || 30 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = AI_SERVICE_CONFIG.CLEANUP_INTERVAL_MS;
+const MAX_OVERLOAD_RETRIES = AI_SERVICE_CONFIG.MAX_OVERLOAD_RETRIES;
+const GLOBAL_OVERLOAD_DEADLINE_MS = 90000;
 
 const DEFAULT_SAFETY_SETTINGS = [
   {
@@ -61,8 +58,6 @@ const DEFAULT_SAFETY_SETTINGS = [
   },
 ];
 
-const blacklistedKeys = new Map<string, number>();
-
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // --- RATE LIMITER THEO TỪNG API KEY ---
@@ -72,19 +67,20 @@ const nextAllowedTimeByKey = new Map<string, number>();
 let activeConcurrentRequests = 0;
 const MAX_CONCURRENT_REQUESTS = 50;
 
-// --- DỌN DẸP BỘ NHỚ ĐỊNH KỲ CHO CÁC KHÓA HẾT HẠN / HẾT HOẠT ĐỘNG ---
-const cleanupInterval = setInterval(() => {
-  const now = Date.now();
-  for (const [key, expiry] of blacklistedKeys) {
-    if (now > expiry) {
-      blacklistedKeys.delete(key);
-    }
-  }
+/**
+ * Dọn dẹp các key stale khỏi nextAllowedTimeByKey
+ */
+export function cleanupStaleKeys(now: number = Date.now()): void {
   for (const [key, nextAllowed] of nextAllowedTimeByKey) {
     if (now - nextAllowed > STALE_THRESHOLD_MS) {
       nextAllowedTimeByKey.delete(key);
     }
   }
+}
+
+// --- DỌN DẸP BỘ NHỚ ĐỊNH KỲ CHO CÁC KHÓA HẾT HOẠT ĐỘNG ---
+const cleanupInterval = setInterval(() => {
+  cleanupStaleKeys();
 }, CLEANUP_INTERVAL_MS);
 
 if (cleanupInterval && typeof cleanupInterval.unref === 'function') {
@@ -102,8 +98,8 @@ export function stopGeminiCleanup(): void {
 
 // Exported for testing purposes
 export const _testMaps = {
-  blacklistedKeys,
   nextAllowedTimeByKey,
+  cleanupStaleKeys,
   stopGeminiCleanup,
   getActiveConcurrentRequests: () => activeConcurrentRequests,
   resetActiveRequests: () => { activeConcurrentRequests = 0; },
@@ -114,10 +110,12 @@ export interface KeyRuntimeStatus {
   blacklistRemainingMs: number;
   isRateLimited: boolean;
   nextAllowedRemainingMs: number;
+  healthState: KeyHealthState;
+  transitionReason?: string;
 }
 
 /**
- * Đọc trạng thái Circuit Breaker / Cooldown / Rate Limit tức thời của một API key
+ * Đọc trạng thái Key Health State / Cooldown / Rate Limit tức thời của một API key từ QuotaService
  */
 export function getKeyRuntimeStatus(key: string): KeyRuntimeStatus {
   if (!key || !key.trim()) {
@@ -126,25 +124,26 @@ export function getKeyRuntimeStatus(key: string): KeyRuntimeStatus {
       blacklistRemainingMs: 0,
       isRateLimited: false,
       nextAllowedRemainingMs: 0,
+      healthState: 'Disabled',
+      transitionReason: 'Khóa rỗng hoặc không tồn tại',
     };
   }
 
   const trimmed = key.trim();
   const now = Date.now();
-
-  const blacklistExpiry = blacklistedKeys.get(trimmed) || 0;
-  const isBlacklisted = blacklistExpiry > now;
-  const blacklistRemainingMs = isBlacklisted ? blacklistExpiry - now : 0;
+  const health = quotaService.getKeyHealth(trimmed, now);
 
   const nextAllowed = nextAllowedTimeByKey.get(trimmed) || 0;
   const isRateLimited = nextAllowed > now;
   const nextAllowedRemainingMs = isRateLimited ? nextAllowed - now : 0;
 
   return {
-    isBlacklisted,
-    blacklistRemainingMs,
+    isBlacklisted: !health.isAvailable,
+    blacklistRemainingMs: health.cooldownRemainingMs,
     isRateLimited,
     nextAllowedRemainingMs,
+    healthState: health.state,
+    transitionReason: health.transitionReason,
   };
 }
 
@@ -153,7 +152,6 @@ const OVERLOAD_BASE_DELAY_MS = 3000;
 let overloadCooldownUntil = 0;
 const MAX_OUTER_OVERLOAD_PASSES = 2;
 const OUTER_PASS_BASE_DELAY_MS = 6000;
-const GLOBAL_OVERLOAD_DEADLINE_MS = 90000;
 
 export class SafetyFilterError extends Error {
   readonly isSafety = true;
@@ -287,16 +285,10 @@ export async function generateWithRotation(
         const candidate = keysToTry[k];
         const { key, index: i, keyIntervalMs } = candidate;
 
-        // 1. Kiểm tra Circuit Breaker / Key Health
+        // 1. Kiểm tra Key Health State
         const keyHealth = quotaService.getKeyHealth(key);
         if (!keyHealth.isAvailable) {
-          console.log(`[Circuit Breaker] Bỏ qua khóa ${i + 1}/${rawKeys.length} (Trạng thái: ${keyHealth.state}, Cooldown: ${keyHealth.cooldownRemainingMs}ms).`);
-          continue;
-        }
-
-        const blacklistExpiry = blacklistedKeys.get(key);
-        if (blacklistExpiry && blacklistExpiry > Date.now()) {
-          console.log(`[Circuit Breaker] Bỏ qua khóa ${i + 1}/${rawKeys.length} do đang trong thời gian ngắt mạch bảo vệ.`);
+          console.log(`[Key Health] Bỏ qua khóa ${i + 1}/${rawKeys.length} (Trạng thái: ${keyHealth.state}, Lý do: ${keyHealth.transitionReason || 'Không khả dụng'}, Cooldown: ${keyHealth.cooldownRemainingMs}ms).`);
           continue;
         }
 
@@ -471,10 +463,6 @@ export async function generateWithRotation(
           }
 
           anyNonOverloadFailure = true;
-          if (normalized.recommendedAction === 'cooldown_key' || normalized.recommendedAction === 'rotate_key') {
-            console.warn(`[Circuit Breaker] Kích hoạt ngắt mạch bảo vệ trên khóa ${i + 1} trong 5 phút.`);
-            blacklistedKeys.set(key, Date.now() + BLACKLIST_COOLDOWN_MS);
-          }
         }
       }
 

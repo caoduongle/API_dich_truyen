@@ -362,11 +362,22 @@ export async function apiFetch(
 
 // --- QUOTA & USAGE TRACKING CLIENT APIS ---
 
+export type KeyHealthState =
+  | 'Healthy'
+  | 'Degraded'
+  | 'RateLimited'
+  | 'QuotaExhausted'
+  | 'AuthFailed'
+  | 'Cooldown'
+  | 'Disabled';
+
 export interface KeyRuntimeStatus {
   isBlacklisted: boolean;
   blacklistRemainingMs: number;
   isRateLimited: boolean;
   nextAllowedRemainingMs: number;
+  healthState?: KeyHealthState;
+  transitionReason?: string;
 }
 
 export interface ModelUsageStats {

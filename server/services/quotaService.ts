@@ -59,6 +59,9 @@ interface InternalKeyStats {
   lastResetDay: string;
   lastRequestTimestamp?: number;
   healthState: KeyHealthState;
+  transitionReason?: string;
+  lastTransitionAt: number;
+  consecutiveSuccesses: number;
   circuitBreakerStatus: CircuitBreakerStatus;
   cooldownUntil: number;
   disabledReason?: string;
@@ -98,6 +101,7 @@ export interface KeyQuotaSnapshot {
   keyHash: string;
   maskedKey: string;
   healthState: KeyHealthState;
+  transitionReason?: string;
   circuitBreakerState: CircuitBreakerStatus;
   cooldownRemainingMs: number;
   // Provider Attempt Metrics (Aliased with requestsTotal/requestsToday for compatibility)
@@ -188,60 +192,74 @@ class QuotaService {
         requestsToday: 0,
         errorsTotal: 0,
         consecutiveErrors: 0,
+        consecutiveSuccesses: 0,
         tokensTotal: 0,
         tokensToday: 0,
         recentCalls: [],
         byModel: new Map<string, InternalModelStats>(),
         lastResetDay: currentDay,
         healthState: 'Healthy',
+        transitionReason: 'Khởi tạo trạng thái ban đầu',
+        lastTransitionAt: timestamp,
         circuitBreakerStatus: 'Closed',
         cooldownUntil: 0,
       };
       this.keyStatsMap.set(keyHash, stats);
     }
 
+    // Quota Recovery: Tự động phục hồi QuotaExhausted khi sang ngày mới theo giờ PST
     if (stats.lastResetDay !== currentDay) {
       stats.requestsToday = 0;
       stats.tokensToday = 0;
       stats.lastResetDay = currentDay;
+      if (stats.healthState === 'QuotaExhausted') {
+        stats.healthState = 'Healthy';
+        stats.circuitBreakerStatus = 'Closed';
+        stats.cooldownUntil = 0;
+        stats.transitionReason = 'Hạn mức ngày đã được làm mới theo chu kỳ PST (Phục hồi)';
+        stats.lastTransitionAt = timestamp;
+      }
     }
 
     return stats;
   }
 
   /**
-   * Đọc trạng thái Key Health hiện tại
+   * Đọc trạng thái Key Health hiện tại với logic tự động phục hồi (Recovery Engine)
    */
   public getKeyHealth(key: string, now: number = Date.now()): {
     state: KeyHealthState;
     consecutiveErrors: number;
+    consecutiveSuccesses: number;
     cooldownRemainingMs: number;
     circuitBreaker: CircuitBreakerStatus;
     isAvailable: boolean;
+    transitionReason?: string;
   } {
     if (!key || !key.trim()) {
       return {
         state: 'Disabled',
         consecutiveErrors: 0,
+        consecutiveSuccesses: 0,
         cooldownRemainingMs: 0,
         circuitBreaker: 'Open',
         isAvailable: false,
+        transitionReason: 'Khóa rỗng hoặc không tồn tại',
       };
     }
 
     const stats = this.getOrCreateStats(key, now);
 
-    // Kiểm tra cooldown expiration
-    if (stats.cooldownUntil > 0) {
-      if (now >= stats.cooldownUntil) {
-        // Cooldown hết hạn -> chuyển sang Half-Open để thử nghiệm
-        stats.cooldownUntil = 0;
-        if (stats.circuitBreakerStatus === 'Open') {
-          stats.circuitBreakerStatus = 'HalfOpen';
-        }
-        if (stats.healthState === 'Cooldown' || stats.healthState === 'RateLimited') {
-          stats.healthState = 'Degraded';
-        }
+    // TTL Recovery Policy: Tự động phục hồi Cooldown và RateLimited khi hết hạn TTL
+    if (stats.cooldownUntil > 0 && now >= stats.cooldownUntil) {
+      stats.cooldownUntil = 0;
+      if (stats.circuitBreakerStatus === 'Open') {
+        stats.circuitBreakerStatus = 'Closed';
+      }
+      if (stats.healthState === 'Cooldown' || stats.healthState === 'RateLimited') {
+        stats.healthState = 'Healthy';
+        stats.transitionReason = 'Thời gian tạm dừng (Cooldown TTL) đã kết thúc (Phục hồi)';
+        stats.lastTransitionAt = now;
       }
     }
 
@@ -255,9 +273,11 @@ class QuotaService {
     return {
       state: stats.healthState,
       consecutiveErrors: stats.consecutiveErrors,
+      consecutiveSuccesses: stats.consecutiveSuccesses,
       cooldownRemainingMs,
       circuitBreaker: stats.circuitBreakerStatus,
       isAvailable,
+      transitionReason: stats.transitionReason,
     };
   }
 
@@ -287,25 +307,42 @@ class QuotaService {
 
     // Cập nhật State Machine dựa trên status
     if (status === 'success') {
+      stats.consecutiveSuccesses++;
       stats.consecutiveErrors = 0;
       stats.circuitBreakerStatus = 'Closed';
-      stats.healthState = 'Healthy';
       stats.cooldownUntil = 0;
+
+      if (stats.healthState === 'Degraded' || stats.healthState === 'Cooldown') {
+        stats.healthState = 'Healthy';
+        stats.transitionReason = 'Lượt gọi API thành công (Phục hồi)';
+        stats.lastTransitionAt = timestamp;
+      } else if (stats.healthState !== 'AuthFailed' && stats.healthState !== 'Disabled') {
+        stats.healthState = 'Healthy';
+      }
     } else {
+      stats.consecutiveSuccesses = 0;
       stats.errorsTotal++;
       stats.consecutiveErrors++;
 
       if (status === 'quota_exceeded') {
         stats.healthState = 'QuotaExhausted';
+        stats.transitionReason = '429: Hạn mức ngày đã hết (RPD)';
+        stats.lastTransitionAt = timestamp;
       } else if (status === 'overloaded') {
         stats.healthState = 'Cooldown';
+        stats.transitionReason = '503: Mô hình quá tải';
+        stats.lastTransitionAt = timestamp;
       } else {
         if (stats.consecutiveErrors >= CIRCUIT_BREAKER_CONSECUTIVE_THRESHOLD) {
           stats.circuitBreakerStatus = 'Open';
           stats.healthState = 'Cooldown';
+          stats.transitionReason = 'Vượt ngưỡng lỗi liên tiếp (Circuit Breaker ngắt mạch)';
+          stats.lastTransitionAt = timestamp;
           stats.cooldownUntil = timestamp + CIRCUIT_BREAKER_COOLDOWN_MS;
         } else {
           stats.healthState = 'Degraded';
+          stats.transitionReason = 'Gặp lỗi tạm thời (Hiệu năng suy giảm)';
+          stats.lastTransitionAt = timestamp;
         }
       }
     }
@@ -364,32 +401,66 @@ class QuotaService {
     switch (error.code) {
       case AIErrorCode.AUTH_FAILED:
         stats.healthState = 'AuthFailed';
+        stats.transitionReason = '401/403: API key không hợp lệ hoặc bị từ chối truy cập';
+        stats.lastTransitionAt = timestamp;
         stats.circuitBreakerStatus = 'Open';
         stats.disabledReason = error.message;
         break;
+
       case AIErrorCode.QUOTA_EXCEEDED:
         stats.healthState = 'QuotaExhausted';
+        stats.transitionReason = '429: Hạn mức token/request theo ngày (RPD) đã cạn kiệt';
+        stats.lastTransitionAt = timestamp;
         stats.circuitBreakerStatus = 'Open';
         stats.cooldownUntil = timestamp + CIRCUIT_BREAKER_COOLDOWN_MS;
         break;
+
       case AIErrorCode.RATE_LIMITED:
         stats.healthState = 'RateLimited';
+        stats.transitionReason = '429: Đã chạm giới hạn tốc độ (RPM/TPM)';
+        stats.lastTransitionAt = timestamp;
         stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 5000);
         break;
+
       case AIErrorCode.OVERLOADED:
-      case AIErrorCode.SERVER_ERROR:
-      case AIErrorCode.NETWORK_ERROR:
-      case AIErrorCode.TIMEOUT:
         stats.healthState = 'Cooldown';
+        stats.transitionReason = '503: Mô hình AI của Google hiện đang quá tải';
+        stats.lastTransitionAt = timestamp;
         stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 3000);
         break;
+
+      case AIErrorCode.NETWORK_ERROR:
+        stats.healthState = 'Cooldown';
+        stats.transitionReason = '502: Lỗi kết nối mạng tới dịch vụ AI';
+        stats.lastTransitionAt = timestamp;
+        stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 3000);
+        break;
+
+      case AIErrorCode.TIMEOUT:
+        stats.healthState = 'Cooldown';
+        stats.transitionReason = '504: Yêu cầu tới dịch vụ AI bị quá thời gian chờ';
+        stats.lastTransitionAt = timestamp;
+        stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 3000);
+        break;
+
+      case AIErrorCode.SERVER_ERROR:
+        stats.healthState = 'Cooldown';
+        stats.transitionReason = '500: Lỗi xử lý nội bộ từ máy chủ AI';
+        stats.lastTransitionAt = timestamp;
+        stats.cooldownUntil = timestamp + (error.retryAfterSec ? error.retryAfterSec * 1000 : 3000);
+        break;
+
       default:
         if (stats.consecutiveErrors >= CIRCUIT_BREAKER_CONSECUTIVE_THRESHOLD) {
           stats.circuitBreakerStatus = 'Open';
           stats.healthState = 'Cooldown';
+          stats.transitionReason = 'Vượt ngưỡng lỗi liên tiếp (Circuit Breaker ngắt mạch)';
+          stats.lastTransitionAt = timestamp;
           stats.cooldownUntil = timestamp + CIRCUIT_BREAKER_COOLDOWN_MS;
         } else {
           stats.healthState = 'Degraded';
+          stats.transitionReason = 'Gặp lỗi tạm thời (Hiệu năng suy giảm)';
+          stats.lastTransitionAt = timestamp;
         }
         break;
     }
@@ -519,6 +590,29 @@ class QuotaService {
   }
 
   /**
+   * Đặt trạng thái Vô hiệu hóa thủ công cho 1 API key
+   */
+  public setKeyDisabled(key: string, disabled: boolean, reason?: string): void {
+    if (!key || !key.trim()) return;
+    const stats = this.getOrCreateStats(key);
+    if (disabled) {
+      stats.healthState = 'Disabled';
+      stats.transitionReason = reason || 'Vô hiệu hóa thủ công bởi người dùng';
+      stats.lastTransitionAt = Date.now();
+      stats.disabledReason = reason;
+      stats.circuitBreakerStatus = 'Open';
+    } else {
+      stats.healthState = 'Healthy';
+      stats.transitionReason = 'Kích hoạt lại thủ công bởi người dùng';
+      stats.lastTransitionAt = Date.now();
+      stats.disabledReason = undefined;
+      stats.consecutiveErrors = 0;
+      stats.circuitBreakerStatus = 'Closed';
+      stats.cooldownUntil = 0;
+    }
+  }
+
+  /**
    * Lấy snapshot thống kê sử dụng và token metrics cho danh sách keys
    */
   public getQuotaSnapshot(keys: string[], timestamp: number = Date.now()): KeyQuotaSnapshot[] {
@@ -537,6 +631,7 @@ class QuotaService {
           keyHash,
           maskedKey: masked,
           healthState: 'Healthy',
+          transitionReason: health.transitionReason,
           circuitBreakerState: 'Closed',
           cooldownRemainingMs: 0,
           providerAttemptsTotal: 0,
@@ -577,8 +672,9 @@ class QuotaService {
 
       return {
         keyHash,
-        maskedKey: stats.maskedKey || masked,
+        maskedKey: masked,
         healthState: health.state,
+        transitionReason: stats.transitionReason || health.transitionReason,
         circuitBreakerState: health.circuitBreaker,
         cooldownRemainingMs: health.cooldownRemainingMs,
         providerAttemptsTotal: stats.requestsTotal,
