@@ -85,6 +85,17 @@ describe("Session Controller & Session Store", () => {
   });
 
   describe("getSessionStatusHandler", () => {
+    it("should reject query token parameter with 400 Bad Request", async () => {
+      req.query = { token: "secret-token-in-url" };
+      await getSessionStatusHandler(req as Request, res as Response);
+      expect(statusMock).toHaveBeenCalledWith(400);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "DISALLOWED_URL_CREDENTIALS",
+        })
+      );
+    });
+
     it("should return valid: false when no token provided", async () => {
       await getSessionStatusHandler(req as Request, res as Response);
       expect(statusMock).toHaveBeenCalledWith(200);
@@ -114,7 +125,28 @@ describe("Session Controller & Session Store", () => {
   });
 
   describe("deleteSessionHandler", () => {
-    it("should delete existing session", async () => {
+    it("should reject query token parameter with 400 Bad Request", async () => {
+      req.query = { token: "secret-token-in-url" };
+      await deleteSessionHandler(req as Request, res as Response);
+      expect(statusMock).toHaveBeenCalledWith(400);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "DISALLOWED_URL_CREDENTIALS",
+        })
+      );
+    });
+
+    it("should return 401 Unauthorized when no token is provided", async () => {
+      await deleteSessionHandler(req as Request, res as Response);
+      expect(statusMock).toHaveBeenCalledWith(401);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "MISSING_SESSION_TOKEN",
+        })
+      );
+    });
+
+    it("should delete existing session with header token", async () => {
       const session = await sessionStore.createSession(["KeyA"]);
       req.headers = { "x-session-token": session.sessionToken };
 

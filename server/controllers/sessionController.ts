@@ -45,9 +45,16 @@ export async function createSessionHandler(req: Request, res: Response): Promise
  */
 export async function getSessionStatusHandler(req: Request, res: Response): Promise<void> {
   try {
+    if (req.query && req.query.token !== undefined) {
+      res.status(400).json({
+        code: "DISALLOWED_URL_CREDENTIALS",
+        error: "Session token không được truyền qua URL query parameter. Vui lòng sử dụng header X-Session-Token.",
+      });
+      return;
+    }
+
     const token =
       (req.headers["x-session-token"] as string) ||
-      (req.query.token as string) ||
       (req.body?.sessionToken as string);
 
     if (!token) {
@@ -74,14 +81,27 @@ export async function getSessionStatusHandler(req: Request, res: Response): Prom
  */
 export async function deleteSessionHandler(req: Request, res: Response): Promise<void> {
   try {
+    if (req.query && req.query.token !== undefined) {
+      res.status(400).json({
+        code: "DISALLOWED_URL_CREDENTIALS",
+        error: "Session token không được truyền qua URL query parameter. Vui lòng sử dụng header X-Session-Token.",
+      });
+      return;
+    }
+
     const token =
       (req.headers["x-session-token"] as string) ||
-      (req.body?.sessionToken as string) ||
-      (req.query.token as string);
+      (req.body?.sessionToken as string);
 
-    if (token) {
-      await sessionStore.deleteSession(token);
+    if (!token) {
+      res.status(401).json({
+        code: "MISSING_SESSION_TOKEN",
+        error: "Yêu cầu header X-Session-Token để thu hồi phiên làm việc.",
+      });
+      return;
     }
+
+    await sessionStore.deleteSession(token);
 
     res.status(200).json({
       success: true,
