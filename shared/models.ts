@@ -244,11 +244,11 @@ export const PACING_SAFETY_FLOOR_CLIENT_MS = 500;
  */
 
 export interface ProviderQuota {
-  rpm: number;
-  tpm: number;
+  rpm?: number;
+  tpm?: number;
   rpd?: number;
-  isVerified: boolean;
-  verifiedAt?: string;
+  verifiedAt?: number | string;
+  source?: 'provider';
 }
 
 export interface ConfiguredQuota {
@@ -270,11 +270,19 @@ export interface GroupObservedUsage {
   lastRequestTimestamp: number;
 }
 
+export type SchedulingHintSource =
+  | 'provider'
+  | 'configured'
+  | 'model-fallback'
+  | 'safe-default';
+
 export interface GroupSchedulingHint {
   effectiveIntervalMs: number;
   safetyFloorMs: number;
   isCustom: boolean;
   estimatedThroughputRpm: number;
+  source: SchedulingHintSource;
+  pacingIntervalMs?: number;
 }
 
 export type GroupHealthState =
@@ -324,7 +332,7 @@ export interface QuotaGroup {
   name?: string;
   keyIds: string[];
   configuredLimits: ConfiguredQuota;
-  providerQuota: ProviderQuota;
+  providerQuota?: ProviderQuota;
   observedUsage: GroupObservedUsage;
   schedulingHint: GroupSchedulingHint;
   healthState: GroupHealthState;
@@ -341,5 +349,6 @@ export interface QuotaGroupConfigInput {
   configuredTpm?: number;
   configuredRpd?: number;
   keyIds: string[];
+  providerQuota?: ProviderQuota;
 }
 

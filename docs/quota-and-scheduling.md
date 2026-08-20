@@ -112,3 +112,14 @@ stateDiagram-v2
 Khi có yêu cầu dịch thuật, bộ điều phối thực hiện 2 bước tuần tự:
 1. **Đánh giá Quota Group (`evaluateQuotaGroups`)**: Chấm điểm và xếp hạng các nhóm dự án dựa trên dung lượng RPM/TPM còn lại, thời gian nghỉ (idle time), nhịp độ pacing và điểm phạt lỗi.
 2. **Chọn Khóa Tối Ưu trong Nhóm (`selectBestKeyInGroup`)**: Trong nhóm được chọn, tìm kiếm key `Healthy`, có thời gian nghỉ dài nhất (Least Recently Used) và ít lỗi nhất.
+
+---
+
+## 7. Phân Tách Ngữ Nghĩa: ProviderQuota vs SchedulingHint
+
+Để đảm bảo tính đúng đắn dữ liệu:
+- **`ProviderQuota` (Hạn ngạch nhà cung cấp)**: Chỉ tồn tại khi đã được kiểm định/xác minh chính thức từ Google AI Studio (`providerQuota = undefined` khi chưa có dữ liệu, tuyệt đối không gán giá trị mặc định giả lập 15 RPM / 1M TPM / 1500 RPD).
+- **`SchedulingHint` (Gợi ý điều phối)**: Là thực thể riêng biệt mang nhãn nguồn gốc (`source: "provider" | "configured" | "model-fallback" | "safe-default"`).
+- **Thứ tự ưu tiên tính nhịp độ pacing**:
+  $$\text{Configured} \ (1) \longrightarrow \text{Provider} \ (2) \longrightarrow \text{Model-Fallback} \ (3) \longrightarrow \text{Safe-Default} \ (4)$$
+- Tuyệt đối không có phần code nào được phép coi nhịp độ fallback an toàn là hạn ngạch chính thức của Google.

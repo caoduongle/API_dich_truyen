@@ -306,35 +306,116 @@ describe('Quota Group & Project-Based Quota Accounting (TASK 01)', () => {
     });
   });
 
-  // ── USER STORY 4: 4-TIER DATA CLASSIFICATION (P4) ──
-  describe('User Story 4: Strict 4-Tier Quota Data Classification', () => {
-    it('verifies providerQuota.isVerified defaults to false and is never conflated with configuredLimits', () => {
-      const key = 'AIzaSyUserConfigKey';
+  // ── TASK 02: TÁCH ProviderQuota KHỎI FALLBACK/SCHEDULING HINT ──
+  describe('TASK 02: Semantic Separation of ProviderQuota and Sourced SchedulingHint', () => {
+    it('provider quota unknown: initializes providerQuota as undefined when no verified metadata exists', () => {
+      const key = 'AIzaSyUnverifiedKey';
       const group = quotaService.registerQuotaGroup({
-        id: 'group_classification_test',
-        configuredRpm: 60,
-        configuredTpm: 2000000,
-        configuredRpd: 5000,
+        id: 'group_unknown_quota',
         keyIds: [key],
       });
 
-      // 1. providerQuota must remain unverified
-      expect(group.providerQuota.isVerified).toBe(false);
-      expect(group.providerQuota.rpm).toBe(15);
+      // providerQuota must strictly be undefined (never fake defaults like 15 RPM / 1M TPM / 1500 RPD)
+      expect(group.providerQuota).toBeUndefined();
+    });
 
-      // 2. configuredLimits must preserve user values
-      expect(group.configuredLimits.configuredRpm).toBe(60);
-      expect(group.configuredLimits.configuredTpm).toBe(2000000);
-      expect(group.configuredLimits.configuredRpd).toBe(5000);
+    it('provider quota known: accurately records verified provider quota with source and timestamp', () => {
+      const key = 'AIzaSyVerifiedKey';
+      const now = 1000000;
+      const group = quotaService.registerQuotaGroup({
+        id: 'group_known_quota',
+        keyIds: [key],
+        providerQuota: {
+          rpm: 60,
+          tpm: 2000000,
+          rpd: 5000,
+          verifiedAt: now,
+        },
+      });
 
-      // 3. schedulingHint must be derived correctly
-      expect(group.schedulingHint.isCustom).toBe(true);
+      expect(group.providerQuota).toBeDefined();
+      expect(group.providerQuota?.rpm).toBe(60);
+      expect(group.providerQuota?.tpm).toBe(2000000);
+      expect(group.providerQuota?.rpd).toBe(5000);
+      expect(group.providerQuota?.source).toBe('provider');
+      expect(group.providerQuota?.verifiedAt).toBe(now);
+
+      // Scheduling hint is automatically sourced from provider
+      expect(group.schedulingHint.source).toBe('provider');
       expect(group.schedulingHint.effectiveIntervalMs).toBe(1112);
-      expect(group.schedulingHint.safetyFloorMs).toBe(400);
+    });
 
-      // 4. observedUsage must track runtime counts independently
-      expect(group.observedUsage.requestsTotal).toBe(0);
-      expect(group.observedUsage.requestsThisMinute).toBe(0);
+    it('configured hint: prioritizes user custom limits over provider and fallback hints', () => {
+      const key = 'AIzaSyConfiguredKey';
+      const group = quotaService.registerQuotaGroup({
+        id: 'group_configured_hint',
+        configuredRpm: 30,
+        keyIds: [key],
+        providerQuota: {
+          rpm: 60,
+          source: 'provider',
+        },
+      });
+
+      // Configured RPM (30) overrides Provider RPM (60) for pacing
+      expect(group.schedulingHint.source).toBe('configured');
+      expect(group.schedulingHint.isCustom).toBe(true);
+      expect(group.schedulingHint.effectiveIntervalMs).toBe(2223);
+      expect(group.providerQuota?.rpm).toBe(60);
+    });
+
+    it('fallback hint: derives scheduling hint from model fallback tier when quota is unverified', () => {
+      const key = 'AIzaSyFallbackKey';
+      const group = quotaService.registerQuotaGroup({
+        id: 'group_fallback_hint',
+        keyIds: [key],
+      });
+
+      expect(group.providerQuota).toBeUndefined();
+      expect(group.schedulingHint.source).toBe('model-fallback');
+      expect(group.schedulingHint.effectiveIntervalMs).toBe(4445); // Default Flash tier
+
+      // Pro tier fallback
+      const proHint = quotaService.deriveSchedulingHint(group.configuredLimits, group.providerQuota, 'gemini-2.5-pro');
+      expect(proHint.source).toBe('model-fallback');
+      expect(proHint.effectiveIntervalMs).toBe(6000);
+
+      // Flash-Lite tier fallback
+      const liteHint = quotaService.deriveSchedulingHint(group.configuredLimits, group.providerQuota, 'gemini-3.1-flash-lite');
+      expect(liteHint.source).toBe('model-fallback');
+      expect(liteHint.effectiveIntervalMs).toBe(3500);
+    });
+
+    it('verified quota update: dynamically updates provider quota without overwriting user configured limits', () => {
+      const key = 'AIzaSyUpdateKey';
+      const now = 1000000;
+      const group = quotaService.registerQuotaGroup({
+        id: 'group_update_quota',
+        configuredRpm: 10,
+        keyIds: [key],
+      });
+
+      expect(group.providerQuota).toBeUndefined();
+      expect(group.configuredLimits.configuredRpm).toBe(10);
+      expect(group.schedulingHint.source).toBe('configured');
+      expect(group.schedulingHint.effectiveIntervalMs).toBe(6667);
+
+      // Verify and update provider quota with 60 RPM
+      const updated = quotaService.updateProviderQuota('group_update_quota', {
+        rpm: 60,
+        tpm: 1000000,
+        rpd: 2000,
+      }, now);
+
+      expect(updated).not.toBeNull();
+      expect(updated!.providerQuota?.rpm).toBe(60);
+      expect(updated!.providerQuota?.source).toBe('provider');
+      expect(updated!.providerQuota?.verifiedAt).toBe(now);
+
+      // Configured limits are preserved and still take precedence in scheduling
+      expect(updated!.configuredLimits.configuredRpm).toBe(10);
+      expect(updated!.schedulingHint.source).toBe('configured');
+      expect(updated!.schedulingHint.effectiveIntervalMs).toBe(6667);
     });
   });
 });

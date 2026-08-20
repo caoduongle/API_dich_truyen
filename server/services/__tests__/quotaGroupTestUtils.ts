@@ -11,10 +11,11 @@ import {
 
 export function createMockProviderQuota(overrides?: Partial<ProviderQuota>): ProviderQuota {
   return {
-    rpm: 15,
+    rpm: 60,
     tpm: 1000000,
     rpd: 1500,
-    isVerified: false,
+    verifiedAt: Date.now(),
+    source: 'provider',
     ...overrides,
   };
 }
@@ -49,6 +50,7 @@ export function createMockGroupSchedulingHint(overrides?: Partial<GroupSchedulin
     safetyFloorMs: 400,
     isCustom: false,
     estimatedThroughputRpm: 13.5,
+    source: 'model-fallback',
     ...overrides,
   };
 }
@@ -64,7 +66,7 @@ export function createMockQuotaGroup(
     name: `Project ${id}`,
     keyIds,
     configuredLimits: createMockConfiguredQuota(overrides?.configuredLimits),
-    providerQuota: createMockProviderQuota(overrides?.providerQuota),
+    providerQuota: overrides?.providerQuota,
     observedUsage: createMockGroupObservedUsage(overrides?.observedUsage),
     schedulingHint: createMockGroupSchedulingHint(overrides?.schedulingHint),
     healthState: 'Available',

@@ -824,8 +824,18 @@ export function QuotaPanel({
 
                     <div className="text-[11px] text-text-muted flex items-center gap-2">
                       <span>Điều phối: <strong className="text-text-main">~{group.schedulingHint?.effectiveIntervalMs || 4445}ms</strong>/call</span>
-                      <span className="text-[9px] bg-parchment-2/20 px-1.5 py-0.5 rounded text-text-muted">
-                        {group.configuredLimits?.configuredRpm ? 'Giới hạn người dùng đặt' : 'Mặc định nhà cung cấp (Chưa xác minh)'}
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                        group.schedulingHint?.source === 'configured'
+                          ? 'bg-polish/20 text-polish font-medium'
+                          : group.schedulingHint?.source === 'provider'
+                          ? 'bg-emerald-500/20 text-emerald-300 font-medium'
+                          : 'bg-parchment-2/20 text-text-muted'
+                      }`}>
+                        {group.schedulingHint?.source === 'configured'
+                          ? 'Giới hạn người dùng đặt'
+                          : group.schedulingHint?.source === 'provider'
+                          ? 'Hạn mức Google chính thức (Đã xác minh)'
+                          : 'Nhịp độ an toàn dự phòng (Chưa xác minh từ Google)'}
                       </span>
                     </div>
                   </div>

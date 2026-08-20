@@ -309,31 +309,94 @@ class QuotaService {
   }
 
   /**
+   * Suy diễn gợi ý điều phối SchedulingHint dựa trên thứ tự ưu tiên:
+   * 1. Configured RPM (người dùng tự đặt)
+   * 2. Provider Quota RPM (đã xác minh chính thức)
+   * 3. Model Fallback Tier (mặc định theo loại mô hình)
+   * 4. Safe Default Floor (sàn an toàn 400ms)
+   */
+  public deriveSchedulingHint(
+    configuredLimits?: ConfiguredQuota,
+    providerQuota?: ProviderQuota,
+    modelName?: string,
+    safetyFloorMs: number = PACING_SAFETY_FLOOR_SERVER_MS
+  ): GroupSchedulingHint {
+    if (typeof configuredLimits?.configuredRpm === 'number' && configuredLimits.configuredRpm > 0) {
+      const effectiveIntervalMs = Math.max(safetyFloorMs, Math.ceil(60000 / (configuredLimits.configuredRpm * 0.9)));
+      return {
+        effectiveIntervalMs,
+        safetyFloorMs,
+        isCustom: true,
+        estimatedThroughputRpm: configuredLimits.configuredRpm * 0.9,
+        source: 'configured',
+        pacingIntervalMs: effectiveIntervalMs,
+      };
+    }
+
+    if (typeof providerQuota?.rpm === 'number' && providerQuota.rpm > 0) {
+      const effectiveIntervalMs = Math.max(safetyFloorMs, Math.ceil(60000 / (providerQuota.rpm * 0.9)));
+      return {
+        effectiveIntervalMs,
+        safetyFloorMs,
+        isCustom: false,
+        estimatedThroughputRpm: providerQuota.rpm * 0.9,
+        source: 'provider',
+        pacingIntervalMs: effectiveIntervalMs,
+      };
+    }
+
+    const norm = (modelName || '').replace(/^models\//i, '').trim().toLowerCase();
+    let fallbackInterval = 4445;
+    let fallbackRpm = 13.5;
+    if (norm.includes('pro')) {
+      fallbackInterval = 6000;
+      fallbackRpm = 9;
+    } else if (norm.includes('flash-lite')) {
+      fallbackInterval = 3500;
+      fallbackRpm = 15.3;
+    } else if (norm.includes('gemma')) {
+      fallbackInterval = 2000;
+      fallbackRpm = 27;
+    }
+
+    const finalInterval = Math.max(safetyFloorMs, fallbackInterval);
+    return {
+      effectiveIntervalMs: finalInterval,
+      safetyFloorMs,
+      isCustom: false,
+      estimatedThroughputRpm: fallbackRpm,
+      source: 'model-fallback',
+      pacingIntervalMs: finalInterval,
+    };
+  }
+
+  /**
    * Đăng ký hoặc cập nhật một QuotaGroup
+   * Khi chưa có dữ liệu xác minh từ Google, providerQuota PHẢI là undefined (không dùng fake defaults)
    */
   public registerQuotaGroup(input: QuotaGroupConfigInput): QuotaGroup {
     const id = input.id || (input.projectId ? `group_${input.projectId}` : `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
     const keyIds = (input.keyIds || []).map((k: string) => k.trim()).filter(Boolean);
-    const effectiveRpm = input.configuredRpm || 15;
 
     let group = this.groupsMap.get(id);
     if (!group) {
+      const configuredLimits: ConfiguredQuota = {
+        configuredRpm: input.configuredRpm,
+        configuredTpm: input.configuredTpm,
+        configuredRpd: input.configuredRpd,
+      };
+      const providerQuota: ProviderQuota | undefined = input.providerQuota ? {
+        ...input.providerQuota,
+        source: 'provider',
+      } : undefined;
+
       group = {
         id,
         projectId: input.projectId,
         name: input.name || (input.projectId ? `Project ${input.projectId}` : `Quota Group ${id}`),
         keyIds,
-        configuredLimits: {
-          configuredRpm: input.configuredRpm,
-          configuredTpm: input.configuredTpm,
-          configuredRpd: input.configuredRpd,
-        },
-        providerQuota: {
-          rpm: 15,
-          tpm: 1000000,
-          rpd: 1500,
-          isVerified: false,
-        },
+        configuredLimits,
+        providerQuota,
         observedUsage: {
           requestsTotal: 0,
           requestsToday: 0,
@@ -345,12 +408,7 @@ class QuotaService {
           errorsToday: 0,
           lastRequestTimestamp: 0,
         },
-        schedulingHint: {
-          effectiveIntervalMs: this.computeGroupInterval(input.configuredRpm),
-          safetyFloorMs: PACING_SAFETY_FLOOR_SERVER_MS,
-          isCustom: typeof input.configuredRpm === 'number' && input.configuredRpm > 0,
-          estimatedThroughputRpm: typeof input.configuredRpm === 'number' && input.configuredRpm > 0 ? input.configuredRpm * 0.9 : 13.5,
-        },
+        schedulingHint: this.deriveSchedulingHint(configuredLimits, providerQuota),
         healthState: 'Available',
         cooldownUntilMs: 0,
         nextAllowedTimeMs: 0,
@@ -365,12 +423,13 @@ class QuotaService {
       if (input.configuredRpm !== undefined) group.configuredLimits.configuredRpm = input.configuredRpm;
       if (input.configuredTpm !== undefined) group.configuredLimits.configuredTpm = input.configuredTpm;
       if (input.configuredRpd !== undefined) group.configuredLimits.configuredRpd = input.configuredRpd;
-      group.schedulingHint = {
-        effectiveIntervalMs: this.computeGroupInterval(group.configuredLimits.configuredRpm || group.providerQuota.rpm),
-        safetyFloorMs: PACING_SAFETY_FLOOR_SERVER_MS,
-        isCustom: typeof group.configuredLimits.configuredRpm === 'number' && group.configuredLimits.configuredRpm > 0,
-        estimatedThroughputRpm: typeof group.configuredLimits.configuredRpm === 'number' && group.configuredLimits.configuredRpm > 0 ? group.configuredLimits.configuredRpm * 0.9 : 13.5,
-      };
+      if (input.providerQuota !== undefined) {
+        group.providerQuota = {
+          ...input.providerQuota,
+          source: 'provider',
+        };
+      }
+      group.schedulingHint = this.deriveSchedulingHint(group.configuredLimits, group.providerQuota);
     }
 
     for (const key of keyIds) {
@@ -380,6 +439,29 @@ class QuotaService {
       this.getOrCreateStats(key);
     }
 
+    return group;
+  }
+
+  /**
+   * Cập nhật thông tin hạn mức nhà cung cấp khi xác minh thành công.
+   * KHÔNG được phép ghi đè configuredLimits của người dùng.
+   */
+  public updateProviderQuota(
+    groupId: string,
+    quota: Partial<ProviderQuota>,
+    now: number = Date.now()
+  ): QuotaGroup | null {
+    const group = this.groupsMap.get(groupId);
+    if (!group) return null;
+
+    group.providerQuota = {
+      ...group.providerQuota,
+      ...quota,
+      verifiedAt: quota.verifiedAt || now,
+      source: 'provider',
+    };
+
+    group.schedulingHint = this.deriveSchedulingHint(group.configuredLimits, group.providerQuota);
     return group;
   }
 
@@ -480,9 +562,9 @@ class QuotaService {
       group.observedUsage.requestsThisMinute = requestsThisMinute;
       group.observedUsage.tokensThisMinute = currentTokensThisMinute;
 
-      const effectiveRpm = group.configuredLimits.configuredRpm || group.providerQuota.rpm || (isPro ? 10 : 15);
-      const effectiveTpm = group.configuredLimits.configuredTpm || group.providerQuota.tpm || 1000000;
-      const effectiveRpd = group.configuredLimits.configuredRpd || group.providerQuota.rpd || (isPro ? 1000 : 1500);
+      const effectiveRpm = group.configuredLimits.configuredRpm || group.providerQuota?.rpm || (isPro ? 10 : 15);
+      const effectiveTpm = group.configuredLimits.configuredTpm || group.providerQuota?.tpm || 1000000;
+      const effectiveRpd = group.configuredLimits.configuredRpd || group.providerQuota?.rpd || (isPro ? 1000 : 1500);
 
       // 4. Kiểm tra sức khỏe của các keys trong group
       const memberKeys = group.keyIds.filter((k: string) => {

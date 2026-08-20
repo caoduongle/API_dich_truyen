@@ -54,10 +54,8 @@ describe('Quota Group Telemetry & Classification API Contract (TASK 01 / US4)', 
     const group = jsonResponse.groups.find((g: any) => g.id === 'group_test_telemetry');
     expect(group).toBeDefined();
 
-    // 1. providerQuota: isVerified is false by default
-    expect(group.providerQuota).toBeDefined();
-    expect(group.providerQuota.isVerified).toBe(false);
-    expect(group.providerQuota.rpm).toBe(15);
+    // 1. providerQuota: undefined when unverified (never fake defaults)
+    expect(group.providerQuota).toBeUndefined();
 
     // 2. configuredLimits: user entered values
     expect(group.configuredLimits).toBeDefined();
@@ -73,6 +71,7 @@ describe('Quota Group Telemetry & Classification API Contract (TASK 01 / US4)', 
     // 4. schedulingHint: derived intervals
     expect(group.schedulingHint).toBeDefined();
     expect(group.schedulingHint.isCustom).toBe(true);
+    expect(group.schedulingHint.source).toBe('configured');
     expect(group.schedulingHint.effectiveIntervalMs).toBe(2223);
 
     // 5. Nested keys

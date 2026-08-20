@@ -418,12 +418,13 @@ export interface QuotaGroupDisplayItem {
     configuredTpm?: number;
     configuredRpd?: number;
   };
-  providerQuota: {
-    rpm: number;
-    tpm: number;
+  providerQuota?: {
+    rpm?: number;
+    tpm?: number;
     rpd?: number;
-    isVerified: boolean;
-  };
+    verifiedAt?: number | string;
+    source?: 'provider';
+  } | null;
   observedUsage: {
     requestsTotal: number;
     requestsToday: number;
@@ -440,6 +441,8 @@ export interface QuotaGroupDisplayItem {
     safetyFloorMs: number;
     isCustom: boolean;
     estimatedThroughputRpm: number;
+    source: 'provider' | 'configured' | 'model-fallback' | 'safe-default';
+    pacingIntervalMs?: number;
   };
   cooldownRemainingMs: number;
   keys: KeyQuotaFullSnapshot[];
