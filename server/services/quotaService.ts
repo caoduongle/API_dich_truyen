@@ -11,6 +11,7 @@ import {
   QuotaGroup,
   QuotaGroupConfigInput,
   ApiKeyEntity,
+  ScheduleLease,
   PACING_SAFETY_FLOOR_SERVER_MS,
 } from '../../shared/models';
 
@@ -25,6 +26,7 @@ export type {
   QuotaGroup,
   QuotaGroupConfigInput,
   ApiKeyEntity,
+  ScheduleLease,
 };
 export { PACING_SAFETY_FLOOR_SERVER_MS };
 
@@ -683,6 +685,100 @@ class QuotaService {
     if (scoredCandidates.length === 0) return null;
     scoredCandidates.sort((a, b) => b.score - a.score);
     return scoredCandidates[0];
+  }
+
+  /**
+   * Cơ quan điều phối duy nhất (Single Scheduler Authority) cấp phép thực thi attempt:
+   * - Đánh giá eligibility của các QuotaGroup liên quan
+   * - Chọn group tối ưu và key khả dụng trong group
+   * - Tính toán pacing delay và đặt chỗ thời gian an toàn một cách nguyên tử
+   * - Cập nhật viễn trắc hàng đợi
+   */
+  public scheduleAttempt(
+    candidateKeys: string[],
+    modelName: string,
+    estimatedTokens: number = 2000,
+    now: number = Date.now()
+  ): ScheduleLease {
+    const evaluatedGroups = this.evaluateQuotaGroups(candidateKeys, modelName, estimatedTokens, now);
+    const leaseId = `lease_${now}_${Math.random().toString(36).slice(2, 8)}`;
+
+    if (evaluatedGroups.length === 0) {
+      return {
+        leaseId,
+        isEligible: false,
+        delayMs: 0,
+        effectiveIntervalMs: 4445,
+        rejectReason: 'Không tìm thấy QuotaGroup nào tương ứng với danh sách khóa API.',
+        earliestAvailableInMs: 0,
+      };
+    }
+
+    const bestGroupResult = evaluatedGroups[0];
+    if (!bestGroupResult.isEligible || !bestGroupResult.group) {
+      // Tính thời gian chờ tối thiểu đến khi có nhóm khả dụng
+      let earliestCooldownMs = Infinity;
+      for (const res of evaluatedGroups) {
+        if (res.group) {
+          if (res.group.cooldownUntilMs > now) {
+            earliestCooldownMs = Math.min(earliestCooldownMs, res.group.cooldownUntilMs - now);
+          }
+          // Kiểm tra key cooldown
+          for (const k of res.group.keyIds) {
+            const h = this.getKeyHealth(k, now);
+            if (h.cooldownRemainingMs > 0) {
+              earliestCooldownMs = Math.min(earliestCooldownMs, h.cooldownRemainingMs);
+            }
+          }
+        }
+      }
+      const delayMs = earliestCooldownMs !== Infinity ? earliestCooldownMs : 3000;
+
+      return {
+        leaseId,
+        isEligible: false,
+        delayMs,
+        effectiveIntervalMs: 4445,
+        rejectReason: bestGroupResult.rejectReason || 'Toàn bộ các nhóm hạn ngạch hiện không khả dụng.',
+        earliestAvailableInMs: delayMs,
+      };
+    }
+
+    const group = bestGroupResult.group;
+    const bestKeyResult = this.selectBestKeyInGroup(group.id, candidateKeys, now);
+
+    if (!bestKeyResult) {
+      return {
+        leaseId,
+        isEligible: false,
+        delayMs: 3000,
+        effectiveIntervalMs: group.schedulingHint.effectiveIntervalMs,
+        rejectReason: `Group ${group.name || group.id} không có API key nào đang khả dụng (Healthy/Cooldown).`,
+        earliestAvailableInMs: 3000,
+      };
+    }
+
+    // Tính toán Pacing Delay và đặt chỗ NextAllowedTime nguyên tử
+    const interval = group.schedulingHint.effectiveIntervalMs;
+    let groupDelay = 0;
+
+    if (now < group.nextAllowedTimeMs) {
+      groupDelay = group.nextAllowedTimeMs - now;
+      group.nextAllowedTimeMs = group.nextAllowedTimeMs + interval;
+    } else {
+      group.nextAllowedTimeMs = now + interval;
+    }
+
+    this.recordQueueWait(groupDelay);
+
+    return {
+      leaseId,
+      isEligible: true,
+      selectedGroupId: group.id,
+      selectedKey: bestKeyResult.key,
+      delayMs: groupDelay,
+      effectiveIntervalMs: interval,
+    };
   }
 
   /**

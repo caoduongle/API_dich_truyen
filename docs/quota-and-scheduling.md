@@ -123,3 +123,15 @@ Khi có yêu cầu dịch thuật, bộ điều phối thực hiện 2 bước t
 - **Thứ tự ưu tiên tính nhịp độ pacing**:
   $$\text{Configured} \ (1) \longrightarrow \text{Provider} \ (2) \longrightarrow \text{Model-Fallback} \ (3) \longrightarrow \text{Safe-Default} \ (4)$$
 - Tuyệt đối không có phần code nào được phép coi nhịp độ fallback an toàn là hạn ngạch chính thức của Google.
+
+---
+
+## 8. Single Scheduler Authority & Zero Double-Sleep
+
+Hệ thống tuân thủ nghiêm ngặt nguyên tắc **Một Nguồn Sự Thật Duy Nhất**:
+1. **`quotaService` (Cơ quan điều phối duy nhất)**:
+   - Ban hành quyết định `scheduleAttempt(...)` trả về hợp đồng `ScheduleLease` hoàn chỉnh chứa: `selectedGroupId`, `selectedKey`, `delayMs`, `effectiveIntervalMs`.
+   - Tính toán nhịp độ pacing và đặt chỗ mốc thời gian an toàn một cách nguyên tử (`nextAllowedTimeMs`).
+2. **`geminiService` (Stateless Executor)**:
+   - Chuẩn hóa luồng chấp hành 4 bước: $\text{Prepare Request} \longrightarrow \text{Ask Scheduler (Acquire Lease)} \longrightarrow \text{Sleep Once (if delayMs > 0)} \longrightarrow \text{Execute & Report Result}$.
+   - Tuyệt đối không tự duy trì các bảng đồng hồ riêng (`nextAllowedTimeByKey`, `nextAllowedTimeByGroup`) hay tự tính toán các khoảng nghỉ phân tán, triệt tiêu 100% hiện tượng nghẽn kép (**Zero Double-Throttling / Zero Double-Sleep**).

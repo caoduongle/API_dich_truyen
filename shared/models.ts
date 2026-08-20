@@ -352,3 +352,17 @@ export interface QuotaGroupConfigInput {
   providerQuota?: ProviderQuota;
 }
 
+/**
+ * Hợp đồng cấp quyền thực thi từ Single Scheduler Authority
+ */
+export interface ScheduleLease {
+  leaseId: string;
+  isEligible: boolean;
+  selectedGroupId?: string;
+  selectedKey?: string;
+  delayMs: number;
+  effectiveIntervalMs: number;
+  rejectReason?: string;
+  earliestAvailableInMs?: number;
+}
+
