@@ -304,11 +304,45 @@ export type KeyHealthState =
 
 export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
 
+/**
+ * Số liệu hoạt động của một API key chuẩn tắc (Key Activity Layer)
+ */
+export interface KeyActivityMetrics {
+  keyAttempts: number;
+  keyFailures: number;
+  keyCooldowns: number;
+}
+
+/**
+ * Số liệu yêu cầu dịch thuật logic chuẩn tắc (Logical Request Layer)
+ */
+export interface CanonicalLogicalMetrics {
+  logicalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+}
+
+/**
+ * Số liệu cuộc gọi lên nhà cung cấp chuẩn tắc (Provider Attempt Layer)
+ */
+export interface CanonicalProviderMetrics {
+  providerAttempts: number;
+  retries: number;
+  providerFailures: number;
+}
+
 export interface KeyObservedAttempts {
-  attemptsTotal: number;
-  attemptsToday: number;
-  successfulAttempts: number;
-  failedAttempts: number;
+  keyAttempts: number;
+  keyFailures: number;
+  keyCooldowns: number;
+  /** @deprecated Sử dụng `keyAttempts` thay thế */
+  attemptsTotal?: number;
+  /** @deprecated Sử dụng `keyAttempts` thay thế */
+  attemptsToday?: number;
+  /** @deprecated Sử dụng `keyAttempts - keyFailures` thay thế */
+  successfulAttempts?: number;
+  /** @deprecated Sử dụng `keyFailures` thay thế */
+  failedAttempts?: number;
   lastErrorCode?: string | null;
   consecutiveFailures: number;
 }

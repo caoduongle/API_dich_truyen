@@ -228,3 +228,23 @@ Loại bỏ hoàn toàn hiện tượng Thundering Herd và tối ưu hóa lưu 
    - Tự động hủy nếu chờ quá 30 giây trong hàng đợi (`QUEUE_TIMEOUT`).
    - Hỗ trợ `AbortSignal` để hủy tức thời khi người dùng dừng tác vụ.
    - Khe chạy luôn được giải phóng an toàn 100% trong khối `finally` kể cả khi tác vụ ném ngoại lệ (`Error`).
+
+---
+
+## 15. Chuẩn Tắc Hóa 3 Tầng Metrics & Tương Thích Ngược (Canonical Metrics Hierarchy)
+
+Loại bỏ 100% sự chồng chéo ngữ nghĩa và phân định rõ ràng các tầng số liệu:
+1. **Logical Metrics (Cấp Độ Yêu Cầu Dịch Thuật Của Người Dùng)**:
+   - `logicalRequests`: Tổng số yêu cầu dịch thuật logic gửi từ client.
+   - `successfulRequests`: Số yêu cầu dịch thành công trọn vẹn.
+   - `failedRequests`: Số yêu cầu dịch thất bại sau toàn bộ retries.
+2. **Provider Metrics (Cấp Độ Cuộc Gọi Upstream Google GenAI)**:
+   - `providerAttempts`: Tổng số cuộc gọi HTTP attempt tới Google.
+   - `retries`: Số lần thử lại sau các attempt đầu tiên thất bại.
+   - `providerFailures`: Số lần attempt tới provider bị lỗi.
+3. **Key Activity Metrics (Cấp Độ Khóa API Cá Nhân)**:
+   - `keyAttempts`: Số lần khóa được chọn thực thi attempt.
+   - `keyFailures`: Số lần khóa gặp lỗi.
+   - `keyCooldowns`: Số lần khóa bị đưa vào trạng thái cooldown.
+4. **Tương Thích Ngược Hoàn Toàn (Backward Compatibility)**:
+   - Các trường cũ (`requestsTotal`, `providerAttemptsTotal`) được giữ lại dưới dạng aliases đánh dấu `@deprecated` để không gây breaking change ngầm cho frontend và consumers.

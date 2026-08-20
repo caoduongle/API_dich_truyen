@@ -92,6 +92,9 @@ export function createMockApiKeyEntity(
     cooldownUntilMs: 0,
     lastUsedAtMs: 0,
     observedAttempts: {
+      keyAttempts: 0,
+      keyFailures: 0,
+      keyCooldowns: 0,
       attemptsTotal: 0,
       attemptsToday: 0,
       successfulAttempts: 0,

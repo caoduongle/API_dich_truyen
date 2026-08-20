@@ -15,6 +15,9 @@ import {
   ModelCooldownRecord,
   ProviderOutageStatus,
   PACING_SAFETY_FLOOR_SERVER_MS,
+  CanonicalLogicalMetrics,
+  CanonicalProviderMetrics,
+  KeyActivityMetrics,
 } from '../../shared/models';
 
 export type {
@@ -31,6 +34,9 @@ export type {
   ScheduleLease,
   ModelCooldownRecord,
   ProviderOutageStatus,
+  CanonicalLogicalMetrics,
+  CanonicalProviderMetrics,
+  KeyActivityMetrics,
 };
 export { PACING_SAFETY_FLOOR_SERVER_MS };
 
@@ -159,19 +165,40 @@ interface InternalKeyStats {
 }
 
 export interface LogicalSummaryStats {
+  logicalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  retries: number;
+  providerAttempts: number;
+  providerFailures: number;
+
+  /** @deprecated Sử dụng `logicalRequests` thay thế */
   logicalRequestsTotal: number;
+  /** @deprecated Sử dụng `logicalRequests` thay thế */
   logicalRequestsToday: number;
+  /** @deprecated Sử dụng `successfulRequests` thay thế */
   successfulRequestsTotal: number;
+  /** @deprecated Sử dụng `successfulRequests` thay thế */
   successfulRequestsToday: number;
+  /** @deprecated Sử dụng `failedRequests` thay thế */
   failedRequestsTotal: number;
+  /** @deprecated Sử dụng `failedRequests` thay thế */
   failedRequestsToday: number;
+  /** @deprecated Sử dụng `retries` thay thế */
   retriesTotal: number;
+  /** @deprecated Sử dụng `retries` thay thế */
   retriesToday: number;
+  /** @deprecated Sử dụng `providerAttempts` thay thế */
   providerAttemptsTotal: number;
+  /** @deprecated Sử dụng `providerAttempts` thay thế */
   providerAttemptsToday: number;
+  /** @deprecated Sử dụng `successfulRequests` thay thế */
   successfulAttemptsTotal: number;
+  /** @deprecated Sử dụng `successfulRequests` thay thế */
   successfulAttemptsToday: number;
+  /** @deprecated Sử dụng `providerFailures` thay thế */
   failedAttemptsTotal: number;
+  /** @deprecated Sử dụng `providerFailures` thay thế */
   failedAttemptsToday: number;
   lastResetDay: string;
 }
@@ -195,12 +222,26 @@ export interface KeyQuotaSnapshot {
   transitionReason?: string;
   circuitBreakerState: CircuitBreakerStatus;
   cooldownRemainingMs: number;
+
+  // Canonical Key Activity Layer
+  keyAttempts: number;
+  keyFailures: number;
+  keyCooldowns: number;
+
+  // Backward Compatibility Aliases (@deprecated)
+  /** @deprecated Sử dụng `keyAttempts` thay thế */
   providerAttemptsTotal: number;
+  /** @deprecated Sử dụng `keyAttempts` thay thế */
   providerAttemptsToday: number;
+  /** @deprecated Sử dụng `keyAttempts` thay thế */
   providerAttemptsThisMinute: number;
+  /** @deprecated Sử dụng `keyAttempts` thay thế */
   requestsTotal: number;
+  /** @deprecated Sử dụng `keyAttempts` thay thế */
   requestsToday: number;
+  /** @deprecated Sử dụng `keyAttempts` thay thế */
   requestsThisMinute: number;
+
   errorsTotal: number;
   consecutiveErrors: number;
   quotaEventsTotal: number;
@@ -261,6 +302,12 @@ class QuotaService {
   private groupPstResetDay = new Map<string, string>();
 
   private logicalStats: LogicalSummaryStats = {
+    logicalRequests: 0,
+    successfulRequests: 0,
+    failedRequests: 0,
+    retries: 0,
+    providerAttempts: 0,
+    providerFailures: 0,
     logicalRequestsTotal: 0,
     logicalRequestsToday: 0,
     successfulRequestsTotal: 0,
@@ -1416,6 +1463,9 @@ class QuotaService {
           transitionReason: health.transitionReason,
           circuitBreakerState: 'Closed',
           cooldownRemainingMs: 0,
+          keyAttempts: 0,
+          keyFailures: 0,
+          keyCooldowns: 0,
           providerAttemptsTotal: 0,
           providerAttemptsToday: 0,
           providerAttemptsThisMinute: 0,
@@ -1468,6 +1518,9 @@ class QuotaService {
         transitionReason: stats.transitionReason || health.transitionReason,
         circuitBreakerState: health.circuitBreaker,
         cooldownRemainingMs: health.cooldownRemainingMs,
+        keyAttempts: stats.requestsTotal,
+        keyFailures: stats.errorsTotal,
+        keyCooldowns: stats.cooldownEventsTotal,
         providerAttemptsTotal: stats.requestsTotal,
         providerAttemptsToday: requestsToday,
         providerAttemptsThisMinute: requestsThisMinute,
@@ -1655,7 +1708,50 @@ class QuotaService {
       this.logicalStats.failedAttemptsToday = 0;
       this.logicalStats.lastResetDay = currentDay;
     }
-    return { ...this.logicalStats };
+    return {
+      ...this.logicalStats,
+      logicalRequests: this.logicalStats.logicalRequestsTotal,
+      successfulRequests: this.logicalStats.successfulRequestsTotal,
+      failedRequests: this.logicalStats.failedRequestsTotal,
+      retries: this.logicalStats.retriesTotal,
+      providerAttempts: this.logicalStats.providerAttemptsTotal,
+      providerFailures: this.logicalStats.failedAttemptsTotal,
+    };
+  }
+
+  /**
+   * Đọc số liệu Logical Request chuẩn tắc
+   */
+  public getCanonicalLogicalMetrics(): CanonicalLogicalMetrics {
+    return {
+      logicalRequests: this.logicalStats.logicalRequestsTotal,
+      successfulRequests: this.logicalStats.successfulRequestsTotal,
+      failedRequests: this.logicalStats.failedRequestsTotal,
+    };
+  }
+
+  /**
+   * Đọc số liệu Provider Attempt chuẩn tắc
+   */
+  public getCanonicalProviderMetrics(): CanonicalProviderMetrics {
+    return {
+      providerAttempts: this.logicalStats.providerAttemptsTotal,
+      retries: this.logicalStats.retriesTotal,
+      providerFailures: this.logicalStats.failedAttemptsTotal,
+    };
+  }
+
+  /**
+   * Đọc số liệu Key Activity chuẩn tắc cho 1 API key
+   */
+  public getKeyActivityMetrics(key: string): KeyActivityMetrics {
+    const keyHash = hashApiKey(key.trim());
+    const stats = this.keyStatsMap.get(keyHash);
+    return {
+      keyAttempts: stats ? stats.requestsTotal : 0,
+      keyFailures: stats ? stats.errorsTotal : 0,
+      keyCooldowns: stats ? stats.cooldownEventsTotal : 0,
+    };
   }
 
   public resetAll(): void {
@@ -1688,6 +1784,12 @@ class QuotaService {
       },
     };
     this.logicalStats = {
+      logicalRequests: 0,
+      successfulRequests: 0,
+      failedRequests: 0,
+      retries: 0,
+      providerAttempts: 0,
+      providerFailures: 0,
       logicalRequestsTotal: 0,
       logicalRequestsToday: 0,
       successfulRequestsTotal: 0,
