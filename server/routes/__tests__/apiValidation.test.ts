@@ -231,6 +231,23 @@ describe("API Request Body Validation Integration Tests", () => {
       const body = await res.json();
       expect(body.error).toContain("API key");
     });
+
+    it("should reject unverified model in translate-raw with 400 and code MODEL_UNVERIFIED", async () => {
+      const res = await fetch(`${baseUrl}/api/translate-raw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          model: "unverified-novel-model-456", 
+          rawText: "你好世界", 
+          apiKeys: validApiKeys 
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.code).toBe("MODEL_UNVERIFIED");
+      expect(body.error).toContain("chưa được xác minh");
+    });
   });
 
 

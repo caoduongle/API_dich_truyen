@@ -28,6 +28,7 @@ class ModelInfoService {
   private cache = new Map<string, CachedModels>();
   private inFlightRevalidation = new Map<string, Promise<ModelInfo[]>>();
   private verifiedModelsCache = new Map<string, CachedVerifiedModel>();
+  private inFlightVerifications = new Map<string, Promise<ModelDefinition>>();
 
 
   /**
@@ -268,53 +269,68 @@ class ModelInfoService {
       };
     }
 
+    // 3. Single-Flight Concurrency Deduplication: nếu đang có request xác minh in-flight cho model này, dùng chung Promise
+    const existingInFlight = this.inFlightVerifications.get(normId);
+    if (existingInFlight) {
+      return existingInFlight;
+    }
+
     if (!apiKey || !apiKey.trim()) {
       throw new Error('Cần cung cấp ít nhất một API Key hợp lệ để thực hiện xác minh mô hình tùy chỉnh.');
     }
 
     const trimmedKey = apiKey.trim();
 
-    // 3. Gọi Google API kiểm tra thông tin model
-    const info = await this.fetchSingleModelFromGoogle(cleanId, trimmedKey);
+    const verificationPromise = (async () => {
+      try {
+        // 4. Gọi Google API kiểm tra thông tin model
+        const info = await this.fetchSingleModelFromGoogle(cleanId, trimmedKey);
 
-    // Kiểm tra khả năng generateContent
-    const methods = info.supportedGenerationMethods || [];
-    const canGenerate = methods.length === 0 || methods.some(m => m.toLowerCase().includes('generatecontent'));
-    if (!canGenerate) {
-      throw new Error(`Mô hình "${cleanId}" không hỗ trợ phương thức tạo nội dung (generateContent). Không tương thích với quy trình dịch thuật.`);
-    }
+        // Kiểm tra khả năng generateContent
+        const methods = info.supportedGenerationMethods || [];
+        const canGenerate = methods.length === 0 || methods.some(m => m.toLowerCase().includes('generatecontent'));
+        if (!canGenerate) {
+          throw new Error(`Mô hình "${cleanId}" không hỗ trợ phương thức tạo nội dung (generateContent). Không tương thích với quy trình dịch thuật.`);
+        }
 
-    const verifiedModel: ModelDefinition = {
-      id: cleanId,
-      label: customLabel?.trim() || info.displayName || cleanId,
-      source: 'custom',
-      status: 'active',
-      verified: true,
-      lastVerifiedAt: new Date().toISOString(),
-      capabilities: {
-        generateContent: true,
-        structuredOutput: true,
-        vision: true,
-        thinking: cleanId.toLowerCase().includes('thinking') || cleanId.toLowerCase().includes('2.5'),
-      },
-      limits: {
-        defaultRpm: cleanId.toLowerCase().includes('pro') ? 10 : 15,
-        defaultTpm: 1000000,
-        defaultRpd: 1500,
-      },
-      description: info.description,
-      inputTokenLimit: info.inputTokenLimit,
-      outputTokenLimit: info.outputTokenLimit,
-      addedAt: new Date().toISOString(),
-    };
+        const verifiedModel: ModelDefinition = {
+          id: cleanId,
+          label: customLabel?.trim() || info.displayName || cleanId,
+          source: 'custom',
+          status: 'active',
+          verified: true,
+          lastVerifiedAt: new Date().toISOString(),
+          capabilities: {
+            generateContent: true,
+            structuredOutput: true,
+            vision: true,
+            thinking: cleanId.toLowerCase().includes('thinking') || cleanId.toLowerCase().includes('2.5'),
+          },
+          limits: {
+            defaultRpm: cleanId.toLowerCase().includes('pro') ? 10 : 15,
+            defaultTpm: 1000000,
+            defaultRpd: 1500,
+          },
+          description: info.description,
+          inputTokenLimit: info.inputTokenLimit,
+          outputTokenLimit: info.outputTokenLimit,
+          addedAt: new Date().toISOString(),
+        };
 
-    // Lưu vào cache đã xác minh
-    this.verifiedModelsCache.set(normId, {
-      timestamp: now,
-      model: verifiedModel,
-    });
+        // Lưu vào cache đã xác minh
+        this.verifiedModelsCache.set(normId, {
+          timestamp: Date.now(),
+          model: verifiedModel,
+        });
 
-    return verifiedModel;
+        return verifiedModel;
+      } finally {
+        this.inFlightVerifications.delete(normId);
+      }
+    })();
+
+    this.inFlightVerifications.set(normId, verificationPromise);
+    return verificationPromise;
   }
 
   /**
@@ -334,9 +350,10 @@ class ModelInfoService {
   }
 
   /**
-   * Kiểm tra nhanh xem 1 model ID có được xác minh trong hệ thống hay không
+   * Kiểm tra nhanh thuần túy từ bộ nhớ đệm (0 network call) xem model ID có hợp lệ & đã xác minh không.
+   * Dành riêng cho Hot Path dịch thuật (validateModelMiddleware).
    */
-  public async isModelVerified(modelId: string, apiKeys: string[] = []): Promise<boolean> {
+  public isModelVerifiedCached(modelId: string): boolean {
     if (!modelId) return false;
     const cleanId = modelId.replace(/^models\//i, '').trim();
     const normId = cleanId.toLowerCase();
@@ -347,23 +364,20 @@ class ModelInfoService {
       return preset.status !== 'shutdown';
     }
 
-    // 2. Cached verified model
+    // 2. Cached verified model (within TTL)
     const cached = this.verifiedModelsCache.get(normId);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return cached.model.verified === true && cached.model.status !== 'shutdown';
     }
 
-    // 3. Nếu có API key, thử verify on-demand
-    if (apiKeys.length > 0 && apiKeys[0]?.trim()) {
-      try {
-        const verified = await this.verifySingleModel(cleanId, apiKeys[0]);
-        return verified.verified === true;
-      } catch {
-        return false;
-      }
-    }
-
     return false;
+  }
+
+  /**
+   * Kiểm tra xem 1 model ID có được xác minh trong hệ thống hay không (0 network call).
+   */
+  public async isModelVerified(modelId: string, _apiKeys: string[] = []): Promise<boolean> {
+    return this.isModelVerifiedCached(modelId);
   }
 
   /**
@@ -390,6 +404,7 @@ class ModelInfoService {
     this.cache.clear();
     this.inFlightRevalidation.clear();
     this.verifiedModelsCache.clear();
+    this.inFlightVerifications.clear();
   }
 }
 

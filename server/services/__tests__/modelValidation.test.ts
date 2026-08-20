@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { isValidModelId, validateModelMiddleware } from '../../routes/api';
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../../constants/models';
 
@@ -71,10 +71,13 @@ describe('Server-Side Canonical Model Validation', () => {
     expect(jsonResult?.error).toBeDefined();
   });
 
-  it('middleware should reject unverified models with MODEL_UNVERIFIED', async () => {
+  it('middleware should reject unverified models with MODEL_UNVERIFIED and make 0 network calls', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
     let statusCode = 0;
     let jsonResult: any = null;
-    const req: any = { body: { model: 'unknown-unverified-model-123' } };
+    const req: any = { body: { model: 'unknown-unverified-model-123', apiKeys: ['AIzaSyTestKey123'] } };
     const res: any = {
       status: (code: number) => {
         statusCode = code;
@@ -89,6 +92,38 @@ describe('Server-Side Canonical Model Validation', () => {
     expect(statusCode).toBe(400);
     expect(jsonResult?.code).toBe('MODEL_UNVERIFIED');
     expect(jsonResult?.error).toContain('chưa được xác minh');
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+
+  it('middleware should allow verified cached model with 0 network calls', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const { modelInfoService } = await import('../modelInfoService');
+    modelInfoService.registerVerifiedModel({
+      id: 'tunedModels/pre-verified-novel',
+      label: 'Pre-verified Novel',
+      source: 'custom',
+      status: 'active',
+      verified: true,
+      capabilities: { generateContent: true },
+    });
+
+    let nextCalled = false;
+    const req: any = { body: { model: 'tunedModels/pre-verified-novel' } };
+    const res: any = {
+      status: (code: number) => ({
+        json: (data: any) => ({ code, data }),
+      }),
+    };
+
+    await validateModelMiddleware(req, res, () => { nextCalled = true; });
+    expect(nextCalled).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 });
 

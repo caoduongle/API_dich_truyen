@@ -181,6 +181,86 @@ describe('Single Model Verification & Verified Cache', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('should deduplicate 20 concurrent verification calls into exactly 1 Google API fetch', async () => {
+    let fetchCount = 0;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      fetchCount++;
+      // Simulate 50ms network delay
+      await new Promise(r => setTimeout(r, 50));
+      return {
+        ok: true,
+        json: async () => ({
+          name: 'models/tuned-novel-concurrency-test',
+          displayName: 'Tuned Novel Concurrency Test',
+          supportedGenerationMethods: ['generateContent'],
+        }),
+      };
+    }));
+
+    // Fire 20 concurrent calls
+    const promises = Array.from({ length: 20 }, (_, i) => 
+      modelInfoService.verifySingleModel('tuned-novel-concurrency-test', fakeKey, `Label ${i}`)
+    );
+
+    const results = await Promise.all(promises);
+
+    expect(fetchCount).toBe(1);
+    expect(results).toHaveLength(20);
+    for (const res of results) {
+      expect(res.verified).toBe(true);
+      expect(res.id).toBe('tuned-novel-concurrency-test');
+    }
+  });
+
+  it('should cleanly evict in-flight promise on failure so subsequent requests can retry', async () => {
+    let fetchCount = 0;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      fetchCount++;
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({ error: { message: 'Not found' } }),
+      };
+    }));
+
+    // 5 concurrent calls that fail
+    const failingPromises = Array.from({ length: 5 }, () => 
+      modelInfoService.verifySingleModel('failing-model', fakeKey)
+    );
+
+    await expect(Promise.all(failingPromises)).rejects.toThrow('Không tìm thấy mô hình');
+    expect(fetchCount).toBe(1);
+
+    // Next call after failure should make a new fetch attempt rather than being stuck on old promise
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      fetchCount++;
+      return {
+        ok: true,
+        json: async () => ({
+          name: 'models/failing-model',
+          displayName: 'Recovered Model',
+          supportedGenerationMethods: ['generateContent'],
+        }),
+      };
+    }));
+
+    const recovered = await modelInfoService.verifySingleModel('failing-model', fakeKey);
+    expect(recovered.verified).toBe(true);
+    expect(fetchCount).toBe(2);
+  });
+
+  it('isModelVerifiedCached should return boolean synchronously with zero network calls', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    expect(modelInfoService.isModelVerifiedCached('gemini-2.5-flash')).toBe(true);
+    expect(modelInfoService.isModelVerifiedCached('gemini-2.0-flash')).toBe(false); // Shutdown
+    expect(modelInfoService.isModelVerifiedCached('uncached-random-model')).toBe(false);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('isModelVerified should return false for shutdown models and unknown uncached models', async () => {
     expect(await modelInfoService.isModelVerified('gemini-2.0-flash')).toBe(false);
     expect(await modelInfoService.isModelVerified('completely-unknown-model-xyz')).toBe(false);

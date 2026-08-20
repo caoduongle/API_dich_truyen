@@ -74,7 +74,7 @@ export function isValidModelId(model: unknown): boolean {
 // --- MIDDLEWARE: Kiểm tra model hợp lệ & đã xác minh ---
 // Đảm bảo model có định dạng an toàn và đã được xác minh hỗ trợ dịch thuật (generateContent).
 export async function validateModelMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const { model, apiKeys } = req.body || {};
+  const { model } = req.body || {};
   // Cho phép bỏ trống (backend sẽ dùng DEFAULT_MODEL_ID)
   if (model !== undefined && model !== null && model !== '') {
     if (!isValidModelId(model)) {
@@ -84,8 +84,7 @@ export async function validateModelMiddleware(req: Request, res: Response, next:
       return;
     }
 
-    const validKeys = Array.isArray(apiKeys) ? apiKeys : [];
-    const isVerified = await modelInfoService.isModelVerified(model, validKeys);
+    const isVerified = modelInfoService.isModelVerifiedCached(model);
     if (!isVerified) {
       res.status(400).json({
         error: `Mô hình AI "${model}" chưa được xác minh hoặc không tương thích với quy trình dịch thuật. Vui lòng kiểm tra và xác minh mô hình trong Cấu hình AI.`,
