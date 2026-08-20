@@ -234,6 +234,76 @@ describe('Quota Group & Project-Based Quota Accounting (TASK 01)', () => {
       expect(groupBRes.isEligible).toBe(true);
       expect(evalResults[0].group.id).toBe('group_b_backup');
     });
+
+    it('rejects group evaluation when group reaches daily RPD quota exhaustion', () => {
+      const keyA1 = 'AIzaSyKeyA1_RpdExhaust';
+      const keyA2 = 'AIzaSyKeyA2_RpdExhaust';
+      const now = 1000000;
+
+      quotaService.registerQuotaGroup({
+        id: 'group_rpd_exhaust',
+        configuredRpm: 15,
+        configuredRpd: 10, // Small limit for testing
+        keyIds: [keyA1, keyA2],
+      });
+
+      // Saturate 10 requests today
+      for (let i = 0; i < 10; i++) {
+        quotaService.recordGroupUsage('group_rpd_exhaust', i % 2 === 0 ? keyA1 : keyA2, 'gemini-2.5-flash', 'success', now + i * 10);
+      }
+
+      const group = quotaService.getQuotaGroup('group_rpd_exhaust')!;
+      expect(group.observedUsage.requestsToday).toBe(10);
+
+      // Evaluate after the 60s sliding window so RPM is 0, but RPD is reached
+      const futureEval = quotaService.evaluateQuotaGroups([keyA1, keyA2], 'gemini-2.5-flash', 2000, now + 70000);
+      expect(futureEval[0].isEligible).toBe(false);
+      expect(futureEval[0].rejectReason).toContain('RPD');
+    });
+
+    it('keeps group available when at least one key is healthy among multiple failed keys', () => {
+      const key1 = 'AIzaSyKey_Fail1';
+      const key2 = 'AIzaSyKey_Fail2';
+      const key3 = 'AIzaSyKey_Healthy3';
+      const now = 1000000;
+
+      quotaService.registerQuotaGroup({
+        id: 'group_3keys_test',
+        configuredRpm: 15,
+        keyIds: [key1, key2, key3],
+      });
+
+      // Key 1 fails auth
+      quotaService.recordCategorizedError(key1, 'gemini-2.5-flash', {
+        code: AIErrorCode.AUTH_FAILED,
+        message: 'Invalid key',
+        isRetryable: false,
+        recommendedAction: 'disable_key',
+        httpStatus: 401,
+      }, now);
+
+      // Key 2 is in cooldown
+      quotaService.recordCategorizedError(key2, 'gemini-2.5-flash', {
+        code: AIErrorCode.OVERLOADED,
+        message: 'Overloaded',
+        isRetryable: true,
+        recommendedAction: 'cooldown_key',
+        retryAfterSec: 10,
+        httpStatus: 503,
+      }, now);
+
+      // Key 3 is healthy
+      expect(quotaService.getKeyHealth(key1, now).isAvailable).toBe(false);
+      expect(quotaService.getKeyHealth(key2, now).isAvailable).toBe(false);
+      expect(quotaService.getKeyHealth(key3, now).isAvailable).toBe(true);
+
+      const evalResults = quotaService.evaluateQuotaGroups([key1, key2, key3], 'gemini-2.5-flash', 2000, now);
+      expect(evalResults[0].isEligible).toBe(true);
+
+      const bestKey = quotaService.selectBestKeyInGroup('group_3keys_test', [key1, key2, key3], now);
+      expect(bestKey).not.toBeNull();
+      expect(bestKey!.key).toBe(key3);
+    });
   });
 
   // ── USER STORY 4: 4-TIER DATA CLASSIFICATION (P4) ──

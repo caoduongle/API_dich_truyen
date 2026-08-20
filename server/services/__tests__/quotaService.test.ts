@@ -234,28 +234,32 @@ describe('quotaService', () => {
       expect(healthAfter3.isAvailable).toBe(false);
     });
 
-    it('should score healthy keys higher than keys with errors or high token consumption', () => {
+    it('should prioritize healthy least-error keys when selecting best key in group', () => {
       const now = Date.now();
-      // Key A: perfectly healthy
-      quotaService.recordUsage(keyA, 'gemini-2.5-flash', 'success', now, {
+      quotaService.registerQuotaGroup({
+        id: 'group_test_scoring',
+        configuredRpm: 15,
+        keyIds: [keyA, keyB],
+      });
+
+      // Key A: healthy and recently succeeded
+      quotaService.recordGroupUsage('group_test_scoring', keyA, 'gemini-2.5-flash', 'success', now, {
         promptTokens: 100,
         outputTokens: 50,
         totalTokens: 150,
       });
 
-      // Key B: consumed 800,000 tokens this minute
-      quotaService.recordUsage(keyB, 'gemini-2.5-flash', 'success', now, {
-        promptTokens: 400000,
-        outputTokens: 400000,
-        totalTokens: 800000,
-      });
+      // Key B: encountered consecutive errors (Degraded)
+      quotaService.recordUsage(keyB, 'gemini-2.5-flash', 'error', now);
 
-      const scoreA = quotaService.calculateKeyScore(keyA, 'gemini-2.5-flash', 2000, now);
-      const scoreB = quotaService.calculateKeyScore(keyB, 'gemini-2.5-flash', 2000, now);
+      const healthA = quotaService.getKeyHealth(keyA, now);
+      const healthB = quotaService.getKeyHealth(keyB, now);
+      expect(healthA.state).toBe('Healthy');
+      expect(healthB.state).toBe('Degraded');
 
-      expect(scoreA.isEligible).toBe(true);
-      expect(scoreB.isEligible).toBe(true);
-      expect(scoreA.score).toBeGreaterThan(scoreB.score);
+      const bestKey = quotaService.selectBestKeyInGroup('group_test_scoring', [keyA, keyB], now);
+      expect(bestKey).not.toBeNull();
+      expect(bestKey!.key).toBe(keyA);
     });
   });
 });

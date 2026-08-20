@@ -10,17 +10,17 @@ import { logAttemptTelemetry } from "../utils/telemetryLogger";
 import { generateRequestId } from "../middleware/tracingMiddleware";
 
 /**
- * Tính toán khoảng cách an toàn (mili-giây) giữa các request cho một API Key hoặc Quota Group
- * Dựa trên RPM cấu hình cho group/key đó, hoặc tier mặc định của Model.
+ * Tính toán khoảng cách an toàn (mili-giây) giữa các request cho một Quota Group
+ * Dựa trên RPM cấu hình cho group đó, hoặc tier mặc định của Model.
  * Áp dụng hệ số an toàn 0.9 và giới hạn sàn tối thiểu 400ms trên server.
  */
-export function computePerKeyIntervalMs(
-  keyRpm?: number,
+export function computeGroupIntervalMs(
+  groupRpm?: number,
   modelId?: string,
   safetyFloorMs: number = 400
 ): number {
-  if (typeof keyRpm === 'number' && keyRpm > 0) {
-    return Math.max(safetyFloorMs, Math.ceil(60000 / (keyRpm * 0.9)));
+  if (typeof groupRpm === 'number' && groupRpm > 0) {
+    return Math.max(safetyFloorMs, Math.ceil(60000 / (groupRpm * 0.9)));
   }
 
   const norm = (modelId || '').replace(/^models\//i, '').trim().toLowerCase();
@@ -35,6 +35,9 @@ export function computePerKeyIntervalMs(
   }
   return 4445; // ~15 RPM mặc định Free Tier Flash models
 }
+
+/** Tương thích ngược với tên cũ */
+export const computePerKeyIntervalMs = computeGroupIntervalMs;
 
 const STALE_THRESHOLD_MS = AI_SERVICE_CONFIG.STALE_KEY_THRESHOLD_MS || 30 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = AI_SERVICE_CONFIG.CLEANUP_INTERVAL_MS;
@@ -290,7 +293,7 @@ export async function generateWithRotation(
         const keyIndex = rawKeys.indexOf(key);
 
         // Quota Group Rate Limiter: Tính pacing và cập nhật nextAllowedTime ở cấp độ Group
-        const effectiveGroupInterval = group.schedulingHint.effectiveIntervalMs || computePerKeyIntervalMs(undefined, model);
+        const effectiveGroupInterval = group.schedulingHint.effectiveIntervalMs || computeGroupIntervalMs(undefined, model);
         const groupNextAllowed = nextAllowedTimeByGroup.get(groupId) || 0;
         const nowForRate = Date.now();
         let groupDelay = 0;

@@ -454,10 +454,10 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
     <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-3.5 space-y-3">
       <div className="flex items-center gap-1.5 text-xs font-bold text-text-main">
         <Settings2 className="w-3.5 h-3.5 text-polish" />
-        Cấu hình Ngưỡng Hạn ngạch Người dùng Tự đặt
+        Cấu hình Ngưỡng Hạn ngạch &amp; Gợi ý Điều phối (Quota Group Settings / Scheduling Hints)
       </div>
       <p className="text-[11px] text-text-muted leading-relaxed">
-        Thiết lập ngưỡng RPM (Request / Phút), TPM (Token / Phút) và RPD (Request / Ngày) để hiển thị thanh tiến độ phần trăm trực quan trên từng key.
+        Thiết lập ngưỡng RPM (Request / Phút), TPM (Token / Phút) và RPD (Request / Ngày) để điều phối nhịp độ an toàn (Scheduling Hints) cho các nhóm khóa dự án.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         {snapshotKeys.map((item, idx) => {
