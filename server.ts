@@ -56,6 +56,11 @@ app.use("/api", createRateLimiter({ endpointType: 'translation' }));
 // Gắn các API endpoints từ router
 app.use("/api", apiRouter);
 
+// Top-level aliases cho health/liveness/readiness probes (dành cho container orchestrators)
+app.get("/health", (req, res, next) => { req.url = "/health"; apiRouter(req, res, next); });
+app.get("/live", (req, res, next) => { req.url = "/live"; apiRouter(req, res, next); });
+app.get("/ready", (req, res, next) => { req.url = "/ready"; apiRouter(req, res, next); });
+
 
 // Tích hợp Vite middleware phục vụ Single Page Application
 async function startServer() {

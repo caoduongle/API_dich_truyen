@@ -35,6 +35,7 @@ import { sessionStore } from "../services/sessionStore";
 import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models";
 import { metricsService } from "../services/metricsService";
 import { modelInfoService } from "../services/modelInfoService";
+import { redisManager } from "../services/redisService";
 import { SERVER_CONFIG } from "@shared/constants";
 
 const router = Router();
@@ -209,13 +210,84 @@ router.post("/models-for-key", resolveApiKeysMiddleware, getModelsForKeyHandler)
 router.post("/verify-model", resolveApiKeysMiddleware, verifyModelHandler);
 
 
+// --- Liveness Probe Endpoint ---
+router.get("/live", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: "alive",
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: metricsService.getUptimeSeconds(),
+  });
+});
+
+// --- Readiness Probe Endpoint ---
+router.get("/ready", (_req: Request, res: Response) => {
+  const redisStatus = redisManager.getStatus();
+  const hasRedis = !!process.env.REDIS_URL || redisStatus === 'connected' || redisStatus === 'degraded';
+
+  if (redisStatus === 'closed') {
+    res.status(503).json({
+      status: "unavailable",
+      ready: false,
+      timestamp: new Date().toISOString(),
+      dependencies: {
+        redis: "closed",
+        memory: "ok",
+      },
+    });
+    return;
+  }
+
+  if (hasRedis && redisStatus === 'degraded') {
+    res.status(200).json({
+      status: "degraded",
+      ready: true,
+      timestamp: new Date().toISOString(),
+      dependencies: {
+        redis: "degraded",
+        memory: "ok",
+      },
+      note: "Redis is experiencing connectivity issues; in-memory fallback active.",
+    });
+    return;
+  }
+
+  res.status(200).json({
+    status: "healthy",
+    ready: true,
+    timestamp: new Date().toISOString(),
+    dependencies: {
+      redis: hasRedis ? redisStatus : "standalone-in-memory",
+      memory: "ok",
+    },
+  });
+});
+
 // --- Health Check & System Diagnostics Endpoint ---
 router.get("/health", async (_req: Request, res: Response) => {
   const activeSessions = await sessionStore.getActiveSessionCount();
-  const hasRedis = !!process.env.REDIS_URL;
+  const redisStatus = redisManager.getStatus();
+  const hasRedis = !!process.env.REDIS_URL || redisStatus === 'connected' || redisStatus === 'degraded';
 
-  res.json({
-    status: "healthy",
+  let overallStatus: 'healthy' | 'degraded' | 'unavailable' = 'healthy';
+  let redisMode: 'redis' | 'in-memory-fallback' | 'standalone-in-memory' = 'standalone-in-memory';
+
+  if (redisStatus === 'closed') {
+    overallStatus = 'unavailable';
+    redisMode = 'in-memory-fallback';
+  } else if (hasRedis) {
+    if (redisStatus === 'connected') {
+      overallStatus = 'healthy';
+      redisMode = 'redis';
+    } else {
+      overallStatus = 'degraded';
+      redisMode = 'in-memory-fallback';
+    }
+  }
+
+  const statusCode = overallStatus === 'unavailable' ? 503 : 200;
+
+  res.status(statusCode).json({
+    status: overallStatus,
     timestamp: new Date().toISOString(),
     uptime: metricsService.getFormattedUptime(),
     uptimeSeconds: metricsService.getUptimeSeconds(),
@@ -223,7 +295,8 @@ router.get("/health", async (_req: Request, res: Response) => {
     memory: metricsService.getMemoryUsage(),
     redis: {
       enabled: hasRedis,
-      mode: hasRedis ? "redis" : "in-memory",
+      status: redisStatus,
+      mode: redisMode,
     },
     sessions: {
       activeCount: activeSessions,
