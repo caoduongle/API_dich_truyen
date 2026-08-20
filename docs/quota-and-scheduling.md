@@ -168,3 +168,19 @@ Bảo vệ toàn diện thông tin xác thực của người dùng trong bộ n
    - Khi đọc phiên làm việc cũ lưu plaintext hoặc format v0, hệ thống tự động giải mã, mã hóa lại sang chuẩn `enc:v1:` và lưu đè vào Redis để loại bỏ hoàn toàn dữ liệu thô mà không làm crash active session.
 4. **Bảo Mật Đa Kênh (Zero-Leak Redaction)**:
    - Khóa API không bao giờ xuất hiện ở dạng plaintext trong console logs, error traces, URL query parameters, hoặc response payload.
+
+---
+
+## 11. Xác Thực Năng Lực Mô Hình (Tri-State Model Verification: Unknown ≠ True)
+
+Đảm bảo chỉ các mô hình có năng lực sinh nội dung (`generateContent`) đã được chứng minh mới được cấp phép thực thi dịch thuật:
+1. **Tri-State Capability Semantics**:
+   - `supported` (`true`): Metadata trả về từ nhà cung cấp chứa rõ ràng phương thức `"generateContent"`.
+   - `unsupported` (`false`): Metadata là mảng và không chứa `"generateContent"` (ví dụ chỉ có embedding).
+   - `unknown`: Metadata bị thiếu (`undefined`/`null`), rỗng hoặc dị tật.
+2. **Quy Tắc: Unknown ≠ True**:
+   - Loại bỏ hoàn toàn các giả định sai lầm `supportedGenerationMethods === undefined -> true`. Trạng thái `unknown` tuyệt đối không được tự động cấp `verified = true`.
+3. **Quy Trình Thăm Dò Thực Tế (Explicit Verification Probe)**:
+   - Khi năng lực mô hình ở trạng thái `unknown`, hệ thống tự động gửi yêu cầu thăm dò tối giản (`Ping`) tới Google GenAI API để kiểm chứng khả năng chạy thực tế trước khi xác nhận `verified = true`.
+4. **Xử Lý An Toàn Dị Tật (Malformed Resilience)**:
+   - Toàn bộ dữ liệu metadata được xử lý qua bộ lọc an toàn, ngăn chặn hoàn toàn lỗi `TypeError` hoặc crash tiến trình.

@@ -11,6 +11,33 @@ export interface ModelInfo {
   outputTokenLimit?: number;
 }
 
+export type ModelCapabilityState = 'supported' | 'unsupported' | 'unknown';
+
+export interface ModelCapabilityEvaluation {
+  state: ModelCapabilityState;
+  hasGenerateContent: boolean;
+  rawMethods: string[];
+}
+
+/**
+ * Đánh giá trạng thái năng lực tạo nội dung của mô hình từ danh sách supportedGenerationMethods.
+ * Tri-State Semantics:
+ * - 'supported': Thuộc tính là mảng và chứa chuỗi 'generateContent'.
+ * - 'unsupported': Thuộc tính là mảng và KHÔNG chứa chuỗi 'generateContent'.
+ * - 'unknown': Thuộc tính bị undefined, null, rỗng hoặc kiểu dữ liệu không hợp lệ.
+ */
+export function evaluateModelGenerationCapability(supportedMethods: unknown): ModelCapabilityState {
+  if (!Array.isArray(supportedMethods) || supportedMethods.length === 0) {
+    return 'unknown';
+  }
+  const validMethods = supportedMethods.filter((m): m is string => typeof m === 'string');
+  if (validMethods.length === 0) {
+    return 'unknown';
+  }
+  const hasGenerate = validMethods.some((m) => m.toLowerCase().includes('generatecontent'));
+  return hasGenerate ? 'supported' : 'unsupported';
+}
+
 interface CachedModels {
   timestamp: number;
   models: ModelInfo[];
@@ -29,7 +56,6 @@ class ModelInfoService {
   private inFlightRevalidation = new Map<string, Promise<ModelInfo[]>>();
   private verifiedModelsCache = new Map<string, CachedVerifiedModel>();
   private inFlightVerifications = new Map<string, Promise<ModelDefinition>>();
-
 
   /**
    * Gọi Google API để lấy danh sách models
@@ -63,16 +89,14 @@ class ModelInfoService {
       const filteredModels: ModelInfo[] = rawModels
         .filter((m: any) => {
           if (!m || typeof m !== 'object') return false;
-          if (Array.isArray(m.supportedGenerationMethods)) {
-            return m.supportedGenerationMethods.includes('generateContent');
-          }
-          return true;
+          const cap = evaluateModelGenerationCapability(m.supportedGenerationMethods);
+          return cap === 'supported';
         })
         .map((m: any) => ({
           name: m.name || '',
           displayName: m.displayName || m.name || 'Unknown Model',
           description: m.description || '',
-          supportedGenerationMethods: m.supportedGenerationMethods || [],
+          supportedGenerationMethods: Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods : [],
           inputTokenLimit: m.inputTokenLimit,
           outputTokenLimit: m.outputTokenLimit,
         }));
@@ -230,6 +254,40 @@ class ModelInfoService {
   }
 
   /**
+   * Thử nghiệm thực tế với prompt tối giản để xác minh mô hình khi metadata là unknown
+   */
+  public async probeModelGeneration(modelId: string, apiKey: string): Promise<boolean> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 10000); // 10 giây probe timeout
+
+    const cleanModelName = modelId.startsWith('models/') ? modelId : `models/${modelId}`;
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/${encodeURIComponent(cleanModelName)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'aistudio-build',
+        },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Ping' }] }],
+          generationConfig: { maxOutputTokens: 5 },
+        }),
+        signal: controller.signal,
+      });
+
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
    * Xác minh 1 model cụ thể có tồn tại và hỗ trợ generateContent không
    */
   public async verifySingleModel(
@@ -286,11 +344,19 @@ class ModelInfoService {
         // 4. Gọi Google API kiểm tra thông tin model
         const info = await this.fetchSingleModelFromGoogle(cleanId, trimmedKey);
 
-        // Kiểm tra khả năng generateContent
-        const methods = info.supportedGenerationMethods || [];
-        const canGenerate = methods.length === 0 || methods.some(m => m.toLowerCase().includes('generatecontent'));
-        if (!canGenerate) {
+        // Đánh giá năng lực 3 trạng thái
+        const cap = evaluateModelGenerationCapability(info.supportedGenerationMethods);
+
+        if (cap === 'unsupported') {
           throw new Error(`Mô hình "${cleanId}" không hỗ trợ phương thức tạo nội dung (generateContent). Không tương thích với quy trình dịch thuật.`);
+        }
+
+        if (cap === 'unknown') {
+          // Unknown không được tự động trở thành verified = true -> thực hiện explicit verification probe
+          const probeSuccess = await this.probeModelGeneration(cleanId, trimmedKey);
+          if (!probeSuccess) {
+            throw new Error(`Mô hình "${cleanId}" thiếu thông tin năng lực và không thể thực thi thử nghiệm tạo nội dung (Explicit Verification Probe thất bại).`);
+          }
         }
 
         const verifiedModel: ModelDefinition = {
