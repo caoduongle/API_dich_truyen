@@ -60,14 +60,63 @@ interface CachedVerifiedModel {
   model: ModelDefinition;
 }
 
+interface FailureCacheEntry {
+  timestamp: number;
+  error: Error;
+}
+
+export interface DiscoveryResult {
+  keyHash: string;
+  maskedKey: string;
+  cached: boolean;
+  stale?: boolean;
+  models: ModelInfo[];
+}
+
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 phút (SWR Server Cache)
+const FAILURE_CACHE_TTL_MS = 30 * 1000; // 30 giây (Short Failure Cache)
 const REQUEST_TIMEOUT_MS = 15 * 1000; // 15 giây
 
 class ModelInfoService {
   private cache = new Map<string, CachedModels>();
+  private failureCache = new Map<string, FailureCacheEntry>();
+  private inFlightDiscovery = new Map<string, Promise<DiscoveryResult>>();
   private inFlightRevalidation = new Map<string, Promise<ModelInfo[]>>();
   private verifiedModelsCache = new Map<string, CachedVerifiedModel>();
   private inFlightVerifications = new Map<string, Promise<ModelDefinition>>();
+  private cleanupInterval: NodeJS.Timeout | null = null;
+
+  constructor() {
+    this.cleanupInterval = setInterval(() => {
+      this.sweepExpiredCaches();
+    }, 10 * 60 * 1000);
+
+    if (this.cleanupInterval && typeof this.cleanupInterval.unref === 'function') {
+      this.cleanupInterval.unref();
+    }
+  }
+
+  /**
+   * Dọn dẹp các mục hết hạn trong các bộ nhớ đệm
+   */
+  private sweepExpiredCaches(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache) {
+      if (now - entry.timestamp > CACHE_TTL_MS * 2) {
+        this.cache.delete(key);
+      }
+    }
+    for (const [key, entry] of this.failureCache) {
+      if (now - entry.timestamp > FAILURE_CACHE_TTL_MS) {
+        this.failureCache.delete(key);
+      }
+    }
+    for (const [id, entry] of this.verifiedModelsCache) {
+      if (now - entry.timestamp > CACHE_TTL_MS * 2) {
+        this.verifiedModelsCache.delete(id);
+      }
+    }
+  }
 
   /**
    * Gọi Google API để lấy danh sách models
@@ -124,12 +173,12 @@ class ModelInfoService {
 
   /**
    * Lấy danh sách các mô hình hỗ trợ generateContent từ Google AI Studio cho 1 API key
-   * Tích hợp Stale-While-Revalidate (SWR) cache và failure fallback.
+   * Tích hợp SingleFlight concurrency deduplication, SWR cache và Short Failure Cache.
    */
   public async listModelsForKey(
     apiKey: string,
     forceRefresh: boolean = false
-  ): Promise<{ keyHash: string; maskedKey: string; cached: boolean; stale?: boolean; models: ModelInfo[] }> {
+  ): Promise<DiscoveryResult> {
     if (!apiKey || !apiKey.trim()) {
       throw new Error('API key không hợp lệ hoặc bị trống.');
     }
@@ -152,13 +201,14 @@ class ModelInfoService {
       };
     }
 
-    // 2. Stale Cache: Đã hết hạn TTL nhưng có cache cũ -> Trả về cache cũ ngay lập tức và revalidate ngầm
+    // 2. Stale Cache: Đã hết hạn TTL nhưng có cache cũ -> Trả về cache cũ ngay lập tức và revalidate ngầm (SingleFlight)
     if (!forceRefresh && cachedEntry) {
       // Kích hoạt revalidate ngầm trong background (nếu chưa có request revalidate nào đang chạy)
       if (!this.inFlightRevalidation.has(keyHash)) {
         const revalPromise = this.fetchModelsFromGoogle(trimmedKey)
           .then((freshModels) => {
             this.cache.set(keyHash, { timestamp: Date.now(), models: freshModels });
+            this.failureCache.delete(keyHash);
             return freshModels;
           })
           .catch((err) => {
@@ -180,35 +230,62 @@ class ModelInfoService {
       };
     }
 
-    // 3. Không có cache hoặc forceRefresh: Gọi trực tiếp có fallback
-    try {
-      const freshModels = await this.fetchModelsFromGoogle(trimmedKey);
-      this.cache.set(keyHash, {
-        timestamp: now,
-        models: freshModels,
-      });
+    // 3. Short Failure Cache: Nếu gặp lỗi trong vòng 30s và không forceRefresh -> ném lỗi cached ngay lập tức
+    if (!forceRefresh) {
+      const failureEntry = this.failureCache.get(keyHash);
+      if (failureEntry && now - failureEntry.timestamp < FAILURE_CACHE_TTL_MS) {
+        throw failureEntry.error;
+      }
+    }
 
-      return {
-        keyHash,
-        maskedKey: masked,
-        cached: false,
-        stale: false,
-        models: freshModels,
-      };
-    } catch (err: any) {
-      // Nếu có cache cũ dù đã hết hạn -> Fallback an toàn thay vì crash
-      if (cachedEntry && cachedEntry.models.length > 0) {
-        console.warn('[ModelDiscovery Fallback] Lỗi làm mới, tận dụng cache cũ an toàn:', err.message);
+    // 4. SingleFlight Concurrency Deduplication: nếu đang có request discovery in-flight cho key này -> await chung Promise
+    const existingInFlight = this.inFlightDiscovery.get(keyHash);
+    if (existingInFlight) {
+      return await existingInFlight;
+    }
+
+    // 5. Khởi tạo In-Flight Promise và chia sẻ cho tất cả concurrent requests
+    const inFlightPromise = (async () => {
+      try {
+        const freshModels = await this.fetchModelsFromGoogle(trimmedKey);
+        this.cache.set(keyHash, {
+          timestamp: Date.now(),
+          models: freshModels,
+        });
+        this.failureCache.delete(keyHash);
+
         return {
           keyHash,
           maskedKey: masked,
-          cached: true,
-          stale: true,
-          models: cachedEntry.models,
+          cached: false,
+          stale: false,
+          models: freshModels,
         };
+      } catch (err: any) {
+        this.failureCache.set(keyHash, {
+          timestamp: Date.now(),
+          error: err,
+        });
+
+        // Nếu có cache cũ dù đã hết hạn -> Fallback an toàn thay vì crash
+        if (cachedEntry && cachedEntry.models.length > 0) {
+          console.warn('[ModelDiscovery Fallback] Lỗi làm mới, tận dụng cache cũ an toàn:', err.message);
+          return {
+            keyHash,
+            maskedKey: masked,
+            cached: true,
+            stale: true,
+            models: cachedEntry.models,
+          };
+        }
+        throw err;
+      } finally {
+        this.inFlightDiscovery.delete(keyHash);
       }
-      throw err;
-    }
+    })();
+
+    this.inFlightDiscovery.set(keyHash, inFlightPromise);
+    return await inFlightPromise;
   }
 
   /**
@@ -471,6 +548,8 @@ class ModelInfoService {
    */
   public clearCache(): void {
     this.cache.clear();
+    this.failureCache.clear();
+    this.inFlightDiscovery.clear();
     this.inFlightRevalidation.clear();
     this.verifiedModelsCache.clear();
     this.inFlightVerifications.clear();

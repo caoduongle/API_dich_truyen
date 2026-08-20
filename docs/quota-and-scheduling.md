@@ -197,3 +197,18 @@ Bảo vệ khóa API khỏi rò rỉ qua các tầng trung gian mạng (Web Serv
    - 100% các URL gửi đi đều là URL REST chuẩn sạch, không chứa tham số truy vấn mang thông tin xác thực.
 3. **Khử Nhiễm Nhật Ký Đa Kênh**:
    - Thông báo lỗi và đối tượng nhật ký luôn được làm sạch qua `redactApiKey`, đảm bảo không rò rỉ khóa bí mật ra hệ thống giám sát.
+
+---
+
+## 13. Gộp Yêu Cầu Khám Phá Mô Hình (Model Discovery SingleFlight & Dual-Tier Cache)
+
+Loại bỏ hoàn toàn hiện tượng Thundering Herd và tối ưu hóa lưu lượng mạng khi nhiều clients cùng khám phá mô hình:
+1. **Cơ Chế SingleFlight Deduplication**:
+   - Khi có 20 (hoặc nhiều hơn) yêu cầu đồng thời cho cùng 1 API key khi cache miss, hệ thống chỉ gửi duy nhất **1 cuộc gọi HTTP thực tế** lên Google Upstream.
+   - 19 yêu cầu còn lại cùng await một `inFlightDiscovery` Promise và nhận cùng một kết quả chính xác (Giảm 95% tải mạng).
+2. **Dual-Tier Cache**:
+   - **Success Cache**: TTL 15 phút (SWR Server Cache).
+   - **Short Failure Cache**: TTL 30 giây để ngăn chặn các request dồn dập tiếp tục tấn công upstream khi gặp lỗi (401/403/500).
+3. **Bounded Memory & Race-Safe**:
+   - Tất cả các in-flight promises luôn được giải phóng trong khối `finally`.
+   - Timer dọn dẹp định kỳ tự động loại bỏ các bản ghi hết hạn khỏi bộ nhớ.
