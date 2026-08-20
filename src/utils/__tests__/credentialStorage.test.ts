@@ -4,6 +4,7 @@ import { apiFetch, setSessionToken, registerSessionSyncCallback, syncSessionKeys
 import { sanitizeSecretString, sanitizeValue } from '../../../server/utils/logger';
 import { redactApiKey } from '../../../server/utils/text';
 import { maskApiKey, hashApiKey } from '../../../server/services/quotaService';
+import { verifyStorageIntegrity } from '../storageAudit';
 
 describe('Credential Storage & Lifecycle Security', () => {
   let mockLocalStorage: Record<string, string> = {};
@@ -63,6 +64,10 @@ describe('Credential Storage & Lifecycle Security', () => {
       expect(mockLocalStorage['gemini_api_keys']).toBeUndefined();
       // Verify sessionStorage has the migrated keys
       expect(JSON.parse(mockSessionStorage['gemini_api_keys'])).toEqual(['AIzaSyLegacyKey1', 'AIzaSyLegacyKey2']);
+      
+      // Verify localStorage passes integrity check
+      const report = verifyStorageIntegrity(global.localStorage);
+      expect(report.isValid).toBe(true);
     });
 
     it('should filter out blank strings, non-string entries, and whitespace keys during migration', () => {

@@ -81,14 +81,42 @@ export function getPresetModels(): RegisteredModelDef[] {
   }));
 }
 
+export const DISCOVERED_MODELS_TTL_MS = 60 * 60 * 1000; // 1 hour
+
 /**
- * Lấy danh sách model đã phát hiện từ localStorage
+ * Lấy danh sách model đã phát hiện từ localStorage (hỗ trợ TTL 1 giờ)
  */
 export function getDiscoveredModels(): RegisteredModelDef[] {
   try {
     const raw = getStorageItem(DISCOVERED_MODELS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
+
+    // Hỗ trợ cấu trúc object bọc có timestamp TTL
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.models)) {
+      if (typeof parsed.timestamp === 'number' && Date.now() - parsed.timestamp > DISCOVERED_MODELS_TTL_MS) {
+        removeStorageItem(DISCOVERED_MODELS_STORAGE_KEY);
+        return [];
+      }
+      return parsed.models
+        .filter((m: any) => m && typeof m.id === 'string' && isValidModelIdFormat(m.id))
+        .map((m: any) => ({
+          id: m.id,
+          label: m.label || m.id,
+          source: 'discovered' as ModelSource,
+          status: (m.status as ModelStatus) || 'active',
+          verified: m.verified !== undefined ? Boolean(m.verified) : true,
+          lastVerifiedAt: m.lastVerifiedAt || m.addedAt,
+          capabilities: m.capabilities || { generateContent: true },
+          limits: m.limits,
+          replacementId: m.replacementId,
+          description: m.description,
+          inputTokenLimit: m.inputTokenLimit,
+          outputTokenLimit: m.outputTokenLimit,
+          addedAt: m.addedAt,
+        }));
+    }
+
     if (Array.isArray(parsed)) {
       return parsed
         .filter(m => m && typeof m.id === 'string' && isValidModelIdFormat(m.id))
@@ -316,7 +344,10 @@ export function saveDiscoveredModels(models: ModelInfoItem[]): RegisteredModelDe
   }
 
   const updated = Array.from(discoveredMap.values());
-  setStorageItem(DISCOVERED_MODELS_STORAGE_KEY, JSON.stringify(updated));
+  setStorageItem(DISCOVERED_MODELS_STORAGE_KEY, JSON.stringify({
+    timestamp: Date.now(),
+    models: updated,
+  }));
 
   return updated;
 }
