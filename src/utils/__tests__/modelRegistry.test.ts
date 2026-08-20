@@ -20,6 +20,8 @@ import {
   formatPacingSummary,
   getModelDefinition,
   migrateModelSelection,
+  getVerifiedModels,
+  updateCustomModelVerification,
 } from '../modelRegistry';
 import { DEFAULT_MODEL_ID } from '../../constants/models';
 import { KeyQuotaFullSnapshot, ModelInfoItem } from '../apiClient';
@@ -133,6 +135,47 @@ describe('modelRegistry utils', () => {
       const dupCustom = addCustomModel('tunedModels/my-special-model');
       expect(dupCustom.success).toBe(false);
       expect(dupCustom.error).toContain('tồn tại');
+    });
+
+    it('defaults to verified: false and unverified state when custom model is added without verificationDef', () => {
+      const res = addCustomModel('unverified-custom-1', 'My Unverified Model');
+      expect(res.success).toBe(true);
+      expect(res.model?.verified).toBe(false);
+      expect(res.model?.verificationState).toBe('unverified');
+      expect(res.model?.lastVerifiedAt).toBeUndefined();
+
+      const customList = getCustomModels();
+      expect(customList.length).toBe(1);
+      expect(customList[0].verified).toBe(false);
+      expect(customList[0].verificationState).toBe('unverified');
+    });
+
+    it('updates custom model verification state with updateCustomModelVerification', () => {
+      addCustomModel('custom-to-verify', 'Pending Verification');
+      expect(getCustomModels()[0].verified).toBe(false);
+
+      const updated = updateCustomModelVerification('custom-to-verify', {
+        verified: true,
+        verificationState: 'verified',
+        capabilities: { generateContent: true },
+        lastVerifiedAt: '2026-08-20T08:00:00.000Z',
+      });
+
+      expect(updated?.verified).toBe(true);
+      expect(updated?.verificationState).toBe('verified');
+      expect(getCustomModels()[0].verified).toBe(true);
+    });
+
+    it('getVerifiedModels strictly returns only verified models and excludes unverified ones', () => {
+      addCustomModel('verified-model', 'Verified One', { verified: true, capabilities: { generateContent: true } });
+      addCustomModel('unverified-model', 'Unverified One');
+
+      const verifiedList = getVerifiedModels();
+      const verifiedIds = verifiedList.map(m => m.id);
+
+      expect(verifiedIds).toContain('verified-model');
+      expect(verifiedIds).not.toContain('unverified-model');
+      expect(verifiedIds).not.toContain('gemini-2.0-flash'); // Shutdown model excluded
     });
 
     it('removes custom model cleanly', () => {

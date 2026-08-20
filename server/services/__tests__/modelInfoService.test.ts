@@ -145,6 +145,42 @@ describe('Single Model Verification & Verified Cache', () => {
     await expect(modelInfoService.verifySingleModel('text-embedding-004', fakeKey)).rejects.toThrow('không hỗ trợ phương thức tạo nội dung');
   });
 
+  it('should handle request timeout gracefully when Google API takes over 15 seconds', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue({
+      name: 'AbortError',
+      message: 'The operation was aborted',
+    }));
+
+    await expect(modelInfoService.verifySingleModel('timeout-model', fakeKey)).rejects.toThrow('quá thời gian chờ');
+  });
+
+  it('should support re-verification when cache expires or on-demand', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: 'models/gemini-reverify-model',
+        displayName: 'Gemini Re-verify Model',
+        supportedGenerationMethods: ['generateContent'],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = await modelInfoService.verifySingleModel('gemini-reverify-model', fakeKey);
+    expect(first.verified).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Second call within cache hits cache
+    const second = await modelInfoService.verifySingleModel('gemini-reverify-model', fakeKey);
+    expect(second.verified).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Clear cache to simulate cache expiration / re-verify
+    modelInfoService.clearCache();
+    const third = await modelInfoService.verifySingleModel('gemini-reverify-model', fakeKey);
+    expect(third.verified).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('isModelVerified should return false for shutdown models and unknown uncached models', async () => {
     expect(await modelInfoService.isModelVerified('gemini-2.0-flash')).toBe(false);
     expect(await modelInfoService.isModelVerified('completely-unknown-model-xyz')).toBe(false);

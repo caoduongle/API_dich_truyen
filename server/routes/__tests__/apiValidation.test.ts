@@ -219,6 +219,18 @@ describe("API Request Body Validation Integration Tests", () => {
       expect(body.success).toBe(false);
       expect(body.errorCode).toBe("INVALID_FORMAT");
     });
+
+    it("should return 400 if custom model verification lacks API keys", async () => {
+      const res = await fetch(`${baseUrl}/api/verify-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId: "tunedModels/my-custom-model", apiKeys: [] }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain("API key");
+    });
   });
 
 

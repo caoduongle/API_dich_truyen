@@ -386,5 +386,34 @@ describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
     expect(customRes.success).toBe(true);
     expect(customRes.model?.verified).toBe(true);
   });
+
+  // Test 15: Custom model without verified metadata is unverified and excluded from verified list
+  it('Test 15 — custom model added without verified metadata is strictly unverified', () => {
+    const customRes = addCustomModel('tunedModels/unverified-model', 'Chưa Xác Minh');
+    expect(customRes.success).toBe(true);
+    expect(customRes.model?.verified).toBe(false);
+    expect(customRes.model?.verificationState).toBe('unverified');
+
+    const customList = getCustomModels();
+    const found = customList.find(c => c.id === 'tunedModels/unverified-model');
+    expect(found?.verified).toBe(false);
+    expect(found?.verificationState).toBe('unverified');
+  });
+
+  // Test 16: Zero-call render reading is synchronous from local storage
+  it('Test 16 — reading registered and custom models during UI render is zero-call synchronous', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    // Multiple component render simulation
+    for (let i = 0; i < 5; i++) {
+      const models = getRegisteredModels();
+      const custom = getCustomModels();
+      expect(models.length).toBeGreaterThan(0);
+      expect(Array.isArray(custom)).toBe(true);
+    }
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });
 

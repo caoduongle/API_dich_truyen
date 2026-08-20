@@ -195,11 +195,23 @@ export async function verifyModelHandler(req: Request, res: Response): Promise<v
     });
   } catch (err: any) {
     logger.warn('[quotaController] Xác minh mô hình thất bại:', err.message || err);
+    const msg = String(err?.message || err);
+    let errorCode = 'API_ERROR';
+    if (msg.includes('generateContent')) {
+      errorCode = 'UNSUPPORTED_METHODS';
+    } else if (msg.includes('thời gian chờ') || msg.includes('timeout') || msg.includes('AbortError')) {
+      errorCode = 'TIMEOUT';
+    } else if (msg.includes('Không tìm thấy') || msg.includes('404') || msg.includes('not found')) {
+      errorCode = 'MODEL_NOT_FOUND';
+    } else if (msg.includes('API Key') || msg.includes('API key')) {
+      errorCode = 'NO_API_KEYS';
+    }
+
     res.status(400).json({
       success: false,
       verified: false,
-      error: err.message || 'Không thể xác minh mô hình từ nhà cung cấp.',
-      errorCode: err.message?.includes('generateContent') ? 'UNSUPPORTED_METHODS' : 'MODEL_NOT_FOUND',
+      error: msg || 'Không thể xác minh mô hình từ nhà cung cấp.',
+      errorCode,
       checkedAt: new Date().toISOString(),
     });
   }

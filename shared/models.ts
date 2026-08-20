@@ -1,5 +1,12 @@
 export type ModelSource = 'preset' | 'discovered' | 'custom';
 export type ModelStatus = 'active' | 'deprecated' | 'shutdown';
+export type ModelVerificationState =
+  | 'unverified'
+  | 'verifying'
+  | 'verified'
+  | 'invalid'
+  | 'deprecated'
+  | 'shutdown';
 
 export interface ModelCapabilities {
   generateContent: boolean;
@@ -20,6 +27,8 @@ export interface ModelDefinition {
   source: ModelSource;
   status: ModelStatus;
   verified?: boolean;
+  verificationState?: ModelVerificationState;
+  verificationError?: string;
   lastVerifiedAt?: string;
   capabilities: ModelCapabilities;
   replacementId?: string;

@@ -174,8 +174,12 @@ export function useAIConfig() {
         const res = addCustomModel(modelId, label, verifiedDef);
         if (res.success && res.model) {
             setCustomModels(getCustomModels());
-            handleSaveModel(res.model.id);
-            showToast({ message: `Đã thêm và kích hoạt model tùy chỉnh: ${res.model.id}`, type: 'success' });
+            if (res.model.verified) {
+                handleSaveModel(res.model.id);
+                showToast({ message: `Đã xác minh và kích hoạt model tùy chỉnh: ${res.model.id}`, type: 'success' });
+            } else {
+                showToast({ message: `Đã lưu model tùy chỉnh (chưa xác minh): ${res.model.id}`, type: 'info' });
+            }
             return { success: true, model: res.model };
         } else {
             showToast({ message: res.error || 'Không thể thêm model tùy chỉnh.', type: 'warning' });

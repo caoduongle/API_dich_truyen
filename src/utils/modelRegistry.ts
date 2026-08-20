@@ -1,11 +1,11 @@
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
 import { KeyQuotaFullSnapshot, ModelInfoItem, ModelUsageStats } from './apiClient';
-import type { ModelCapabilities, ModelDefinition, ModelLimits, ModelSource, ModelStatus } from '@shared/models';
+import type { ModelCapabilities, ModelDefinition, ModelLimits, ModelSource, ModelStatus, ModelVerificationState } from '@shared/models';
 
 export const DISCOVERED_MODELS_STORAGE_KEY = 'gemini_discovered_models';
 export const CUSTOM_MODELS_STORAGE_KEY = 'gemini_custom_models';
 
-export type { ModelSource, ModelStatus, ModelCapabilities, ModelLimits, ModelDefinition };
+export type { ModelSource, ModelStatus, ModelVerificationState, ModelCapabilities, ModelLimits, ModelDefinition };
 
 export interface RegisteredModelDef extends ModelDefinition {}
 
@@ -255,26 +255,43 @@ export function getCustomModels(): RegisteredModelDef[] {
     if (Array.isArray(parsed)) {
       return parsed
         .filter(m => m && typeof m.id === 'string' && isValidModelIdFormat(m.id))
-        .map(m => ({
-          id: m.id,
-          label: m.label || m.id,
-          source: 'custom' as ModelSource,
-          status: (m.status as ModelStatus) || 'active',
-          verified: m.verified !== undefined ? Boolean(m.verified) : true,
-          lastVerifiedAt: m.lastVerifiedAt || m.addedAt,
-          capabilities: m.capabilities || { generateContent: true },
-          limits: m.limits,
-          replacementId: m.replacementId,
-          description: m.description,
-          inputTokenLimit: m.inputTokenLimit,
-          outputTokenLimit: m.outputTokenLimit,
-          addedAt: m.addedAt,
-        }));
+        .map(m => {
+          const isVerified = m.verified === true;
+          return {
+            id: m.id,
+            label: m.label || m.id,
+            source: 'custom' as ModelSource,
+            status: (m.status as ModelStatus) || 'active',
+            verified: isVerified,
+            verificationState: m.verificationState || (isVerified ? 'verified' : 'unverified'),
+            verificationError: m.verificationError,
+            lastVerifiedAt: m.lastVerifiedAt,
+            capabilities: m.capabilities || { generateContent: isVerified },
+            limits: m.limits,
+            replacementId: m.replacementId,
+            description: m.description,
+            inputTokenLimit: m.inputTokenLimit,
+            outputTokenLimit: m.outputTokenLimit,
+            addedAt: m.addedAt,
+          };
+        });
     }
     return [];
   } catch {
     return [];
   }
+}
+
+/**
+ * Lấy danh sách các model ĐÃ XÁC MINH trong hệ thống
+ * Chỉ trả về các model có verified === true, status !== 'shutdown' và capabilities.generateContent !== false
+ */
+export function getVerifiedModels(): RegisteredModelDef[] {
+  return getRegisteredModels().filter(m => 
+    m.verified === true && 
+    m.status !== 'shutdown' && 
+    m.capabilities?.generateContent !== false
+  );
 }
 
 /**
@@ -334,6 +351,8 @@ export function migrateModelSelection(currentModelId: string): {
   wasMigrated: boolean;
   isDeprecated: boolean;
   isShutdown: boolean;
+  isUnverified?: boolean;
+  isInvalid?: boolean;
   replacementId?: string;
   reason?: string;
 } {
@@ -378,6 +397,28 @@ export function migrateModelSelection(currentModelId: string): {
       isShutdown: false,
       replacementId: def.replacementId,
       reason: `Mô hình "${def.label}" sắp ngừng hoạt động (Deprecated). Khuyến nghị chuyển sang "${def.replacementId || 'mô hình mới hơn'}".`,
+    };
+  }
+
+  if (def.verificationState === 'invalid') {
+    return {
+      effectiveModelId: DEFAULT_MODEL_ID,
+      wasMigrated: true,
+      isDeprecated: false,
+      isShutdown: false,
+      isInvalid: true,
+      reason: `Mô hình "${def.label}" không hợp lệ hoặc đã bị nhà cung cấp từ chối. Tự động chuyển về mô hình mặc định "${DEFAULT_MODEL_ID}".`,
+    };
+  }
+
+  if (def.verified === false || def.verificationState === 'unverified') {
+    return {
+      effectiveModelId: currentModelId,
+      wasMigrated: false,
+      isDeprecated: false,
+      isShutdown: false,
+      isUnverified: true,
+      reason: `Mô hình "${def.label}" chưa được xác minh tính tương thích từ nhà cung cấp. Vui lòng xác minh trước khi sử dụng.`,
     };
   }
 
@@ -492,15 +533,18 @@ export function addCustomModel(
     };
   }
 
+  const isVerified = verifiedDef?.verified === true;
   const newModel: RegisteredModelDef = {
     id: cleanId,
     label: label?.trim() || cleanId,
     source: 'custom',
-    status: 'active',
-    verified: verifiedDef?.verified !== undefined ? verifiedDef.verified : true,
-    lastVerifiedAt: verifiedDef?.lastVerifiedAt || new Date().toISOString(),
+    status: (verifiedDef?.status as ModelStatus) || 'active',
+    verified: isVerified,
+    verificationState: isVerified ? 'verified' : (verifiedDef?.verificationState || 'unverified'),
+    verificationError: verifiedDef?.verificationError,
+    lastVerifiedAt: isVerified ? (verifiedDef?.lastVerifiedAt || new Date().toISOString()) : undefined,
     capabilities: verifiedDef?.capabilities || {
-      generateContent: true,
+      generateContent: isVerified,
     },
     limits: verifiedDef?.limits || {
       defaultRpm: cleanId.toLowerCase().includes('pro') ? 10 : 15,
@@ -517,6 +561,33 @@ export function addCustomModel(
   setStorageItem(CUSTOM_MODELS_STORAGE_KEY, JSON.stringify(updated));
 
   return { success: true, model: newModel };
+}
+
+/**
+ * Cập nhật trạng thái xác minh của một custom model đã lưu
+ */
+export function updateCustomModelVerification(
+  modelId: string, 
+  verifiedDef: Partial<RegisteredModelDef>
+): RegisteredModelDef | null {
+  const norm = normalizeModelId(modelId);
+  const currentCustom = getCustomModels();
+  const idx = currentCustom.findIndex(c => normalizeModelId(c.id) === norm);
+  if (idx === -1) return null;
+
+  const target = currentCustom[idx];
+  const isVerified = verifiedDef.verified === true;
+  const updatedModel: RegisteredModelDef = {
+    ...target,
+    ...verifiedDef,
+    verified: isVerified,
+    verificationState: isVerified ? 'verified' : (verifiedDef.verificationState || 'invalid'),
+    lastVerifiedAt: isVerified ? (verifiedDef.lastVerifiedAt || new Date().toISOString()) : target.lastVerifiedAt,
+  };
+
+  currentCustom[idx] = updatedModel;
+  setStorageItem(CUSTOM_MODELS_STORAGE_KEY, JSON.stringify(currentCustom));
+  return updatedModel;
 }
 
 /**

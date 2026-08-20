@@ -22,6 +22,7 @@ import {
   formatTokenCount,
   formatPacingSummary,
   getModelDefinition,
+  updateCustomModelVerification,
 } from '../utils/modelRegistry';
 
 
@@ -282,6 +283,32 @@ export default function ApiSettings({
     }
   };
 
+  const [reverifyingModelId, setReverifyingModelId] = useState<string | null>(null);
+
+  const handleReverifyCustomModel = async (modelId: string, label?: string) => {
+    setReverifyingModelId(modelId);
+    try {
+      const verifyRes = await verifyModel(modelId, label, apiKeys);
+      if (verifyRes.success && verifyRes.verified && verifyRes.model) {
+        updateCustomModelVerification(modelId, verifyRes.model);
+      } else {
+        updateCustomModelVerification(modelId, {
+          verified: false,
+          verificationState: 'invalid',
+          verificationError: verifyRes.error || 'Xác minh thất bại',
+        });
+      }
+    } catch {
+      updateCustomModelVerification(modelId, {
+        verified: false,
+        verificationState: 'invalid',
+        verificationError: 'Lỗi kết nối khi xác minh',
+      });
+    } finally {
+      setReverifyingModelId(null);
+    }
+  };
+
   const validKeyCount = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0).length;
 
   const modelSummary = computeModelStatsSummary(
@@ -518,33 +545,54 @@ export default function ApiSettings({
                 )}
               </select>
 
-              {/* Custom Models List with Delete option */}
+              {/* Custom Models List with Delete and Re-verify options */}
               {custom.length > 0 && (
                 <div className="space-y-1 pt-1">
                   <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
                     Quản lý model tự nhập ({custom.length}):
                   </div>
-                  <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                    {custom.map(c => (
-                      <div key={c.id} className="flex items-center justify-between bg-parchment-2/20 border border-parchment-2 px-2 py-1 rounded-[2px] text-xs">
-                        <div className="flex items-center gap-1.5 truncate max-w-[260px]">
-                          <span className="font-mono text-[11px] text-text-main truncate">{c.label || c.id}</span>
-                          {c.verified && (
-                            <span className="text-[10px] text-polish flex items-center gap-0.5 shrink-0" title="Đã xác minh">
-                              <CheckCircle2 className="w-3 h-3" />
-                            </span>
-                          )}
+                  <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                    {custom.map(c => {
+                      const isReverifying = reverifyingModelId === c.id;
+                      return (
+                        <div key={c.id} className="flex items-center justify-between bg-parchment-2/20 border border-parchment-2 px-2 py-1.5 rounded-[2px] text-xs">
+                          <div className="flex items-center gap-1.5 truncate max-w-[240px]">
+                            <span className="font-mono text-[11px] text-text-main truncate">{c.label || c.id}</span>
+                            {c.verified ? (
+                              <span className="text-[10px] text-polish flex items-center gap-0.5 shrink-0" title="Đã xác minh">
+                                <CheckCircle2 className="w-3 h-3 text-polish" />
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-amber-400 flex items-center gap-0.5 shrink-0" title="Chưa xác minh hoặc không hợp lệ">
+                                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {!c.verified && (
+                              <button
+                                type="button"
+                                onClick={() => handleReverifyCustomModel(c.id, c.label)}
+                                disabled={isReverifying}
+                                className="text-[10px] text-text-muted hover:text-polish p-1 transition-colors cursor-pointer flex items-center gap-0.5"
+                                title="Xác minh lại model này"
+                              >
+                                <RefreshCw className={cn("w-3 h-3", isReverifying && "animate-spin text-polish")} />
+                                {isReverifying ? 'Đang kiểm tra...' : 'Xác minh'}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => removeCustomModel(c.id)}
+                              className="text-text-muted hover:text-polish p-1 transition-colors cursor-pointer"
+                              title="Xóa model này"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => removeCustomModel(c.id)}
-                          className="text-text-muted hover:text-polish p-1 transition-colors cursor-pointer"
-                          title="Xóa model này"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
