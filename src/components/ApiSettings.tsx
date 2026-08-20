@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Key, Plus, Trash2, Eye, EyeOff, ClipboardPaste, Cpu, Sliders, BarChart3,
-  AlertTriangle, CheckCircle2, Clock, Sparkles, X, Zap, Loader2, ShieldCheck
+  AlertTriangle, CheckCircle2, Clock, Sparkles, X, Zap, Loader2, ShieldCheck, RefreshCw
 } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
@@ -9,6 +9,7 @@ import { Badge } from './ui/Badge';
 import { QuotaPanel } from './QuotaPanel';
 import { cn } from '../lib/cn';
 import { useModelObservability } from '../hooks/useModelObservability';
+import { useModelDiscovery } from '../hooks/useModelDiscovery';
 import { useAIConfigContext } from '../context/AIConfigContext';
 import { verifyModel } from '../utils/apiClient';
 import { 
@@ -237,6 +238,9 @@ export default function ApiSettings({
   // Observability state duy trì xuyên suốt cả 2 tab
   const observability = useModelObservability(apiKeys, registerDiscoveredModels);
 
+  // Model Discovery Hook với SWR cache và background refresh
+  const discovery = useModelDiscovery({ apiKeys });
+
   const toggleReveal = (index: number) => {
     setRevealedKeys(prev => {
       const next = new Set(prev);
@@ -362,25 +366,50 @@ export default function ApiSettings({
                   Mô hình AI
                 </label>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddCustom(!showAddCustom);
-                    setVerifyError(null);
-                  }}
-                  className="text-[11px] font-bold text-polish hover:text-[#A03522] flex items-center gap-1 cursor-pointer"
-                >
-                  {showAddCustom ? (
-                    <>
-                      <X className="w-3 h-3" /> Đóng nhập tay
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-3 h-3" /> Nhập model tùy chỉnh...
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await discovery.refresh(true);
+                    }}
+                    disabled={discovery.isRefreshing || validKeyCount === 0}
+                    className={cn(
+                      "text-[11px] font-bold text-polish hover:text-[#A03522] flex items-center gap-1 cursor-pointer transition-opacity",
+                      (discovery.isRefreshing || validKeyCount === 0) && "opacity-70 cursor-not-allowed"
+                    )}
+                    title="Làm mới danh sách mô hình từ Google API"
+                  >
+                    <RefreshCw className={cn("w-3 h-3", discovery.isRefreshing && "animate-spin text-polish")} />
+                    {discovery.isRefreshing ? 'Đang làm mới...' : 'Làm mới mô hình'}
+                  </button>
+                  <span className="text-text-muted/40">•</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddCustom(!showAddCustom);
+                      setVerifyError(null);
+                    }}
+                    className="text-[11px] font-bold text-polish hover:text-[#A03522] flex items-center gap-1 cursor-pointer"
+                  >
+                    {showAddCustom ? (
+                      <>
+                        <X className="w-3 h-3" /> Đóng nhập tay
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3 h-3" /> Nhập model tùy chỉnh...
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
+
+              {discovery.error && (
+                <div className="bg-amber-950/20 border border-amber-800/60 rounded-[2px] p-2 text-xs text-amber-300 flex items-center gap-1.5 animate-fadeIn">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>{discovery.error} (Đang tiếp tục sử dụng danh mục mô hình đã lưu)</span>
+                </div>
+              )}
 
               {/* Form nhập model tùy chỉnh */}
               {showAddCustom && (

@@ -4,6 +4,7 @@ import {
   saveDiscoveredModels,
   migrateModelSelection,
   normalizeModelId,
+  isDiscoveryStale,
 } from '../modelRegistry';
 import { DEFAULT_MODEL_ID } from '../../constants/models';
 import { verifyStorageIntegrity } from '../storageAudit';
@@ -69,10 +70,11 @@ describe('User Story 4: Model Registry & UI Preference Hierarchy (TASK 13)', () 
     };
     storageMock.setItem('gemini_discovered_models', JSON.stringify(staleData));
 
-    // Expired data is purged and returns empty array
+    // Stale data (> 1 hour old) returns immediately for SWR, with isDiscoveryStale = true
     discovered = getDiscoveredModels();
-    expect(discovered).toHaveLength(0);
-    expect(storageMock.getItem('gemini_discovered_models')).toBeNull();
+    expect(discovered).toHaveLength(1);
+    expect(discovered[0].id).toBe('gemini-old-model');
+    expect(isDiscoveryStale()).toBe(true);
   });
 
   it('migrates deprecated or missing models to DEFAULT_MODEL_ID', () => {

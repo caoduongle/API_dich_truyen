@@ -82,9 +82,71 @@ export function getPresetModels(): RegisteredModelDef[] {
 }
 
 export const DISCOVERED_MODELS_TTL_MS = 60 * 60 * 1000; // 1 hour
+export const DISCOVERY_COOLDOWN_MS = 60 * 1000; // 60 seconds
+
+export interface DiscoveredCacheMeta {
+  isStale: boolean;
+  timestamp: number;
+  lastRefreshedAt: string;
+  count: number;
+  lastError?: string;
+  lastErrorAt?: number;
+}
 
 /**
- * Lấy danh sách model đã phát hiện từ localStorage (hỗ trợ TTL 1 giờ)
+ * Lấy thông tin metadata của cache khám phá model (kiểm tra stale/fresh)
+ */
+export function getDiscoveredCacheMeta(): DiscoveredCacheMeta | null {
+  try {
+    const raw = getStorageItem(DISCOVERED_MODELS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      const timestamp = typeof parsed.timestamp === 'number' ? parsed.timestamp : 0;
+      const isStale = timestamp === 0 || Date.now() - timestamp > DISCOVERED_MODELS_TTL_MS;
+      const models = Array.isArray(parsed.models) ? parsed.models : (Array.isArray(parsed) ? parsed : []);
+      return {
+        isStale,
+        timestamp,
+        lastRefreshedAt: parsed.lastRefreshedAt || (timestamp ? new Date(timestamp).toISOString() : ''),
+        count: models.length,
+        lastError: parsed.lastError,
+        lastErrorAt: parsed.lastErrorAt,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Kiểm tra xem cache model có bị stale hay không
+ */
+export function isDiscoveryStale(): boolean {
+  const meta = getDiscoveredCacheMeta();
+  if (!meta) return true;
+  return meta.isStale;
+}
+
+/**
+ * Ghi nhận lỗi refresh vào cache mà KHÔNG xóa các model đã có (Resilience)
+ */
+export function recordDiscoveryError(errorMessage: string): void {
+  try {
+    const raw = getStorageItem(DISCOVERED_MODELS_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      parsed.lastError = errorMessage;
+      parsed.lastErrorAt = Date.now();
+      setStorageItem(DISCOVERED_MODELS_STORAGE_KEY, JSON.stringify(parsed));
+    }
+  } catch {}
+}
+
+/**
+ * Lấy danh sách model đã phát hiện từ localStorage (SWR: trả về ngay kể cả khi stale)
  */
 export function getDiscoveredModels(): RegisteredModelDef[] {
   try {
@@ -94,10 +156,6 @@ export function getDiscoveredModels(): RegisteredModelDef[] {
 
     // Hỗ trợ cấu trúc object bọc có timestamp TTL
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.models)) {
-      if (typeof parsed.timestamp === 'number' && Date.now() - parsed.timestamp > DISCOVERED_MODELS_TTL_MS) {
-        removeStorageItem(DISCOVERED_MODELS_STORAGE_KEY);
-        return [];
-      }
       return parsed.models
         .filter((m: any) => m && typeof m.id === 'string' && isValidModelIdFormat(m.id))
         .map((m: any) => ({
@@ -140,6 +198,50 @@ export function getDiscoveredModels(): RegisteredModelDef[] {
   } catch {
     return [];
   }
+}
+
+let inFlightDiscoveryPromise: Promise<RegisteredModelDef[]> | null = null;
+
+/**
+ * Khám phá hoặc làm mới danh sách model có cơ chế SWR, Deduplication và Error Resilience
+ */
+export async function fetchAndCacheDiscoveredModels(
+  fetchFn: () => Promise<ModelInfoItem[]>,
+  options?: { force?: boolean; sourceKeyHash?: string }
+): Promise<RegisteredModelDef[]> {
+  // Nếu không ép buộc và cache còn fresh, trả về ngay từ cache
+  if (!options?.force && !isDiscoveryStale()) {
+    const cached = getDiscoveredModels();
+    if (cached.length > 0) {
+      return cached;
+    }
+  }
+
+  // Khử trùng lặp: Nếu đang có request in-flight, dùng chung Promise
+  if (inFlightDiscoveryPromise) {
+    return inFlightDiscoveryPromise;
+  }
+
+  inFlightDiscoveryPromise = (async () => {
+    try {
+      const apiModels = await fetchFn();
+      const saved = saveDiscoveredModels(apiModels, options?.sourceKeyHash);
+      return saved;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      recordDiscoveryError(msg);
+      // Giữ nguyên stale cache trên lỗi tạm thời (Zero-wipe resilience)
+      const staleModels = getDiscoveredModels();
+      if (staleModels.length > 0) {
+        return staleModels;
+      }
+      throw err;
+    } finally {
+      inFlightDiscoveryPromise = null;
+    }
+  })();
+
+  return inFlightDiscoveryPromise;
 }
 
 /**
@@ -291,7 +393,7 @@ export function migrateModelSelection(currentModelId: string): {
  * Lưu danh sách model khám phá từ API Key vào localStorage
  * Chỉ lưu các model có hỗ trợ sinh nội dung (generateContent) và chưa có trong Presets.
  */
-export function saveDiscoveredModels(models: ModelInfoItem[]): RegisteredModelDef[] {
+export function saveDiscoveredModels(models: ModelInfoItem[], sourceKeyHash?: string): RegisteredModelDef[] {
   if (!models || models.length === 0) {
     return getDiscoveredModels();
   }
@@ -344,9 +446,13 @@ export function saveDiscoveredModels(models: ModelInfoItem[]): RegisteredModelDe
   }
 
   const updated = Array.from(discoveredMap.values());
+  const now = Date.now();
   setStorageItem(DISCOVERED_MODELS_STORAGE_KEY, JSON.stringify({
-    timestamp: Date.now(),
+    version: 1,
+    timestamp: now,
+    lastRefreshedAt: new Date(now).toISOString(),
     models: updated,
+    sourceKeyHash,
   }));
 
   return updated;

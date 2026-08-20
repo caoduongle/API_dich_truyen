@@ -21,7 +21,7 @@ interface CachedVerifiedModel {
   model: ModelDefinition;
 }
 
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 phút
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 phút (SWR Server Cache)
 const REQUEST_TIMEOUT_MS = 15 * 1000; // 15 giây
 
 class ModelInfoService {
