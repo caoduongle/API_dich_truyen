@@ -35,6 +35,10 @@ Kiểm tra trạng thái phiên làm việc hiện tại.
 
 ### 2.2 Dịch thuật & Biên tập (Translation Services)
 
+> **Lưu ý Kiến trúc (Direct Client Translation vs. Server Fallback)**:
+> - **Người dùng có API key riêng**: Client trình duyệt gọi thẳng Google Gemini REST API (`https://generativelanguage.googleapis.com/v1beta/models/...:generateContent`) bằng header `x-goog-api-key`. Hoàn toàn không đi qua các endpoints máy chủ dưới đây, giải phóng 100% tài nguyên CPU và không bị chặn bởi ngưỡng `MAX_CONCURRENT_REQUESTS = 50`.
+> - **Người dùng chưa có key (Server Fallback)**: Client tự động phân luồng tới các endpoints `/api/translate-raw`, `/api/polish-translation`, `/api/qa-critique` bên dưới để máy chủ dịch qua key dự phòng.
+
 #### `POST /api/translate-raw` (Phase 1: Dịch thô & Trích xuất)
 Thực hiện dịch thô bảo toàn cấu trúc câu và tự động phân tích phát hiện thực thể/thuật ngữ mới.
 - **Request Body**:

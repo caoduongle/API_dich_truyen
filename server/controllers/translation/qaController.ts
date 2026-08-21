@@ -4,6 +4,7 @@ import { generateWithRotation } from "../../services/geminiService";
 import { normalizeUpstreamError } from "../../utils/errorClassifier";
 import { AIErrorCode } from "../../constants/errors";
 import { safeParseJson, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../../utils/text";
+import { buildQaCritiquePayload } from "@shared/prompts";
 import { Logger } from "../../utils/logger";
 
 const logger = new Logger("QACritique");
@@ -26,62 +27,12 @@ export async function qaCritique(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const sourceText = sanitizePromptInput(rawSource);
-    const translatedText = sanitizePromptInput(rawTranslated);
     const { apiKeys, model, startKeyIndex = 0, customRpm } = req.body;
 
-    const systemInstruction =
-        LITERARY_TRANSLATION_FRAMING +
-        "Bạn là một chuyên gia kiểm định chất lượng (QA) dịch thuật Trung - Việt chuyên nghiệp.\n" +
-        "Nhiệm vụ của bạn là kiểm tra xem bản dịch tiếng Việt có đầy đủ, chính xác so với văn bản gốc tiếng Trung hay không.\n" +
-        "Hãy đối chiếu kỹ văn bản gốc tiếng Trung và bản dịch tiếng Việt để phát hiện các lỗi sau:\n" +
-        "1. Bỏ sót / cắt xén (Omissions): Những câu, đoạn hoặc chi tiết quan trọng trong bản gốc tiếng Trung bị thiếu trong bản dịch.\n" +
-        "2. Thêm thắt / ảo giác (Additions/Hallucinations): Thông tin tự vẽ ra, không hề có trong bản gốc tiếng Trung.\n" +
-        "3. Lặp lại nội dung (Repetitions): Câu chữ bị lặp đi lặp lại nhiều lần vô nghĩa trong bản dịch.\n\n" +
-        "Bạn PHẢI trả về kết quả dưới định dạng JSON theo schema được yêu cầu, chứa danh sách các lỗi phát hiện được (hoặc mảng trống nếu không có lỗi). Hãy phản hồi cực kỳ nghiêm ngặt và chính xác.";
-
-    const prompt = `--- VĂN BẢN TRUNG GỐC ---
-${sourceText}
-
---- BẢN DỊCH TIẾNG VIỆT ---
-${translatedText}
-
-Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản dịch.`;
-
-    const schema = {
-      type: Type.OBJECT,
-      properties: {
-        isValid: {
-          type: Type.BOOLEAN,
-          description: "true nếu không phát hiện bất kỳ lỗi nghiêm trọng nào về bỏ sót, thêm thắt hoặc lặp lại. false nếu phát hiện lỗi."
-        },
-        issues: {
-          type: Type.ARRAY,
-          description: "Danh sách các vấn đề phát hiện được.",
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              type: {
-                type: Type.STRING,
-                enum: ["omission", "addition", "repetition", "terminology", "other"],
-                description: "Loại lỗi phát hiện: omission (bỏ sót), addition (thêm thắt), repetition (lặp lại), terminology (sai từ điển), other (khác)."
-              },
-              severity: {
-                type: Type.STRING,
-                enum: ["critical", "warning", "info"],
-                description: "Mức độ nghiêm trọng của lỗi."
-              },
-              description: {
-                type: Type.STRING,
-                description: "Mô tả chi tiết lỗi phát hiện được, ghi rõ nội dung tiếng Trung bị ảnh hưởng và lỗi tiếng Việt tương ứng."
-              }
-            },
-            required: ["type", "severity", "description"]
-          }
-        }
-      },
-      required: ["isValid", "issues"]
-    };
+    const { systemInstruction, prompt, schema } = buildQaCritiquePayload({
+      sourceText: rawSource,
+      translatedText: rawTranslated,
+    });
 
     const rotationResult = await generateWithRotation(
         apiKeys,

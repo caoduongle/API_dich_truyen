@@ -7,6 +7,7 @@ import { safeParseJson, splitTextAdaptively, estimateTokenCount, getGenreStyleGu
 import { translationChunkCache } from "../../utils/chunkCache";
 import { checkLeftoverGlossary } from "../glossaryController";
 import { isHanEquivalent } from "@shared/sinoNormalize";
+import { buildPolishTranslationPayload } from "@shared/prompts";
 import { validatePolishBody } from "../../utils/validation";
 import { Logger } from "../../utils/logger";
 
@@ -29,119 +30,16 @@ export async function callPolishDirect(
     customRpm?: number,
     requestId?: string
 ): Promise<{ polishedTranslation: string; successKeyIndex: number }> {
-  let glossaryStr = "";
-  if (Array.isArray(glossary) && glossary.length > 0) {
-    glossaryStr = glossary
-        .map((g: any) => `- Trung: [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> Dịch: [${g.vietnamese}] (${g.note})`)
-        .join("\n");
-  }
-
-  let substitutedSourceText = sanitizePromptInput(sourceText || "");
-  const cleanRawTranslation = sanitizePromptInput(rawTranslation);
-  const matchedTermsList: string[] = [];
-  let totalMatchOccurrences = 0;
-  if (Array.isArray(glossary) && glossary.length > 0) {
-    const glossaryMap = new Map<string, string>();
-    const terms: string[] = [];
-
-    const sortedGlossary = [...glossary].sort((a, b) => {
-      const lenA = (a.chinese || "").length;
-      const lenB = (b.chinese || "").length;
-      return lenB - lenA;
-    });
-
-    for (const item of sortedGlossary) {
-      if (!item.chinese || !item.chinese.trim()) continue;
-      const mainZh = item.chinese.trim();
-      const vi = (item.vietnamese || '').trim();
-      if (!glossaryMap.has(mainZh)) {
-        glossaryMap.set(mainZh, vi);
-        terms.push(mainZh);
-      }
-      if (Array.isArray(item.variants) && item.variants.length > 0) {
-        for (const variant of item.variants) {
-          if (!variant || !variant.trim()) continue;
-          const varZh = variant.trim();
-          if (!glossaryMap.has(varZh)) {
-            glossaryMap.set(varZh, vi);
-            terms.push(varZh);
-          }
-        }
-      }
-    }
-
-    terms.sort((a, b) => b.length - a.length);
-
-    if (terms.length > 0) {
-      const matchCounts = new Map<string, number>();
-      const escapedTerms = terms.map(t => escapeRegex(t));
-      const pattern = new RegExp(escapedTerms.join('|'), 'g');
-      substitutedSourceText = substitutedSourceText.replace(pattern, (match) => {
-        const count = (matchCounts.get(match) || 0) + 1;
-        matchCounts.set(match, count);
-        totalMatchOccurrences++;
-        return `[${glossaryMap.get(match) || match}]`;
-      });
-
-      matchCounts.forEach((count, term) => {
-        matchedTermsList.push(`${term} -> [${glossaryMap.get(term) || term}] (${count} lần)`);
-      });
-    }
-  }
-
-  let matchedSummarySection = "";
-  if (totalMatchOccurrences > 0) {
-    matchedSummarySection =
-        `\n\n--- DANH SÁCH ${totalMatchOccurrences} THUẬT NGỮ ĐÃ ĐƯỢC ĐÁNH DẤU TRỰC TIẾP TRONG VĂN BẢN TRUNG GỐC (BẮT BUỘC KHÔNG BỊ BIẾN DẠNG KHI CHUỐT VĂN) ---\n` +
-        matchedTermsList.join("\n");
-  }
-
-  const prompt = `[THÔNG TIN BẢN THẢO]
-Thể loại: ${genre}
-Tông giọng: ${tone}
-${description ? `Mô tả bối cảnh & phong cách: ${description}` : ''}
-${additionalInstructions ? `Yêu cầu dịch thuật bổ sung từ người dùng:\n${additionalInstructions}` : ''}
-
-[BẢN DỊCH THÔ GIAI ĐOẠN 1]
-${cleanRawTranslation}
-
-[BẢN GỐC TIẾNG TRUNG ĐỐI CHIẾU]
-${substitutedSourceText}
-
-${matchedTermsList.length > 0 ? `\n[TỪ ĐIỂN RIÊNG ĐÃ XUẤT HIỆN TRONG ĐOẠN NÀY (${matchedTermsList.length} thuật ngữ, ${totalMatchOccurrences} lần xuất hiện)]:
-${matchedTermsList.map(term => {
-  const g = glossary.find((item: any) => item.chinese === term || (Array.isArray(item.variants) && item.variants.includes(term)));
-  return g ? `- [${g.chinese}${g.variants?.length ? ' / ' + g.variants.join(' / ') : ''}] -> [${g.vietnamese}] (Bắt buộc dùng bản dịch này)` : '';
-}).filter(Boolean).join('\n')}` : ''}
-
-[HƯỚNG DẪN BIÊN TẬP VĂN HỌC]
-${getGenreStyleGuide(genre)}
-- Hãy chuốt lại câu cú tiếng Việt cho mượt mà, bay bổng, loại bỏ hoàn toàn cảm giác "dịch máy", giữ đúng tông giọng ${tone}.
-- Đảm bảo mạch văn trôi chảy, danh từ riêng chuẩn xác theo từ điển và âm Hán Việt.
-- BẢO TOÀN NGUYÊN VẸN CẤU TRÚC ĐOẠN VĂN: Tuyệt đối không tự ý gộp đoạn, không tách đoạn, không nối các dòng hội thoại lại với nhau. Số lượng đoạn văn ở bản chuốt phải tương ứng chính xác với số đoạn ở bản dịch thô!
-- TIÊU ĐỀ CHƯƠNG LÀ BẤT BIẾN: Nếu dòng đầu tiên của bản dịch thô là tiêu đề chương (ví dụ: "Chương 1: ..."), bạn BẮT BUỘC phải giữ lại nguyên vẹn tiêu đề này trên dòng đầu tiên của bản chuốt, ngăn cách với thân bài bằng dòng trống. TUYỆT ĐỐI KHÔNG xóa, không gộp tiêu đề chương vào đoạn văn mở đầu.
-- CHỈ TRẢ VỀ DUY NHẤT ĐỐI TƯỢNG JSON với thuộc tính "polishedTranslation". Không viết thêm bất kỳ lời dẫn nào ngoài JSON.`;
-
-  const systemInstruction = `Bạn là một biên tập viên văn học và dịch giả đại tài, chuyên gia trau chuốt tiểu thuyết ngôn tình, tiên hiệp, kiếm hiệp, đô thị Trung - Việt.
-${LITERARY_TRANSLATION_FRAMING}
-Nhiệm vụ tối thượng: Nâng tầm bản dịch thô thành một tác phẩm văn học tiếng Việt mượt mà, chau chuốt, giàu hình ảnh và cảm xúc, tuyệt đối không còn mùi "dịch máy thô cứng" hay "Hán Việt sượng sùng".
-Nguyên tắc:
-1. Giữ nguyên 100% cốt truyện, nhân vật và đại từ xưng hô đã được định hình ở giai đoạn 1.
-2. Tuân thủ tuyệt đối từ điển riêng được cung cấp.
-3. Câu văn phải thuần Việt, uyển chuyển, tự nhiên như tác phẩm được sáng tác bởi tác giả Việt Nam.
-4. ĐẶC BIỆT: Giữ nguyên số lượng đoạn và cách ngắt dòng, tuyệt đối không gộp các đoạn văn lại với nhau.
-5. ĐẶC BIỆT VỀ TIÊU ĐỀ CHƯƠNG: Nếu bản dịch thô có tiêu đề chương ở dòng đầu tiên, phải giữ nguyên vẹn tiêu đề đó trên dòng đầu tiên của bản chuốt, cách thân chương bằng dòng trống (\\n\\n). Tuyệt đối không xóa hoặc gộp tiêu đề chương vào thân bài.`;
-
-  const schema = {
-    type: Type.OBJECT,
-    properties: {
-      polishedTranslation: {
-        type: Type.STRING,
-        description: "Bản dịch đã được chau chuốt mượt mà, chuẩn văn phong văn học tiếng Việt, giữ nguyên tiêu đề chương ở dòng đầu tiên nếu có."
-      }
-    },
-    required: ["polishedTranslation"]
-  };
+  const { systemInstruction, prompt, schema } = buildPolishTranslationPayload({
+    sourceText,
+    rawTranslation,
+    genre,
+    tone,
+    description,
+    glossary,
+    additionalInstructions,
+    isExtractionEnabled: false,
+  });
 
   const rotationResult = await generateWithRotation(
       apiKeys,
