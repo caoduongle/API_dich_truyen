@@ -57,6 +57,7 @@ function AppContent() {
     handleDiscardPendingItem,
     handleDeleteChapterHistory,
     handleResetChapters,
+    reloadProjects,
   } = useProjectContext();
 
   const {
@@ -566,6 +567,7 @@ function AppContent() {
       <GoogleSyncModal
         isOpen={showGoogleSyncModal}
         onClose={() => setShowGoogleSyncModal(false)}
+        onDataChanged={reloadProjects}
       />
     </div>
   );

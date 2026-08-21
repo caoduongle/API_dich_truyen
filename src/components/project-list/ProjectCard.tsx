@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { StoryProject } from '../../types';
 import {
-  BookOpen, Tag, Download, Edit3, Trash2, Sparkles, Calendar
+  BookOpen, Tag, Download, Edit3, Trash2, Sparkles, Calendar, Share2
 } from 'lucide-react';
 import { useNotifications } from '../NotificationSystem';
 import { GenreMark } from '../ui/GenreMark';
@@ -15,6 +15,7 @@ export interface ProjectCardProps {
   onSelect: (id: string) => void;
   onEdit: (e: React.MouseEvent, proj: StoryProject) => void;
   onDelete: (id: string) => void;
+  onShare?: (e: React.MouseEvent, proj: StoryProject) => void;
   onExportJson: (proj: StoryProject) => void;
   onExportText: (proj: StoryProject, mode: 'vietnamese' | 'bilingual') => void;
   onExportEpub: (proj: StoryProject) => void;
@@ -29,6 +30,7 @@ export function ProjectCard({
   onSelect,
   onEdit,
   onDelete,
+  onShare,
   onExportJson,
   onExportText,
   onExportEpub,
@@ -51,11 +53,16 @@ export function ProjectCard({
     >
       <div>
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <GenreMark genre={proj.genre} />
             <Badge tone="neutral" className="uppercase tracking-wider">
               {proj.genre}
             </Badge>
+            {proj.isShared && (
+              <Badge tone="solid" title="Dự án đang chia sẻ / cộng tác qua Google Drive">
+                Cộng tác
+              </Badge>
+            )}
           </div>
 
           <div className="flex items-center gap-1">
@@ -71,6 +78,19 @@ export function ProjectCard({
             >
               <Download className="w-3.5 h-3.5" />
             </Button>
+
+            {onShare && (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Chia sẻ dự án & Cộng tác qua Google Drive"
+                title="Chia sẻ dự án & Cộng tác qua Google Drive"
+                onClick={(e) => onShare(e, proj)}
+                className={proj.isShared ? 'text-gold' : ''}
+              >
+                <Share2 className="w-3.5 h-3.5" />
+              </Button>
+            )}
 
             <Button
               variant="ghost"

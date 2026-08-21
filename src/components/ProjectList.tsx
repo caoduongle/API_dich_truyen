@@ -7,6 +7,7 @@ import { triggerDownload } from '../utils/download';
 import { useEpubExport } from '../hooks/useEpubExport';
 import { ProjectCard } from './project-list/ProjectCard';
 import { ProjectFormModal } from './project-list/ProjectFormModal';
+import { ShareProjectModal } from './google-sync/ShareProjectModal';
 import { SkeletonProjectCard } from './common/Skeleton';
 import { EmptyState } from './ui/EmptyState';
 import { Button } from './ui/Button';
@@ -51,6 +52,7 @@ export default function ProjectList({
 
   const [isCreating, setIsCreating] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [sharingProject, setSharingProject] = useState<StoryProject | null>(null);
   const importJsonInputRef = useRef<HTMLInputElement>(null);
 
   // Memoize project completion progress calculations
@@ -312,6 +314,10 @@ export default function ProjectList({
                     onSelect={onSelectProject}
                     onEdit={handleStartEditProject}
                     onDelete={onDeleteProject}
+                    onShare={(e, p) => {
+                      e.stopPropagation();
+                      setSharingProject(p);
+                    }}
                     onExportJson={handleExportProjectJson}
                     onExportText={handleExportText}
                     onExportEpub={handleExportEpub}
@@ -325,6 +331,17 @@ export default function ProjectList({
           </div>
         )}
       </div>
+
+      {/* Modal Chia sẻ dự án qua Google Drive */}
+      <ShareProjectModal
+        open={!!sharingProject}
+        onClose={() => setSharingProject(null)}
+        project={sharingProject}
+        onProjectUpdated={(updated) => {
+          onUpdateProject?.(updated);
+          setSharingProject(updated);
+        }}
+      />
     </div>
   );
 }

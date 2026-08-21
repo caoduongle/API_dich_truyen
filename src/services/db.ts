@@ -141,6 +141,16 @@ export const getProjectsFromDB = async (): Promise<StoryProject[]> => {
   }
 };
 
+export const getProjectFromDB = async (projectId: string): Promise<StoryProject | null> => {
+  try {
+    const projects = await getProjectsFromDB();
+    return projects.find((p) => p.id === projectId) || null;
+  } catch (err) {
+    console.error('IndexedDB Get Project Error:', err);
+    return null;
+  }
+};
+
 export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();

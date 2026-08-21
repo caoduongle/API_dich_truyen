@@ -78,6 +78,19 @@ export function useProjects() {
         });
     }, []);
 
+    const reloadProjects = useCallback(async () => {
+        setIsLoading(true);
+        const stored = await getProjectsFromDB();
+        if (stored.length > 0) {
+            const normalized = stored.map(normalizeProject);
+            setProjects(normalized);
+            if (!activeProjectId || !normalized.some(p => p.id === activeProjectId)) {
+                setActiveProjectId(normalized[0].id);
+            }
+        }
+        setIsLoading(false);
+    }, [activeProjectId, setProjects]);
+
     useEffect(() => {
         async function loadData() {
             const stored = await getProjectsFromDB();
@@ -552,6 +565,7 @@ export function useProjects() {
         handleAddToPendingGlossary,
         handleConfirmPendingItem,
         handleDiscardPendingItem,
-        handleResetChapters
+        handleResetChapters,
+        reloadProjects
     };
 }

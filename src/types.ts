@@ -79,6 +79,17 @@ export interface StoryProject {
     chapters: ChapterMetadata[];
     createdAt: string;
     updatedAt?: string;
+    driveFolderId?: string;
+    driveStorageFormat?: 'monolithic' | 'granular';
+    isShared?: boolean;
+    isOwner?: boolean;
+    collaborators?: Array<{
+        permissionId: string;
+        emailAddress: string;
+        displayName?: string;
+        role: 'writer' | 'reader' | 'owner';
+        photoLink?: string;
+    }>;
     translationQueueState?: {
         queueIds: string[];
         currentIndex: number;

@@ -42,10 +42,11 @@ Hệ thống dịch tiểu thuyết chữ Trung Quốc sang tiếng Việt sử 
 - **IndexedDB Single Source of Truth**: Toàn bộ dự án, chương truyện và thuật ngữ từ điển được lưu trữ bền vững tại IndexedDB phía client.
 - **Suy biến Mượt mà (Graceful Degradation)**: Tự động chuyển sang in-memory rate limiter và cache khi Redis mất kết nối mà không làm gián đoạn hệ thống.
 
-### ☁️ 5. Đăng Nhập Google & Đồng Bộ Google Drive 2 Chiều (Tùy Chọn)
+### ☁️ 5. Đăng Nhập Google & Đồng Bộ / Cộng Tác Google Drive (Tùy Chọn)
 - **100% Client-Side OAuth 2.0 PKCE**: Tự sinh PKCE challenge và trao đổi token trực tiếp từ trình duyệt đến Google. Không dùng client secret, không có bước trung gian hay lưu token nào trên máy chủ.
 - **Quyền Hạn Tối Thiểu (`drive.file`)**: Chỉ có quyền đọc/ghi thư mục `AI_Dich_Truyen_Data/` do ứng dụng tạo ra. Không có quyền truy cập bất kỳ tệp nào khác trong Drive.
 - **Đồng Bộ Hai Chiều Linh Hoạt**: Dễ dàng sao lưu (Push) và khôi phục (Pull) toàn bộ truyện, chương và từ điển từ IndexedDB sang Google Drive để làm việc liên thiết bị mà không lo mất dữ liệu.
+- **Chia Sẻ & Cộng Tác Nhóm Qua Google Drive**: Cho phép chủ dự án tách riêng từng bộ truyện vào thư mục `AI_Dich_Truyen_Data/{projectId}/`, cấp quyền chỉnh sửa cho cộng tác viên qua Drive Permissions API, và cộng tác viên mở qua Google Picker API để cùng dịch từng chương độc lập với cơ chế chống ghi đè và giải quyết xung đột thông minh.
 
 ---
 
