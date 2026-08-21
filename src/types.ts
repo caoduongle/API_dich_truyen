@@ -78,6 +78,7 @@ export interface StoryProject {
     pendingGlossary: PendingGlossaryItem[];  // Deduplication verification queue
     chapters: ChapterMetadata[];
     createdAt: string;
+    updatedAt?: string;
     translationQueueState?: {
         queueIds: string[];
         currentIndex: number;

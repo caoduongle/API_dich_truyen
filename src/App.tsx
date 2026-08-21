@@ -24,6 +24,9 @@ const ProjectList = React.lazy(() => import('./components/ProjectList'));
 const ChapterHistoryPanel = React.lazy(() => import('./components/ChapterHistoryPanel'));
 const ApiSettings = React.lazy(() => import('./components/ApiSettings'));
 import AuthModal from './components/AuthModal';
+import { GoogleUserButton } from './components/google-sync/GoogleUserButton';
+import { GoogleSyncModal } from './components/google-sync/GoogleSyncModal';
+import { googleAuthService } from './services/googleAuthService';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 const MemoTranslatorWorkspace = React.memo(TranslatorWorkspace);
@@ -78,11 +81,29 @@ function AppContent() {
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['translate']));
 
   const [showApiSettings, setShowApiSettings] = useState(false);
+  const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
   const [isAutoTranslating, setIsAutoTranslating] = useState(false);
+
+  // Check Google OAuth redirect callback on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    if (code && state) {
+      googleAuthService.handleAuthCallback(code, state).then((success) => {
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+        if (success) {
+          setShowGoogleSyncModal(true);
+        }
+      });
+    }
+  }, []);
 
   // Check auth requirement on mount
   useEffect(() => {
@@ -187,6 +208,9 @@ function AppContent() {
 
           {/* Language Selector */}
           <LanguageSelector />
+
+          {/* Google Account & Drive Sync */}
+          <GoogleUserButton onOpenSyncModal={() => setShowGoogleSyncModal(true)} />
 
           {authRequired && (
             <Button
@@ -536,6 +560,12 @@ function AppContent() {
           setIsAuthenticated(true);
           setShowAuthModal(false);
         }}
+      />
+
+      {/* Modal Đồng Bộ Google Drive */}
+      <GoogleSyncModal
+        isOpen={showGoogleSyncModal}
+        onClose={() => setShowGoogleSyncModal(false)}
       />
     </div>
   );
