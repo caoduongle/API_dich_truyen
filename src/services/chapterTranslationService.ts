@@ -1,7 +1,6 @@
 import { Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryItem } from '../types';
 import { getChapterFromDB, saveChapterToDB } from './db';
 import { isHanEquivalent } from '@shared/sinoNormalize';
-import { apiFetch } from '../utils/apiClient';
 import { separateChapterTitleAndBody } from '../utils/textCleaner';
 import {
   translateRawDirect,
@@ -38,8 +37,9 @@ export interface TranslateChapterParams {
 }
 
 /**
- * Dịch một chương đơn lẻ qua 3 giai đoạn: Dịch thô -> Chuốt văn phong -> Kiểm duyệt QA
- * Tự động chuyển đổi giữa Direct Client Mode (khi có personal API key) và Server Fallback Mode.
+ * Dịch một chương đơn lẻ qua 3 giai đoạn trực tiếp từ trình duyệt đến Google Gemini API:
+ * Dịch thô -> Chuốt văn phong -> Kiểm duyệt QA
+ * Bắt buộc 100% người dùng phải cung cấp Gemini API Key cá nhân.
  */
 export async function executeSingleChapterTranslation({
   chapterMeta,
@@ -58,6 +58,13 @@ export async function executeSingleChapterTranslation({
   enableSegmentTranslation,
   addLog,
 }: TranslateChapterParams): Promise<SingleChapterResult> {
+  const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+  if (!hasValidKeys) {
+    const errorMsg = 'Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để thực hiện dịch thuật.';
+    addLog(`${logPrefix} [LỖI] ${errorMsg}`, 'error');
+    throw new Error(errorMsg);
+  }
+
   const chapter = await getChapterFromDB(chapterMeta.id);
   if (!chapter) {
     addLog(`${logPrefix} Lỗi: Không tìm thấy dữ liệu của chương: ${chapterMeta.title}`, 'error');
@@ -72,7 +79,6 @@ export async function executeSingleChapterTranslation({
     };
   }
 
-  const isDirectClientMode = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
   let currentKeyIndex = startKeyIndex;
   let firstDraft = '';
   const localGlossary = [...glossarySnapshot];
@@ -83,58 +89,30 @@ export async function executeSingleChapterTranslation({
   const hasExistingTranslation = existingTranslation.length > 0;
   const hasProcessedText = !!(chapter.processedSourceText && chapter.processedSourceText.trim());
 
-  // ── GIAI ĐOẠN 1: Dịch thô ──
+  // ── GIAI ĐOẠN 1: Dịch thô trực tiếp ──
   if (autoTranslateMode === 'from_scratch' && hasExistingTranslation) {
     addLog(`${logPrefix} [Dịch từ đầu] Phát hiện bản dịch khả dụng. Tiến hành chuốt văn luôn (Bỏ qua Giai đoạn 1)...`, 'success');
     firstDraft = existingTranslation;
   } else {
+    addLog(`${logPrefix} Đang dịch thô trực tiếp qua Gemini API cá nhân (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
     let rawData: { rawTranslation: string; discoveredEntities?: any[]; successKeyIndex?: number };
 
-    if (isDirectClientMode) {
-      addLog(`${logPrefix} Đang dịch thô trực tiếp qua Gemini API cá nhân (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
-      try {
-        rawData = await translateRawDirect({
-          text: (hasProcessedText ? chapter.processedSourceText : chapter.sourceText) || '',
-          genre: projState.genre,
-          tone: projState.tone,
-          description: projState.description,
-          glossary: hasProcessedText ? [] : glossarySnapshot,
-          apiKeys,
-          model: selectedModel,
-          startKeyIndex: currentKeyIndex,
-          enableSegmentTranslation,
-          signal,
-        });
-      } catch (err: any) {
-        const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
-        throw Object.assign(new Error(err?.message || 'Lỗi dịch thô từ hệ thống AI trực tiếp.'), { isOverload });
-      }
-    } else {
-      addLog(`${logPrefix} Đang gọi API máy chủ dịch thô (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển, không gửi kèm glossary)' : ''}`, 'gemini');
-      const rawRes = await apiFetch('/api/translate-raw', {
-        method: 'POST',
-        body: JSON.stringify({
-          text: hasProcessedText ? chapter.processedSourceText : chapter.sourceText,
-          genre: projState.genre,
-          tone: projState.tone,
-          description: projState.description,
-          glossary: hasProcessedText ? [] : glossarySnapshot,
-          apiKeys,
-          model: selectedModel,
-          startKeyIndex: currentKeyIndex,
-          sourceChapterId: chapter.id,
-          enableSegmentTranslation,
-        }),
+    try {
+      rawData = await translateRawDirect({
+        text: (hasProcessedText ? chapter.processedSourceText : chapter.sourceText) || '',
+        genre: projState.genre,
+        tone: projState.tone,
+        description: projState.description,
+        glossary: hasProcessedText ? [] : glossarySnapshot,
+        apiKeys,
+        model: selectedModel,
+        startKeyIndex: currentKeyIndex,
+        enableSegmentTranslation,
         signal,
       });
-
-      if (!rawRes.ok) {
-        const errData = await rawRes.json().catch(() => ({ error: 'Lỗi không xác định' }));
-        const isOverload = errData.errorType === 'overload';
-        throw Object.assign(new Error(errData.error || 'Lỗi dịch thô từ hệ thống AI.'), { isOverload });
-      }
-
-      rawData = await rawRes.json();
+    } catch (err: any) {
+      const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
+      throw Object.assign(new Error(err?.message || 'Lỗi dịch thô từ hệ thống AI trực tiếp.'), { isOverload });
     }
 
     firstDraft = rawData.rawTranslation || '';
@@ -213,7 +191,7 @@ export async function executeSingleChapterTranslation({
     }
   }
 
-  // ── GIAI ĐOẠN 2: Chuốt văn phong ──
+  // ── GIAI ĐOẠN 2: Chuốt văn phong trực tiếp ──
   let currentTextToPolish = firstDraft;
   addLog(`${logPrefix} Kích hoạt chu trình mài giũa văn phong (${polishCycles} lượt)...`, 'info');
   for (let j = 1; j <= polishCycles; j++) {
@@ -222,59 +200,28 @@ export async function executeSingleChapterTranslation({
       addLog(`${logPrefix} [Rà soát từ điển] Kích hoạt rà soát thuật ngữ bị sót (chỉ chạy 1 lần/chương tại lượt polish đầu tiên).`, 'info');
     }
 
+    addLog(`${logPrefix} Biên tập chuốt chữ trực tiếp Lần ${j}/${polishCycles}...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
     let polishData: { polishedTranslation?: string; successKeyIndex?: number };
 
-    if (isDirectClientMode) {
-      addLog(`${logPrefix} Biên tập chuốt chữ trực tiếp Lần ${j}/${polishCycles}...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
-      try {
-        polishData = await polishTranslationDirect({
-          sourceText: (hasProcessedText ? chapter.processedSourceText : chapter.sourceText) || '',
-          rawTranslation: currentTextToPolish,
-          genre: projState.genre,
-          tone: projState.tone,
-          description: projState.description,
-          glossary: hasProcessedText ? [] : localGlossary,
-          additionalInstructions: additionalInstructions || 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể.',
-          apiKeys,
-          model: selectedModel,
-          startKeyIndex: currentKeyIndex,
-          isExtractionEnabled: shouldExtract,
-          enableSegmentTranslation,
-          signal,
-        });
-      } catch (err: any) {
-        const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
-        throw Object.assign(new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (err?.message || 'Lỗi không xác định')), { isOverload });
-      }
-    } else {
-      addLog(`${logPrefix} Biên tập chuốt chữ Lần ${j}/${polishCycles}...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển, không gửi kèm glossary)' : ''}`, 'gemini');
-      const polishRes = await apiFetch('/api/polish-translation', {
-        method: 'POST',
-        body: JSON.stringify({
-          sourceText: hasProcessedText ? chapter.processedSourceText : chapter.sourceText,
-          rawTranslation: currentTextToPolish,
-          genre: projState.genre,
-          tone: projState.tone,
-          description: projState.description,
-          glossary: hasProcessedText ? [] : localGlossary,
-          additionalInstructions: additionalInstructions || 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể.',
-          apiKeys,
-          model: selectedModel,
-          startKeyIndex: currentKeyIndex,
-          isExtractionEnabled: shouldExtract,
-          sourceChapterId: chapter.id,
-          enableSegmentTranslation,
-        }),
+    try {
+      polishData = await polishTranslationDirect({
+        sourceText: (hasProcessedText ? chapter.processedSourceText : chapter.sourceText) || '',
+        rawTranslation: currentTextToPolish,
+        genre: projState.genre,
+        tone: projState.tone,
+        description: projState.description,
+        glossary: hasProcessedText ? [] : localGlossary,
+        additionalInstructions: additionalInstructions || 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể.',
+        apiKeys,
+        model: selectedModel,
+        startKeyIndex: currentKeyIndex,
+        isExtractionEnabled: shouldExtract,
+        enableSegmentTranslation,
         signal,
       });
-
-      if (!polishRes.ok) {
-        const errData = await polishRes.json().catch(() => ({ error: 'Lỗi không xác định' }));
-        const isOverload = errData.errorType === 'overload';
-        throw Object.assign(new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (errData.error || 'Lỗi không xác định')), { isOverload });
-      }
-
-      polishData = await polishRes.json();
+    } catch (err: any) {
+      const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
+      throw Object.assign(new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (err?.message || 'Lỗi không xác định')), { isOverload });
     }
 
     currentTextToPolish = polishData.polishedTranslation || currentTextToPolish;
@@ -284,40 +231,18 @@ export async function executeSingleChapterTranslation({
     addLog(`${logPrefix} Hoàn tất chuốt mịn lượt thứ ${j}!`, 'success');
   }
 
-  // ── GIAI ĐOẠN 3: Kiểm duyệt chất lượng AI (Critique Phase) ──
+  // ── GIAI ĐOẠN 3: Kiểm duyệt chất lượng AI trực tiếp (Critique Phase) ──
   if (enableAiQaCritique) {
     addLog(`${logPrefix} [Kiểm duyệt AI] Bắt đầu rà soát thẩm định chất lượng bản dịch...`, 'info');
     try {
-      let qaData: { isValid?: boolean; issues?: any[]; successKeyIndex?: number };
-
-      if (isDirectClientMode) {
-        qaData = await qaCritiqueDirect({
-          sourceText: chapter.sourceText,
-          translatedText: currentTextToPolish,
-          apiKeys,
-          model: selectedModel,
-          startKeyIndex: currentKeyIndex,
-          signal,
-        });
-      } else {
-        const qaRes = await apiFetch('/api/qa-critique', {
-          method: 'POST',
-          body: JSON.stringify({
-            sourceText: chapter.sourceText,
-            translatedText: currentTextToPolish,
-            apiKeys,
-            model: selectedModel,
-            startKeyIndex: currentKeyIndex,
-          }),
-          signal,
-        });
-        if (qaRes.ok) {
-          qaData = await qaRes.json();
-        } else {
-          qaData = { isValid: true, issues: [] };
-          addLog(`${logPrefix} [Kiểm duyệt AI] Lỗi hệ thống kiểm duyệt, tiếp tục tiến trình...`, 'warn');
-        }
-      }
+      const qaData = await qaCritiqueDirect({
+        sourceText: chapter.sourceText,
+        translatedText: currentTextToPolish,
+        apiKeys,
+        model: selectedModel,
+        startKeyIndex: currentKeyIndex,
+        signal,
+      });
 
       if (qaData.isValid) {
         addLog(`${logPrefix} [Kiểm duyệt AI] Đạt chuẩn! Không phát hiện lỗi bỏ sót, thêm thắt hoặc lặp lại.`, 'success');

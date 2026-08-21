@@ -6,6 +6,7 @@ import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
 import { apiFetch } from '../utils/apiClient';
+import { translateRawDirect, polishTranslationDirect } from '../services/directTranslationEngine';
 import { GLOSSARY_LIMITS } from '@shared/constants';
 
 // Sub-components
@@ -280,6 +281,11 @@ export default function TranslatorWorkspace({
   }, [activeProject, onUpdateProject]);
 
   const handleAnalyzeGlossary = async () => {
+    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    if (!hasValidKeys) {
+      setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để phân tích.");
+      return;
+    }
     if (!sourceText.trim()) {
       setErrorMessage("Vui lòng điền nội dung chữ Trung Quốc để phân tích.");
       return;
@@ -389,6 +395,11 @@ export default function TranslatorWorkspace({
   }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast, currentChapterId]);
 
   const handleTranslateRaw = async () => {
+    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    if (!hasValidKeys) {
+      setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để thực hiện dịch thuật.");
+      return;
+    }
     if (!sourceText.trim()) {
       setErrorMessage("Chưa nhập tiếng Trung gốc.");
       return;
@@ -399,27 +410,17 @@ export default function TranslatorWorkspace({
     setActiveStage('raw');
 
     try {
-      const response = await apiFetch('/api/translate-raw', {
-        method: 'POST',
-        body: JSON.stringify({
-          text: sourceText,
-          genre: activeProject.genre,
-          tone: activeProject.tone,
-          description: activeProject.description,
-          glossary: isGlossaryApplied ? [] : activeProject.glossary,
-          apiKeys,
-          model: selectedModel,
-          sourceChapterId: currentChapterId || undefined,
-          enableSegmentTranslation
-        }),
+      const data = await translateRawDirect({
+        text: sourceText,
+        genre: activeProject.genre,
+        tone: activeProject.tone,
+        description: activeProject.description,
+        glossary: isGlossaryApplied ? [] : activeProject.glossary,
+        apiKeys,
+        model: selectedModel,
+        enableSegmentTranslation
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Gặp lỗi trong quá trình dịch thô.");
-      }
-
-      const data = await response.json();
       setRawTranslation(data.rawTranslation || "");
 
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
@@ -482,13 +483,18 @@ export default function TranslatorWorkspace({
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMessage(err.message || "Lỗi máy chủ khi dịch thô.");
+      setErrorMessage(err.message || "Lỗi khi dịch thô.");
     } finally {
       setIsTranslating(false);
     }
   };
 
   const handlePolishTranslation = async () => {
+    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    if (!hasValidKeys) {
+      setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để thực hiện chuốt văn.");
+      return;
+    }
     if (!rawTranslation.trim()) {
       setErrorMessage("Vui lòng thực hiện dịch thô lần 1 trước khi chuốt văn phong.");
       return;
@@ -498,38 +504,28 @@ export default function TranslatorWorkspace({
     setActiveStage('polished');
 
     try {
-      const response = await apiFetch('/api/polish-translation', {
-        method: 'POST',
-        body: JSON.stringify({
-          sourceText: sourceText,
-          rawTranslation: rawTranslation,
-          genre: activeProject.genre,
-          tone: activeProject.tone,
-          description: activeProject.description,
-          glossary: isGlossaryApplied ? [] : activeProject.glossary,
-          additionalInstructions: additionalInstructions,
-          apiKeys,
-          model: selectedModel,
-          isExtractionEnabled,
-          sourceChapterId: currentChapterId || undefined,
-          enableSegmentTranslation
-        }),
+      const data = await polishTranslationDirect({
+        sourceText: sourceText,
+        rawTranslation: rawTranslation,
+        genre: activeProject.genre,
+        tone: activeProject.tone,
+        description: activeProject.description,
+        glossary: isGlossaryApplied ? [] : activeProject.glossary,
+        additionalInstructions: additionalInstructions,
+        apiKeys,
+        model: selectedModel,
+        isExtractionEnabled,
+        enableSegmentTranslation
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Lỗi chuốt văn.");
-      }
-
-      const data = await response.json();
       const polishedResult = data.polishedTranslation || "";
       setPolishedTranslation(polishedResult);
 
-      if (data.newlyDiscoveredDuringPolish && Array.isArray(data.newlyDiscoveredDuringPolish) && data.newlyDiscoveredDuringPolish.length > 0) {
+      if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
         const updatedGlossary = [...activeProject.glossary];
 
-        data.newlyDiscoveredDuringPolish.forEach((ent: any) => {
+        data.discoveredEntities.forEach((ent: any) => {
           const exists = updatedGlossary.some(
             (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
           );

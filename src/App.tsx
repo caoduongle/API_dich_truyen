@@ -218,7 +218,7 @@ function AppContent() {
             onClick={() => setShowApiSettings(true)}
             icon={<Settings className="w-3.5 h-3.5" />}
           >
-            {t('nav.aiConfig')} ({apiKeys.filter(k => k.trim()).length ? `${apiKeys.filter(k => k.trim()).length} ${t('common.keys')}` : t('common.system')})
+            {t('nav.aiConfig')} ({apiKeys.filter(k => k.trim()).length ? `${apiKeys.filter(k => k.trim()).length} ${t('common.keys')}` : 'Chưa có key'})
           </Button>
         </div>
       </header>

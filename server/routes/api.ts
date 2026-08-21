@@ -173,16 +173,11 @@ async function resolveApiKeysMiddleware(req: Request, res: Response, next: NextF
     return;
   }
 
-  // 3. Không có sessionToken lẫn direct keys: kiểm tra server fallback
-  const allowFallback = process.env.ALLOW_SERVER_KEY_FALLBACK === "true";
-  if (!allowFallback) {
-    res.status(400).json({
-      error: "Vui lòng cấu hình API key của bạn trong phần 'Cấu hình AI' trước khi sử dụng. Máy chủ đã tắt tính năng tự động dùng key mặc định."
-    });
-    return;
-  }
-
-  next();
+  // 3. Không có sessionToken lẫn direct keys: từ chối toàn bộ (bắt buộc key cá nhân)
+  res.status(400).json({
+    error: "Vui lòng cấu hình API key cá nhân của bạn trong phần 'Cấu hình AI' trước khi sử dụng. Máy chủ không hỗ trợ dịch qua key mặc định.",
+    code: "NO_PERSONAL_API_KEY_CONFIGURED"
+  });
 }
 
 // --- Session Management Endpoints ---

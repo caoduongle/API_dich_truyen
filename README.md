@@ -12,11 +12,11 @@ Hệ thống dịch tiểu thuyết chữ Trung Quốc sang tiếng Việt sử 
 
 ## 🌟 Tính năng Cốt lõi
 
-### ⚡ 1. Dịch Trực Tiếp Độc Lập (Direct Client Translation) & Phân Luồng Tối Ưu
-- **Luồng Khóa Cá Nhân (Direct Client Mode)**: Trình duyệt người dùng tự động kết nối và gọi thẳng Google Gemini REST API bằng API Key cá nhân. Không đi qua hàng đợi máy chủ (`MAX_CONCURRENT_REQUESTS`), không chia sẻ cache, không tranh chấp hạn mức — hỗ trợ hàng trăm người dịch song song độc lập tuyệt đối.
-- **Luồng Dự Phòng Máy Chủ (Server Fallback Mode)**: Tự động duy trì kênh dịch qua máy chủ trung tâm với đầy đủ bộ đệm và điều phối hạn mức cho người dùng chưa cấu hình key riêng.
+### ⚡ 1. Dịch Trực Tiếp Độc Lập & Bảo Mật Tuyệt Đối (Direct Client Translation)
+- **100% Client-to-Gemini**: Toàn bộ yêu cầu dịch thuật diễn ra trực tiếp giữa trình duyệt người dùng và Google Gemini REST API. Máy chủ không nhận, không xử lý, và không lưu trữ bất kỳ văn bản truyện nào của người dùng.
+- **Bắt buộc API Key Cá Nhân**: Người dùng tự cung cấp Gemini API Key (lấy miễn phí từ Google AI Studio), không dùng chung key hay phụ thuộc vào hàng đợi máy chủ — đảm bảo tốc độ tối đa và quyền riêng tư tuyệt đối (khớp với `docs/privacy-policy.md`).
 
-### 🤖 2. Dịch AI 2 Giai Đoạn Chuyên Sâu
+### 🤖 2. Dịch AI 3 Giai Đoạn Chuyên Sâu
 - **Giai đoạn 1 (Dịch thô & Trích xuất)**: Dịch sát nghĩa, bảo toàn cấu trúc câu, tự động phân tích và trích xuất thực thể/danh từ riêng tiếng Trung.
 - **Giai đoạn 2 (Biên tập & Chuốt văn phong)**: Tự động tra cứu từ điển (Glossary) và chuốt lại văn phong thuần Việt theo từng thể loại truyện (Tiên Hiệp, Võ Hiệp, Huyền Huyễn, Ngôn Tình,...).
 - **Giai đoạn 3 (Kiểm duyệt QA AI)**: Đối chiếu nguyên tác và bản dịch phát hiện lỗi bỏ sót, thêm thắt, hoặc lặp câu.

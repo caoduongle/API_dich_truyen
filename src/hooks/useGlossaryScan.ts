@@ -71,6 +71,13 @@ export function useGlossaryScan({
       return;
     }
 
+    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    if (!hasValidKeys) {
+      showToast({ message: "Vui lòng thêm ít nhất một Gemini API Key cá nhân trong Cấu hình AI để quét từ điển!", type: 'error' });
+      addLog("LỖI: Chưa cấu hình API Key cá nhân. Bắt buộc cần có key để thực hiện quét từ điển.", "error");
+      return;
+    }
+
     const chaps = projectRef.current.chapters || [];
     if (chaps.length === 0) {
       showToast({ message: "Bộ truyện không có chương nào để lọc!", type: 'warning' });

@@ -202,10 +202,10 @@ export async function generateWithRotation(
 
     const rawKeys = (Array.isArray(apiKeys) && apiKeys.length > 0)
         ? apiKeys.map(k => k.trim()).filter(Boolean)
-        : [process.env.GEMINI_API_KEY || ""];
+        : [];
 
-    if (rawKeys.length === 0 || (rawKeys.length === 1 && !rawKeys[0])) {
-      throw new Error("Không có API Key nào được thiết lập. Hãy thêm khóa trong phần 'Cấu hình AI' hoặc lưu trong file cấu hình máy chủ.");
+    if (rawKeys.length === 0) {
+      throw new Error("Không có API Key nào được thiết lập. Vui lòng cấu hình API Key cá nhân trong phần 'Cấu hình AI'.");
     }
 
     let model = modelName || DEFAULT_MODEL_ID;

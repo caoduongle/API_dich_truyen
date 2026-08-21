@@ -4,7 +4,7 @@ import * as db from '../db';
 import * as apiClient from '../../utils/apiClient';
 import * as directEngine from '../directTranslationEngine';
 
-describe('src/services/chapterTranslationService.ts mode routing', () => {
+describe('src/services/chapterTranslationService.ts personal key enforcement', () => {
   const mockChapter = {
     id: 'chap_1',
     title: 'Chương 1',
@@ -62,58 +62,33 @@ describe('src/services/chapterTranslationService.ts mode routing', () => {
     expect(res.updatedChapter?.polishedTranslation).toContain('Nội dung chuốt mượt mà');
   });
 
-  it('routes to server fallback (apiFetch) when no personal API keys are provided', async () => {
+  it('immediately throws error and rejects when no personal API keys are provided', async () => {
     const directRawSpy = vi.spyOn(directEngine, 'translateRawDirect');
     const directPolishSpy = vi.spyOn(directEngine, 'polishTranslationDirect');
+    const apiFetchSpy = vi.spyOn(apiClient, 'apiFetch');
 
-    const apiFetchSpy = vi.spyOn(apiClient, 'apiFetch').mockImplementation(async (url) => {
-      if (url === '/api/translate-raw') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            rawTranslation: 'Chương 1: Tiêu đề\n\nBản dịch máy chủ thô.',
-            discoveredEntities: [],
-            successKeyIndex: 0,
-          }),
-        } as any;
-      }
-      if (url === '/api/polish-translation') {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            polishedTranslation: 'Chương 1: Tiêu đề\n\nBản dịch máy chủ chuốt.',
-            successKeyIndex: 0,
-          }),
-        } as any;
-      }
-      return { ok: false, status: 404, json: async () => ({}) } as any;
-    });
+    await expect(
+      executeSingleChapterTranslation({
+        chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+        glossarySnapshot: [],
+        signal: new AbortController().signal,
+        logPrefix: '[Test]',
+        startKeyIndex: 0,
+        projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+        apiKeys: [], // Empty keys
+        selectedModel: 'gemini-2.5-flash',
+        polishCycles: 1,
+        autoTranslateMode: 'resume',
+        additionalInstructions: '',
+        isExtractionDuringTranslationEnabled: false,
+        enableAiQaCritique: false,
+        enableSegmentTranslation: false,
+        addLog: () => {},
+      })
+    ).rejects.toThrow(/Chưa cấu hình API Key cá nhân/i);
 
-    const res = await executeSingleChapterTranslation({
-      chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
-      glossarySnapshot: [],
-      signal: new AbortController().signal,
-      logPrefix: '[Test]',
-      startKeyIndex: 0,
-      projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
-      apiKeys: [], // Empty keys -> Server fallback
-      selectedModel: 'gemini-2.5-flash',
-      polishCycles: 1,
-      autoTranslateMode: 'resume',
-      additionalInstructions: '',
-      isExtractionDuringTranslationEnabled: false,
-      enableAiQaCritique: false,
-      enableSegmentTranslation: false,
-      addLog: () => {},
-    });
-
-    expect(res.success).toBe(true);
     expect(directRawSpy).not.toHaveBeenCalled();
     expect(directPolishSpy).not.toHaveBeenCalled();
-    expect(apiFetchSpy).toHaveBeenCalledWith('/api/translate-raw', expect.anything());
-    expect(apiFetchSpy).toHaveBeenCalledWith('/api/polish-translation', expect.anything());
-    expect(res.updatedChapter?.polishedTranslation).toContain('Bản dịch máy chủ chuốt');
+    expect(apiFetchSpy).not.toHaveBeenCalled();
   });
 });

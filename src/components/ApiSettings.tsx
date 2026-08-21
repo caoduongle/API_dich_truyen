@@ -671,8 +671,8 @@ export default function ApiSettings({
               {apiKeys.length === 0 ? (
                 <div className="bg-amber-950/20 border border-amber-800/40 rounded-[2px] p-4 text-center space-y-1">
                   <Key className="w-5 h-5 text-amber-400 mx-auto animate-pulse" />
-                  <p className="text-xs font-semibold text-amber-300">Chưa có key nào</p>
-                  <p className="text-[11px] text-text-muted">Thêm ít nhất một Gemini API Key để bắt đầu dịch.</p>
+                  <p className="text-xs font-semibold text-amber-300">API Key cá nhân là bắt buộc</p>
+                  <p className="text-[11px] text-text-muted">Ứng dụng dịch trực tiếp từ trình duyệt đến Google Gemini (100% riêng tư, máy chủ không xử lý hay lưu trữ văn bản). Vui lòng thêm ít nhất một API Key để bắt đầu dịch.</p>
                 </div>
               ) : (
                 <div className="space-y-2">

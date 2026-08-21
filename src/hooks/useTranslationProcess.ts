@@ -503,6 +503,13 @@ export function useTranslationProcess({
       return;
     }
 
+    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    if (!hasValidKeys) {
+      showToast({ message: "Vui lòng thêm ít nhất một Gemini API Key cá nhân trong Cấu hình AI để bắt đầu dịch!", type: 'error' });
+      addLog("LỖI: Chưa cấu hình API Key cá nhân. Bắt buộc cần có key để thực hiện dịch thuật.", "error");
+      return;
+    }
+
     let queue = chaptersQueue;
     let startIdx = currentChapterIndex;
     const isResetRun = queue.length === 0 || processedCount >= queue.length;
