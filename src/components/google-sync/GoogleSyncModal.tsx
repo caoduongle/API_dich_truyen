@@ -14,6 +14,11 @@ import {
   FolderOpen,
   Settings,
   Loader2,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
 } from 'lucide-react';
 import { googleAuthService } from '../../services/googleAuthService';
 import { googleDriveSyncService } from '../../services/googleDriveSyncService';
@@ -37,9 +42,10 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
 }) => {
   const [authState, setAuthState] = useState<GoogleAuthState>(googleAuthService.getAuthState());
   const [clientIdInput, setClientIdInput] = useState<string>(googleAuthService.getClientId());
-  const [isEditingClientId, setIsEditingClientId] = useState<boolean>(false);
   const [pickerKeyInput, setPickerKeyInput] = useState<string>(googlePickerService.getPickerApiKey());
-  const [isEditingPickerKey, setIsEditingPickerKey] = useState<boolean>(false);
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(() => !googleAuthService.getClientId());
+  const [revealClientId, setRevealClientId] = useState<boolean>(false);
+  const [revealPickerKey, setRevealPickerKey] = useState<boolean>(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isOpeningPicker, setIsOpeningPicker] = useState<boolean>(false);
@@ -68,29 +74,47 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
 
   if (!isOpen) return null;
 
+  const isCustomClientId = Boolean(
+    typeof window !== 'undefined' && localStorage.getItem('ai_dich_truyen_google_client_id')
+  );
+  const isCustomPickerKey = Boolean(
+    typeof window !== 'undefined' && localStorage.getItem('ai_dich_truyen_google_picker_key')
+  );
+  const hasClientId = Boolean(clientIdInput.trim() || googleAuthService.getClientId());
+
   const handleSaveClientId = () => {
     googleAuthService.setClientId(clientIdInput);
-    setIsEditingClientId(false);
     showToast({ message: 'Đã lưu Google Client ID!', type: 'success' });
   };
 
   const handleSavePickerKey = () => {
     googlePickerService.setPickerApiKey(pickerKeyInput);
-    setIsEditingPickerKey(false);
     showToast({ message: 'Đã lưu Google Picker API Key!', type: 'success' });
+  };
+
+  const handleResetClientId = () => {
+    googleAuthService.setClientId('');
+    setClientIdInput(googleAuthService.getClientId());
+    showToast({ message: 'Đã khôi phục Google Client ID mặc định.', type: 'info' });
+  };
+
+  const handleResetPickerKey = () => {
+    googlePickerService.setPickerApiKey('');
+    setPickerKeyInput(googlePickerService.getPickerApiKey());
+    showToast({ message: 'Đã khôi phục Google Picker Key mặc định.', type: 'info' });
   };
 
   const handleLogin = async () => {
     try {
-      if (!clientIdInput.trim()) {
+      if (!clientIdInput.trim() && !googleAuthService.getClientId()) {
         showToast({
           message: 'Vui lòng nhập Google Client ID trước khi đăng nhập.',
           type: 'warning',
         });
-        setIsEditingClientId(true);
+        setShowAdvanced(true);
         return;
       }
-      if (clientIdInput !== googleAuthService.getClientId()) {
+      if (clientIdInput && clientIdInput !== googleAuthService.getClientId()) {
         googleAuthService.setClientId(clientIdInput);
       }
       await googleAuthService.initiateLogin();
@@ -261,103 +285,134 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
             </p>
           </div>
 
-          {/* Client ID Configuration Section */}
-          <div className="border border-parchment-2 rounded-[2px] p-3.5 bg-ink/5 space-y-2">
+          {/* Google Cloud Integration Configuration */}
+          <div className="border border-parchment-2 rounded-[2px] p-3.5 bg-ink/5 space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-text-main flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <Key className="w-3.5 h-3.5 text-gold" />
-                Google OAuth Client ID
-              </label>
-              {!isEditingClientId && (
+                <span className="text-xs font-bold text-text-main">
+                  Cấu hình Google Cloud &amp; Drive
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {hasClientId ? (
+                  <Badge tone={isCustomClientId ? 'polish' : 'neutral'} className="flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-polish" />
+                    {isCustomClientId ? 'Tùy chỉnh riêng' : 'Đã cấu hình sẵn'}
+                  </Badge>
+                ) : (
+                  <Badge tone="warning" className="flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 text-amber-400" />
+                    Chưa cấu hình
+                  </Badge>
+                )}
                 <button
                   type="button"
-                  onClick={() => setIsEditingClientId(true)}
-                  className="text-[11px] text-polish hover:underline"
+                  onClick={() => setShowAdvanced((prev) => !prev)}
+                  className="text-[11px] text-text-muted hover:text-text-main flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] hover:bg-parchment-2/50 transition-colors cursor-pointer"
+                  title={showAdvanced ? 'Thu gọn cài đặt nâng cao' : 'Mở rộng tùy chỉnh Client ID / API Key'}
                 >
-                  Thay đổi
+                  <span>{showAdvanced ? 'Thu gọn' : 'Tùy chỉnh'}</span>
+                  {showAdvanced ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </button>
-              )}
+              </div>
             </div>
 
-            {isEditingClientId ? (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={clientIdInput}
-                  onChange={(e) => setClientIdInput(e.target.value)}
-                  placeholder="Ví dụ: 123456789-xyz.apps.googleusercontent.com"
-                  className="w-full text-xs font-mono px-3 py-1.5 bg-ink/10 border border-parchment-2 rounded-[2px] text-text-main placeholder:text-text-muted focus:outline-none focus:border-gold"
-                />
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      setClientIdInput(googleAuthService.getClientId());
-                      setIsEditingClientId(false);
-                    }}
-                  >
-                    Hủy
-                  </Button>
-                  <Button variant="primary" size="sm" onClick={handleSaveClientId}>
-                    Lưu Client ID
-                  </Button>
+            {/* Collapsible Advanced Credentials Drawer */}
+            {showAdvanced && (
+              <div className="pt-2 border-t border-parchment-2 space-y-3 animate-in fade-in duration-150">
+                {/* Client ID field */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-text-main flex items-center gap-1">
+                      <span>OAuth Client ID</span>
+                      {isCustomClientId && (
+                        <span className="text-[9px] text-polish font-mono">(Tùy chỉnh)</span>
+                      )}
+                    </label>
+                    {isCustomClientId && (
+                      <button
+                        type="button"
+                        onClick={handleResetClientId}
+                        className="text-[10px] text-text-muted hover:text-polish flex items-center gap-0.5 transition-colors cursor-pointer"
+                        title="Khôi phục về Client ID mặc định của ứng dụng"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Mặc định</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex-1 flex items-center gap-1.5 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 bg-ink">
+                      <input
+                        type={revealClientId ? 'text' : 'password'}
+                        value={clientIdInput}
+                        onChange={(e) => setClientIdInput(e.target.value)}
+                        placeholder="Nhập Google Client ID..."
+                        className="flex-1 text-xs bg-transparent outline-none text-text-main font-mono min-w-0 placeholder:text-text-muted"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRevealClientId((prev) => !prev)}
+                      className="text-text-muted hover:text-text-main p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer shrink-0"
+                      title={revealClientId ? 'Ẩn' : 'Hiện'}
+                    >
+                      {revealClientId ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                    <Button variant="secondary" size="sm" onClick={handleSaveClientId}>
+                      Lưu
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Picker API Key field */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-text-main flex items-center gap-1">
+                      <span>Picker API Key</span>
+                      {isCustomPickerKey && (
+                        <span className="text-[9px] text-polish font-mono">(Tùy chỉnh)</span>
+                      )}
+                    </label>
+                    {isCustomPickerKey && (
+                      <button
+                        type="button"
+                        onClick={handleResetPickerKey}
+                        className="text-[10px] text-text-muted hover:text-polish flex items-center gap-0.5 transition-colors cursor-pointer"
+                        title="Khôi phục về Picker API Key mặc định của ứng dụng"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Mặc định</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex-1 flex items-center gap-1.5 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 bg-ink">
+                      <input
+                        type={revealPickerKey ? 'text' : 'password'}
+                        value={pickerKeyInput}
+                        onChange={(e) => setPickerKeyInput(e.target.value)}
+                        placeholder="Nhập Google Picker API Key..."
+                        className="flex-1 text-xs bg-transparent outline-none text-text-main font-mono min-w-0 placeholder:text-text-muted"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRevealPickerKey((prev) => !prev)}
+                      className="text-text-muted hover:text-text-main p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer shrink-0"
+                      title={revealPickerKey ? 'Ẩn' : 'Hiện'}
+                    >
+                      {revealPickerKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                    <Button variant="secondary" size="sm" onClick={handleSavePickerKey}>
+                      Lưu
+                    </Button>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <p className="text-[11px] font-mono text-text-muted truncate bg-ink/10 px-2.5 py-1.5 rounded-[2px]">
-                {clientIdInput || 'Chưa cấu hình Client ID (nhấn Thay đổi để nhập)'}
-              </p>
-            )}
-          </div>
-
-          {/* Google Picker API Key Section */}
-          <div className="border border-parchment-2 rounded-[2px] p-3.5 bg-ink/5 space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-text-main flex items-center gap-1.5">
-                <Settings className="w-3.5 h-3.5 text-gold" />
-                Google Picker API Key (Dùng mở dự án được chia sẻ)
-              </label>
-              {!isEditingPickerKey && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingPickerKey(true)}
-                  className="text-[11px] text-polish hover:underline"
-                >
-                  Thay đổi
-                </button>
-              )}
-            </div>
-
-            {isEditingPickerKey ? (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={pickerKeyInput}
-                  onChange={(e) => setPickerKeyInput(e.target.value)}
-                  placeholder="Nhập Google Browser API Key (cho Google Picker API)"
-                  className="w-full text-xs font-mono px-3 py-1.5 bg-ink/10 border border-parchment-2 rounded-[2px] text-text-main placeholder:text-text-muted focus:outline-none focus:border-gold"
-                />
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      setPickerKeyInput(googlePickerService.getPickerApiKey());
-                      setIsEditingPickerKey(false);
-                    }}
-                  >
-                    Hủy
-                  </Button>
-                  <Button variant="primary" size="sm" onClick={handleSavePickerKey}>
-                    Lưu Picker Key
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <p className="text-[11px] font-mono text-text-muted truncate bg-ink/10 px-2.5 py-1.5 rounded-[2px]">
-                {pickerKeyInput || 'Chưa cấu hình (có thể dùng biến môi trường VITE_GOOGLE_PICKER_API_KEY)'}
-              </p>
             )}
           </div>
 
