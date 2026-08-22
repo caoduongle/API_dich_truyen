@@ -139,14 +139,21 @@ export function setupWebSocketRelay(server: HttpServer): WebSocketServer {
         return;
       }
 
-      // 2. Xác thực Google OAuth Token (nếu có token)
-      let userEmail = '';
-      if (token) {
-        const userInfo = await verifyGoogleAccessToken(token);
-        if (userInfo) {
-          userEmail = userInfo.email;
-        }
+      // 2. Bắt buộc xác thực Google OAuth Token hợp lệ (ngăn chặn kết nối vô danh vào phòng CRDT)
+      if (!token || !token.trim()) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
       }
+
+      const userInfo = await verifyGoogleAccessToken(token.trim());
+      if (!userInfo || !userInfo.email) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      const userEmail = userInfo.email;
 
       incrementIpConnection(clientIp);
 

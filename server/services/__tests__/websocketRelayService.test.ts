@@ -5,6 +5,7 @@ import {
   decrementIpConnection,
   formatRoomId,
   verifyCollaboratorAccess,
+  verifyGoogleAccessToken,
 } from '../websocketRelayService';
 
 describe('websocketRelayService (Handshake & Room Management)', () => {
@@ -46,5 +47,39 @@ describe('websocketRelayService (Handshake & Room Management)', () => {
     expect(verifyCollaboratorAccess('TRANS1@GMAIL.COM', collaborators)).toBe(true);
     expect(verifyCollaboratorAccess('stranger@gmail.com', collaborators)).toBe(false);
     expect(verifyCollaboratorAccess('', collaborators)).toBe(false);
+  });
+
+  it('validates Google OAuth token and caches result', async () => {
+    const mockUser = { email: 'translator@gmail.com', name: 'Translator User', picture: 'https://example.com/pic.jpg' };
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockUser,
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await verifyGoogleAccessToken('valid_token_123');
+    expect(result).toEqual({ email: 'translator@gmail.com', name: 'Translator User', picture: 'https://example.com/pic.jpg' });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // Second call hits cache
+    const cachedResult = await verifyGoogleAccessToken('valid_token_123');
+    expect(cachedResult).toEqual({ email: 'translator@gmail.com', name: 'Translator User', picture: 'https://example.com/pic.jpg' });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects invalid or expired Google OAuth tokens', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await verifyGoogleAccessToken('invalid_token_xyz');
+    expect(result).toBeNull();
+  });
+
+  it('returns null immediately when token is empty', async () => {
+    const result = await verifyGoogleAccessToken('');
+    expect(result).toBeNull();
   });
 });

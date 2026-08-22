@@ -10,7 +10,7 @@ import { SERVER_CONFIG } from "@shared/constants";
 import { redisManager } from "./server/services/redisService";
 import { setupWebSocketRelay } from "./server/services/websocketRelayService";
 import { setupCrdtRedisPubSub, cleanupCrdtRedisPubSub } from "./server/services/crdtRedisPubSub";
-
+import { authStore } from "./server/services/authStore";
 import { requestIdMiddleware } from "./server/middleware/tracingMiddleware";
 
 dotenv.config();
@@ -82,6 +82,14 @@ async function startServer() {
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server fully started and listening on http://localhost:${PORT}`);
+    if (isProduction && !authStore.isAuthRequired()) {
+      console.warn("\n" + "=".repeat(78));
+      console.warn("⚠️  [CẢNH BÁO BẢO MẬT] ACCESS_PASSWORD chưa được thiết lập ở môi trường Production!");
+      console.warn("   Toàn bộ endpoint /api/* (kể cả dịch thuật bằng GEMINI_API_KEY phía server)");
+      console.warn("   đang mở công khai. Bất kỳ ai có URL đều có thể gọi API và tiêu thụ quota.");
+      console.warn("   Khuyến nghị: Thiết lập biến môi trường ACCESS_PASSWORD trên Render.");
+      console.warn("=".repeat(78) + "\n");
+    }
     if (!process.env.REDIS_URL) {
       console.warn("[RateLimiter] Đang dùng in-memory rate limiter — CHỈ chính xác khi chạy 1 instance. Nếu scale nhiều instance, hãy cấu hình REDIS_URL để bật rate limiter phân tán.");
     }
