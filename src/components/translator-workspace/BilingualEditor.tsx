@@ -13,6 +13,8 @@ import { useHotkeys } from '../../hooks/useHotkeys';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Kbd } from '../ui/Kbd';
+import { CollaboratorPresenceBar } from './CollaboratorPresenceBar';
+import { CRDTSyncStatus, UserPresence } from '../../types/crdt';
 
 export interface BilingualEditorProps {
   sourceText: string;
@@ -60,6 +62,9 @@ export interface BilingualEditorProps {
   enableSegmentTranslation: boolean;
   qaIssues: any[];
   isCheckingQa: boolean;
+  crdtStatus?: CRDTSyncStatus;
+  collaborators?: UserPresence[];
+  onFieldFocus?: (field: 'raw' | 'polished' | 'idle') => void;
 }
 
 export const BilingualEditor = React.memo(function BilingualEditor({
@@ -107,6 +112,9 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   enableAiQaCritique,
   qaIssues,
   isCheckingQa,
+  crdtStatus,
+  collaborators,
+  onFieldFocus,
 }: BilingualEditorProps) {
   const { showToast } = useNotifications();
   const [selectedTerm, setSelectedTerm] = useState('');
@@ -328,36 +336,45 @@ export const BilingualEditor = React.memo(function BilingualEditor({
       {/* Right column - Dual Action Translation Panels */}
       <div className="space-y-4 bg-parchment border border-parchment-2 p-5 rounded-md shadow-xs flex flex-col justify-between animate-fadeIn">
         <div className="space-y-3">
-          <div className="flex items-center justify-between border-b border-parchment-2 pb-3">
+          <div className="flex flex-wrap items-center justify-between border-b border-parchment-2 pb-3 gap-2">
             <h3 className="text-xs font-bold text-text-main uppercase tracking-wider flex items-center gap-1.5 font-display">
               <span className="flex items-center justify-center w-5 h-5 rounded-[2px] bg-polish text-white text-[10px] font-bold">2</span>
               <span>Kết Quả Biên Soạn Bản Thảo</span>
             </h3>
-            
-            {/* Stages toggles */}
-            <div className="flex bg-ink p-0.5 rounded-[2px] border border-parchment-2">
-              <button
-                id="tab-toggle-raw"
-                onClick={() => setActiveStage('raw')}
-                className={`px-3 py-1 text-[11px] font-bold rounded-[2px] transition-all cursor-pointer ${
-                  activeStage === 'raw'
-                    ? 'bg-draft text-white shadow-xs'
-                    : 'text-text-muted hover:text-text-main'
-                }`}
-              >
-                Dịch thô (1)
-              </button>
-              <button
-                id="tab-toggle-polished"
-                onClick={() => setActiveStage('polished')}
-                className={`px-3 py-1 text-[11px] font-bold rounded-[2px] transition-all cursor-pointer ${
-                  activeStage === 'polished'
-                    ? 'bg-polish text-white shadow-xs glow-polish'
-                    : 'text-text-muted hover:text-text-main'
-                }`}
-              >
-                Biên tập (2)
-              </button>
+
+            <div className="flex items-center gap-2">
+              {/* Thanh hiện diện cộng tác Real-Time CRDT */}
+              <CollaboratorPresenceBar
+                status={crdtStatus || 'offline'}
+                collaborators={collaborators || []}
+                isShared={activeProject.isShared || false}
+              />
+              
+              {/* Stages toggles */}
+              <div className="flex bg-ink p-0.5 rounded-[2px] border border-parchment-2">
+                <button
+                  id="tab-toggle-raw"
+                  onClick={() => setActiveStage('raw')}
+                  className={`px-3 py-1 text-[11px] font-bold rounded-[2px] transition-all cursor-pointer ${
+                    activeStage === 'raw'
+                      ? 'bg-draft text-white shadow-xs'
+                      : 'text-text-muted hover:text-text-main'
+                  }`}
+                >
+                  Dịch thô (1)
+                </button>
+                <button
+                  id="tab-toggle-polished"
+                  onClick={() => setActiveStage('polished')}
+                  className={`px-3 py-1 text-[11px] font-bold rounded-[2px] transition-all cursor-pointer ${
+                    activeStage === 'polished'
+                      ? 'bg-polish text-white shadow-xs glow-polish'
+                      : 'text-text-muted hover:text-text-main'
+                  }`}
+                >
+                  Biên tập (2)
+                </button>
+              </div>
             </div>
           </div>
 
@@ -395,6 +412,8 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                   placeholder="Bản dịch thô sẽ hiển thị tại đây sau khi chạy Giai đoạn 1..."
                   value={rawTranslation}
                   onChange={(e) => setRawTranslation(e.target.value)}
+                  onFocus={() => onFieldFocus?.('raw')}
+                  onBlur={() => onFieldFocus?.('idle')}
                   className="w-full text-sm bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main font-sans leading-relaxed focus:outline-none focus:border-draft transition-all resize-y"
                 />
 
@@ -418,18 +437,19 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                           AI đã tự động trích xuất các cụm từ mới chưa có trong từ điển gốc để nạp trực tiếp vào dự án:
                         </p>
                         <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pt-1 pr-1">
-                          {autoDiscoveredTerms.map((item) => (
+                          {autoDiscoveredTerms.map((term, idx) => (
                             <span
-                              key={item.id}
-                              className="inline-flex items-center gap-1 bg-parchment border border-parchment-2 rounded-[2px] px-2 py-0.5 text-[11px] font-medium text-text-main"
-                              title={`${item.chinese} (${item.pinyin}) -> Ghi chú: ${item.note}`}
+                              key={idx}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-parchment border border-parchment-2 rounded-[2px] text-xs text-text-main"
                             >
-                              <code className="text-polish font-serif text-[10px]">{item.chinese}</code>
-                              <ChevronRight className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                              <span className="text-text-main font-bold">{item.vietnamese}</span>
-                              <span className="text-[8px] bg-ink text-text-muted px-1.5 py-0.2 rounded-[2px] shrink-0 font-normal border border-parchment-2">
-                                {item.type === 'character' ? 'Nhân vật' : item.type === 'location' ? 'Địa danh' : item.type === 'term' ? 'Chiêu thức' : 'Khác'}
-                              </span>
+                              <span className="font-medium text-amber-400">{term.chinese}</span>
+                              <span className="text-text-muted">→</span>
+                              <span className="font-semibold text-polish">{term.vietnamese}</span>
+                              {term.type && (
+                                <span className="text-[9px] bg-ink px-1 rounded-[2px] text-text-muted border border-parchment-2">
+                                  {term.type}
+                                </span>
+                              )}
                             </span>
                           ))}
                         </div>
@@ -461,6 +481,8 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                   placeholder="Bản dịch sau khi chuốt văn phong thuần Việt sẽ hiển thị tại đây..."
                   value={polishedTranslation}
                   onChange={(e) => setPolishedTranslation(e.target.value)}
+                  onFocus={() => onFieldFocus?.('polished')}
+                  onBlur={() => onFieldFocus?.('idle')}
                   className="w-full text-sm bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main font-sans leading-relaxed focus:outline-none focus:border-polish transition-all resize-y"
                 />
 

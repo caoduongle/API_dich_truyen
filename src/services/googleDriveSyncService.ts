@@ -15,6 +15,7 @@ import {
   getChaptersByProjectFromDB,
   saveChapterToDB,
 } from './db';
+import { createChapterYDoc, exportDocUpdate, applyDocUpdate } from './crdtDocManager';
 
 const DRIVE_FILES_ENDPOINT = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_ENDPOINT = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -49,6 +50,27 @@ export function reconcileChapterTimestamps(
   remoteUpdatedAt?: string
 ): 'push' | 'pull' | 'in_sync' {
   return reconcileProjectTimestamps(localUpdatedAt, remoteUpdatedAt);
+}
+
+/**
+ * Đóng gói chapter JSON kèm CRDT binary update snapshot (Base64) để làm bản backup dự phòng.
+ */
+export function encodeChapterWithCrdt(projectId: string, chap: Chapter): string {
+  try {
+    const session = createChapterYDoc(projectId, chap.id, chap);
+    const updateBytes = exportDocUpdate(session.doc);
+    let binaryString = '';
+    for (let b = 0; b < updateBytes.length; b++) {
+      binaryString += String.fromCharCode(updateBytes[b]);
+    }
+    const crdtSnapshot = typeof btoa !== 'undefined' ? btoa(binaryString) : Buffer.from(updateBytes).toString('base64');
+    return JSON.stringify({
+      ...chap,
+      crdtSnapshot,
+    }, null, 2);
+  } catch (e) {
+    return JSON.stringify(chap, null, 2);
+  }
 }
 
 /**
@@ -326,7 +348,7 @@ class GoogleDriveSyncService {
         accessToken,
         subfolderId,
         `chapter_${chap.id}.json`,
-        JSON.stringify(chap, null, 2)
+        encodeChapterWithCrdt(projectId, chap)
       );
 
       chapterManifestItems.push({
@@ -447,7 +469,7 @@ class GoogleDriveSyncService {
             accessToken,
             driveFolderId,
             `chapter_${local.id}.json`,
-            JSON.stringify(local, null, 2)
+            encodeChapterWithCrdt(projectId, local)
           );
 
           remoteChaptersMap.set(local.id, {

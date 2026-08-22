@@ -8,6 +8,8 @@ import { createRateLimiter } from "./server/middleware/rateLimiter";
 import { metricsMiddleware } from "./server/middleware/metricsMiddleware";
 import { SERVER_CONFIG } from "@shared/constants";
 import { redisManager } from "./server/services/redisService";
+import { setupWebSocketRelay } from "./server/services/websocketRelayService";
+import { setupCrdtRedisPubSub, cleanupCrdtRedisPubSub } from "./server/services/crdtRedisPubSub";
 
 import { requestIdMiddleware } from "./server/middleware/tracingMiddleware";
 
@@ -29,7 +31,7 @@ app.use(
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
             imgSrc: ["'self'", "data:", "blob:"],
-            connectSrc: ["'self'"],
+            connectSrc: ["'self'", "ws:", "wss:"],
             objectSrc: ["'none'"],
             baseUri: ["'self'"],
             formAction: ["'self'"],
@@ -85,9 +87,14 @@ async function startServer() {
     }
   });
 
+  // Gắn WebSocket Relay phục vụ đồng bộ real-time CRDT (Yjs) tại /ws/sync
+  setupWebSocketRelay(server);
+  setupCrdtRedisPubSub();
+
   const shutdown = async () => {
     console.log("\n[Server] Shutting down server gracefully...");
     try {
+      await cleanupCrdtRedisPubSub();
       await redisManager.close();
       console.log("[Server] Redis connections closed.");
     } catch (err) {

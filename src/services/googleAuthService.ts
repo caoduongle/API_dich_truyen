@@ -61,6 +61,14 @@ class GoogleAuthService {
     return { ...this.state };
   }
 
+  public getUser(): GoogleUserProfile | null {
+    return this.state.user;
+  }
+
+  public getAccessToken(): string | null {
+    return this.state.accessToken;
+  }
+
   public onAuthStateChanged(callback: (state: GoogleAuthState) => void): () => void {
     this.listeners.push(callback);
     callback(this.getAuthState());

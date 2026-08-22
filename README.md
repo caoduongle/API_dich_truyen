@@ -54,6 +54,13 @@ Hệ thống dịch tiểu thuyết chữ Trung Quốc sang tiếng Việt sử 
 - **Tùy Biến 6 Token & Kiểm Định Tương Phản Tức Thì**: Cho phép tùy chỉnh trọn bộ 6 màu bằng bộ chọn màu HTML5 thuần, tự động tính toán Relative Luminance và cảnh báo nếu độ tương phản dưới 4.5:1.
 - **Tự Động Nhận Diện & Chống Chớp (Zero FOUC)**: Tự động phát hiện `prefers-color-scheme`, lưu trữ bền vững trong `localStorage` và áp dụng tức thì trước khi trang hiển thị.
 
+### 🔄 7. Đồng Bộ Real-Time CRDT (Yjs) & WebSocket Relay Tự Host
+- **Đồng Bộ Không Xung Đột (CRDT via Yjs)**: Ứng dụng `Y.Text` cho 2 trường dịch (`rawTranslation` và `polishedTranslation`), đảm bảo nhiều dịch giả cùng gõ phím mượt mà không lo bị ghi đè dữ liệu.
+- **WebSocket Relay Độc Lập (Zero Server Storage)**: Relay gắn tại `/ws/sync` chỉ chuyển tiếp gói tin nhị phân trong RAM, tuyệt đối không lưu nội dung truyện xuống ổ đĩa hay cơ sở dữ liệu server.
+- **Khả Năng Mở Rộng Đa Instance Qua Redis Pub/Sub**: Sẵn sàng scale ngang nhiều container (Cloud Run/Kubernetes) thông qua kênh Redis Pub/Sub theo từng phòng chương.
+- **Hiện Diện Trực Tiếp (Live Presence / Awareness)**: Hiển thị avatar, màu sắc định danh và trạng thái gõ phím của cộng tác viên đang cùng mở chương.
+- **Chế Độ Kép Online / Offline Hoàn Hảo**: Tiếp tục làm việc bình thường khi mất mạng, tự động hội tụ khi kết nối lại, kết hợp sao lưu snapshot nhị phân định kỳ lên Google Drive.
+
 ---
 
 ## 🏛️ Sơ đồ Kiến trúc Hệ thống (Architecture Map)
@@ -133,9 +140,12 @@ flowchart TD
 
 ## 🚀 Hướng dẫn Cài đặt & Khởi chạy
 
-### Yêu cầu Tiên quyết
+### Yêu cầu Tiên quyết & Vận hành
 - **Node.js**: Phiên bản LTS 18.x hoặc 20.x+
-- **Redis** *(Tùy chọn)*: Để đồng bộ rate limiting phân tán (hệ thống tự động dùng bộ đệm in-memory nếu không có Redis).
+- **Redis (`REDIS_URL`)**:
+  - *Development / Đơn instance*: Tùy chọn (tự động dùng bộ đệm in-memory cho rate limiter và CRDT room).
+  - *Production / Đa instance*: **Bắt buộc** để đồng bộ rate limiting phân tán và chuyển tiếp cập nhật CRDT real-time qua Pub/Sub giữa các container.
+- **Giới hạn File Descriptors (Host OS)**: Khi triển khai production phục vụ ~1.000 kết nối WebSocket đồng thời, cấu hình `ulimit -n 65535` trên máy chủ host hoặc container để tránh lỗi `EMFILE / ENFILE`.
 
 ### 1. Cài đặt Dependencies
 ```bash
@@ -154,7 +164,7 @@ Nội dung file `.env`:
 ```env
 PORT=3000
 NODE_ENV=development
-# Redis URL (tùy chọn - để trống sẽ tự động dùng in-memory fallback)
+# Redis URL (Bắt buộc ở Production multi-instance, tùy chọn ở dev đơn instance)
 # REDIS_URL=redis://localhost:6379
 
 # API Key mặc định của hệ thống (tùy chọn)

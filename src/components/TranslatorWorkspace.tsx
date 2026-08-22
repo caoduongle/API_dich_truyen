@@ -15,6 +15,8 @@ import { ImportChaptersModal } from './translator-workspace/ImportChaptersModal'
 import { BilingualEditor } from './translator-workspace/BilingualEditor';
 import { GlossarySidebar } from './translator-workspace/GlossarySidebar';
 import { SuggestionsDrawer } from './translator-workspace/SuggestionsDrawer';
+import { useChapterCRDT } from '../hooks/useChapterCRDT';
+import { googleAuthService } from '../services/googleAuthService';
 
 import { CHINESE_EXAMPLES } from '../data/examples';
 
@@ -93,6 +95,45 @@ export default function TranslatorWorkspace({
 
   // Active viewing stage tab
   const [activeStage, setActiveStage] = useState<'raw' | 'polished'>('raw');
+
+  // Khởi tạo Real-Time CRDT Session (Yjs) cho chương hiện tại
+  const googleUser = googleAuthService.getUser();
+  const crdt = useChapterCRDT({
+    projectId: activeProject.id,
+    chapterId: currentChapterId,
+    initialChapter: loadedChapter,
+    isShared: activeProject.isShared || false,
+    userEmail: googleUser?.email,
+    userName: googleUser?.name,
+    userPicture: googleUser?.picture,
+    onRemoteChange: (updated) => {
+      if (updated.rawTranslation !== undefined) {
+        setRawTranslation(updated.rawTranslation);
+      }
+      if (updated.polishedTranslation !== undefined) {
+        setPolishedTranslation(updated.polishedTranslation);
+      }
+      if (updated.title !== undefined) {
+        setChapterTitle(updated.title);
+      }
+    },
+  });
+
+  const handleRawTranslationChange = useCallback(
+    (newVal: string) => {
+      setRawTranslation(newVal);
+      crdt.updateRawTranslation(newVal);
+    },
+    [crdt]
+  );
+
+  const handlePolishedTranslationChange = useCallback(
+    (newVal: string) => {
+      setPolishedTranslation(newVal);
+      crdt.updatePolishedTranslation(newVal);
+    },
+    [crdt]
+  );
 
   // Triggering alerts/sync on project id change
   useEffect(() => {
@@ -817,9 +858,12 @@ export default function TranslatorWorkspace({
         isExtractionEnabled={isExtractionEnabled}
         setIsExtractionEnabled={setIsExtractionEnabled}
         rawTranslation={rawTranslation}
-        setRawTranslation={setRawTranslation}
+        setRawTranslation={handleRawTranslationChange}
         polishedTranslation={polishedTranslation}
-        setPolishedTranslation={setPolishedTranslation}
+        setPolishedTranslation={handlePolishedTranslationChange}
+        crdtStatus={crdt.status}
+        collaborators={crdt.collaborators}
+        onFieldFocus={crdt.setActiveField}
         additionalInstructions={additionalInstructions}
         setAdditionalInstructions={setAdditionalInstructions}
         chapterTitle={chapterTitle}
