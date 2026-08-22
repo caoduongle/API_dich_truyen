@@ -38,8 +38,11 @@ Vui lòng báo cáo an toàn theo một trong các kênh sau:
 
 ## Nguyên tắc bảo mật cốt lõi của dự án
 
-1. **Bảo vệ Secret & API Key**:
-   - Máy chủ và hệ thống ghi log (`Logger`, Metrics) tự động lọc và thay thế chuỗi API key Gemini (`AIza...`), token xác thực, mật khẩu bằng `[REDACTED]`.
+1. **Kiến trúc Đồng bộ Không Tri thức (Zero-Knowledge Session Sync) & Bảo vệ API Key**:
+   - API key cá nhân (Gemini, OpenAI, Anthropic) được lưu trữ an toàn trong `sessionStorage` của trình duyệt và **tuyệt đối không bao giờ gửi plaintext** tới máy chủ ứng dụng khi đồng bộ phiên.
+   - Trình duyệt chỉ gửi mã băm SHA-256 một chiều (`crypto.subtle.digest`) lên máy chủ để phục vụ quản lý phiên, hạn mức và điều phối (`/api/session-keys`).
+   - Các thao tác gọi AI (dịch thuật trực tiếp, tra cứu model, dịch nhanh) được thực hiện Client-Direct từ trình duyệt thẳng đến nhà cung cấp AI.
+   - Máy chủ và hệ thống ghi log (`Logger`, Metrics) tự động lọc và thay thế chuỗi API key (`AIza...`, `sk-...`, `sk-ant-...`), token xác thực, mật khẩu bằng `[REDACTED]`.
    - Toàn bộ query parameter nhạy cảm trên URL đều bị xóa khỏi log structured.
 2. **Phòng thủ AI & Chống Prompt Injection**:
    - Dữ liệu truyện và cẩm nang do người dùng cung cấp được xem là **Untrusted Data** (không đáng tin cậy).

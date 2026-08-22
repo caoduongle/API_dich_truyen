@@ -340,8 +340,10 @@ export default function TranslatorWorkspace({
     setSelectedSuggestions({});
 
     try {
+      // TODO(zero-knowledge-session): port sang client-direct, xem specs/060-zero-knowledge-session-sync
       const response = await apiFetch('/api/analyze-glossary', {
         method: 'POST',
+        allowApiKeysInBody: true,
         body: JSON.stringify({
           text: sourceText,
           apiKeys,

@@ -111,10 +111,18 @@ export const CountdownBadge = React.memo(function CountdownBadge({
   );
 });
 
+export function formatClientMaskedKey(rawKey?: string, fallbackMask?: string): string {
+  if (!rawKey || typeof rawKey !== 'string') return fallbackMask || '***';
+  const trimmed = rawKey.trim();
+  if (trimmed.length <= 10) return '***';
+  return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
+}
+
 export interface KeyCardItemProps {
   item: KeyQuotaFullSnapshot;
   idx: number;
-  limit: CustomLimit;
+  limit?: CustomLimit;
+  rawKey?: string;
   selectedModel: string;
   selectedModelDisplayName: string;
   isExpanded: boolean;
@@ -134,6 +142,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
   item,
   idx,
   limit,
+  rawKey,
   selectedModel,
   selectedModelDisplayName,
   isExpanded,
@@ -159,6 +168,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
 
   const healthState = item.runtime?.healthState;
   const reason = item.runtime?.transitionReason;
+  const displayMask = formatClientMaskedKey(rawKey, item.maskedKey);
 
   return (
     <div className="border border-parchment-2 bg-ink rounded-[2px] p-3.5 space-y-3 transition-colors hover:border-parchment-2/80">
@@ -169,7 +179,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
             Khóa #{idx + 1}
           </span>
           <span className="font-mono text-xs text-text-muted bg-parchment-2/30 px-2 py-0.5 rounded-[2px] border border-parchment-2">
-            {item.maskedKey}
+            {displayMask}
           </span>
         </div>
 
@@ -439,6 +449,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
 export interface CustomLimitsPanelProps {
   snapshotKeys: KeyQuotaFullSnapshot[];
   customLimits: Record<string, CustomLimit>;
+  apiKeys?: string[];
   onUpdateLimit: (keyHash: string, field: 'maxRpm' | 'maxRpd' | 'maxTpm', value: number) => void;
 }
 
@@ -448,6 +459,7 @@ export interface CustomLimitsPanelProps {
 export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
   snapshotKeys,
   customLimits,
+  apiKeys,
   onUpdateLimit,
 }: CustomLimitsPanelProps) {
   return (
@@ -462,11 +474,12 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         {snapshotKeys.map((item, idx) => {
           const limit = customLimits[item.keyHash] || DEFAULT_CUSTOM_LIMIT;
+          const displayMask = formatClientMaskedKey(apiKeys?.[idx], item.maskedKey);
           return (
             <div key={item.keyHash || idx} className="bg-ink border border-parchment-2 rounded-[2px] p-2.5 space-y-2">
               <div className="text-[11px] font-bold text-text-main flex items-center justify-between">
                 <span>Khóa #{idx + 1}</span>
-                <span className="font-mono text-text-muted text-[10px]">{item.maskedKey}</span>
+                <span className="font-mono text-text-muted text-[10px]">{displayMask}</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
@@ -781,6 +794,7 @@ export function QuotaPanel({
         <CustomLimitsPanel
           snapshotKeys={snapshotKeys}
           customLimits={customLimits}
+          apiKeys={cleanKeys}
           onUpdateLimit={handleUpdateLimit}
         />
       )}
@@ -913,6 +927,7 @@ export function QuotaPanel({
               item={item}
               idx={idx}
               limit={limit}
+              rawKey={cleanKeys[idx]}
               selectedModel={selectedModel}
               selectedModelDisplayName={modelSummary.displayName}
               isExpanded={expandedModels.has(idx)}

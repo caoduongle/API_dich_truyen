@@ -3,7 +3,7 @@ import { Sparkles, Loader2 } from 'lucide-react';
 import { GlossaryItem, GlossaryType, StoryProject } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
-import { apiFetch } from '../../utils/apiClient';
+import { quickTranslateTermDirect } from '../../services/directGeminiClient';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 
@@ -44,36 +44,23 @@ export function QuickAddTermModal({
     setQuickNote('');
 
     try {
-      const response = await apiFetch('/api/quick-translate-term', {
-        method: 'POST',
-        body: JSON.stringify({
-          term: selectedTerm,
-          contextText: selectedContext,
-          apiKeys,
-          model: selectedModel,
-        }),
+      const termData = await quickTranslateTermDirect({
+        term: selectedTerm,
+        contextText: selectedContext,
+        apiKeys,
+        model: selectedModel,
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'Lỗi phân dịch thuật ngữ.');
-      }
-
-      const data = await response.json();
-      if (data.term) {
-        setQuickPinyin(data.term.pinyin || '');
-        setQuickVietnamese(data.term.vietnamese || '');
-        setQuickType(data.term.type || 'character');
-        setQuickNote(data.term.note || '');
-      } else {
-        throw new Error('Không nhận được gợi ý dịch thuật từ AI.');
-      }
+      setQuickPinyin(termData.pinyin || '');
+      setQuickVietnamese(termData.vietnamese || '');
+      setQuickType(termData.type || 'character');
+      setQuickNote(termData.note || '');
     } catch (err: any) {
       setQuickPinyin('');
       setQuickVietnamese('');
       setQuickType('character');
       setQuickNote('');
-      showToast({ message: 'Không thể gọi AI tra cứu: ' + (err.message || 'Lỗi mạng') + '. Bạn vẫn có thể điền tay.', type: 'warning' });
+      showToast({ message: 'Không thể gọi AI tra cứu: ' + (err.message || 'Lỗi kết nối') + '. Bạn vẫn có thể điền tay.', type: 'warning' });
     } finally {
       setQuickAddLoading(false);
     }

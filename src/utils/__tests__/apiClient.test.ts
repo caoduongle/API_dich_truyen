@@ -60,13 +60,13 @@ describe('apiClient', () => {
       expect(token).toBe('mock-uuid-456');
       expect(getSessionToken()).toBe('mock-uuid-456');
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/session-keys',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ apiKeys: ['AIzaSyKey1', 'AIzaSyKey2'] }),
-        })
-      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('/api/session-keys');
+      const body = JSON.parse(options.body);
+      expect(body.apiKeys).toBeUndefined();
+      expect(body.keyHashes).toHaveLength(2);
+      expect(body.keyHashes[0]).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it('should remove session on server when empty keys provided', async () => {

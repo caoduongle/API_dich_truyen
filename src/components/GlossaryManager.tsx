@@ -221,8 +221,10 @@ function GlossaryManager({
 
     try {
       const mdText = await file.text();
+      // TODO(zero-knowledge-session): port sang client-direct, xem specs/060-zero-knowledge-session-sync
       const response = await apiFetch('/api/analyze-guidelines', {
         method: 'POST',
+        allowApiKeysInBody: true,
         body: JSON.stringify({ text: mdText, apiKeys: apiKeys, model: selectedModel })
       });
       if (!response.ok) throw new Error("Lỗi phản hồi phân tích cẩm nang từ server.");

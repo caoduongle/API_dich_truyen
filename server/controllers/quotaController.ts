@@ -12,19 +12,25 @@ const logger = new Logger('QuotaController');
  */
 export async function getQuotaStatusHandler(req: Request, res: Response): Promise<void> {
   try {
-    const apiKeys: string[] = Array.isArray(req.body?.apiKeys) ? req.body.apiKeys : [];
+    const rawKeysOrHashes: string[] = Array.isArray(req.body?.keyHashes)
+      ? req.body.keyHashes
+      : Array.isArray(req.body?.apiKeys)
+        ? req.body.apiKeys
+        : [];
+
+    const keyHashes = rawKeysOrHashes
+      .map((k) => (typeof k === 'string' ? hashApiKey(k) : ''))
+      .filter(Boolean);
 
     // Ensure groups exist for keys
-    for (const key of apiKeys) {
-      if (typeof key === 'string' && key.trim()) {
-        quotaService.ensureKeyGroup(key);
-      }
+    for (const hash of keyHashes) {
+      quotaService.ensureKeyGroup(hash);
     }
 
-    const snapshots = quotaService.getQuotaSnapshot(apiKeys);
+    const snapshots = quotaService.getQuotaSnapshot(keyHashes);
     const keysWithRuntime = snapshots.map((snapshot, index) => {
-      const key = apiKeys[index] || '';
-      const runtime = getKeyRuntimeStatus(key);
+      const hash = keyHashes[index] || '';
+      const runtime = getKeyRuntimeStatus(hash);
       return {
         ...snapshot,
         index,

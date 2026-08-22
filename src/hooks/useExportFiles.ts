@@ -176,8 +176,10 @@ export function useExportFiles({
 
         const translatedText = (chap.polishedTranslation || chap.rawTranslation || "").trim();
         try {
+          // TODO(zero-knowledge-session): port sang client-direct, xem specs/060-zero-knowledge-session-sync
           const res = await apiFetch('/api/align-chapter', {
             method: 'POST',
+            allowApiKeysInBody: true,
             body: JSON.stringify({
               sourceText: chap.sourceText,
               translatedText: translatedText,

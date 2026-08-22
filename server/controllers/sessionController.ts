@@ -19,12 +19,12 @@ export async function createSessionHandler(req: Request, res: Response): Promise
       return;
     }
 
-    const { apiKeys } = req.body;
-    const cleanKeys = (apiKeys as string[])
-      .map((k) => k.trim())
+    const { keyHashes } = req.body;
+    const cleanHashes = (keyHashes as string[])
+      .map((k) => k.trim().toLowerCase())
       .filter(Boolean);
 
-    const result = await sessionStore.createSession(cleanKeys);
+    const result = await sessionStore.createSession(cleanHashes);
     res.status(200).json({
       sessionToken: result.sessionToken,
       keyCount: result.keyCount,

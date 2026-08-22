@@ -62,11 +62,11 @@ describe("API Request Body Validation Integration Tests", () => {
   });
 
   describe("POST /api/session-keys", () => {
-    it("should return 400 if apiKeys is not an array", async () => {
+    it("should return 400 if keyHashes is not an array", async () => {
       const res = await fetch(`${baseUrl}/api/session-keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKeys: "invalid-string" }),
+        body: JSON.stringify({ keyHashes: "invalid-string" }),
       });
 
       const body = await res.json();
@@ -74,11 +74,11 @@ describe("API Request Body Validation Integration Tests", () => {
       expect(body.error).toContain("phải là một mảng");
     });
 
-    it("should return 400 if apiKeys array is empty", async () => {
+    it("should return 400 if keyHashes array is empty", async () => {
       const res = await fetch(`${baseUrl}/api/session-keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKeys: [] }),
+        body: JSON.stringify({ keyHashes: [] }),
       });
 
       const body = await res.json();
@@ -86,11 +86,11 @@ describe("API Request Body Validation Integration Tests", () => {
       expect(body.error).toContain("không được để trống");
     });
 
-    it("should return 400 if apiKeys contains invalid blank string entries", async () => {
+    it("should return 400 if keyHashes contains invalid non-hex64 entries", async () => {
       const res = await fetch(`${baseUrl}/api/session-keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKeys: ["   ", ""] }),
+        body: JSON.stringify({ keyHashes: ["   ", "AIzaSyPlaintextKey"] }),
       });
 
       const body = await res.json();
@@ -98,16 +98,17 @@ describe("API Request Body Validation Integration Tests", () => {
       expect(body.error).toContain("không hợp lệ");
     });
 
-    it("should return 400 if apiKeys exceeds limit of 20", async () => {
+    it("should return 400 if keyHashes exceeds limit of 20", async () => {
+      const hex64 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
       const res = await fetch(`${baseUrl}/api/session-keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKeys: Array(25).fill("AIzaSyTestKey") }),
+        body: JSON.stringify({ keyHashes: Array(25).fill(hex64) }),
       });
 
       const body = await res.json();
       expect(res.status).toBe(400);
-      expect(body.error).toContain("Quá nhiều API key");
+      expect(body.error).toContain("Quá nhiều mã băm API key");
     });
   });
 
@@ -192,61 +193,17 @@ describe("API Request Body Validation Integration Tests", () => {
     });
   });
 
-  describe("POST /api/verify-model", () => {
-    it("should return 200 with verified true for preset models", async () => {
+  describe("POST /api/verify-model (Decommissioned / Client-Direct)", () => {
+    it("should return 410 Gone indicating migration to Client-Direct", async () => {
       const res = await fetch(`${baseUrl}/api/verify-model`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ modelId: "gemini-2.5-flash", apiKeys: validApiKeys }),
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(410);
       const body = await res.json();
-      expect(body.success).toBe(true);
-      expect(body.verified).toBe(true);
-      expect(body.model?.id).toBe("gemini-2.5-flash");
-    });
-
-    it("should return 400 if modelId is missing or empty", async () => {
-      const res = await fetch(`${baseUrl}/api/verify-model`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modelId: "", apiKeys: validApiKeys }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.success).toBe(false);
-      expect(body.errorCode).toBe("INVALID_FORMAT");
-    });
-
-    it("should return 400 if custom model verification lacks API keys", async () => {
-      const res = await fetch(`${baseUrl}/api/verify-model`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modelId: "tunedModels/my-custom-model", apiKeys: [] }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.error).toContain("API key");
-    });
-
-    it("should reject unverified model in translate-raw with 400 and code MODEL_UNVERIFIED", async () => {
-      const res = await fetch(`${baseUrl}/api/translate-raw`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          model: "unverified-novel-model-456", 
-          rawText: "你好世界", 
-          apiKeys: validApiKeys 
-        }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.code).toBe("MODEL_UNVERIFIED");
-      expect(body.error).toContain("chưa được xác minh");
+      expect(body.code).toBe("ENDPOINT_MIGRATED_CLIENT_DIRECT");
     });
   });
 
@@ -333,17 +290,17 @@ describe("API Request Body Validation Integration Tests", () => {
     });
   });
 
-  describe("POST /api/quick-translate-term", () => {
-    it("should return 400 if term is missing or empty", async () => {
+  describe("POST /api/quick-translate-term (Decommissioned / Client-Direct)", () => {
+    it("should return 410 Gone indicating migration to Client-Direct", async () => {
       const res = await fetch(`${baseUrl}/api/quick-translate-term`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ term: "  ", apiKeys: validApiKeys }),
+        body: JSON.stringify({ term: "萧炎", apiKeys: validApiKeys }),
       });
 
+      expect(res.status).toBe(410);
       const body = await res.json();
-      expect(res.status).toBe(400);
-      expect(body.error).toContain("Thuật ngữ");
+      expect(body.code).toBe("ENDPOINT_MIGRATED_CLIENT_DIRECT");
     });
   });
 

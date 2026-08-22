@@ -128,9 +128,11 @@ export function useGlossaryScan({
           addLog(`[Vòng ${loop}] Quét lọc Chương ${i + 1}/${scopedChaps.length}: ${chap.title}`, 'gemini');
 
           try {
+            // TODO(zero-knowledge-session): port sang client-direct, xem specs/060-zero-knowledge-session-sync
             const response = await apiFetch('/api/analyze-glossary', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              allowApiKeysInBody: true,
               signal: abortControllerRef.current?.signal,
               body: JSON.stringify({
                 text: `${chap.title}\n\n${chap.sourceText}`,

@@ -112,72 +112,40 @@ export function extractCustomRpmMiddleware(req: Request, _res: Response, next: N
   next();
 }
 
-// --- MIDDLEWARE: Giải mã API Keys từ Session Token hoặc Body ---
-// Hỗ trợ cả 2 chế độ:
-// 1. Session Token (Bảo mật cao): Đọc qua header X-Session-Token hoặc body sessionToken, lấy keys từ SessionStore.
-// 2. Direct Keys (Tương thích ngược): Đọc trực tiếp từ body.apiKeys.
-// Nếu không có keys hợp lệ và ALLOW_SERVER_KEY_FALLBACK !== 'true', trả lỗi 400 hoặc 401.
-async function resolveApiKeysMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const sessionToken =
-    (req.headers["x-session-token"] as string) ||
-    (req.body?.sessionToken as string);
-
-  // 1. Nếu client gửi sessionToken
-  if (sessionToken) {
-    const sessionKeys = await sessionStore.getSessionKeys(sessionToken);
-    if (sessionKeys && sessionKeys.length > 0) {
-      req.body = req.body || {};
-      req.body.apiKeys = sessionKeys;
-      next();
-      return;
-    }
-
-    // Nếu token gửi lên nhưng không tìm thấy trong sessionStore (hết hạn hoặc server restart)
-    // Kiểm tra xem client có gửi kèm apiKeys fallback không
-    const { apiKeys } = req.body || {};
-    const hasValidDirectKeys =
-      Array.isArray(apiKeys) &&
-      apiKeys.some((k: string) => typeof k === "string" && k.trim().length > 0);
-
-    if (hasValidDirectKeys) {
-      req.body.apiKeys = apiKeys.filter((k: string) => typeof k === "string" && k.trim().length > 0);
-      next();
-      return;
-    }
-
-    // Nếu không có direct keys, trả 401 báo session hết hạn để client tự động re-sync
-    res.status(401).json({
-      error: "Phiên làm việc API key đã hết hạn hoặc không tồn tại. Hệ thống sẽ tự động đồng bộ lại.",
-      sessionExpired: true,
-    });
-    return;
-  }
-
-  // 2. Nếu client gửi direct apiKeys
+// --- MIDDLEWARE: Chỉ nhận API Keys trong Request Body dùng tạm thời cho đúng lượt gọi hiện tại ---
+// TODO(zero-knowledge-session): port sang client-direct, xem specs/060-zero-knowledge-session-sync
+export function requireEphemeralApiKeys(req: Request, res: Response, next: NextFunction): void {
   const { apiKeys } = req.body || {};
 
-  if (Array.isArray(apiKeys) && apiKeys.length > MAX_API_KEYS_PER_REQUEST) {
+  if (!Array.isArray(apiKeys) || apiKeys.length === 0) {
     res.status(400).json({
-      error: `Quá nhiều API key trong một yêu cầu (tối đa ${MAX_API_KEYS_PER_REQUEST}).`
+      error: "Vui lòng cấu hình API key cá nhân của bạn trong phần 'Cấu hình AI' trước khi sử dụng. Máy chủ không lưu trữ key của bạn.",
+      code: "NO_PERSONAL_API_KEY_CONFIGURED",
     });
     return;
   }
 
-  const hasValidKeys =
-    Array.isArray(apiKeys) &&
-    apiKeys.some((k: string) => typeof k === "string" && k.trim().length > 0);
-
-  if (hasValidKeys) {
-    req.body.apiKeys = apiKeys.filter((k: string) => typeof k === "string" && k.trim().length > 0);
-    next();
+  if (apiKeys.length > MAX_API_KEYS_PER_REQUEST) {
+    res.status(400).json({
+      error: `Quá nhiều API key trong một yêu cầu (tối đa ${MAX_API_KEYS_PER_REQUEST}).`,
+    });
     return;
   }
 
-  // 3. Không có sessionToken lẫn direct keys: từ chối toàn bộ (bắt buộc key cá nhân)
-  res.status(400).json({
-    error: "Vui lòng cấu hình API key cá nhân của bạn trong phần 'Cấu hình AI' trước khi sử dụng. Máy chủ không hỗ trợ dịch qua key mặc định.",
-    code: "NO_PERSONAL_API_KEY_CONFIGURED"
-  });
+  const cleanKeys = apiKeys
+    .map((k: string) => (typeof k === "string" ? k.trim() : ""))
+    .filter(Boolean);
+
+  if (cleanKeys.length === 0) {
+    res.status(400).json({
+      error: "API key cung cấp không hợp lệ.",
+      code: "INVALID_API_KEY",
+    });
+    return;
+  }
+
+  req.body.apiKeys = cleanKeys;
+  next();
 }
 
 // --- Session Management Endpoints ---
@@ -185,25 +153,40 @@ router.post("/session-keys", createSessionHandler);
 router.get("/session-keys/status", getSessionStatusHandler);
 router.delete("/session-keys", deleteSessionHandler);
 
-// --- Routes for Glossary & Guidelines Analysis ---
-router.post("/analyze-glossary", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, analyzeGlossary);
-router.post("/analyze-guidelines", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, analyzeGuidelines);
-router.post("/extract-glossary", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, extractGlossary);
-router.post("/quick-translate-term", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, quickTranslateTerm);
+// --- Routes for Glossary & Guidelines Analysis (Ephemeral in-memory processing) ---
+router.post("/analyze-glossary", extractCustomRpmMiddleware, requireEphemeralApiKeys, validateModelMiddleware, analyzeGlossary);
+router.post("/analyze-guidelines", extractCustomRpmMiddleware, requireEphemeralApiKeys, validateModelMiddleware, analyzeGuidelines);
+router.post("/extract-glossary", extractCustomRpmMiddleware, requireEphemeralApiKeys, validateModelMiddleware, extractGlossary);
+router.post("/quick-translate-term", (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: "Endpoint đã chuyển sang chế độ gọi trực tiếp phía Client (Client-Direct) để bảo mật API key cá nhân.",
+    code: "ENDPOINT_MIGRATED_CLIENT_DIRECT",
+  });
+});
 
 // --- Routes for Translation Tasks ---
-router.post("/translate-raw", idempotencyMiddleware, extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, translateRaw);
-router.post("/polish-translation", idempotencyMiddleware, extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, polishTranslation);
-router.post("/qa-critique", idempotencyMiddleware, extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, qaCritique);
+router.post("/translate-raw", idempotencyMiddleware, extractCustomRpmMiddleware, requireEphemeralApiKeys, validateModelMiddleware, translateRaw);
+router.post("/polish-translation", idempotencyMiddleware, extractCustomRpmMiddleware, requireEphemeralApiKeys, validateModelMiddleware, polishTranslation);
+router.post("/qa-critique", idempotencyMiddleware, extractCustomRpmMiddleware, requireEphemeralApiKeys, validateModelMiddleware, qaCritique);
 
 // --- Routes for Bilingual alignment ---
-router.post("/align-chapter", extractCustomRpmMiddleware, resolveApiKeysMiddleware, validateModelMiddleware, alignChapter);
+router.post("/align-chapter", extractCustomRpmMiddleware, requireEphemeralApiKeys, validateModelMiddleware, alignChapter);
 
 // --- Routes for Quota & Usage Tracking & Model Verification ---
-router.post("/quota-status", resolveApiKeysMiddleware, getQuotaStatusHandler);
+router.post("/quota-status", getQuotaStatusHandler);
 router.post("/quota-groups/configure", configureQuotaGroupsHandler);
-router.post("/models-for-key", resolveApiKeysMiddleware, getModelsForKeyHandler);
-router.post("/verify-model", resolveApiKeysMiddleware, verifyModelHandler);
+router.post("/models-for-key", (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: "Endpoint đã chuyển sang chế độ gọi trực tiếp phía Client (Client-Direct) để bảo mật API key cá nhân.",
+    code: "ENDPOINT_MIGRATED_CLIENT_DIRECT",
+  });
+});
+router.post("/verify-model", (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: "Endpoint đã chuyển sang chế độ gọi trực tiếp phía Client (Client-Direct) để bảo mật API key cá nhân.",
+    code: "ENDPOINT_MIGRATED_CLIENT_DIRECT",
+  });
+});
 
 
 // --- Liveness Probe Endpoint ---

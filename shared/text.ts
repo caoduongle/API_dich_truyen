@@ -426,6 +426,8 @@ export function redactApiKey(message: string, keys: string[] = []): string {
     }
   }
   result = result.replace(/AIzaSy[A-Za-z0-9_-]{33}/g, 'AIzaSy***REDACTED***');
+  result = result.replace(/sk-ant-[A-Za-z0-9_-]{20,}/g, 'sk-ant-***REDACTED***');
+  result = result.replace(/sk-[A-Za-z0-9_-]{20,}/g, 'sk-***REDACTED***');
   result = result.replace(/AQ[A-Za-z0-9_.-]{30,}/g, 'AQ***REDACTED***');
   result = result.replace(/session_[a-f0-9-]{36}/gi, 'session_***REDACTED***');
   return result;

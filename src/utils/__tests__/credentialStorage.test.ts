@@ -130,6 +130,28 @@ describe('Credential Storage & Lifecycle Security', () => {
       expect(parsedBody.model).toBe('gemini-2.5-flash');
     });
 
+    it('syncSessionKeysToServer should compute SHA-256 hashes and send keyHashes to /api/session-keys', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ sessionToken: 'session_test_token_123' }),
+      });
+      global.fetch = fetchMock;
+
+      const token = await syncSessionKeysToServer(['AIzaSyTestKey123']);
+      expect(token).toBe('session_test_token_123');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('/api/session-keys');
+      const body = JSON.parse(options.body);
+
+      expect(body.apiKeys).toBeUndefined();
+      expect(Array.isArray(body.keyHashes)).toBe(true);
+      expect(body.keyHashes[0]).toMatch(/^[0-9a-f]{64}$/);
+      expect(body.keyHashes[0]).not.toContain('AIzaSy');
+    });
+
     it('should handle 401 sessionExpired by triggering registered callback and transparently retrying', async () => {
       setSessionToken('expired-session-id');
 

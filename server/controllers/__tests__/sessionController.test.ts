@@ -7,6 +7,10 @@ import {
 } from "../sessionController";
 import { sessionStore } from "../../services/sessionStore";
 
+const HASH_1 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const HASH_2 = "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2";
+const HASH_3 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
 describe("Session Controller & Session Store", () => {
   let req: Partial<Request>;
   let res: Partial<Response>;
@@ -29,8 +33,8 @@ describe("Session Controller & Session Store", () => {
   });
 
   describe("createSessionHandler", () => {
-    it("should reject non-array apiKeys with 400", async () => {
-      req.body = { apiKeys: "invalid" };
+    it("should reject non-array keyHashes with 400", async () => {
+      req.body = { keyHashes: "invalid" };
       await createSessionHandler(req as Request, res as Response);
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith(
@@ -38,8 +42,8 @@ describe("Session Controller & Session Store", () => {
       );
     });
 
-    it("should reject empty apiKeys array with 400", async () => {
-      req.body = { apiKeys: [] };
+    it("should reject empty keyHashes array with 400", async () => {
+      req.body = { keyHashes: [] };
       await createSessionHandler(req as Request, res as Response);
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith(
@@ -47,8 +51,8 @@ describe("Session Controller & Session Store", () => {
       );
     });
 
-    it("should reject blank apiKeys entries with 400", async () => {
-      req.body = { apiKeys: ["", "   "] };
+    it("should reject invalid hex hash entries with 400", async () => {
+      req.body = { keyHashes: ["AIzaSyInvalidPlaintext", "not_a_valid_hash"] };
       await createSessionHandler(req as Request, res as Response);
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith(
@@ -57,16 +61,16 @@ describe("Session Controller & Session Store", () => {
     });
 
     it("should reject exceeding MAX_API_KEYS_PER_REQUEST with 400", async () => {
-      req.body = { apiKeys: Array(25).fill("AIzaSyTestKey") };
+      req.body = { keyHashes: Array(25).fill(HASH_1) };
       await createSessionHandler(req as Request, res as Response);
       expect(statusMock).toHaveBeenCalledWith(400);
       expect(jsonMock).toHaveBeenCalledWith(
-        expect.objectContaining({ error: expect.stringContaining("Quá nhiều API key") })
+        expect.objectContaining({ error: expect.stringContaining("Quá nhiều mã băm API key") })
       );
     });
 
     it("should create session successfully and return sessionToken and keyCount", async () => {
-      req.body = { apiKeys: ["AIzaSyKey1", "AIzaSyKey2", "  AIzaSyKey3  "] };
+      req.body = { keyHashes: [HASH_1, HASH_2, `  ${HASH_3}  `] };
       await createSessionHandler(req as Request, res as Response);
 
       expect(statusMock).toHaveBeenCalledWith(200);
@@ -79,8 +83,8 @@ describe("Session Controller & Session Store", () => {
       );
 
       const token = jsonMock.mock.calls[0][0].sessionToken;
-      const storedKeys = await sessionStore.getSessionKeys(token);
-      expect(storedKeys).toEqual(["AIzaSyKey1", "AIzaSyKey2", "AIzaSyKey3"]);
+      const storedHashes = await sessionStore.getSessionKeyHashes(token);
+      expect(storedHashes).toEqual([HASH_1, HASH_2, HASH_3]);
     });
   });
 
@@ -110,7 +114,7 @@ describe("Session Controller & Session Store", () => {
     });
 
     it("should return valid: true and keyCount for active token", async () => {
-      const session = await sessionStore.createSession(["KeyA", "KeyB"]);
+      const session = await sessionStore.createSession([HASH_1, HASH_2]);
       req.headers = { "x-session-token": session.sessionToken };
 
       await getSessionStatusHandler(req as Request, res as Response);
@@ -147,7 +151,7 @@ describe("Session Controller & Session Store", () => {
     });
 
     it("should delete existing session with header token", async () => {
-      const session = await sessionStore.createSession(["KeyA"]);
+      const session = await sessionStore.createSession([HASH_1]);
       req.headers = { "x-session-token": session.sessionToken };
 
       await deleteSessionHandler(req as Request, res as Response);
@@ -156,7 +160,7 @@ describe("Session Controller & Session Store", () => {
         expect.objectContaining({ success: true })
       );
 
-      const keysAfter = await sessionStore.getSessionKeys(session.sessionToken);
+      const keysAfter = await sessionStore.getSessionKeyHashes(session.sessionToken);
       expect(keysAfter).toBeNull();
     });
   });
@@ -164,8 +168,8 @@ describe("Session Controller & Session Store", () => {
   describe("getActiveSessionCount", () => {
     it("should count active sessions accurately in memory mode", async () => {
       expect(await sessionStore.getActiveSessionCount()).toBe(0);
-      await sessionStore.createSession(["KeyA"]);
-      await sessionStore.createSession(["KeyB", "KeyC"]);
+      await sessionStore.createSession([HASH_1]);
+      await sessionStore.createSession([HASH_2, HASH_3]);
       expect(await sessionStore.getActiveSessionCount()).toBe(2);
     });
 
@@ -187,4 +191,3 @@ describe("Session Controller & Session Store", () => {
     });
   });
 });
-

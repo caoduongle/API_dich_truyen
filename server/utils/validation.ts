@@ -29,23 +29,21 @@ export function validateSessionKeysBody(body: any): ValidationResult {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { valid: false, error: "Dữ liệu yêu cầu không hợp lệ." };
   }
-  const { apiKeys } = body;
-  if (!Array.isArray(apiKeys)) {
-    return { valid: false, error: "Trường 'apiKeys' phải là một mảng chuỗi." };
+  const { keyHashes } = body;
+  if (!Array.isArray(keyHashes)) {
+    return { valid: false, error: "Trường 'keyHashes' phải là một mảng chuỗi hash." };
   }
-  if (apiKeys.length === 0) {
-    return { valid: false, error: "Danh sách API keys không được để trống." };
+  if (keyHashes.length === 0) {
+    return { valid: false, error: "Danh sách mã băm API key không được để trống." };
   }
-  if (apiKeys.length > MAX_API_KEYS_PER_REQUEST) {
-    return { valid: false, error: `Quá nhiều API key trong một phiên (tối đa ${MAX_API_KEYS_PER_REQUEST}).` };
+  if (keyHashes.length > MAX_API_KEYS_PER_REQUEST) {
+    return { valid: false, error: `Quá nhiều mã băm API key trong một phiên (tối đa ${MAX_API_KEYS_PER_REQUEST}).` };
   }
-  for (let i = 0; i < apiKeys.length; i++) {
-    const key = apiKeys[i];
-    if (typeof key !== "string" || key.trim().length === 0) {
-      return { valid: false, error: `API key thứ ${i + 1} không hợp lệ (phải là chuỗi không rỗng).` };
-    }
-    if (key.length > 256) {
-      return { valid: false, error: `API key thứ ${i + 1} vượt quá độ dài cho phép (tối đa 256 ký tự).` };
+  const hex64Regex = /^[0-9a-f]{64}$/;
+  for (let i = 0; i < keyHashes.length; i++) {
+    const hash = keyHashes[i];
+    if (typeof hash !== "string" || !hex64Regex.test(hash.trim())) {
+      return { valid: false, error: `Mã băm API key thứ ${i + 1} không hợp lệ (phải là chuỗi SHA-256 hex 64 ký tự).` };
     }
   }
   return { valid: true };

@@ -1,16 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  sessionStore,
-  encryptApiKeys,
-  decryptApiKeys,
-  getEncryptionKey,
-} from "../sessionStore";
-import {
-  TEST_API_KEYS,
-  createTamperedEncryptedPayload,
-} from "./encryptionTestFixtures";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { sessionStore } from "../sessionStore";
 
-describe("SessionStore AES-256-GCM Encryption & Lifecycle", () => {
+const TEST_KEY_HASHES = [
+  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2",
+];
+
+describe("SessionStore Zero-Knowledge Hash Storage & Lifecycle", () => {
   beforeEach(() => {
     sessionStore.clearAllForTesting();
   });
@@ -19,33 +15,9 @@ describe("SessionStore AES-256-GCM Encryption & Lifecycle", () => {
     sessionStore.clearAllForTesting();
   });
 
-  it("should encrypt and decrypt API keys accurately via AES-256-GCM", () => {
-    const encrypted = encryptApiKeys(TEST_API_KEYS);
-    expect(typeof encrypted).toBe("string");
-
-    const parts = encrypted.split(":");
-    expect(encrypted.startsWith("enc:v1:")).toBe(true);
-    expect(parts).toHaveLength(5); // enc:v1:iv:authTag:ciphertext
-
-    // Ciphertext must NOT contain plaintext keys
-    for (const key of TEST_API_KEYS) {
-      expect(encrypted).not.toContain(key);
-    }
-
-    const decrypted = decryptApiKeys(encrypted);
-    expect(decrypted).toEqual(TEST_API_KEYS);
-  });
-
-  it("should reject tampered ciphertext with an authentication error", () => {
-    const validEncrypted = encryptApiKeys(TEST_API_KEYS);
-    const tampered = createTamperedEncryptedPayload(validEncrypted);
-
-    expect(() => decryptApiKeys(tampered)).toThrow();
-  });
-
-  it("should create session with encrypted storage and retrieve decrypted keys", async () => {
+  it("should create session with keyHashes and return sessionToken", async () => {
     const { sessionToken, keyCount, expiresAt } = await sessionStore.createSession(
-      TEST_API_KEYS,
+      TEST_KEY_HASHES,
       60000
     );
 
@@ -53,29 +25,35 @@ describe("SessionStore AES-256-GCM Encryption & Lifecycle", () => {
     expect(keyCount).toBe(2);
     expect(expiresAt).toBeDefined();
 
-    const retrievedKeys = await sessionStore.getSessionKeys(sessionToken);
-    expect(retrievedKeys).toEqual(TEST_API_KEYS);
+    const retrievedHashes = await sessionStore.getSessionKeyHashes(sessionToken);
+    expect(retrievedHashes).toEqual(TEST_KEY_HASHES);
 
     const info = await sessionStore.getSessionInfo(sessionToken);
     expect(info.valid).toBe(true);
     expect(info.keyCount).toBe(2);
   });
 
+  it("should reject non-hex64 strings with an error", async () => {
+    await expect(
+      sessionStore.createSession(["AIzaSyPlaintextKeyInvalidFormat"])
+    ).rejects.toThrow("Mã băm API key không hợp lệ");
+  });
+
   it("should extend session expiration on access (sliding window)", async () => {
-    const { sessionToken } = await sessionStore.createSession(TEST_API_KEYS, 10000);
-    const retrieved = await sessionStore.getSessionKeys(sessionToken, 20000);
-    expect(retrieved).toEqual(TEST_API_KEYS);
+    const { sessionToken } = await sessionStore.createSession(TEST_KEY_HASHES, 10000);
+    const retrieved = await sessionStore.getSessionKeyHashes(sessionToken, 20000);
+    expect(retrieved).toEqual(TEST_KEY_HASHES);
 
     const info = await sessionStore.getSessionInfo(sessionToken);
     expect(info.valid).toBe(true);
   });
 
   it("should delete session cleanly", async () => {
-    const { sessionToken } = await sessionStore.createSession(TEST_API_KEYS);
+    const { sessionToken } = await sessionStore.createSession(TEST_KEY_HASHES);
     const deleted = await sessionStore.deleteSession(sessionToken);
     expect(deleted).toBe(true);
 
-    const keys = await sessionStore.getSessionKeys(sessionToken);
-    expect(keys).toBeNull();
+    const hashes = await sessionStore.getSessionKeyHashes(sessionToken);
+    expect(hashes).toBeNull();
   });
 });

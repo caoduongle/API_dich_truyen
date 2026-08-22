@@ -173,7 +173,19 @@ export async function logoutAuth(): Promise<void> {
 }
 
 /**
- * Đồng bộ danh sách API keys lên máy chủ để lấy Session Token bảo mật.
+ * Tính toán mã băm SHA-256 (dạng hex 64 ký tự thường) của chuỗi văn bản bằng Web Crypto API.
+ */
+export async function sha256Hex(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text.trim());
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Đồng bộ danh sách mã băm SHA-256 của API keys lên máy chủ để lấy Session Token bảo mật.
+ * Tuyệt đối không gửi key gốc (plaintext) ra khỏi trình duyệt.
  */
 export async function syncSessionKeysToServer(keys: string[]): Promise<string | null> {
   const cleanKeys = Array.isArray(keys)
@@ -202,6 +214,8 @@ export async function syncSessionKeysToServer(keys: string[]): Promise<string | 
   }
 
   try {
+    const keyHashes = await Promise.all(cleanKeys.map(sha256Hex));
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -212,7 +226,7 @@ export async function syncSessionKeysToServer(keys: string[]): Promise<string | 
     const res = await fetch('/api/session-keys', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ apiKeys: cleanKeys }),
+      body: JSON.stringify({ keyHashes }),
     });
 
     if (!res.ok) {
@@ -248,16 +262,22 @@ export function getGlobalCustomRpm(): number | null {
   return currentCustomRpm;
 }
 
+export interface ApiFetchOptions extends RequestInit {
+  skipSessionHeader?: boolean;
+  skipAuthHeader?: boolean;
+  allowApiKeysInBody?: boolean;
+}
+
 /**
- * Helper fetch bảo mật cho toàn bộ các endpoint /api/*:
- * 1. Tự động đính kèm header X-Auth-Token & X-Session-Token & X-Custom-Rpm.
- * 2. Tự động loại bỏ mảng apiKeys khỏi JSON body để tránh lộ plaintext keys qua Network tab.
- * 3. Tự động re-sync session và thử lại (retry) 1 lần trong suốt nếu server trả về 401 sessionExpired.
+ * Wrapper nâng cao cho hàm fetch chuẩn của trình duyệt.
+ * 1. Tự động đính kèm `X-Session-Token` từ bộ nhớ phiên.
+ * 2. Tự động đính kèm `X-Auth-Token` nếu đã đăng nhập mật khẩu máy chủ.
+ * 3. Tự động bóc tách `apiKeys` khỏi payload JSON trừ khi bật cờ `allowApiKeysInBody`.
  * 4. Tự động thông báo yêu cầu mật khẩu nếu server trả về 401 authRequired.
  */
 export async function apiFetch(
   input: RequestInfo | URL,
-  init?: RequestInit & { skipSessionHeader?: boolean; skipAuthHeader?: boolean }
+  init?: ApiFetchOptions
 ): Promise<Response> {
   const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   const isApiRoute = urlStr.startsWith('/api/') || urlStr.includes('/api/');
@@ -265,11 +285,11 @@ export async function apiFetch(
   let headers = new Headers(init?.headers || {});
   let body = init?.body;
 
-  // Nếu là API route và có body dạng JSON string, loại bỏ apiKeys khỏi payload và trích xuất customRpm
+  // Nếu là API route và có body dạng JSON string, loại bỏ apiKeys khỏi payload (trừ khi allowApiKeysInBody) và trích xuất customRpm
   if (isApiRoute && typeof body === 'string' && body.trim().startsWith('{')) {
     try {
       const parsed = JSON.parse(body);
-      if ('apiKeys' in parsed) {
+      if ('apiKeys' in parsed && !init?.allowApiKeysInBody) {
         delete parsed.apiKeys;
         body = JSON.stringify(parsed);
       }
@@ -520,9 +540,10 @@ export interface ModelsForKeyResponse {
  * Lấy snapshot trạng thái Quota & Mức sử dụng thời gian thực từ máy chủ.
  */
 export async function fetchQuotaStatus(keys?: string[]): Promise<QuotaStatusResponse> {
-  const payload: { apiKeys?: string[] } = {};
+  const payload: { keyHashes?: string[] } = {};
   if (keys && keys.length > 0) {
-    payload.apiKeys = keys.filter(k => typeof k === 'string' && k.trim().length > 0);
+    const cleanKeys = keys.filter(k => typeof k === 'string' && k.trim().length > 0);
+    payload.keyHashes = await Promise.all(cleanKeys.map(sha256Hex));
   }
 
   const res = await apiFetch('/api/quota-status', {
@@ -538,26 +559,27 @@ export async function fetchQuotaStatus(keys?: string[]): Promise<QuotaStatusResp
   return await res.json();
 }
 
+import { listModelsDirect, verifyModelDirect } from '../services/directGeminiClient';
+
 /**
- * Kiểm tra danh sách mô hình thực tế mà một API key có quyền truy cập.
+ * Kiểm tra danh sách mô hình thực tế mà một API key có quyền truy cập (Client-Direct).
  */
 export async function fetchModelsForKey(keyIndex: number, keys?: string[]): Promise<ModelsForKeyResponse> {
-  const payload: { keyIndex: number; apiKeys?: string[] } = { keyIndex };
-  if (keys && keys.length > 0) {
-    payload.apiKeys = keys.filter(k => typeof k === 'string' && k.trim().length > 0);
+  const cleanKeys = (keys || []).filter(k => typeof k === 'string' && k.trim().length > 0);
+  const targetKey = cleanKeys[keyIndex] || cleanKeys[0];
+  if (!targetKey) {
+    throw new Error('Không tìm thấy API Key để tra cứu danh sách mô hình.');
   }
 
-  const res = await apiFetch('/api/models-for-key', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  const hash = await sha256Hex(targetKey);
+  const models = await listModelsDirect(targetKey);
 
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || `Lỗi tra cứu mô hình cho khóa (HTTP ${res.status})`);
-  }
-
-  return await res.json();
+  return {
+    keyHash: hash,
+    maskedKey: `${targetKey.slice(0, 6)}...${targetKey.slice(-4)}`,
+    cached: false,
+    models,
+  };
 }
 
 export interface VerifyModelResponse {
@@ -570,31 +592,29 @@ export interface VerifyModelResponse {
 }
 
 /**
- * Xác minh tính hợp lệ và khả năng dịch thuật của 1 model với máy chủ/Google AI Studio.
+ * Xác minh tính hợp lệ và khả năng dịch thuật của 1 model trực tiếp với Google Gemini (Client-Direct).
  */
-export async function verifyModel(modelId: string, label?: string, keys?: string[]): Promise<VerifyModelResponse> {
-  const payload: { modelId: string; label?: string; apiKeys?: string[] } = { modelId, label };
-  if (keys && keys.length > 0) {
-    payload.apiKeys = keys.filter(k => typeof k === 'string' && k.trim().length > 0);
-  }
-
-  const res = await apiFetch('/api/verify-model', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
+export async function verifyModel(modelId: string, _label?: string, keys?: string[]): Promise<VerifyModelResponse> {
+  const cleanKeys = (keys || []).filter(k => typeof k === 'string' && k.trim().length > 0);
+  const targetKey = cleanKeys[0];
+  if (!targetKey) {
     return {
       success: false,
       verified: false,
-      error: data.error || `Xác minh mô hình thất bại (HTTP ${res.status})`,
-      errorCode: data.errorCode || 'API_ERROR',
-      checkedAt: data.checkedAt || new Date().toISOString(),
+      error: 'Vui lòng cung cấp API key để xác minh.',
+      errorCode: 'NO_KEY',
+      checkedAt: new Date().toISOString(),
     };
   }
 
-  return data;
+  const res = await verifyModelDirect(targetKey, modelId);
+  return {
+    success: res.success,
+    verified: res.verified,
+    error: res.error,
+    errorCode: res.errorCode,
+    checkedAt: res.checkedAt,
+  };
 }
 
 
