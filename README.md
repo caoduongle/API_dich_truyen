@@ -48,6 +48,12 @@ Hệ thống dịch tiểu thuyết chữ Trung Quốc sang tiếng Việt sử 
 - **Đồng Bộ Hai Chiều Linh Hoạt**: Dễ dàng sao lưu (Push) và khôi phục (Pull) toàn bộ truyện, chương và từ điển từ IndexedDB sang Google Drive để làm việc liên thiết bị mà không lo mất dữ liệu.
 - **Chia Sẻ & Cộng Tác Nhóm Qua Google Drive**: Cho phép chủ dự án tách riêng từng bộ truyện vào thư mục `AI_Dich_Truyen_Data/{projectId}/`, cấp quyền chỉnh sửa cho cộng tác viên qua Drive Permissions API, và cộng tác viên mở qua Google Picker API để cùng dịch từng chương độc lập với cơ chế chống ghi đè và giải quyết xung đột thông minh.
 
+### 🎨 6. Hệ Thống Chế Độ Màu Đọc & Biên Tập (Theme System)
+- **4 Chế Độ Màu Linh Hoạt**: Tối (Mực & Chu Sa - Mặc định), Sáng (Giấy Ngà `#F7F2E9`), Sepia (Bản Thảo Cũ `#F4ECD8`), và Tùy chỉnh (Custom Studio).
+- **Điểm Nhấn Đỏ Chu Sa Độc Bản (`#B8402C`)**: Duy trì bản sắc văn học cổ phong xuyên suốt mọi chế độ, đạt chuẩn tương phản WCAG 2.1 AA trên cả nền tối lẫn nền giấy sáng.
+- **Tùy Biến 6 Token & Kiểm Định Tương Phản Tức Thì**: Cho phép tùy chỉnh trọn bộ 6 màu bằng bộ chọn màu HTML5 thuần, tự động tính toán Relative Luminance và cảnh báo nếu độ tương phản dưới 4.5:1.
+- **Tự Động Nhận Diện & Chống Chớp (Zero FOUC)**: Tự động phát hiện `prefers-color-scheme`, lưu trữ bền vững trong `localStorage` và áp dụng tức thì trước khi trang hiển thị.
+
 ---
 
 ## 🏛️ Sơ đồ Kiến trúc Hệ thống (Architecture Map)

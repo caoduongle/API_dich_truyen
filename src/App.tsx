@@ -10,7 +10,10 @@ import { checkAuthStatus, logoutAuth } from './utils/apiClient';
 import { TabSkeleton } from './components/common/Skeleton';
 import { useHotkeys } from './hooks/useHotkeys';
 import { I18nProvider, useTranslation } from './i18n/I18nContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { LanguageSelector } from './components/common/LanguageSelector';
+import { ThemeSwitcher } from './components/common/ThemeSwitcher';
+import { CustomThemeModal } from './components/common/CustomThemeModal';
 import { Button } from './components/ui/Button';
 import { Badge } from './components/ui/Badge';
 import { Kbd } from './components/ui/Kbd';
@@ -83,6 +86,7 @@ function AppContent() {
 
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
+  const [showCustomThemeModal, setShowCustomThemeModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
@@ -209,6 +213,9 @@ function AppContent() {
 
           {/* Language Selector */}
           <LanguageSelector />
+
+          {/* Theme Selector (Dark, Light, Sepia, Custom) */}
+          <ThemeSwitcher onOpenCustomModal={() => setShowCustomThemeModal(true)} />
 
           {/* Google Account & Drive Sync */}
           <GoogleUserButton onOpenSyncModal={() => setShowGoogleSyncModal(true)} />
@@ -569,20 +576,28 @@ function AppContent() {
         onClose={() => setShowGoogleSyncModal(false)}
         onDataChanged={reloadProjects}
       />
+
+      {/* Modal Tùy Chỉnh Bảng Màu Đọc */}
+      <CustomThemeModal
+        open={showCustomThemeModal}
+        onClose={() => setShowCustomThemeModal(false)}
+      />
     </div>
   );
 }
 
 export default function App() {
   return (
-    <I18nProvider>
-      <NotificationProvider>
-        <AIConfigProvider>
-          <ProjectProvider>
-            <AppContent />
-          </ProjectProvider>
-        </AIConfigProvider>
-      </NotificationProvider>
-    </I18nProvider>
+    <ThemeProvider>
+      <I18nProvider>
+        <NotificationProvider>
+          <AIConfigProvider>
+            <ProjectProvider>
+              <AppContent />
+            </ProjectProvider>
+          </AIConfigProvider>
+        </NotificationProvider>
+      </I18nProvider>
+    </ThemeProvider>
   );
 }

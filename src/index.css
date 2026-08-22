@@ -7,13 +7,44 @@
   --font-display: "Fraunces", serif;
   --font-zh: "Noto Serif SC", serif;
 
-  --color-ink: #14100D;           /* nền chính, thay #080c16 */
-  --color-parchment: #1F1914;     /* panel/card, thay slate-950 */
-  --color-parchment-2: #2A241D;   /* border/divider, thay slate-800 */
-  --color-text-main: #DCD1BC;     /* text chính, thay text trắng/slate-200 */
-  --color-text-muted: #786F5E;    /* text phụ, thay slate-400/slate-500 */
-  --color-draft: #3D4A5C;         /* accent giai đoạn 1 - Dịch thô, thay indigo-400 */
-  --color-polish: #B8402C;        /* accent giai đoạn 2 - Biên tập, thay emerald-500 */
+  --color-ink: var(--color-ink);
+  --color-parchment: var(--color-parchment);
+  --color-parchment-2: var(--color-parchment-2);
+  --color-text-main: var(--color-text-main);
+  --color-text-muted: var(--color-text-muted);
+  --color-draft: var(--color-draft);
+  --color-polish: var(--color-polish);
+}
+
+:root,
+html[data-theme="dark"] {
+  --color-ink: #14100D;           /* Nền chính tối */
+  --color-parchment: #1F1914;     /* Panel / Card tối */
+  --color-parchment-2: #2A241D;   /* Border / Divider tối */
+  --color-text-main: #DCD1BC;     /* Text chính tối */
+  --color-text-muted: #786F5E;    /* Text phụ tối */
+  --color-draft: #3D4A5C;         /* Accent Dịch thô */
+  --color-polish: #B8402C;        /* Accent Chu Sa */
+}
+
+html[data-theme="light"] {
+  --color-ink: #FFFFFF;           /* Khối panel trắng sáng */
+  --color-parchment: #F7F2E9;     /* Nền giấy ngà ấm */
+  --color-parchment-2: #E4DCC8;   /* Viền trang nhã */
+  --color-text-main: #3A2E22;     /* Chữ nâu-đen ấm */
+  --color-text-muted: #8A7A63;    /* Chữ phụ */
+  --color-draft: #4A5B70;         /* Accent Dịch thô */
+  --color-polish: #B8402C;        /* Accent Chu Sa */
+}
+
+html[data-theme="sepia"] {
+  --color-ink: #EBE0C9;           /* Panel bản thảo cũ */
+  --color-parchment: #F4ECD8;     /* Nền giấy cổ phong */
+  --color-parchment-2: #D5C5A5;   /* Viền sepia */
+  --color-text-main: #5B4636;     /* Chữ nâu đậm */
+  --color-text-muted: #7A6A5A;    /* Chữ phụ sepia */
+  --color-draft: #4E5D6E;         /* Accent Dịch thô */
+  --color-polish: #B8402C;        /* Accent Chu Sa */
 }
 
 html, body, #root {
@@ -29,34 +60,34 @@ html, body, #root {
 html {
   scroll-behavior: smooth;
   scrollbar-width: thin;
-  scrollbar-color: #2A241D #14100D;
+  scrollbar-color: var(--color-parchment-2) var(--color-ink);
 }
 
-/* ĐỊNH DẠNG THANH CUỘN CHO CHROME, EDGE, SAFARI THEO TÔNG BẢN THẢO CỔ TRANG */
+/* ĐỊNH DẠNG THANH CUỘN CHO CHROME, EDGE, SAFARI THEO TÔNG BẢN THẢO */
 ::-webkit-scrollbar {
   width: 7px;
   height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #14100D;
+  background: var(--color-ink);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2A241D;
+  background: var(--color-parchment-2);
   border-radius: 4px;
-  border: 1px solid #1F1914;
+  border: 1px solid var(--color-parchment);
   transition: background-color 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3F372C;
+  filter: brightness(1.2);
   cursor: grab;
 }
 
 ::-webkit-scrollbar-thumb:active {
-  background: #54493B;
+  filter: brightness(1.4);
   cursor: grabbing;
 }
 
