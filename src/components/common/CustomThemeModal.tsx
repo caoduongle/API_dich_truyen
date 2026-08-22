@@ -1,8 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Palette, RotateCcw, AlertTriangle, CheckCircle2, Eye } from 'lucide-react';
-import { CustomThemePalette, DEFAULT_DARK_PALETTE } from '../../types/theme';
+import { Palette, RotateCcw, AlertTriangle, CheckCircle2, Eye, Type, Minus, Plus } from 'lucide-react';
+import {
+  CustomThemePalette,
+  DEFAULT_DARK_PALETTE,
+  ReaderFontId,
+  READER_FONT_OPTIONS,
+  DEFAULT_READER_FONT,
+  DEFAULT_READER_FONT_SIZE,
+  MIN_READER_FONT_SIZE,
+  MAX_READER_FONT_SIZE,
+} from '../../types/theme';
 import { useThemeContext } from '../../context/ThemeContext';
 import { auditPalette } from '../../utils/contrastAuditor';
+import { loadGoogleFont } from '../../utils/fontLoader';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -14,15 +24,34 @@ interface CustomThemeModalProps {
 }
 
 export const CustomThemeModal: React.FC<CustomThemeModalProps> = ({ open, onClose }) => {
-  const { customPalette, setCustomPalette, resetCustomPalette, setTheme } = useThemeContext();
+  const {
+    customPalette,
+    setCustomPalette,
+    resetCustomPalette,
+    setTheme,
+    readerFont,
+    readerFontSize,
+    setReaderFont,
+    setReaderFontSize,
+    resetReaderTypography,
+  } = useThemeContext();
+
   const [draftPalette, setDraftPalette] = useState<CustomThemePalette>(customPalette);
+  const [draftFont, setDraftFont] = useState<ReaderFontId>(readerFont);
+  const [draftFontSize, setDraftFontSize] = useState<number>(readerFontSize);
   const { showToast } = useNotifications();
 
   useEffect(() => {
     if (open) {
       setDraftPalette(customPalette);
+      setDraftFont(readerFont);
+      setDraftFontSize(readerFontSize);
     }
-  }, [open, customPalette]);
+  }, [open, customPalette, readerFont, readerFontSize]);
+
+  useEffect(() => {
+    loadGoogleFont(draftFont);
+  }, [draftFont]);
 
   const audit = auditPalette(draftPalette);
 
@@ -33,20 +62,39 @@ export const CustomThemeModal: React.FC<CustomThemeModalProps> = ({ open, onClos
     }));
   };
 
+  const handleFontChange = (fontId: ReaderFontId) => {
+    setDraftFont(fontId);
+  };
+
+  const handleIncreaseFontSize = () => {
+    setDraftFontSize((prev) => Math.min(MAX_READER_FONT_SIZE, prev + 1));
+  };
+
+  const handleDecreaseFontSize = () => {
+    setDraftFontSize((prev) => Math.max(MIN_READER_FONT_SIZE, prev - 1));
+  };
+
   const handleSave = () => {
     setCustomPalette(draftPalette);
     setTheme('custom');
-    showToast({ message: 'Đã áp dụng bảng màu tùy chỉnh!', type: 'success' });
+    setReaderFont(draftFont);
+    setReaderFontSize(draftFontSize);
+    showToast({ message: 'Đã lưu cấu hình giao diện & kiểu chữ!', type: 'success' });
     onClose();
   };
 
   const handleReset = () => {
     setDraftPalette(DEFAULT_DARK_PALETTE);
     resetCustomPalette();
-    showToast({ message: 'Đã khôi phục bảng màu mặc định.', type: 'info' });
+    setDraftFont(DEFAULT_READER_FONT);
+    setDraftFontSize(DEFAULT_READER_FONT_SIZE);
+    resetReaderTypography();
+    showToast({ message: 'Đã khôi phục bảng màu và kiểu chữ mặc định.', type: 'info' });
   };
 
   if (!open) return null;
+
+  const selectedFontOption = READER_FONT_OPTIONS.find((f) => f.id === draftFont) || READER_FONT_OPTIONS[0];
 
   return (
     <Modal
@@ -56,10 +104,10 @@ export const CustomThemeModal: React.FC<CustomThemeModalProps> = ({ open, onClos
       title={
         <div className="flex items-center gap-2">
           <Palette className="w-5 h-5 text-gold" />
-          <span>Tùy Chỉnh Bảng Màu Đọc & Biên Tập</span>
+          <span>Tùy Chỉnh Giao Diện & Kiểu Chữ</span>
         </div>
       }
-      description="Tự do cấu hình 6 token màu sắc theo thị giác cá nhân"
+      description="Tự do cấu hình màu sắc và kiểu chữ đọc truyện theo thị giác cá nhân"
       footer={
         <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-2">
           <Button
@@ -76,13 +124,76 @@ export const CustomThemeModal: React.FC<CustomThemeModalProps> = ({ open, onClos
               Hủy
             </Button>
             <Button variant="primary" size="sm" onClick={handleSave}>
-              Lưu bảng màu
+              Lưu cấu hình
             </Button>
           </div>
         </div>
       }
     >
       <div className="space-y-4">
+        {/* Tùy chỉnh Kiểu chữ & Cỡ chữ (Typography Settings) */}
+        <div className="p-3.5 bg-ink/10 border border-parchment-2 rounded-[2px] space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-text-main">
+              <Type className="w-3.5 h-3.5 text-gold" />
+              <span>Kiểu chữ &amp; Cỡ chữ đọc truyện:</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-text-muted">Cỡ chữ:</span>
+              <div className="flex items-center border border-parchment-2 rounded-[2px] bg-ink overflow-hidden">
+                <button
+                  type="button"
+                  onClick={handleDecreaseFontSize}
+                  disabled={draftFontSize <= MIN_READER_FONT_SIZE}
+                  className="p-1 px-1.5 text-text-muted hover:text-text-main hover:bg-parchment-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  title="Giảm cỡ chữ (tối thiểu 14px)"
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+                <span className="text-xs font-mono font-bold px-2 text-text-main min-w-[3rem] text-center">
+                  {draftFontSize}px
+                </span>
+                <button
+                  type="button"
+                  onClick={handleIncreaseFontSize}
+                  disabled={draftFontSize >= MAX_READER_FONT_SIZE}
+                  className="p-1 px-1.5 text-text-muted hover:text-text-main hover:bg-parchment-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  title="Tăng cỡ chữ (tối đa 50px)"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Danh sách Font chữ */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {READER_FONT_OPTIONS.map((font) => {
+              const isSelected = draftFont === font.id;
+              return (
+                <button
+                  key={font.id}
+                  type="button"
+                  onClick={() => handleFontChange(font.id)}
+                  className={`p-2 rounded-[2px] border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    isSelected
+                      ? 'border-gold bg-gold/15 text-text-main ring-1 ring-gold/40'
+                      : 'border-parchment-2 bg-ink/5 text-text-muted hover:text-text-main hover:border-parchment-2/80'
+                  }`}
+                >
+                  <span className="text-xs font-bold leading-tight truncate">{font.label}</span>
+                  <span
+                    className="text-sm mt-1 truncate"
+                    style={{ fontFamily: font.fontFamilyCss }}
+                  >
+                    Việt Nam 123
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Kiểm định độ tương phản WCAG */}
         <div className="p-3 bg-ink/5 border border-parchment-2 rounded-[2px] space-y-2">
           <div className="flex items-center justify-between">
@@ -198,9 +309,14 @@ export const CustomThemeModal: React.FC<CustomThemeModalProps> = ({ open, onClos
 
         {/* Khung Xem Trước Trực Tiếp (Live Preview) */}
         <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-text-main">
-            <Eye className="w-3.5 h-3.5 text-gold" />
-            Xem trước giao diện soạn thảo:
+          <div className="flex items-center justify-between text-xs font-bold text-text-main">
+            <div className="flex items-center gap-1.5">
+              <Eye className="w-3.5 h-3.5 text-gold" />
+              <span>Xem trước giao diện soạn thảo &amp; đọc:</span>
+            </div>
+            <span className="text-[11px] font-normal text-text-muted">
+              {selectedFontOption.label} • {draftFontSize}px
+            </span>
           </div>
 
           <div
@@ -225,7 +341,13 @@ export const CustomThemeModal: React.FC<CustomThemeModalProps> = ({ open, onClos
                 >
                   Chương 1
                 </span>
-                <span className="text-xs font-serif font-bold" style={{ color: draftPalette.textMain }}>
+                <span
+                  className="text-xs font-bold"
+                  style={{
+                    color: draftPalette.textMain,
+                    fontFamily: selectedFontOption.fontFamilyCss,
+                  }}
+                >
                   Yểm Ngục Bắt Đầu
                 </span>
               </div>
@@ -236,17 +358,26 @@ export const CustomThemeModal: React.FC<CustomThemeModalProps> = ({ open, onClos
 
             {/* Khung đọc mô phỏng */}
             <div
-              className="p-3 rounded-[2px] border space-y-1.5 font-serif text-xs leading-relaxed"
+              className="p-3 rounded-[2px] border space-y-2 transition-all duration-150"
               style={{
                 backgroundColor: draftPalette.ink,
                 borderColor: draftPalette.parchment2,
                 color: draftPalette.textMain,
+                fontFamily: selectedFontOption.fontFamilyCss,
+                fontSize: `${draftFontSize}px`,
+                lineHeight: 1.6,
               }}
             >
               <p>
                 Trên Đại Lục Đấu Khí, kẻ yếu hèn không bao giờ có chỗ dung thân. Tiêu Viêm nhìn chăm chăm vào đôi bàn tay của mình, ngọn lửa ý chí bùng cháy dữ dội.
               </p>
-              <p style={{ color: draftPalette.textMuted }} className="text-[11px] font-mono">
+              <p
+                style={{
+                  color: draftPalette.textMuted,
+                  fontSize: `${Math.max(12, Math.round(draftFontSize * 0.75))}px`,
+                }}
+                className="font-mono"
+              >
                 [Nguyên tác]: 在斗气大陆，弱者无容身之地。萧炎望着双手，内心燃起熊熊烈火。
               </p>
             </div>

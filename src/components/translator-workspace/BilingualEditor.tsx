@@ -219,7 +219,11 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                 }
               }}
               onSelect={handleTextareaSelect}
-              className="w-full text-sm bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main font-serif leading-relaxed focus:outline-none focus:border-draft transition-all resize-y"
+              className="w-full bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main leading-relaxed focus:outline-none focus:border-draft transition-all resize-y"
+              style={{
+                fontFamily: 'var(--reader-font-family, inherit)',
+                fontSize: 'var(--reader-font-size, inherit)',
+              }}
             />
             {sourceText && (
               <span className="absolute bottom-3 right-3 text-[9px] text-text-muted bg-parchment px-2 py-0.5 rounded-[2px] border border-parchment-2 font-mono">
@@ -414,7 +418,11 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                   onChange={(e) => setRawTranslation(e.target.value)}
                   onFocus={() => onFieldFocus?.('raw')}
                   onBlur={() => onFieldFocus?.('idle')}
-                  className="w-full text-sm bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main font-sans leading-relaxed focus:outline-none focus:border-draft transition-all resize-y"
+                  className="w-full bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main leading-relaxed focus:outline-none focus:border-draft transition-all resize-y"
+                  style={{
+                    fontFamily: 'var(--reader-font-family, inherit)',
+                    fontSize: 'var(--reader-font-size, inherit)',
+                  }}
                 />
 
                 {rawTranslation && (
@@ -483,7 +491,11 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                   onChange={(e) => setPolishedTranslation(e.target.value)}
                   onFocus={() => onFieldFocus?.('polished')}
                   onBlur={() => onFieldFocus?.('idle')}
-                  className="w-full text-sm bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main font-sans leading-relaxed focus:outline-none focus:border-polish transition-all resize-y"
+                  className="w-full bg-ink border border-parchment-2 rounded-[3px] p-4 text-text-main leading-relaxed focus:outline-none focus:border-polish transition-all resize-y"
+                  style={{
+                    fontFamily: 'var(--reader-font-family, inherit)',
+                    fontSize: 'var(--reader-font-size, inherit)',
+                  }}
                 />
 
                 {/* Additional Instructions for Polish */}

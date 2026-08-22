@@ -4,10 +4,19 @@ import {
   CustomThemePalette,
   ThemeContextType,
   DEFAULT_DARK_PALETTE,
+  ReaderFontId,
+  READER_FONT_OPTIONS,
+  DEFAULT_READER_FONT,
+  DEFAULT_READER_FONT_SIZE,
+  MIN_READER_FONT_SIZE,
+  MAX_READER_FONT_SIZE,
 } from '../types/theme';
+import { loadGoogleFont } from '../utils/fontLoader';
 
 const STORAGE_KEY_THEME = 'ai_dich_truyen_theme';
 const STORAGE_KEY_CUSTOM = 'ai_dich_truyen_custom_colors';
+const STORAGE_KEY_READER_FONT = 'ai_dich_truyen_reader_font';
+const STORAGE_KEY_READER_FONT_SIZE = 'ai_dich_truyen_reader_font_size';
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
 
@@ -49,9 +58,40 @@ function getInitialCustomPalette(): CustomThemePalette {
   return DEFAULT_DARK_PALETTE;
 }
 
+function getInitialReaderFont(): ReaderFontId {
+  if (typeof window === 'undefined') return DEFAULT_READER_FONT;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_READER_FONT) as ReaderFontId | null;
+    if (saved && READER_FONT_OPTIONS.some((f) => f.id === saved)) {
+      return saved;
+    }
+  } catch (e) {
+    console.warn('Lỗi đọc reader font từ localStorage:', e);
+  }
+  return DEFAULT_READER_FONT;
+}
+
+function getInitialReaderFontSize(): number {
+  if (typeof window === 'undefined') return DEFAULT_READER_FONT_SIZE;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_READER_FONT_SIZE);
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= MIN_READER_FONT_SIZE && parsed <= MAX_READER_FONT_SIZE) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Lỗi đọc reader font size từ localStorage:', e);
+  }
+  return DEFAULT_READER_FONT_SIZE;
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>(getInitialTheme);
   const [customPalette, setCustomPaletteState] = useState<CustomThemePalette>(getInitialCustomPalette);
+  const [readerFont, setReaderFontState] = useState<ReaderFontId>(getInitialReaderFont);
+  const [readerFontSize, setReaderFontSizeState] = useState<number>(getInitialReaderFontSize);
 
   const applyThemeToDOM = useCallback((currentTheme: ThemeMode, palette: CustomThemePalette) => {
     if (typeof document === 'undefined') return;
@@ -75,9 +115,24 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const applyTypographyToDOM = useCallback((font: ReaderFontId, size: number) => {
+    if (typeof document === 'undefined') return;
+    const docEl = document.documentElement;
+
+    loadGoogleFont(font);
+    const fontOpt = READER_FONT_OPTIONS.find((f) => f.id === font) || READER_FONT_OPTIONS[0];
+
+    docEl.style.setProperty('--reader-font-family', fontOpt.fontFamilyCss);
+    docEl.style.setProperty('--reader-font-size', `${size}px`);
+  }, []);
+
   useEffect(() => {
     applyThemeToDOM(theme, customPalette);
   }, [theme, customPalette, applyThemeToDOM]);
+
+  useEffect(() => {
+    applyTypographyToDOM(readerFont, readerFontSize);
+  }, [readerFont, readerFontSize, applyTypographyToDOM]);
 
   const setTheme = useCallback(
     (newTheme: ThemeMode) => {
@@ -117,14 +172,56 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {}
   }, [theme, applyThemeToDOM]);
 
+  const setReaderFont = useCallback(
+    (newFont: ReaderFontId) => {
+      setReaderFontState(newFont);
+      applyTypographyToDOM(newFont, readerFontSize);
+      try {
+        localStorage.setItem(STORAGE_KEY_READER_FONT, newFont);
+      } catch (e) {
+        console.warn('Lỗi ghi reader font vào localStorage:', e);
+      }
+    },
+    [readerFontSize, applyTypographyToDOM]
+  );
+
+  const setReaderFontSize = useCallback(
+    (newSize: number) => {
+      const clampedSize = Math.max(MIN_READER_FONT_SIZE, Math.min(MAX_READER_FONT_SIZE, Math.round(newSize)));
+      setReaderFontSizeState(clampedSize);
+      applyTypographyToDOM(readerFont, clampedSize);
+      try {
+        localStorage.setItem(STORAGE_KEY_READER_FONT_SIZE, clampedSize.toString());
+      } catch (e) {
+        console.warn('Lỗi ghi reader font size vào localStorage:', e);
+      }
+    },
+    [readerFont, applyTypographyToDOM]
+  );
+
+  const resetReaderTypography = useCallback(() => {
+    setReaderFontState(DEFAULT_READER_FONT);
+    setReaderFontSizeState(DEFAULT_READER_FONT_SIZE);
+    applyTypographyToDOM(DEFAULT_READER_FONT, DEFAULT_READER_FONT_SIZE);
+    try {
+      localStorage.removeItem(STORAGE_KEY_READER_FONT);
+      localStorage.removeItem(STORAGE_KEY_READER_FONT_SIZE);
+    } catch (e) {}
+  }, [applyTypographyToDOM]);
+
   return (
     <ThemeContext.Provider
       value={{
         theme,
         customPalette,
+        readerFont,
+        readerFontSize,
         setTheme,
         setCustomPalette,
         resetCustomPalette,
+        setReaderFont,
+        setReaderFontSize,
+        resetReaderTypography,
       }}
     >
       {children}
