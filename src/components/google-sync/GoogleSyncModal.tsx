@@ -41,8 +41,8 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
   onDataChanged,
 }) => {
   const [authState, setAuthState] = useState<GoogleAuthState>(googleAuthService.getAuthState());
-  const [clientIdInput, setClientIdInput] = useState<string>(googleAuthService.getClientId());
-  const [pickerKeyInput, setPickerKeyInput] = useState<string>(googlePickerService.getPickerApiKey());
+  const [clientIdInput, setClientIdInput] = useState<string>(googleAuthService.getCustomClientId());
+  const [pickerKeyInput, setPickerKeyInput] = useState<string>(googlePickerService.getCustomPickerApiKey());
   const [showAdvanced, setShowAdvanced] = useState<boolean>(() => !googleAuthService.getClientId());
   const [revealClientId, setRevealClientId] = useState<boolean>(false);
   const [revealPickerKey, setRevealPickerKey] = useState<boolean>(false);
@@ -54,9 +54,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
   useEffect(() => {
     const unsubscribe = googleAuthService.onAuthStateChanged((newState) => {
       setAuthState(newState);
-      if (newState.clientId) {
-        setClientIdInput(newState.clientId);
-      }
+      setClientIdInput(googleAuthService.getCustomClientId());
     });
     return unsubscribe;
   }, []);
@@ -94,13 +92,13 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
 
   const handleResetClientId = () => {
     googleAuthService.setClientId('');
-    setClientIdInput(googleAuthService.getClientId());
+    setClientIdInput('');
     showToast({ message: 'Đã khôi phục Google Client ID mặc định.', type: 'info' });
   };
 
   const handleResetPickerKey = () => {
     googlePickerService.setPickerApiKey('');
-    setPickerKeyInput(googlePickerService.getPickerApiKey());
+    setPickerKeyInput('');
     showToast({ message: 'Đã khôi phục Google Picker Key mặc định.', type: 'info' });
   };
 
@@ -114,7 +112,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
         setShowAdvanced(true);
         return;
       }
-      if (clientIdInput && clientIdInput !== googleAuthService.getClientId()) {
+      if (clientIdInput.trim() && clientIdInput !== googleAuthService.getCustomClientId()) {
         googleAuthService.setClientId(clientIdInput);
       }
       await googleAuthService.initiateLogin();
@@ -140,7 +138,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
       setIsOpeningPicker(true);
       await googlePickerService.openFolderPicker({
         accessToken: token,
-        pickerApiKey: pickerKeyInput,
+        pickerApiKey: pickerKeyInput.trim() || googlePickerService.getPickerApiKey(),
         onFolderSelected: async (folderId, folderName) => {
           try {
             setIsSyncing(true);
@@ -349,7 +347,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
                         type={revealClientId ? 'text' : 'password'}
                         value={clientIdInput}
                         onChange={(e) => setClientIdInput(e.target.value)}
-                        placeholder="Nhập Google Client ID..."
+                        placeholder="Để trống để dùng Client ID mặc định của hệ thống..."
                         className="flex-1 text-xs bg-transparent outline-none text-text-main font-mono min-w-0 placeholder:text-text-muted"
                       />
                     </div>
@@ -395,7 +393,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
                         type={revealPickerKey ? 'text' : 'password'}
                         value={pickerKeyInput}
                         onChange={(e) => setPickerKeyInput(e.target.value)}
-                        placeholder="Nhập Google Picker API Key..."
+                        placeholder="Để trống để dùng Picker API Key mặc định của hệ thống..."
                         className="flex-1 text-xs bg-transparent outline-none text-text-main font-mono min-w-0 placeholder:text-text-muted"
                       />
                     </div>

@@ -30,6 +30,12 @@ class GooglePickerService {
     return this.getInitialApiKey();
   }
 
+  public getCustomPickerApiKey(): string {
+    if (typeof window === 'undefined') return '';
+    const stored = localStorage.getItem(CUSTOM_PICKER_KEY);
+    return (stored && stored.trim()) || '';
+  }
+
   /**
    * Tải động script Google API (apis.google.com/js/api.js) và nạp module picker
    */

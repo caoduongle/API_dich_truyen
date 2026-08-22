@@ -57,6 +57,12 @@ class GoogleAuthService {
     return this.state.clientId || this.getInitialClientId();
   }
 
+  public getCustomClientId(): string {
+    if (typeof window === 'undefined') return '';
+    const stored = localStorage.getItem(CUSTOM_CLIENT_ID_KEY);
+    return (stored && stored.trim()) || '';
+  }
+
   public getAuthState(): GoogleAuthState {
     return { ...this.state };
   }

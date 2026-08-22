@@ -30,12 +30,26 @@ describe('GoogleSyncModal Credential Privacy & Resolution Tests', () => {
     vi.restoreAllMocks();
   });
 
-  it('resolves default Client ID when no custom key exists in localStorage', () => {
+  it('resolves default Client ID for runtime auth but returns empty string for custom UI input', () => {
     const isCustom = Boolean(localStorage.getItem('ai_dich_truyen_google_client_id'));
-    const clientId = googleAuthService.getClientId();
+    const effectiveClientId = googleAuthService.getClientId();
+    const customClientId = googleAuthService.getCustomClientId();
 
     expect(isCustom).toBe(false);
-    expect(typeof clientId).toBe('string');
+    expect(typeof effectiveClientId).toBe('string');
+    // UI input must be empty by default so system keys are not pre-populated into the input
+    expect(customClientId).toBe('');
+  });
+
+  it('resolves default Picker API Key for runtime picker but returns empty string for custom UI input', () => {
+    const isCustom = Boolean(localStorage.getItem('ai_dich_truyen_google_picker_key'));
+    const effectivePickerKey = googlePickerService.getPickerApiKey();
+    const customPickerKey = googlePickerService.getCustomPickerApiKey();
+
+    expect(isCustom).toBe(false);
+    expect(typeof effectivePickerKey).toBe('string');
+    // UI input must be empty by default
+    expect(customPickerKey).toBe('');
   });
 
   it('persists and flags custom Client ID when user sets custom credentials', () => {
@@ -44,14 +58,17 @@ describe('GoogleSyncModal Credential Privacy & Resolution Tests', () => {
 
     const isCustom = Boolean(localStorage.getItem('ai_dich_truyen_google_client_id'));
     const resolvedId = googleAuthService.getClientId();
+    const customIdForInput = googleAuthService.getCustomClientId();
 
     expect(isCustom).toBe(true);
     expect(resolvedId).toBe(customId);
+    expect(customIdForInput).toBe(customId);
   });
 
-  it('reverts to default Client ID and clears custom flag upon reset', () => {
+  it('reverts to default Client ID and clears custom input value upon reset', () => {
     googleAuthService.setClientId('custom-test-id');
     expect(localStorage.getItem('ai_dich_truyen_google_client_id')).toBe('custom-test-id');
+    expect(googleAuthService.getCustomClientId()).toBe('custom-test-id');
 
     // Reset
     googleAuthService.setClientId('');
@@ -59,6 +76,7 @@ describe('GoogleSyncModal Credential Privacy & Resolution Tests', () => {
 
     expect(isCustom).toBe(false);
     expect(localStorage.getItem('ai_dich_truyen_google_client_id')).toBeNull();
+    expect(googleAuthService.getCustomClientId()).toBe('');
   });
 
   it('persists and flags custom Picker API Key and clears upon reset', () => {
@@ -67,10 +85,12 @@ describe('GoogleSyncModal Credential Privacy & Resolution Tests', () => {
 
     expect(localStorage.getItem('ai_dich_truyen_google_picker_key')).toBe(customPickerKey);
     expect(googlePickerService.getPickerApiKey()).toBe(customPickerKey);
+    expect(googlePickerService.getCustomPickerApiKey()).toBe(customPickerKey);
 
     // Reset
     googlePickerService.setPickerApiKey('');
     expect(localStorage.getItem('ai_dich_truyen_google_picker_key')).toBeNull();
+    expect(googlePickerService.getCustomPickerApiKey()).toBe('');
   });
 
   it('ensures credential input masking default is password mode', () => {
