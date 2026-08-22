@@ -27,7 +27,7 @@ app.use(
       ? {
           directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'"],
+            scriptSrc: ["'self'", "https://accounts.google.com", "https://apis.google.com"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
             imgSrc: ["'self'", "data:", "blob:"],
@@ -38,6 +38,7 @@ app.use(
               "https://oauth2.googleapis.com",
               "https://www.googleapis.com",
             ],
+            frameSrc: ["https://accounts.google.com"],
             objectSrc: ["'none'"],
             baseUri: ["'self'"],
             formAction: ["'self'"],

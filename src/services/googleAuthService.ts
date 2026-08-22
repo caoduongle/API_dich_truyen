@@ -1,8 +1,8 @@
 import { GoogleAuthState, GoogleUserProfile } from '../types/googleAuth';
-import { generatePKCEChallenge } from './pkceHelper';
 
-const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
-const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+declare const google: any;
+
+const GOOGLE_GSI_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const GOOGLE_USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/userinfo';
 
 const SCOPES = [
@@ -12,8 +12,6 @@ const SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
 ].join(' ');
 
-const PKCE_STATE_KEY = 'ai_dich_truyen_pkce_state';
-const PKCE_VERIFIER_KEY = 'ai_dich_truyen_pkce_verifier';
 const AUTH_SESSION_KEY = 'ai_dich_truyen_google_auth';
 const CUSTOM_CLIENT_ID_KEY = 'ai_dich_truyen_google_client_id';
 
@@ -28,6 +26,8 @@ class GoogleAuthService {
   };
 
   private listeners: Array<(state: GoogleAuthState) => void> = [];
+  private tokenClient: any = null;
+  private gsiLoadingPromise: Promise<void> | null = null;
 
   constructor() {
     this.restoreSessionFromStorage();
@@ -43,6 +43,7 @@ class GoogleAuthService {
   public setClientId(clientId: string): void {
     const cleanId = (clientId || '').trim();
     this.state.clientId = cleanId;
+    this.tokenClient = null; // Reset để lần đăng nhập kế tiếp khởi tạo lại với Client ID mới
     if (typeof window !== 'undefined') {
       if (cleanId) {
         localStorage.setItem(CUSTOM_CLIENT_ID_KEY, cleanId);
@@ -71,6 +72,8 @@ class GoogleAuthService {
     return this.state.user;
   }
 
+  // GIỮ NGUYÊN như bản gốc — KHÔNG chuyển sang gọi getValidAccessToken().
+  // src/hooks/useChapterCRDT.ts đang phụ thuộc đúng hành vi này.
   public getAccessToken(): string | null {
     return this.state.accessToken;
   }
@@ -134,15 +137,30 @@ class GoogleAuthService {
   }
 
   /**
-   * Lấy redirect URI hiện tại của ứng dụng
+   * Tải động thư viện Google Identity Services (GSI), chỉ tải 1 lần cho cả session.
    */
-  public getRedirectUri(): string {
-    if (typeof window === 'undefined') return 'http://localhost:5173';
-    return window.location.origin + window.location.pathname;
+  private async ensureGsiLoaded(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    if (typeof google !== 'undefined' && google.accounts?.oauth2) return;
+
+    if (!this.gsiLoadingPromise) {
+      this.gsiLoadingPromise = new Promise<void>((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = GOOGLE_GSI_SCRIPT_URL;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('Không thể kết nối đến Google Identity Services (accounts.google.com).'));
+        document.body.appendChild(script);
+      });
+    }
+    return this.gsiLoadingPromise;
   }
 
   /**
-   * Khởi tạo luồng OAuth 2.0 PKCE và chuyển hướng tới Google Sign-In
+   * Khởi tạo đăng nhập Google qua popup (Google Identity Services Token Client).
+   * Google trả access_token thẳng cho callback — không có bước đổi code lấy
+   * token nên không cần client_secret.
    */
   public async initiateLogin(): Promise<void> {
     const clientId = this.getClientId();
@@ -152,125 +170,65 @@ class GoogleAuthService {
       throw new Error(this.state.error);
     }
 
-    const challenge = await generatePKCEChallenge();
-    sessionStorage.setItem(PKCE_STATE_KEY, challenge.state);
-    sessionStorage.setItem(PKCE_VERIFIER_KEY, challenge.codeVerifier);
+    await this.ensureGsiLoaded();
 
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: this.getRedirectUri(),
-      response_type: 'code',
-      scope: SCOPES,
-      code_challenge: challenge.codeChallenge,
-      code_challenge_method: 'S256',
-      state: challenge.state,
-      access_type: 'online',
-      prompt: 'select_account',
-    });
+    return new Promise<void>((resolve, reject) => {
+      try {
+        this.tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: SCOPES,
+          callback: async (tokenResponse: any) => {
+            if (tokenResponse.error) {
+              const message = tokenResponse.error_description || tokenResponse.error;
+              this.state = { ...this.state, isAuthenticated: false, error: `Lỗi đăng nhập Google: ${message}` };
+              this.notify();
+              reject(new Error(message));
+              return;
+            }
+            try {
+              const accessToken = tokenResponse.access_token;
+              const expiresInSeconds = Number(tokenResponse.expires_in) || 3600;
+              const expiresAt = Date.now() + expiresInSeconds * 1000;
+              const user = await this.fetchUserProfile(accessToken);
 
-    window.location.href = `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
-  }
-
-  /**
-   * Xử lý Authorization Code trả về từ URL redirect
-   */
-  public async handleAuthCallback(code: string, returnedState: string): Promise<boolean> {
-    const savedState = sessionStorage.getItem(PKCE_STATE_KEY);
-    const codeVerifier = sessionStorage.getItem(PKCE_VERIFIER_KEY);
-
-    sessionStorage.removeItem(PKCE_STATE_KEY);
-    sessionStorage.removeItem(PKCE_VERIFIER_KEY);
-
-    if (!savedState || savedState !== returnedState) {
-      this.state.error = 'Lỗi xác thực OAuth: Trạng thái (state) không khớp hoặc phiên đã hết hạn.';
-      this.notify();
-      return false;
-    }
-
-    if (!codeVerifier) {
-      this.state.error = 'Lỗi xác thực OAuth: Không tìm thấy PKCE code verifier.';
-      this.notify();
-      return false;
-    }
-
-    const clientId = this.getClientId();
-    if (!clientId) {
-      this.state.error = 'Không tìm thấy Google Client ID để hoàn tất xác thực.';
-      this.notify();
-      return false;
-    }
-
-    try {
-      const bodyParams = new URLSearchParams({
-        client_id: clientId,
-        code_verifier: codeVerifier,
-        code: code,
-        grant_type: 'authorization_code',
-        redirect_uri: this.getRedirectUri(),
-      });
-
-      const tokenRes = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: bodyParams.toString(),
-      });
-
-      if (!tokenRes.ok) {
-        const errData = await tokenRes.json().catch(() => ({}));
-        throw new Error(errData.error_description || errData.error || `Trao đổi token thất bại (HTTP ${tokenRes.status})`);
+              this.state = { isAuthenticated: true, accessToken, expiresAt, user, clientId, error: null };
+              this.saveSessionToStorage();
+              this.notify();
+              resolve();
+            } catch (err: any) {
+              console.error('Lỗi hoàn tất đăng nhập Google OAuth:', err);
+              this.state = {
+                isAuthenticated: false,
+                accessToken: null,
+                expiresAt: null,
+                user: null,
+                clientId,
+                error: err.message || 'Đăng nhập Google thất bại.',
+              };
+              this.notify();
+              reject(err);
+            }
+          },
+        });
+        this.tokenClient.requestAccessToken({ prompt: 'select_account' });
+      } catch (err: any) {
+        this.state.error = err.message || 'Lỗi khởi tạo Google Identity Services.';
+        this.notify();
+        reject(err);
       }
-
-      const tokenData = await tokenRes.json();
-      const accessToken = tokenData.access_token;
-      const expiresInSeconds = tokenData.expires_in || 3600;
-      const expiresAt = Date.now() + expiresInSeconds * 1000;
-
-      // Lấy thông tin user profile
-      const user = await this.fetchUserProfile(accessToken);
-
-      this.state = {
-        isAuthenticated: true,
-        accessToken,
-        expiresAt,
-        user,
-        clientId,
-        error: null,
-      };
-
-      this.saveSessionToStorage();
-      this.notify();
-      return true;
-    } catch (err: any) {
-      console.error('Lỗi hoàn tất đăng nhập Google OAuth PKCE:', err);
-      this.state = {
-        isAuthenticated: false,
-        accessToken: null,
-        expiresAt: null,
-        user: null,
-        clientId,
-        error: err.message || 'Đăng nhập Google thất bại.',
-      };
-      this.notify();
-      return false;
-    }
+    });
   }
 
   /**
-   * Lấy User Profile từ Google userinfo endpoint
+   * Lấy User Profile từ Google userinfo endpoint — GIỮ NGUYÊN không đổi.
    */
   public async fetchUserProfile(accessToken: string): Promise<GoogleUserProfile> {
     const res = await fetch(GOOGLE_USERINFO_ENDPOINT, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
-
     if (!res.ok) {
       throw new Error(`Không thể lấy thông tin tài khoản Google (HTTP ${res.status})`);
     }
-
     const data = await res.json();
     return {
       id: data.sub || data.id,
@@ -280,25 +238,23 @@ class GoogleAuthService {
     };
   }
 
-  /**
-   * Lấy Access Token hợp lệ, trả về null nếu hết hạn hoặc chưa đăng nhập
-   */
   public getValidAccessToken(): string | null {
-    if (!this.state.isAuthenticated || !this.state.accessToken) {
-      return null;
-    }
+    if (!this.state.isAuthenticated || !this.state.accessToken) return null;
     if (this.state.expiresAt && Date.now() >= this.state.expiresAt - 60000) {
-      // Token hết hạn hoặc sắp hết hạn trong 1 phút
       this.logout();
       return null;
     }
     return this.state.accessToken;
   }
 
-  /**
-   * Đăng xuất và xóa sạch token trong bộ nhớ
-   */
   public logout(): void {
+    if (this.state.accessToken && typeof google !== 'undefined' && google.accounts?.oauth2) {
+      try {
+        google.accounts.oauth2.revoke(this.state.accessToken, () => {});
+      } catch {
+        // Bỏ qua lỗi revoke — không chặn việc đăng xuất cục bộ
+      }
+    }
     this.state = {
       isAuthenticated: false,
       accessToken: null,
@@ -309,8 +265,6 @@ class GoogleAuthService {
     };
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem(AUTH_SESSION_KEY);
-      sessionStorage.removeItem(PKCE_STATE_KEY);
-      sessionStorage.removeItem(PKCE_VERIFIER_KEY);
     }
     this.notify();
   }

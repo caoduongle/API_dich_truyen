@@ -14,8 +14,3 @@ export interface GoogleAuthState {
   error: string | null;
 }
 
-export interface PKCEChallenge {
-  codeVerifier: string;
-  codeChallenge: string;
-  state: string;
-}
