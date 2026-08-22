@@ -96,6 +96,19 @@ export default function TranslatorWorkspace({
   // Active viewing stage tab
   const [activeStage, setActiveStage] = useState<'raw' | 'polished'>('raw');
 
+  // Xử lý cập nhật real-time từ Yjs CRDT
+  const handleRemoteCRDTChange = useCallback((updated: Partial<Chapter>) => {
+    if (updated.rawTranslation !== undefined) {
+      setRawTranslation(updated.rawTranslation);
+    }
+    if (updated.polishedTranslation !== undefined) {
+      setPolishedTranslation(updated.polishedTranslation);
+    }
+    if (updated.title !== undefined) {
+      setChapterTitle(updated.title);
+    }
+  }, []);
+
   // Khởi tạo Real-Time CRDT Session (Yjs) cho chương hiện tại
   const googleUser = googleAuthService.getUser();
   const crdt = useChapterCRDT({
@@ -106,17 +119,7 @@ export default function TranslatorWorkspace({
     userEmail: googleUser?.email,
     userName: googleUser?.name,
     userPicture: googleUser?.picture,
-    onRemoteChange: (updated) => {
-      if (updated.rawTranslation !== undefined) {
-        setRawTranslation(updated.rawTranslation);
-      }
-      if (updated.polishedTranslation !== undefined) {
-        setPolishedTranslation(updated.polishedTranslation);
-      }
-      if (updated.title !== undefined) {
-        setChapterTitle(updated.title);
-      }
-    },
+    onRemoteChange: handleRemoteCRDTChange,
   });
 
   const handleRawTranslationChange = useCallback(

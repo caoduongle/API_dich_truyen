@@ -86,4 +86,33 @@ describe('crdtDocManager (Yjs Document Core)', () => {
     expect(snapshot.title).toBe('Hồi 1');
     expect(snapshot.status).toBe('completed');
   });
+
+  it('dispatches remote update notifications without recursive observer re-triggering', () => {
+    const sessionA = createChapterYDoc('proj_1', 'chap_1', {
+      rawTranslation: 'Ban đầu',
+      polishedTranslation: 'Ban đầu',
+    });
+    const sessionB = createChapterYDoc('proj_1', 'chap_1');
+
+    let remoteCallbackCount = 0;
+    let lastReceivedTitle = '';
+
+    sessionB.doc.on('update', (_update: Uint8Array, origin: any) => {
+      if (origin !== 'local-keystroke') {
+        const snapshot = readChapterFromYDoc(sessionB.doc, 'chap_1');
+        remoteCallbackCount++;
+        lastReceivedTitle = snapshot.title || '';
+      }
+    });
+
+    // Peer A updates metadata title
+    sessionA.metadataMap.set('title', 'Chương 2: Tiến Triển');
+    const update = exportDocUpdate(sessionA.doc);
+
+    // Apply update to Peer B
+    applyDocUpdate(sessionB.doc, update);
+
+    expect(remoteCallbackCount).toBe(1);
+    expect(lastReceivedTitle).toBe('Chương 2: Tiến Triển');
+  });
 });

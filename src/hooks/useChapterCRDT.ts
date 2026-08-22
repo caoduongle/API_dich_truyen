@@ -61,6 +61,9 @@ export function useChapterCRDT({
   const persistenceRef = useRef<IndexeddbPersistence | null>(null);
   const saveTimeoutRef = useRef<any>(null);
 
+  const onRemoteChangeRef = useRef(onRemoteChange);
+  onRemoteChangeRef.current = onRemoteChange;
+
   // Debounced auto-save to IndexedDB (db.ts)
   const debouncedSaveToDb = useCallback(
     (doc: Y.Doc, chapId: string) => {
@@ -122,7 +125,7 @@ export function useChapterCRDT({
     const handleDocUpdate = (_update: Uint8Array, origin: any) => {
       if (origin !== 'local-keystroke') {
         const updated = readChapterFromYDoc(doc, chapterId);
-        onRemoteChange?.(updated);
+        onRemoteChangeRef.current?.(updated);
       }
       debouncedSaveToDb(doc, chapterId);
     };
@@ -205,7 +208,7 @@ export function useChapterCRDT({
       doc.destroy();
       docRef.current = null;
     };
-  }, [projectId, chapterId, isShared, userEmail, userName, userPicture, onRemoteChange, debouncedSaveToDb]);
+  }, [projectId, chapterId, isShared, userEmail, userName, userPicture, debouncedSaveToDb]);
 
   const updateRawTranslation = useCallback((newText: string) => {
     if (rawTextRef.current && docRef.current) {
