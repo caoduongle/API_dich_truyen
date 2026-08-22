@@ -322,7 +322,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
                 {/* Client ID field */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-text-main flex items-center gap-1">
+                    <label htmlFor="google-oauth-client-id" className="text-[11px] font-bold text-text-main flex items-center gap-1">
                       <span>OAuth Client ID</span>
                       {isCustomClientId && (
                         <span className="text-[9px] text-polish font-mono">(Tùy chỉnh)</span>
@@ -344,6 +344,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
                   <div className="flex items-center gap-1.5">
                     <div className="flex-1 flex items-center gap-1.5 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 bg-ink">
                       <input
+                        id="google-oauth-client-id"
                         type={revealClientId ? 'text' : 'password'}
                         value={clientIdInput}
                         onChange={(e) => setClientIdInput(e.target.value)}
@@ -368,7 +369,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
                 {/* Picker API Key field */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-text-main flex items-center gap-1">
+                    <label htmlFor="google-picker-api-key" className="text-[11px] font-bold text-text-main flex items-center gap-1">
                       <span>Picker API Key</span>
                       {isCustomPickerKey && (
                         <span className="text-[9px] text-polish font-mono">(Tùy chỉnh)</span>
@@ -390,6 +391,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
                   <div className="flex items-center gap-1.5">
                     <div className="flex-1 flex items-center gap-1.5 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 bg-ink">
                       <input
+                        id="google-picker-api-key"
                         type={revealPickerKey ? 'text' : 'password'}
                         value={pickerKeyInput}
                         onChange={(e) => setPickerKeyInput(e.target.value)}

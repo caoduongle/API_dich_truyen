@@ -15,7 +15,13 @@ function createTestApp(isProduction: boolean) {
               styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
               fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
               imgSrc: ["'self'", "data:", "blob:"],
-              connectSrc: ["'self'"],
+              connectSrc: [
+                "'self'",
+                "ws:",
+                "wss:",
+                "https://oauth2.googleapis.com",
+                "https://www.googleapis.com",
+              ],
               objectSrc: ["'none'"],
               baseUri: ["'self'"],
               formAction: ["'self'"],
@@ -59,7 +65,7 @@ describe("Security Headers & CSP Configuration", () => {
       expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
       expect(csp).toContain("font-src 'self' https://fonts.gstatic.com data:");
       expect(csp).toContain("img-src 'self' data: blob:");
-      expect(csp).toContain("connect-src 'self'");
+      expect(csp).toContain("connect-src 'self' ws: wss: https://oauth2.googleapis.com https://www.googleapis.com");
       expect(csp).toContain("object-src 'none'");
       expect(csp).toContain("base-uri 'self'");
       expect(csp).toContain("form-action 'self'");
