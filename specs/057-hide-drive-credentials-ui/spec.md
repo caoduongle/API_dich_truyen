@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-22
 
-**Status**: Draft
+**Status**: Ready
 
 **Input**: User description: "Modal 'Đồng Bộ & Cộng Tác Google Drive' (src/components/google-sync/GoogleSyncModal.tsx) hiện hiển thị trực tiếp giá trị mặc định của Google OAuth Client ID và Google Picker API Key kèm nút 'Thay đổi' cho phép sửa trực tiếp trong UI chính. Yêu cầu: Không hiển thị chuỗi ký tự mặc định; hiển thị trạng thái 'Đã cấu hình sẵn'; ô nhập khi sửa dùng type='password' hoặc che ký tự kèm toggle ẩn/hiện tương tự ApiSettings.tsx; giữ nguyên 100% logic OAuth PKCE và Picker."
 

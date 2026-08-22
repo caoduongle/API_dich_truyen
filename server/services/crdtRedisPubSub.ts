@@ -49,24 +49,47 @@ export async function setupCrdtRedisPubSub(): Promise<void> {
 
   try {
     pubClient = mainClient;
-    subClient = mainClient.duplicate();
 
-    await subClient.psubscribe(`${CHANNEL_PREFIX}*`);
+    // Bật enableOfflineQueue riêng cho subscriber client để tự động buffer lệnh psubscribe khi đang kết nối TCP
+    subClient = mainClient.duplicate({
+      enableOfflineQueue: true,
+      maxRetriesPerRequest: null,
+    });
 
+    // Lắng nghe lỗi trên subClient để tránh EventEmitter uncaughtException
+    subClient.on('error', (err) => {
+      console.warn('[CrdtRedisPubSub] Redis Sub client error:', err?.message || err);
+    });
+
+    // Tự động đăng ký lại channel khi subClient kết nối thành công hoặc reconnect
+    subClient.on('ready', async () => {
+      try {
+        await subClient?.psubscribe(`${CHANNEL_PREFIX}*`);
+        console.log(`[CrdtRedisPubSub] Sub client sẵn sàng, đã đăng ký channel ${CHANNEL_PREFIX}*`);
+      } catch (err: any) {
+        console.warn('[CrdtRedisPubSub] Lỗi khi psubscribe trong event ready:', err?.message || err);
+      }
+    });
+
+    // Đăng ký xử lý nhận tin nhắn CRDT từ Redis channel
     subClient.on('pmessage', (_pattern: string, channel: string, message: string) => {
       const { instanceId, data } = deserializeRedisPayload(message);
 
-      // Bỏ qua tin nhắn do chính instance này gửi đi để tránh echo loop
+      // Bỏ qua tin nhắn do chính instance này phát đi
       if (instanceId === INSTANCE_ID || data.length === 0) {
         return;
       }
 
       const roomId = parseRedisChannel(channel);
-      // Chuyển tiếp tới các client cục bộ trên instance này
       broadcastToRoom(roomId, data);
     });
 
-    // Đăng ký hook gửi tin nhắn từ WebSocket Relay sang Redis
+    // Nếu subClient đã ở trạng thái ready từ trước, thực hiện psubscribe ngay
+    if (subClient.status === 'ready') {
+      await subClient.psubscribe(`${CHANNEL_PREFIX}*`);
+    }
+
+    // Gắn hook phát tin từ WebSocket Relay sang Redis
     setRedisPublisherHook((roomId: string, message: Buffer) => {
       if (pubClient && pubClient.status === 'ready') {
         const channel = formatRedisChannel(roomId);
@@ -88,7 +111,11 @@ export async function cleanupCrdtRedisPubSub(): Promise<void> {
     try {
       await subClient.punsubscribe(`${CHANNEL_PREFIX}*`);
       await subClient.quit();
-    } catch (e) {}
+    } catch (e) {
+      try {
+        subClient.disconnect();
+      } catch {}
+    }
     subClient = null;
   }
 }
