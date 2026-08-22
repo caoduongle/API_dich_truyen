@@ -1,5 +1,4 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { motion, type Variants } from 'motion/react';
 import { StoryProject, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
@@ -15,7 +14,7 @@ import {
   Folder, Upload, BookOpenText
 } from 'lucide-react';
 
-interface ProjectListProps {
+export interface ProjectListProps {
   projects: StoryProject[];
   activeProjectId: string;
   onSelectProject: (id: string) => void;
@@ -27,14 +26,19 @@ interface ProjectListProps {
   isLoading?: boolean;
 }
 
-const CARD_ENTRANCE: Variants = {
-  hidden: { opacity: 0, y: 10 },
-  show: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: Math.min(i, 8) * 0.04, duration: 0.25, ease: 'easeOut' },
-  }),
-};
+export function calculateProjectProgressMap(projects: StoryProject[]) {
+  const map = new Map<string, { total: number; done: number; pct: number }>();
+  projects.forEach((proj) => {
+    const total = proj.chapters.length;
+    if (total === 0) {
+      map.set(proj.id, { total: 0, done: 0, pct: 0 });
+    } else {
+      const done = proj.chapters.filter((c) => c.status === 'completed').length;
+      map.set(proj.id, { total, done, pct: Math.round((done / total) * 100) });
+    }
+  });
+  return map;
+}
 
 export default function ProjectList({
   projects,
@@ -57,17 +61,7 @@ export default function ProjectList({
 
   // Memoize project completion progress calculations
   const projectProgressMap = useMemo(() => {
-    const map = new Map<string, { total: number; done: number; pct: number }>();
-    projects.forEach((proj) => {
-      const total = proj.chapters.length;
-      if (total === 0) {
-        map.set(proj.id, { total: 0, done: 0, pct: 0 });
-      } else {
-        const done = proj.chapters.filter((c) => c.status === 'completed').length;
-        map.set(proj.id, { total, done, pct: Math.round((done / total) * 100) });
-      }
-    });
-    return map;
+    return calculateProjectProgressMap(projects);
   }, [projects]);
 
   // Export project to disk as JSON
@@ -296,36 +290,29 @@ export default function ProjectList({
           />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.map((proj, i) => {
+            {projects.map((proj) => {
               const isActive = proj.id === activeProjectId;
               const progress = projectProgressMap.get(proj.id);
 
               return (
-                <motion.div
+                <ProjectCard
                   key={proj.id}
-                  custom={i}
-                  initial="hidden"
-                  animate="show"
-                  variants={CARD_ENTRANCE}
-                >
-                  <ProjectCard
-                    proj={proj}
-                    isActive={isActive}
-                    onSelect={onSelectProject}
-                    onEdit={handleStartEditProject}
-                    onDelete={onDeleteProject}
-                    onShare={(e, p) => {
-                      e.stopPropagation();
-                      setSharingProject(p);
-                    }}
-                    onExportJson={handleExportProjectJson}
-                    onExportText={handleExportText}
-                    onExportEpub={handleExportEpub}
-                    isExportingEpub={isExportingEpub === proj.id}
-                    canDelete={projects.length > 1}
-                    progress={progress}
-                  />
-                </motion.div>
+                  proj={proj}
+                  isActive={isActive}
+                  onSelect={onSelectProject}
+                  onEdit={handleStartEditProject}
+                  onDelete={onDeleteProject}
+                  onShare={(e, p) => {
+                    e.stopPropagation();
+                    setSharingProject(p);
+                  }}
+                  onExportJson={handleExportProjectJson}
+                  onExportText={handleExportText}
+                  onExportEpub={handleExportEpub}
+                  isExportingEpub={isExportingEpub === proj.id}
+                  canDelete={projects.length > 1}
+                  progress={progress}
+                />
               );
             })}
           </div>
