@@ -1,34 +1,27 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Languages, ChevronDown, Check } from 'lucide-react';
 import { useTranslation } from '../../i18n/I18nContext';
 import { SupportedLocale } from '../../i18n/types';
+import { useDropdownPosition } from '../../hooks/useDropdownPosition';
 
 export function LanguageSelector() {
   const { locale, setLocale, supportedLocales } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const { triggerRef, menuRef, coords } = useDropdownPosition<HTMLButtonElement>({
+    isOpen,
+    onClose: () => setIsOpen(false),
+    offsetY: 4,
+  });
 
   const currentLocale =
     supportedLocales.find((l) => l.code === locale) || supportedLocales[0];
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
-
   return (
-    <div className="relative inline-block text-left" ref={dropdownRef}>
+    <div className="relative inline-block text-left">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         aria-haspopup="listbox"
@@ -42,36 +35,45 @@ export function LanguageSelector() {
         <ChevronDown className="w-3 h-3 text-text-muted" />
       </button>
 
-      {isOpen && (
-        <div
-          role="listbox"
-          aria-label="Danh sách ngôn ngữ"
-          className="absolute right-0 mt-1 w-36 bg-parchment border border-parchment-2 rounded-[2px] shadow-xl z-40 py-1 animate-fadeIn"
-        >
-          {supportedLocales.map((loc) => (
-            <button
-              key={loc.code}
-              role="option"
-              aria-selected={locale === loc.code}
-              onClick={() => {
-                setLocale(loc.code as SupportedLocale);
-                setIsOpen(false);
-              }}
-              className={`w-full flex items-center justify-between px-3 py-2 text-xs transition-colors cursor-pointer ${
-                locale === loc.code
-                  ? 'bg-ink text-polish font-bold'
-                  : 'text-text-muted hover:text-text-main hover:bg-parchment-2'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <span>{loc.flag}</span>
-                <span>{loc.nativeName}</span>
-              </span>
-              {locale === loc.code && <Check className="w-3.5 h-3.5 text-polish" />}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Popover Listbox: Render via Portal to document.body to escape header stacking context */}
+      {isOpen && coords && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-label="Danh sách ngôn ngữ"
+            style={{
+              position: 'fixed',
+              top: `${coords.top}px`,
+              right: `${coords.right}px`,
+            }}
+            className="w-36 bg-parchment border border-parchment-2 rounded-[2px] shadow-xl z-40 py-1 animate-fadeIn"
+          >
+            {supportedLocales.map((loc) => (
+              <button
+                key={loc.code}
+                role="option"
+                aria-selected={locale === loc.code}
+                onClick={() => {
+                  setLocale(loc.code as SupportedLocale);
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 text-xs transition-colors cursor-pointer ${
+                  locale === loc.code
+                    ? 'bg-ink text-polish font-bold'
+                    : 'text-text-muted hover:text-text-main hover:bg-parchment-2'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span>{loc.flag}</span>
+                  <span>{loc.nativeName}</span>
+                </span>
+                {locale === loc.code && <Check className="w-3.5 h-3.5 text-polish" />}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
