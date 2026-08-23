@@ -32,6 +32,11 @@ import {
   sanitizeChapterTitleSlug,
 } from './google-drive/driveGranularSync';
 
+import {
+  DriveBundleSync,
+  driveBundleSync,
+} from './google-drive/driveBundleSync';
+
 export {
   DRIVE_FILES_ENDPOINT,
   DRIVE_UPLOAD_ENDPOINT,
@@ -47,12 +52,15 @@ export {
   DriveRestClient,
   DriveProjectSync,
   DriveGranularSync,
+  DriveBundleSync,
+  driveBundleSync,
 };
 
 export class GoogleDriveSyncService {
   private client = new DriveRestClient();
   private projectSync = new DriveProjectSync();
   private granularSync = new DriveGranularSync();
+  private bundleSync = new DriveBundleSync();
 
   public async ensureAppFolder(accessToken: string): Promise<string> {
     return this.client.ensureAppFolder(accessToken);
@@ -135,7 +143,6 @@ export class GoogleDriveSyncService {
     return this.syncGranularProject(accessToken, projectId, driveFolderId, onProgress, selectedFiles);
   }
 
-
   public async importProjectFromSharedFolder(
     accessToken: string,
     sharedFolderId: string,
@@ -151,6 +158,46 @@ export class GoogleDriveSyncService {
     );
   }
 
+  // --- Single Bundle Sync Methods ---
+
+  public async pushProjectBundle(
+    accessToken: string,
+    projectId: string,
+    onProgress?: (progress: SyncProgress) => void
+  ): Promise<{ fileId: string; uploadedAt: string }> {
+    return this.bundleSync.pushBundle(this.client, accessToken, projectId, onProgress);
+  }
+
+  public async pullProjectBundle(
+    accessToken: string,
+    projectId: string,
+    driveFileId: string,
+    onProgress?: (progress: SyncProgress) => void
+  ): Promise<{
+    success: boolean;
+    mergedChaptersCount: number;
+    newChaptersCount: number;
+    error?: string;
+  }> {
+    return this.bundleSync.pullBundle(this.client, accessToken, projectId, driveFileId, onProgress);
+  }
+
+  public async importProjectFromBundle(
+    accessToken: string,
+    driveFileId: string,
+    onProgress?: (progress: SyncProgress) => void
+  ): Promise<StoryProject> {
+    return this.bundleSync.importBundle(this.client, accessToken, driveFileId, onProgress);
+  }
+
+  public async migrateOwnerProjectToBundle(
+    accessToken: string,
+    projectId: string,
+    onProgress?: (progress: SyncProgress) => void
+  ): Promise<string> {
+    return this.bundleSync.migrateOwnerProjectToBundle(this.client, accessToken, projectId, onProgress);
+  }
+
   public async pushAllToDrive(
     accessToken: string,
     onProgress?: (progress: SyncProgress) => void
@@ -159,7 +206,8 @@ export class GoogleDriveSyncService {
       this.client,
       accessToken,
       onProgress,
-      (token, prjId, fId) => this.syncGranularProject(token, prjId, fId)
+      (token, prjId, fId) => this.syncGranularProject(token, prjId, fId),
+      (token, prjId) => this.pushProjectBundle(token, prjId)
     );
   }
 
@@ -171,7 +219,8 @@ export class GoogleDriveSyncService {
       this.client,
       accessToken,
       onProgress,
-      (token, fId) => this.importProjectFromSharedFolder(token, fId)
+      (token, fId) => this.importProjectFromSharedFolder(token, fId),
+      (token, fId) => this.importProjectFromBundle(token, fId)
     );
   }
 
@@ -189,7 +238,9 @@ export class GoogleDriveSyncService {
       this.client,
       accessToken,
       onProgress,
-      (token, prjId, fId) => this.syncGranularProject(token, prjId, fId)
+      (token, prjId, fId) => this.syncGranularProject(token, prjId, fId),
+      (token, prjId, fId) => this.pullProjectBundle(token, prjId, fId),
+      (token, prjId) => this.pushProjectBundle(token, prjId)
     );
   }
 }

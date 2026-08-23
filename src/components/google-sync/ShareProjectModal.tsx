@@ -7,17 +7,13 @@ import {
   FolderLock,
   Mail,
   Loader2,
-  CheckCircle2,
   Users,
-  FolderSync,
-  RefreshCw,
 } from 'lucide-react';
 import { StoryProject } from '../../types';
 import { CollaboratorPermission, SyncProgress } from '../../types/googleDriveSync';
 import { googleAuthService } from '../../services/googleAuthService';
 import { googleDriveSyncService } from '../../services/googleDriveSyncService';
 import { googleDrivePermissionsService } from '../../services/googleDrivePermissionsService';
-import { googlePickerService } from '../../services/googlePickerService';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -43,8 +39,6 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
   const [isLoadingList, setIsLoadingList] = useState<boolean>(false);
   const [isMigrating, setIsMigrating] = useState<boolean>(false);
   const [isSharing, setIsSharing] = useState<boolean>(false);
-  const [isSyncingNewFiles, setIsSyncingNewFiles] = useState<boolean>(false);
-  const [syncNewFilesProgress, setSyncNewFilesProgress] = useState<SyncProgress | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [migrationProgress, setMigrationProgress] = useState<SyncProgress | null>(null);
 
@@ -169,66 +163,6 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
     }
   };
 
-  const handleSyncNewFiles = async () => {
-    if (!project?.driveFolderId) return;
-    const token = googleAuthService.getValidAccessToken();
-    if (!token) {
-      showToast({ message: 'Vui lòng đăng nhập Google trước khi đồng bộ tệp.', type: 'warning' });
-      return;
-    }
-
-    try {
-      setIsSyncingNewFiles(true);
-      await googlePickerService.openFilePicker({
-        accessToken: token,
-        folderId: project.driveFolderId,
-        title: `Chọn các tệp để cấp quyền & tải về cho "${project.title}"`,
-        onFilesSelected: async (selectedFiles) => {
-          try {
-            const res = await googleDriveSyncService.syncGranularProjectFiles(
-              token,
-              project.id,
-              project.driveFolderId!,
-              setSyncNewFilesProgress,
-              selectedFiles
-            );
-
-            const updated = await getProjectFromDB(project.id);
-            if (updated) {
-              onProjectUpdated?.(updated);
-            }
-
-            if (res.success) {
-              if (res.failedPullCount > 0) {
-                showToast({
-                  message: `Đã đồng bộ ${res.downloadedChapters + res.uploadedChapters} chương. Còn ${res.failedPullCount} chương chưa chọn đủ file.`,
-                  type: 'warning',
-                });
-              } else {
-                showToast({
-                  message: `Đồng bộ file mới thành công! (Tải về: ${res.downloadedChapters}, Tải lên: ${res.uploadedChapters})`,
-                  type: 'success',
-                });
-              }
-            } else {
-              showToast({ message: res.error || 'Lỗi đồng bộ tệp chương.', type: 'error' });
-            }
-          } catch (syncErr: any) {
-            showToast({ message: syncErr.message || 'Lỗi đồng bộ tệp.', type: 'error' });
-          } finally {
-            setIsSyncingNewFiles(false);
-          }
-        },
-        onCancel: () => {
-          setIsSyncingNewFiles(false);
-        },
-      });
-    } catch (pickerErr: any) {
-      setIsSyncingNewFiles(false);
-      showToast({ message: pickerErr.message || 'Lỗi mở Google Picker.', type: 'error' });
-    }
-  };
-
   if (!project) return null;
 
   return (
@@ -260,7 +194,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
             Cơ chế chia sẻ riêng biệt & an toàn:
           </div>
           <p>
-            • Dự án được lưu trong một thư mục riêng <code>AI_Dich_Truyen_Data/{project.id}/</code>.
+            • Dự án được lưu trong một thư mục riêng <code>AI_Dich_Truyen_Data/{project.id}/</code> hoặc gói 1-file.
           </p>
           <p>
             • Người được mời chỉ có quyền truy cập đúng truyện này, không thấy các dự án khác trong Drive của bạn.
@@ -313,48 +247,6 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
         ) : (
           /* Trạng thái 2: Đã là thư mục riêng, quản lý cộng tác viên */
           <div className="space-y-4">
-            {/* Card Đồng bộ file mới (Cấp quyền tăng dần) */}
-            <div className="border border-parchment-2 rounded-[2px] p-3.5 bg-ink/5 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
-                  <FolderSync className="w-3.5 h-3.5 text-gold" />
-                  Đồng bộ file mới từ Google Drive
-                </span>
-                <Badge tone="neutral">drive.file</Badge>
-              </div>
-              <p className="text-[11px] text-text-muted leading-relaxed">
-                Khi có chương mới được tải lên Google Drive, bấm nút dưới đây để cấp quyền và kéo các chương mới về máy tính.
-              </p>
-
-              {syncNewFilesProgress && (
-                <div className="space-y-1 pt-1">
-                  <div className="flex justify-between text-[10px] text-text-muted">
-                    <span>{syncNewFilesProgress.message}</span>
-                    <span>{syncNewFilesProgress.progressPercent}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-ink/20 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gold transition-all duration-300"
-                      style={{ width: `${syncNewFilesProgress.progressPercent}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-1">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleSyncNewFiles}
-                  disabled={isSyncingNewFiles}
-                  icon={isSyncingNewFiles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderSync className="w-3.5 h-3.5 text-gold" />}
-                  className="w-full justify-center"
-                >
-                  {isSyncingNewFiles ? 'Đang mở Google Picker / Đồng bộ...' : 'Đồng bộ file mới (Google Picker)'}
-                </Button>
-              </div>
-            </div>
-
             {/* Form mời cộng tác viên */}
             <form onSubmit={handleAddCollaborator} className="border border-parchment-2 rounded-[2px] p-3.5 bg-ink/5 space-y-3">
               <label className="text-xs font-bold text-text-main flex items-center gap-1.5">

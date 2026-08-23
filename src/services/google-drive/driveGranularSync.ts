@@ -376,7 +376,7 @@ export class DriveGranularSync {
 
       const statusMsg =
         failedPullCount > 0
-          ? `Đã đồng bộ ${uploadedChapters + downloadedChapters} chương (còn ${failedPullCount} chương mới cần bấm "Đồng bộ file mới")`
+          ? `Đã đồng bộ ${uploadedChapters + downloadedChapters} chương (có ${failedPullCount} chương tải lỗi)`
           : `Đồng bộ chương hoàn tất! (Tải lên: ${uploadedChapters}, Tải về: ${downloadedChapters})`;
 
       onProgress?.({

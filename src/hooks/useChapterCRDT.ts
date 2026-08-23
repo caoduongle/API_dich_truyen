@@ -8,9 +8,10 @@ import {
   createChapterYDoc,
   applyTextDiff,
   readChapterFromYDoc,
+  exportDocUpdate,
 } from '../services/crdtDocManager';
 import { googleAuthService } from '../services/googleAuthService';
-import { saveChapterToDB } from '../services/db';
+import { saveChapterToDB, saveCrdtState } from '../services/db';
 
 export interface UseChapterCRDTOptions {
   projectId: string;
@@ -74,6 +75,7 @@ export function useChapterCRDT({
         try {
           const snapshot = readChapterFromYDoc(doc, chapId);
           if (snapshot.id && (snapshot.rawTranslation || snapshot.polishedTranslation)) {
+            const updatedAt = snapshot.updatedAt || new Date().toISOString();
             await saveChapterToDB({
               id: chapId,
               projectId,
@@ -85,7 +87,15 @@ export function useChapterCRDT({
               paragraphs: snapshot.paragraphs || [],
               translatedLines: snapshot.translatedLines || [],
               createdAt: snapshot.createdAt || new Date().toISOString(),
-              updatedAt: snapshot.updatedAt || new Date().toISOString(),
+              updatedAt,
+            });
+
+            // Đồng thời lưu binary CRDT state để bảo tồn lineage lịch sử chỉnh sửa
+            await saveCrdtState({
+              chapterId: chapId,
+              projectId,
+              state: exportDocUpdate(doc),
+              updatedAt,
             });
           }
         } catch (err) {

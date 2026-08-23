@@ -1,4 +1,4 @@
-import { OpenFilePickerOptions, SelectedDriveFile } from '../types/googleDriveSync';
+import { OpenFilePickerOptions, OpenBundlePickerOptions, SelectedDriveFile } from '../types/googleDriveSync';
 
 declare const gapi: any;
 declare const google: any;
@@ -185,6 +185,12 @@ class GooglePickerService {
         }
       });
 
+    if (typeof window !== 'undefined') {
+      const width = Math.min(1051, Math.round(window.innerWidth * 0.9));
+      const height = Math.min(650, Math.round(window.innerHeight * 0.9));
+      builder.setSize(width, height);
+    }
+
     if (typeof window !== 'undefined' && window.location.origin) {
       builder.setOrigin(window.location.origin);
     }
@@ -251,6 +257,82 @@ class GooglePickerService {
           onCancel?.();
         }
       });
+
+    if (typeof window !== 'undefined') {
+      const width = Math.min(1051, Math.round(window.innerWidth * 0.9));
+      const height = Math.min(650, Math.round(window.innerHeight * 0.9));
+      builder.setSize(width, height);
+    }
+
+    if (typeof window !== 'undefined' && window.location.origin) {
+      builder.setOrigin(window.location.origin);
+    }
+
+    const picker = builder.build();
+
+    picker.setVisible(true);
+  }
+
+  /**
+   * Mở cửa sổ Google Picker chọn duy nhất 1 file bundle dự án (project_bundle.json).
+   * Cấp quyền drive.file vĩnh viễn cho fileId của dự án.
+   */
+  public async openBundlePicker(options: OpenBundlePickerOptions): Promise<void> {
+    const { accessToken, onFileSelected, onCancel, title } = options;
+    const apiKey = (options.pickerApiKey || this.getPickerApiKey()).trim();
+
+    if (!apiKey) {
+      throw new Error(
+        'Chưa cấu hình Google Picker API Key. Vui lòng nhập API Key trong phần Cài đặt Đồng bộ.'
+      );
+    }
+
+    const appId = this.getAppId().trim();
+    if (!appId) {
+      throw new Error(
+        'Chưa cấu hình Google Cloud App ID (Project Number). Vui lòng nhập Project Number trong phần Cài đặt Đồng bộ.'
+      );
+    }
+
+    await this.ensurePickerLoaded();
+
+    if (typeof google === 'undefined' || !google.picker) {
+      throw new Error('Google Picker API chưa sẵn sàng. Vui lòng thử lại.');
+    }
+
+    // Tạo view DocsView lọc MIME type application/json
+    const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setMimeTypes('application/json')
+      .setIncludeFolders(false)
+      .setSelectFolderEnabled(false);
+
+    const builder = new google.picker.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(apiKey)
+      .setAppId(appId)
+      .setTitle(title || 'Chọn tệp gói dự án được chia sẻ (AI Dịch Truyện)')
+      .setCallback((data: any) => {
+        if (data.action === google.picker.Action.PICKED) {
+          const docs = data[google.picker.Response.DOCS] || data.docs || [];
+          const doc = docs && docs[0];
+          if (doc && doc.id) {
+            onFileSelected({
+              id: doc.id,
+              name: doc.name || 'project_bundle.json',
+              mimeType: doc.mimeType || 'application/json',
+            });
+          }
+        } else if (data.action === google.picker.Action.CANCEL) {
+          onCancel?.();
+        }
+      });
+
+    if (typeof window !== 'undefined') {
+      const width = Math.min(1051, Math.round(window.innerWidth * 0.9));
+      const height = Math.min(650, Math.round(window.innerHeight * 0.9));
+      builder.setSize(width, height);
+    }
 
     if (typeof window !== 'undefined' && window.location.origin) {
       builder.setOrigin(window.location.origin);

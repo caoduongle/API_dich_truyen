@@ -80,7 +80,8 @@ export interface StoryProject {
     createdAt: string;
     updatedAt?: string;
     driveFolderId?: string;
-    driveStorageFormat?: 'monolithic' | 'granular';
+    driveFileId?: string;
+    driveStorageFormat?: 'monolithic' | 'granular' | 'bundle';
     isShared?: boolean;
     isOwner?: boolean;
     collaborators?: Array<{

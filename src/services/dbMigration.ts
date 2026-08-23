@@ -2,6 +2,7 @@ import { StoryProject, Chapter, ChapterMetadata } from '../types';
 
 export const PROJECTS_STORE = 'projects';
 export const CHAPTERS_STORE = 'chapters';
+export const CRDT_STATES_STORE = 'crdt_states';
 
 /**
  * Xử lý nâng cấp schema IndexedDB qua các phiên bản (onupgradeneeded)
@@ -18,17 +19,37 @@ export function handleDBUpgrade(
   }
 
   // Schema v2 -> v3: Khởi tạo store chapters riêng biệt & index projectId
-  let chaptersStore: IDBObjectStore;
+  let chaptersStore: IDBObjectStore | null = null;
   if (!db.objectStoreNames.contains(CHAPTERS_STORE)) {
     chaptersStore = db.createObjectStore(CHAPTERS_STORE, { keyPath: 'id' });
   } else if (transaction) {
     chaptersStore = transaction.objectStore(CHAPTERS_STORE);
-  } else {
-    return;
   }
 
-  if (!chaptersStore.indexNames.contains('projectId')) {
-    chaptersStore.createIndex('projectId', 'projectId', { unique: false });
+  if (chaptersStore) {
+    const hasIndex = chaptersStore.indexNames && typeof chaptersStore.indexNames.contains === 'function'
+      ? chaptersStore.indexNames.contains('projectId')
+      : false;
+    if (!hasIndex && typeof chaptersStore.createIndex === 'function') {
+      chaptersStore.createIndex('projectId', 'projectId', { unique: false });
+    }
+  }
+
+  // Schema v3 -> v4: Khởi tạo store crdt_states riêng biệt & index projectId
+  let crdtStore: IDBObjectStore | null = null;
+  if (!db.objectStoreNames.contains(CRDT_STATES_STORE)) {
+    crdtStore = db.createObjectStore(CRDT_STATES_STORE, { keyPath: 'chapterId' });
+  } else if (transaction) {
+    crdtStore = transaction.objectStore(CRDT_STATES_STORE);
+  }
+
+  if (crdtStore) {
+    const hasIndex = crdtStore.indexNames && typeof crdtStore.indexNames.contains === 'function'
+      ? crdtStore.indexNames.contains('projectId')
+      : false;
+    if (!hasIndex && typeof crdtStore.createIndex === 'function') {
+      crdtStore.createIndex('projectId', 'projectId', { unique: false });
+    }
   }
 }
 

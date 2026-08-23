@@ -54,7 +54,8 @@ export class DriveProjectSync {
     client: DriveRestClient,
     accessToken: string,
     onProgress?: (progress: SyncProgress) => void,
-    onSyncGranularProject?: (accessToken: string, projectId: string, driveFolderId: string) => Promise<any>
+    onSyncGranularProject?: (accessToken: string, projectId: string, driveFolderId: string) => Promise<any>,
+    onPushBundle?: (accessToken: string, projectId: string) => Promise<any>
   ): Promise<{ success: boolean; syncedProjects: number; error?: string }> {
     try {
       onProgress?.({
@@ -88,7 +89,23 @@ export class DriveProjectSync {
           progressPercent: percent,
         });
 
-        // Nếu dự án đã được chuyển sang định dạng granular chia sẻ riêng, đồng bộ theo subfolder
+        // 1. Định dạng gói đơn 1-file bundle
+        if (project.driveStorageFormat === 'bundle' && onPushBundle) {
+          const res = await onPushBundle(accessToken, project.id);
+          summaries.push({
+            id: project.id,
+            title: project.title,
+            updatedAt: project.updatedAt || new Date().toISOString(),
+            chapterCount: project.chapters?.length || 0,
+            glossaryCount: project.glossary?.length || 0,
+            driveFileId: res?.fileId || project.driveFileId,
+            storageFormat: 'bundle',
+            isShared: project.isShared || false,
+          });
+          continue;
+        }
+
+        // 2. Nếu dự án đã được chuyển sang định dạng granular chia sẻ riêng, đồng bộ theo subfolder
         if (project.driveStorageFormat === 'granular' && project.driveFolderId && onSyncGranularProject) {
           await onSyncGranularProject(accessToken, project.id, project.driveFolderId);
           summaries.push({
@@ -104,7 +121,7 @@ export class DriveProjectSync {
           continue;
         }
 
-        // Định dạng gộp monolithic cá nhân
+        // 3. Định dạng gộp monolithic cá nhân
         const chapters = await getChaptersByProjectFromDB(project.id);
         const { projectJson, chaptersJson } = serializeProjectForDrive(project, chapters);
 
@@ -177,7 +194,8 @@ export class DriveProjectSync {
     client: DriveRestClient,
     accessToken: string,
     onProgress?: (progress: SyncProgress) => void,
-    onImportFromSharedFolder?: (accessToken: string, sharedFolderId: string) => Promise<any>
+    onImportFromSharedFolder?: (accessToken: string, sharedFolderId: string) => Promise<any>,
+    onImportBundle?: (accessToken: string, driveFileId: string) => Promise<any>
   ): Promise<{ success: boolean; restoredProjects: number; error?: string }> {
     try {
       onProgress?.({
@@ -209,11 +227,19 @@ export class DriveProjectSync {
           progressPercent: percent,
         });
 
+        // 1. Khôi phục định dạng bundle 1-file
+        if (summary.storageFormat === 'bundle' && (summary.driveFileId || summary.projectFileId) && onImportBundle) {
+          await onImportBundle(accessToken, summary.driveFileId || summary.projectFileId!);
+          continue;
+        }
+
+        // 2. Khôi phục định dạng granular thư mục chia sẻ
         if (summary.storageFormat === 'granular' && summary.driveFolderId && onImportFromSharedFolder) {
           await onImportFromSharedFolder(accessToken, summary.driveFolderId);
           continue;
         }
 
+        // 3. Khôi phục định dạng monolithic
         if (summary.projectFileId) {
           const projectData = await client.downloadJsonFile<StoryProject>(
             accessToken,
@@ -261,7 +287,9 @@ export class DriveProjectSync {
     client: DriveRestClient,
     accessToken: string,
     onProgress?: (progress: SyncProgress) => void,
-    onSyncGranularProject?: (accessToken: string, projectId: string, driveFolderId: string) => Promise<any>
+    onSyncGranularProject?: (accessToken: string, projectId: string, driveFolderId: string) => Promise<any>,
+    onPullBundle?: (accessToken: string, projectId: string, driveFileId: string) => Promise<any>,
+    onPushBundle?: (accessToken: string, projectId: string) => Promise<any>
   ): Promise<{
     success: boolean;
     uploadedCount: number;
@@ -308,7 +336,40 @@ export class DriveProjectSync {
           progressPercent: percent,
         });
 
-        // Nếu dự án đã chuyển sang granular (chia sẻ riêng)
+        // 1. Nếu dự án ở định dạng bundle 1-file
+        const isBundleFormat =
+          local?.driveStorageFormat === 'bundle' || remote?.storageFormat === 'bundle';
+
+        if (isBundleFormat) {
+          const bundleFileId = local?.driveFileId || remote?.driveFileId || remote?.projectFileId;
+          const action = reconcileProjectTimestamps(local?.updatedAt, remote?.updatedAt);
+
+          if (action === 'push' && local && onPushBundle) {
+            const pushRes = await onPushBundle(accessToken, local.id);
+            const fileId = pushRes?.fileId || bundleFileId || '';
+            remoteMap.set(local.id, {
+              id: local.id,
+              title: local.title,
+              updatedAt: local.updatedAt || new Date().toISOString(),
+              chapterCount: local.chapters?.length || 0,
+              glossaryCount: local.glossary?.length || 0,
+              driveFileId: fileId,
+              storageFormat: 'bundle',
+              isShared: local.isShared || false,
+            });
+            uploadedCount += local.chapters?.length || 1;
+          } else if (action === 'pull' && bundleFileId && onPullBundle) {
+            const pullRes = await onPullBundle(accessToken, id, bundleFileId);
+            if (pullRes?.success) {
+              downloadedCount += (pullRes.mergedChaptersCount || 0) + (pullRes.newChaptersCount || 0);
+            } else {
+              failedPullCount++;
+            }
+          }
+          continue;
+        }
+
+        // 2. Nếu dự án đã chuyển sang granular (chia sẻ riêng theo folder)
         if (local?.driveStorageFormat === 'granular' && local.driveFolderId && onSyncGranularProject) {
           const granRes = await onSyncGranularProject(accessToken, local.id, local.driveFolderId);
           if (granRes) {
@@ -319,6 +380,7 @@ export class DriveProjectSync {
           continue;
         }
 
+        // 3. Định dạng monolithic thông thường
         const action = reconcileProjectTimestamps(local?.updatedAt, remote?.updatedAt);
 
         if (action === 'push' && local) {
@@ -387,7 +449,7 @@ export class DriveProjectSync {
 
       const statusMsg =
         failedPullCount > 0
-          ? `Đồng bộ hoàn tất! (Tải lên: ${uploadedCount}, Tải về: ${downloadedCount} — còn ${failedPullCount} chương mới cần bấm "Đồng bộ file mới")`
+          ? `Đồng bộ hoàn tất! (Tải lên: ${uploadedCount}, Tải về: ${downloadedCount} — có ${failedPullCount} mục chưa thể kéo về)`
           : `Đồng bộ hoàn tất! (Đã tải lên: ${uploadedCount}, Tải về: ${downloadedCount})`;
 
       onProgress?.({

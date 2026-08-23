@@ -1,13 +1,15 @@
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
+import { CrdtStateRecord } from '../types/googleDriveSync';
 import {
   PROJECTS_STORE,
   CHAPTERS_STORE,
+  CRDT_STATES_STORE,
   handleDBUpgrade,
   migrateLegacyProjects,
 } from './dbMigration';
 import { STORAGE_CONFIG } from '@shared/constants';
 
-export { PROJECTS_STORE, CHAPTERS_STORE };
+export { PROJECTS_STORE, CHAPTERS_STORE, CRDT_STATES_STORE };
 
 const { DB_NAME, DB_VERSION, NEAR_LIMIT_PERCENT, NEAR_LIMIT_MIN_BYTES } = STORAGE_CONFIG;
 
@@ -205,7 +207,16 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction([PROJECTS_STORE, CHAPTERS_STORE], 'readwrite');
+      const storesToLock = [PROJECTS_STORE, CHAPTERS_STORE];
+      const hasCrdtStore = Boolean(
+        db.objectStoreNames &&
+        typeof db.objectStoreNames.contains === 'function' &&
+        db.objectStoreNames.contains(CRDT_STATES_STORE)
+      );
+      if (hasCrdtStore) {
+        storesToLock.push(CRDT_STATES_STORE);
+      }
+      const transaction = db.transaction(storesToLock, 'readwrite');
       const projectsStore = transaction.objectStore(PROJECTS_STORE);
       const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
 
@@ -216,7 +227,7 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
       projectsStore.delete(id);
 
       // 2. Xóa tất cả các chapters của project
-      if (chaptersStore.indexNames.contains('projectId')) {
+      if (chaptersStore.indexNames && typeof chaptersStore.indexNames.contains === 'function' && chaptersStore.indexNames.contains('projectId')) {
         const index = chaptersStore.index('projectId');
         const cursorRequest = index.openKeyCursor(IDBKeyRange.only(id));
         cursorRequest.onerror = () => reject(cursorRequest.error);
@@ -227,7 +238,7 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
             cursor.continue();
           }
         };
-      } else {
+      } else if (typeof chaptersStore.openCursor === 'function') {
         const cursorRequest = chaptersStore.openCursor();
         cursorRequest.onerror = () => reject(cursorRequest.error);
         cursorRequest.onsuccess = (event) => {
@@ -239,6 +250,23 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
             cursor.continue();
           }
         };
+      }
+
+      // 3. Xóa CRDT states của project nếu có
+      if (hasCrdtStore) {
+        const crdtStore = transaction.objectStore(CRDT_STATES_STORE);
+        if (crdtStore.indexNames && typeof crdtStore.indexNames.contains === 'function' && crdtStore.indexNames.contains('projectId')) {
+          const index = crdtStore.index('projectId');
+          const cursorRequest = index.openKeyCursor(IDBKeyRange.only(id));
+          cursorRequest.onerror = () => reject(cursorRequest.error);
+          cursorRequest.onsuccess = (event) => {
+            const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+            if (cursor) {
+              crdtStore.delete(cursor.primaryKey);
+              cursor.continue();
+            }
+          };
+        }
       }
     });
   }, 3, 150, 'deleteProjectFromDB');
@@ -357,3 +385,99 @@ export const deleteChaptersByProjectFromDB = async (projectId: string): Promise<
     });
   }, 3, 150, 'deleteChaptersByProjectFromDB');
 };
+
+// ==============================================================================
+// CRDT STATE STORAGE HELPERS (IndexedDB crdt_states store)
+// ==============================================================================
+
+export const getCrdtState = async (chapterId: string): Promise<CrdtStateRecord | null> => {
+  try {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) {
+      return null;
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(CRDT_STATES_STORE, 'readonly');
+      const store = transaction.objectStore(CRDT_STATES_STORE);
+      const request = store.get(chapterId);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result || null);
+    });
+  } catch (err) {
+    console.error('IndexedDB Get CRDT State Error:', err);
+    return null;
+  }
+};
+
+export const saveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
+  return withRetry(async () => {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) return;
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(CRDT_STATES_STORE, 'readwrite');
+      const store = transaction.objectStore(CRDT_STATES_STORE);
+      const request = store.put(record);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }, 3, 100, 'saveCrdtState');
+};
+
+export const saveCrdtStates = async (records: CrdtStateRecord[]): Promise<void> => {
+  if (!records || records.length === 0) return;
+  return withRetry(async () => {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) return;
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(CRDT_STATES_STORE, 'readwrite');
+      const store = transaction.objectStore(CRDT_STATES_STORE);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => resolve();
+      for (const rec of records) {
+        store.put(rec);
+      }
+    });
+  }, 3, 150, 'saveCrdtStates');
+};
+
+export const deleteCrdtState = async (chapterId: string): Promise<void> => {
+  return withRetry(async () => {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) return;
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(CRDT_STATES_STORE, 'readwrite');
+      const store = transaction.objectStore(CRDT_STATES_STORE);
+      const request = store.delete(chapterId);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }, 3, 100, 'deleteCrdtState');
+};
+
+export const deleteCrdtStatesByProject = async (projectId: string): Promise<void> => {
+  return withRetry(async () => {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) return;
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(CRDT_STATES_STORE, 'readwrite');
+      const store = transaction.objectStore(CRDT_STATES_STORE);
+      if (!store.indexNames || typeof store.indexNames.contains !== 'function' || !store.indexNames.contains('projectId')) {
+        resolve();
+        return;
+      }
+      const index = store.index('projectId');
+      const request = index.openKeyCursor(IDBKeyRange.only(projectId));
+      request.onerror = () => reject(request.error);
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+        if (cursor) {
+          store.delete(cursor.primaryKey);
+          cursor.continue();
+        } else {
+          resolve();
+        }
+      };
+    });
+  }, 3, 150, 'deleteCrdtStatesByProject');
+};
+

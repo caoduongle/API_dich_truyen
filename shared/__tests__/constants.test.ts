@@ -35,6 +35,6 @@ describe('Shared Constants System', () => {
   it('defines valid storage config', () => {
     expect(STORAGE_CONFIG.NEAR_LIMIT_PERCENT).toBe(80);
     expect(STORAGE_CONFIG.DB_NAME).toBe('ai-story-translator-db');
-    expect(STORAGE_CONFIG.DB_VERSION).toBe(3);
+    expect(STORAGE_CONFIG.DB_VERSION).toBe(4);
   });
 });

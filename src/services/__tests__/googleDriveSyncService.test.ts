@@ -79,17 +79,22 @@ describe('googleDriveSyncService reconciliation & serialization', () => {
     expect(action).toBe('in_sync');
   });
 
-  it('exposes syncGranularProjectFiles and importProjectFromSharedFolder on googleDriveSyncService', async () => {
+  it('exposes bundle sync methods on googleDriveSyncService', async () => {
     const { googleDriveSyncService } = await import('../googleDriveSyncService');
     expect(typeof googleDriveSyncService.syncGranularProjectFiles).toBe('function');
     expect(typeof googleDriveSyncService.importProjectFromSharedFolder).toBe('function');
     expect(typeof googleDriveSyncService.syncGranularProject).toBe('function');
+    expect(typeof googleDriveSyncService.importProjectFromBundle).toBe('function');
+    expect(typeof googleDriveSyncService.pushProjectBundle).toBe('function');
+    expect(typeof googleDriveSyncService.pullProjectBundle).toBe('function');
+    expect(typeof googleDriveSyncService.migrateOwnerProjectToBundle).toBe('function');
   });
 
-  it('exposes openFolderPicker, openFilePicker, and App ID helpers on googlePickerService', async () => {
+  it('exposes openFolderPicker, openFilePicker, openBundlePicker, and App ID helpers on googlePickerService', async () => {
     const { googlePickerService } = await import('../googlePickerService');
     expect(typeof googlePickerService.openFolderPicker).toBe('function');
     expect(typeof googlePickerService.openFilePicker).toBe('function');
+    expect(typeof googlePickerService.openBundlePicker).toBe('function');
     expect(typeof googlePickerService.getPickerApiKey).toBe('function');
     expect(typeof googlePickerService.getAppId).toBe('function');
     expect(typeof googlePickerService.setAppId).toBe('function');
@@ -122,6 +127,13 @@ describe('googleDriveSyncService reconciliation & serialization', () => {
         accessToken: 'mock_token',
         folderId: 'folder_123',
         onFilesSelected: () => {},
+      })
+    ).rejects.toThrow('Chưa cấu hình Google Cloud App ID (Project Number)');
+
+    await expect(
+      googlePickerService.openBundlePicker({
+        accessToken: 'mock_token',
+        onFileSelected: () => {},
       })
     ).rejects.toThrow('Chưa cấu hình Google Cloud App ID (Project Number)');
   });

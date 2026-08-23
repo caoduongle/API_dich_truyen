@@ -1,4 +1,4 @@
-import { Chapter } from '../types';
+import { Chapter, GlossaryItem, PendingGlossaryItem, ChapterMetadata, StoryProject } from '../types';
 
 export type SyncStateStatus = 'idle' | 'syncing' | 'success' | 'error' | 'conflict' | 'offline';
 
@@ -11,7 +11,8 @@ export interface DriveProjectSummary {
   projectFileId?: string;
   chaptersFileId?: string;
   driveFolderId?: string;
-  storageFormat?: 'monolithic' | 'granular';
+  driveFileId?: string;
+  storageFormat?: 'monolithic' | 'granular' | 'bundle';
   isShared?: boolean;
 }
 
@@ -56,7 +57,6 @@ export interface ChapterManifestItem {
   fileName?: string;
 }
 
-
 export interface SharedProjectManifest {
   version: string;
   projectId: string;
@@ -89,6 +89,14 @@ export interface OpenFilePickerOptions {
   onCancel?: () => void;
 }
 
+export interface OpenBundlePickerOptions {
+  accessToken: string;
+  pickerApiKey?: string;
+  title?: string;
+  onFileSelected: (file: SelectedDriveFile) => void;
+  onCancel?: () => void;
+}
+
 export interface FailedChapterPull {
   id: string;
   title?: string;
@@ -102,5 +110,42 @@ export interface GranularProjectSyncSummary {
   failedPullCount: number;
   failedChapters: FailedChapterPull[];
   error?: string;
+}
+
+export interface BundleProjectData {
+  id: string;
+  title: string;
+  author: string;
+  genre: string;
+  tone: string;
+  description: string;
+  glossary: GlossaryItem[];
+  pendingGlossary: PendingGlossaryItem[];
+  chapters: ChapterMetadata[];
+  createdAt: string;
+  updatedAt?: string;
+  collaborators?: StoryProject['collaborators'];
+  translationQueueState?: StoryProject['translationQueueState'];
+  glossaryScanQueueState?: StoryProject['glossaryScanQueueState'];
+  ignoredDuplicatePairs?: string[];
+}
+
+export interface BundleChapterData extends Chapter {
+  crdtSnapshot?: string;
+  crdtStateVector?: string;
+}
+
+export interface ProjectBundle {
+  bundleVersion: number;
+  exportedAt: string;
+  project: BundleProjectData;
+  chapters: BundleChapterData[];
+}
+
+export interface CrdtStateRecord {
+  chapterId: string;
+  projectId: string;
+  state: Uint8Array;
+  updatedAt: string;
 }
 

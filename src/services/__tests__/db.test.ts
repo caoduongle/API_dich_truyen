@@ -82,6 +82,15 @@ describe('IndexedDB Services & Storage Estimation', () => {
         }),
       };
 
+      const mockCrdtStore = {
+        indexNames: {
+          contains: (name: string) => createdIndexes.has(`crdt_${name}`),
+        },
+        createIndex: vi.fn((name: string) => {
+          createdIndexes.add(`crdt_${name}`);
+        }),
+      };
+
       const mockDB: any = {
         objectStoreNames: {
           contains: (name: string) => createdStores.has(name),
@@ -89,15 +98,18 @@ describe('IndexedDB Services & Storage Estimation', () => {
         createObjectStore: vi.fn((name: string) => {
           createdStores.add(name);
           if (name === 'chapters') return mockChaptersStore;
+          if (name === 'crdt_states') return mockCrdtStore;
           return {};
         }),
       };
 
-      handleDBUpgrade(mockDB, 0, 3, null);
+      handleDBUpgrade(mockDB, 0, 4, null);
 
       expect(mockDB.createObjectStore).toHaveBeenCalledWith('projects', { keyPath: 'id' });
       expect(mockDB.createObjectStore).toHaveBeenCalledWith('chapters', { keyPath: 'id' });
+      expect(mockDB.createObjectStore).toHaveBeenCalledWith('crdt_states', { keyPath: 'chapterId' });
       expect(mockChaptersStore.createIndex).toHaveBeenCalledWith('projectId', 'projectId', { unique: false });
+      expect(mockCrdtStore.createIndex).toHaveBeenCalledWith('projectId', 'projectId', { unique: false });
     });
   });
 });

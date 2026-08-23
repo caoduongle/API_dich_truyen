@@ -73,5 +73,5 @@ export const STORAGE_CONFIG = {
   /** Tên cơ sở dữ liệu IndexedDB */
   DB_NAME: 'ai-story-translator-db',
   /** Phiên bản schema cơ sở dữ liệu IndexedDB hiện tại */
-  DB_VERSION: 3,
+  DB_VERSION: 4,
 } as const;
