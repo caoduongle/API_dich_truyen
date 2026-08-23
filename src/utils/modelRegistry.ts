@@ -7,7 +7,7 @@ export const CUSTOM_MODELS_STORAGE_KEY = 'gemini_custom_models';
 
 export type { ModelSource, ModelStatus, ModelVerificationState, ModelCapabilities, ModelLimits, ModelDefinition };
 
-export interface RegisteredModelDef extends ModelDefinition {}
+export interface RegisteredModelDef extends ModelDefinition { }
 
 export const MODEL_ID_REGEX = /^[a-zA-Z0-9_\-\.\/]{1,128}$/;
 
@@ -16,7 +16,7 @@ function getStorageItem(key: string): string | null {
     if (typeof localStorage !== 'undefined') {
       return localStorage.getItem(key);
     }
-  } catch {}
+  } catch { }
   return null;
 }
 
@@ -25,7 +25,7 @@ function setStorageItem(key: string, value: string): void {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(key, value);
     }
-  } catch {}
+  } catch { }
 }
 
 function removeStorageItem(key: string): void {
@@ -33,7 +33,7 @@ function removeStorageItem(key: string): void {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(key);
     }
-  } catch {}
+  } catch { }
 }
 
 /**
@@ -56,9 +56,6 @@ export function normalizeModelId(id: string): string {
   return id.replace(/^models\//i, '').trim().toLowerCase();
 }
 
-/**
- * Danh sách model Presets mặc định
- */
 /**
  * Danh sách model Presets mặc định
  */
@@ -142,7 +139,7 @@ export function recordDiscoveryError(errorMessage: string): void {
       parsed.lastErrorAt = Date.now();
       setStorageItem(DISCOVERED_MODELS_STORAGE_KEY, JSON.stringify(parsed));
     }
-  } catch {}
+  } catch { }
 }
 
 /**
@@ -287,9 +284,9 @@ export function getCustomModels(): RegisteredModelDef[] {
  * Chỉ trả về các model có verified === true, status !== 'shutdown' và capabilities.generateContent !== false
  */
 export function getVerifiedModels(): RegisteredModelDef[] {
-  return getRegisteredModels().filter(m => 
-    m.verified === true && 
-    m.status !== 'shutdown' && 
+  return getRegisteredModels().filter(m =>
+    m.verified === true &&
+    m.status !== 'shutdown' &&
     m.capabilities?.generateContent !== false
   );
 }
@@ -455,7 +452,7 @@ export function saveDiscoveredModels(models: ModelInfoItem[], sourceKeyHash?: st
     // Lọc: nếu có supportedGenerationMethods thì kiểm tra có 'generateContent' không
     let canGenerate = true;
     if (item.supportedGenerationMethods && Array.isArray(item.supportedGenerationMethods)) {
-      canGenerate = item.supportedGenerationMethods.some(m => 
+      canGenerate = item.supportedGenerationMethods.some(m =>
         m.toLowerCase().includes('generatecontent')
       );
       if (!canGenerate) continue;
@@ -503,15 +500,15 @@ export function saveDiscoveredModels(models: ModelInfoItem[], sourceKeyHash?: st
  * Thêm một model tự nhập vào registry (hỗ trợ metadata đã xác minh)
  */
 export function addCustomModel(
-  modelId: string, 
+  modelId: string,
   label?: string,
   verifiedDef?: Partial<RegisteredModelDef>
 ): { success: boolean; model?: RegisteredModelDef; error?: string } {
   const cleanId = modelId.trim().replace(/^models\//i, '');
   if (!isValidModelIdFormat(cleanId)) {
-    return { 
-      success: false, 
-      error: 'ID Model không hợp lệ. Chỉ chấp nhận chữ cái, số, gạch ngang (-), gạch dưới (_), dấu chấm (.) và gạch chéo (/), tối đa 128 ký tự.' 
+    return {
+      success: false,
+      error: 'ID Model không hợp lệ. Chỉ chấp nhận chữ cái, số, gạch ngang (-), gạch dưới (_), dấu chấm (.) và gạch chéo (/), tối đa 128 ký tự.'
     };
   }
 
@@ -567,7 +564,7 @@ export function addCustomModel(
  * Cập nhật trạng thái xác minh của một custom model đã lưu
  */
 export function updateCustomModelVerification(
-  modelId: string, 
+  modelId: string,
   verifiedDef: Partial<RegisteredModelDef>
 ): RegisteredModelDef | null {
   const norm = normalizeModelId(modelId);
@@ -737,10 +734,10 @@ export function getKeyModelStats(
   selectedModelId?: string
 ): ModelUsageStats {
   if (!keySnapshot || !keySnapshot.byModel || !selectedModelId) {
-    return { 
-      requestsTotal: 0, 
-      requestsToday: 0, 
-      requestsThisMinute: 0, 
+    return {
+      requestsTotal: 0,
+      requestsToday: 0,
+      requestsThisMinute: 0,
       errorsTotal: 0,
       tokensTotal: 0,
       tokensToday: 0,
@@ -763,10 +760,10 @@ export function getKeyModelStats(
     }
   }
 
-  return { 
-    requestsTotal: 0, 
-    requestsToday: 0, 
-    requestsThisMinute: 0, 
+  return {
+    requestsTotal: 0,
+    requestsToday: 0,
+    requestsThisMinute: 0,
     errorsTotal: 0,
     tokensTotal: 0,
     tokensToday: 0,

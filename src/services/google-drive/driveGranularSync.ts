@@ -1,0 +1,427 @@
+import { StoryProject, Chapter } from '../../types';
+import {
+  SharedProjectManifest,
+  ChapterManifestItem,
+  ChapterConflictInfo,
+  SyncProgress,
+} from '../../types/googleDriveSync';
+import {
+  getProjectFromDB,
+  saveProjectToDB,
+  getChaptersByProjectFromDB,
+  saveChapterToDB,
+} from '../db';
+import { createChapterYDoc, exportDocUpdate } from '../crdtDocManager';
+import { DriveRestClient, DRIVE_FILES_ENDPOINT, MANIFEST_FILE_NAME } from './driveRestClient';
+import { reconcileProjectTimestamps } from './driveProjectSync';
+
+/**
+ * So sánh thời điểm cập nhật giữa bản ghi local và remote ở cấp từng chương.
+ */
+export function reconcileChapterTimestamps(
+  localUpdatedAt?: string,
+  remoteUpdatedAt?: string
+): 'push' | 'pull' | 'in_sync' {
+  return reconcileProjectTimestamps(localUpdatedAt, remoteUpdatedAt);
+}
+
+/**
+ * Đóng gói chapter JSON kèm CRDT binary update snapshot (Base64) để làm bản backup dự phòng.
+ */
+export function encodeChapterWithCrdt(projectId: string, chap: Chapter): string {
+  try {
+    const session = createChapterYDoc(projectId, chap.id, chap);
+    const updateBytes = exportDocUpdate(session.doc);
+    let binaryString = '';
+    for (let b = 0; b < updateBytes.length; b++) {
+      binaryString += String.fromCharCode(updateBytes[b]);
+    }
+    const crdtSnapshot = typeof btoa !== 'undefined' ? btoa(binaryString) : Buffer.from(updateBytes).toString('base64');
+    return JSON.stringify({
+      ...chap,
+      crdtSnapshot,
+    }, null, 2);
+  } catch (e) {
+    return JSON.stringify(chap, null, 2);
+  }
+}
+
+/**
+ * Xây dựng manifest cho dự án cộng tác tách chương granular.
+ */
+export function buildSharedProjectManifest(
+  projectId: string,
+  title: string,
+  chapters: Chapter[]
+): SharedProjectManifest {
+  return {
+    version: '1.0.0',
+    projectId,
+    title,
+    updatedAt: new Date().toISOString(),
+    chapters: chapters.map((c) => ({
+      id: c.id,
+      title: c.title,
+      updatedAt: c.updatedAt || c.createdAt || new Date().toISOString(),
+      status: c.status || 'not_started',
+    })),
+  };
+}
+
+export class DriveGranularSync {
+  /**
+   * Di chuyển dự án từ monolithic sang subfolder riêng và chia nhỏ từng file chương
+   */
+  public async migrateProjectToGranularSubfolder(
+    client: DriveRestClient,
+    accessToken: string,
+    projectId: string,
+    onProgress?: (progress: SyncProgress) => void
+  ): Promise<string> {
+    onProgress?.({
+      status: 'syncing',
+      message: 'Đang khởi tạo thư mục chia sẻ riêng trên Google Drive...',
+      progressPercent: 10,
+    });
+
+    const project = await getProjectFromDB(projectId);
+    if (!project) {
+      throw new Error(`Không tìm thấy dự án ID: ${projectId}`);
+    }
+
+    const subfolderId = await client.ensureProjectSubfolder(accessToken, projectId);
+    const chapters = await getChaptersByProjectFromDB(projectId);
+
+    onProgress?.({
+      status: 'syncing',
+      message: 'Đang tải lên thông tin dự án (project.json)...',
+      progressPercent: 25,
+    });
+
+    // 1. Tải lên project.json
+    await client.uploadJsonFile(
+      accessToken,
+      subfolderId,
+      'project.json',
+      JSON.stringify(project, null, 2)
+    );
+
+    // 2. Tách và tải lên từng chapter_{id}.json
+    const chapterManifestItems: ChapterManifestItem[] = [];
+    for (let i = 0; i < chapters.length; i++) {
+      const chap = chapters[i];
+      const percent = Math.round(30 + ((i + 1) / chapters.length) * 60);
+
+      onProgress?.({
+        status: 'syncing',
+        message: `Đang chia nhỏ chương ${i + 1}/${chapters.length}: ${chap.title}...`,
+        progressPercent: percent,
+      });
+
+      const fileId = await client.uploadJsonFile(
+        accessToken,
+        subfolderId,
+        `chapter_${chap.id}.json`,
+        encodeChapterWithCrdt(projectId, chap)
+      );
+
+      chapterManifestItems.push({
+        id: chap.id,
+        title: chap.title,
+        updatedAt: chap.updatedAt || chap.createdAt || new Date().toISOString(),
+        status: chap.status || 'not_started',
+        fileId,
+      });
+    }
+
+    // 3. Tải lên manifest.json trong subfolder
+    const sharedManifest: SharedProjectManifest = {
+      version: '1.0.0',
+      projectId,
+      title: project.title,
+      updatedAt: project.updatedAt || new Date().toISOString(),
+      chapters: chapterManifestItems,
+    };
+
+    await client.uploadJsonFile(
+      accessToken,
+      subfolderId,
+      MANIFEST_FILE_NAME,
+      JSON.stringify(sharedManifest, null, 2)
+    );
+
+    // 4. Cập nhật trạng thái dự án trong IndexedDB
+    const updatedProject: StoryProject = {
+      ...project,
+      driveFolderId: subfolderId,
+      driveStorageFormat: 'granular',
+      isShared: true,
+      isOwner: true,
+    };
+    await saveProjectToDB(updatedProject);
+
+    onProgress?.({
+      status: 'success',
+      message: 'Đã chuyển đổi cấu trúc lưu trữ và sẵn sàng chia sẻ!',
+      progressPercent: 100,
+    });
+
+    return subfolderId;
+  }
+
+  /**
+   * Đồng bộ từng chương độc lập cho dự án cộng tác đã chia sẻ
+   */
+  public async syncGranularProject(
+    client: DriveRestClient,
+    accessToken: string,
+    projectId: string,
+    driveFolderId: string,
+    onProgress?: (progress: SyncProgress) => void
+  ): Promise<{
+    success: boolean;
+    uploadedChapters: number;
+    downloadedChapters: number;
+    conflicts: ChapterConflictInfo[];
+    error?: string;
+  }> {
+    try {
+      onProgress?.({
+        status: 'syncing',
+        message: 'Đang kiểm tra dữ liệu chương từ thư mục chia sẻ...',
+        progressPercent: 10,
+      });
+
+      const localProject = await getProjectFromDB(projectId);
+      const localChapters = await getChaptersByProjectFromDB(projectId);
+      const localChaptersMap = new Map(localChapters.map((c) => [c.id, c]));
+
+      // Tải remote manifest trong subfolder
+      const query = `'${driveFolderId}' in parents and name = '${MANIFEST_FILE_NAME}' and trashed = false`;
+      const searchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(query)}&fields=files(id, name)&spaces=drive`;
+      const manifestRes = await fetch(searchUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      let remoteManifest: SharedProjectManifest | null = null;
+      if (manifestRes.ok) {
+        const data = await manifestRes.json();
+        if (data.files && data.files.length > 0) {
+          remoteManifest = await client.downloadJsonFile<SharedProjectManifest>(
+            accessToken,
+            data.files[0].id
+          );
+        }
+      }
+
+      const remoteChapters = remoteManifest?.chapters || [];
+      const remoteChaptersMap = new Map(remoteChapters.map((c) => [c.id, c]));
+
+      let uploadedChapters = 0;
+      let downloadedChapters = 0;
+      const conflicts: ChapterConflictInfo[] = [];
+
+      const allChapterIds = Array.from(
+        new Set([...Array.from(localChaptersMap.keys()), ...Array.from(remoteChaptersMap.keys())])
+      );
+
+      for (let i = 0; i < allChapterIds.length; i++) {
+        const chapId = allChapterIds[i];
+        const local = localChaptersMap.get(chapId);
+        const remoteMeta = remoteChaptersMap.get(chapId);
+        const percent = Math.round(15 + ((i + 1) / allChapterIds.length) * 75);
+
+        onProgress?.({
+          status: 'syncing',
+          message: `Đang đồng bộ chương: ${local?.title || remoteMeta?.title || chapId}...`,
+          progressPercent: percent,
+        });
+
+        const action = reconcileChapterTimestamps(local?.updatedAt, remoteMeta?.updatedAt);
+
+        if (action === 'push' && local) {
+          const fileId = await client.uploadJsonFile(
+            accessToken,
+            driveFolderId,
+            `chapter_${local.id}.json`,
+            encodeChapterWithCrdt(projectId, local)
+          );
+
+          remoteChaptersMap.set(local.id, {
+            id: local.id,
+            title: local.title,
+            updatedAt: local.updatedAt || new Date().toISOString(),
+            status: local.status || 'not_started',
+            fileId,
+          });
+          uploadedChapters++;
+        } else if (action === 'pull' && remoteMeta) {
+          // Tìm file ID của chapter
+          let fileId = remoteMeta.fileId;
+          if (!fileId) {
+            const chapSearchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(
+              `'${driveFolderId}' in parents and name = 'chapter_${chapId}.json' and trashed = false`
+            )}&fields=files(id, name)&spaces=drive`;
+            const chapSearchRes = await fetch(chapSearchUrl, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (chapSearchRes.ok) {
+              const chapSearchData = await chapSearchRes.json();
+              if (chapSearchData.files && chapSearchData.files.length > 0) {
+                fileId = chapSearchData.files[0].id;
+              }
+            }
+          }
+
+          if (fileId) {
+            const remoteChapterData = await client.downloadJsonFile<Chapter>(accessToken, fileId);
+            await saveChapterToDB(remoteChapterData);
+            downloadedChapters++;
+          }
+        }
+      }
+
+      // Cập nhật lại manifest trong subfolder
+      const updatedManifest: SharedProjectManifest = {
+        version: '1.0.0',
+        projectId,
+        title: localProject?.title || remoteManifest?.title || 'Dự án chia sẻ',
+        updatedAt: new Date().toISOString(),
+        chapters: Array.from(remoteChaptersMap.values()),
+      };
+
+      await client.uploadJsonFile(
+        accessToken,
+        driveFolderId,
+        MANIFEST_FILE_NAME,
+        JSON.stringify(updatedManifest, null, 2)
+      );
+
+      onProgress?.({
+        status: 'success',
+        message: `Đồng bộ chương hoàn tất! (Tải lên: ${uploadedChapters}, Tải về: ${downloadedChapters})`,
+        progressPercent: 100,
+        lastSyncedAt: new Date().toLocaleTimeString('vi-VN'),
+      });
+
+      return {
+        success: true,
+        uploadedChapters,
+        downloadedChapters,
+        conflicts,
+      };
+    } catch (err: any) {
+      console.error('Lỗi đồng bộ chương:', err);
+      const errorMsg = err.message || 'Lỗi đồng bộ chương truyện.';
+      onProgress?.({
+        status: 'error',
+        message: `Thất bại: ${errorMsg}`,
+        progressPercent: 100,
+        error: errorMsg,
+      });
+      return {
+        success: false,
+        uploadedChapters: 0,
+        downloadedChapters: 0,
+        conflicts: [],
+        error: errorMsg,
+      };
+    }
+  }
+
+  /**
+   * Nhập toàn bộ dự án và các chương từ thư mục được chia sẻ vào IndexedDB
+   */
+  public async importProjectFromSharedFolder(
+    client: DriveRestClient,
+    accessToken: string,
+    sharedFolderId: string,
+    onProgress?: (progress: SyncProgress) => void
+  ): Promise<StoryProject> {
+    onProgress?.({
+      status: 'syncing',
+      message: 'Đang tải thông tin dự án từ thư mục chia sẻ...',
+      progressPercent: 15,
+    });
+
+    // 1. Tải project.json
+    const projQuery = `'${sharedFolderId}' in parents and name = 'project.json' and trashed = false`;
+    const projSearchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(projQuery)}&fields=files(id, name)&spaces=drive`;
+    const projRes = await fetch(projSearchUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!projRes.ok) {
+      throw new Error(`Không thể tìm thấy tệp project.json trong thư mục (HTTP ${projRes.status})`);
+    }
+
+    const projData = await projRes.json();
+    if (!projData.files || projData.files.length === 0) {
+      throw new Error('Thư mục được chọn không chứa tệp project.json hợp lệ của AI Dịch Truyện.');
+    }
+
+    const project = await client.downloadJsonFile<StoryProject>(accessToken, projData.files[0].id);
+
+    // 2. Tải manifest.json
+    const manifestQuery = `'${sharedFolderId}' in parents and name = '${MANIFEST_FILE_NAME}' and trashed = false`;
+    const manifestSearchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(manifestQuery)}&fields=files(id, name)&spaces=drive`;
+    const manifestRes = await fetch(manifestSearchUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    let manifest: SharedProjectManifest | null = null;
+    if (manifestRes.ok) {
+      const manifestData = await manifestRes.json();
+      if (manifestData.files && manifestData.files.length > 0) {
+        manifest = await client.downloadJsonFile<SharedProjectManifest>(
+          accessToken,
+          manifestData.files[0].id
+        );
+      }
+    }
+
+    const chapters = manifest?.chapters || [];
+    onProgress?.({
+      status: 'syncing',
+      message: `Đang tải ${chapters.length} chương truyện...`,
+      progressPercent: 30,
+    });
+
+    for (let i = 0; i < chapters.length; i++) {
+      const chapMeta = chapters[i];
+      const percent = Math.round(30 + ((i + 1) / (chapters.length || 1)) * 60);
+
+      onProgress?.({
+        status: 'syncing',
+        message: `Đang tải: ${chapMeta.title} (${i + 1}/${chapters.length})...`,
+        progressPercent: percent,
+      });
+
+      if (chapMeta.fileId) {
+        try {
+          const chap = await client.downloadJsonFile<Chapter>(accessToken, chapMeta.fileId);
+          await saveChapterToDB(chap);
+        } catch (chapErr) {
+          console.warn(`Không thể tải chương ${chapMeta.id}:`, chapErr);
+        }
+      }
+    }
+
+    const importedProject: StoryProject = {
+      ...project,
+      driveFolderId: sharedFolderId,
+      driveStorageFormat: 'granular',
+      isShared: true,
+      isOwner: false,
+    };
+    await saveProjectToDB(importedProject);
+
+    onProgress?.({
+      status: 'success',
+      message: `Đã mở thành công dự án "${project.title}"!`,
+      progressPercent: 100,
+    });
+
+    return importedProject;
+  }
+}
