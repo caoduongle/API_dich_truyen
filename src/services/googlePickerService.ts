@@ -1,3 +1,5 @@
+import { OpenFilePickerOptions, SelectedDriveFile } from '../types/googleDriveSync';
+
 declare const gapi: any;
 declare const google: any;
 
@@ -139,6 +141,66 @@ class GooglePickerService {
 
     picker.setVisible(true);
   }
+
+  /**
+   * Mở cửa sổ Google Picker ở chế độ chọn nhiều file (multi-select),
+   * neo vào một folderId cụ thể để cộng tác viên cấp quyền drive.file cho các file bên trong.
+   */
+  public async openFilePicker(options: OpenFilePickerOptions): Promise<void> {
+    const { accessToken, folderId, onFilesSelected, onCancel, title } = options;
+    const apiKey = (options.pickerApiKey || this.getPickerApiKey()).trim();
+
+    if (!apiKey) {
+      throw new Error(
+        'Chưa cấu hình Google Picker API Key. Vui lòng nhập API Key trong phần Cài đặt Đồng bộ.'
+      );
+    }
+
+    if (!folderId) {
+      throw new Error('Thiếu ID thư mục Google Drive để mở danh sách tệp.');
+    }
+
+    await this.ensurePickerLoaded();
+
+    if (typeof google === 'undefined' || !google.picker) {
+      throw new Error('Google Picker API chưa sẵn sàng. Vui lòng thử lại.');
+    }
+
+    // Tạo view chọn tệp bên trong thư mục chỉ định
+    const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setParent(folderId)
+      .setIncludeFolders(false)
+      .setSelectFolderEnabled(false);
+
+    const builder = new google.picker.PickerBuilder()
+      .addView(view)
+      .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(apiKey)
+      .setTitle(title || 'Chọn tất cả tệp để cấp quyền truy cập (AI Dịch Truyện)')
+      .setCallback((data: any) => {
+        if (data.action === google.picker.Action.PICKED) {
+          const docs = data[google.picker.Response.DOCS] || data.docs || [];
+          const selectedFiles: SelectedDriveFile[] = docs.map((doc: any) => ({
+            id: doc.id,
+            name: doc.name || '',
+            mimeType: doc.mimeType || '',
+          }));
+          onFilesSelected(selectedFiles);
+        } else if (data.action === google.picker.Action.CANCEL) {
+          onCancel?.();
+        }
+      });
+
+    if (typeof window !== 'undefined' && window.location.origin) {
+      builder.setOrigin(window.location.origin);
+    }
+
+    const picker = builder.build();
+
+    picker.setVisible(true);
+  }
 }
 
 export const googlePickerService = new GooglePickerService();
+

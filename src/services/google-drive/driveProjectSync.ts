@@ -266,8 +266,10 @@ export class DriveProjectSync {
     success: boolean;
     uploadedCount: number;
     downloadedCount: number;
+    failedPullCount: number;
     conflicts: SyncConflictInfo[];
   }> {
+
     try {
       onProgress?.({
         status: 'syncing',
@@ -285,6 +287,7 @@ export class DriveProjectSync {
 
       let uploadedCount = 0;
       let downloadedCount = 0;
+      let failedPullCount = 0;
       const conflicts: SyncConflictInfo[] = [];
 
       const allProjectIds = Array.from(
@@ -307,8 +310,12 @@ export class DriveProjectSync {
 
         // Nếu dự án đã chuyển sang granular (chia sẻ riêng)
         if (local?.driveStorageFormat === 'granular' && local.driveFolderId && onSyncGranularProject) {
-          await onSyncGranularProject(accessToken, local.id, local.driveFolderId);
-          uploadedCount++;
+          const granRes = await onSyncGranularProject(accessToken, local.id, local.driveFolderId);
+          if (granRes) {
+            uploadedCount += granRes.uploadedChapters || 0;
+            downloadedCount += granRes.downloadedChapters || 0;
+            failedPullCount += granRes.failedPullCount || 0;
+          }
           continue;
         }
 
@@ -378,9 +385,14 @@ export class DriveProjectSync {
         JSON.stringify(updatedManifest, null, 2)
       );
 
+      const statusMsg =
+        failedPullCount > 0
+          ? `Đồng bộ hoàn tất! (Tải lên: ${uploadedCount}, Tải về: ${downloadedCount} — còn ${failedPullCount} chương mới cần bấm "Đồng bộ file mới")`
+          : `Đồng bộ hoàn tất! (Đã tải lên: ${uploadedCount}, Tải về: ${downloadedCount})`;
+
       onProgress?.({
         status: 'success',
-        message: `Đồng bộ hoàn tất! (Đã tải lên: ${uploadedCount}, Tải về: ${downloadedCount})`,
+        message: statusMsg,
         progressPercent: 100,
         lastSyncedAt: new Date().toLocaleTimeString('vi-VN'),
       });
@@ -389,6 +401,7 @@ export class DriveProjectSync {
         success: true,
         uploadedCount,
         downloadedCount,
+        failedPullCount,
         conflicts,
       };
     } catch (err: any) {
@@ -404,6 +417,7 @@ export class DriveProjectSync {
         success: false,
         uploadedCount: 0,
         downloadedCount: 0,
+        failedPullCount: 0,
         conflicts: [],
       };
     }

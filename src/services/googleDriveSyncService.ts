@@ -92,11 +92,14 @@ export class GoogleDriveSyncService {
     accessToken: string,
     projectId: string,
     driveFolderId: string,
-    onProgress?: (progress: SyncProgress) => void
+    onProgress?: (progress: SyncProgress) => void,
+    selectedFiles?: { id: string; name: string }[]
   ): Promise<{
     success: boolean;
     uploadedChapters: number;
     downloadedChapters: number;
+    failedPullCount: number;
+    failedChapters: { id: string; title?: string; error?: string }[];
     conflicts: ChapterConflictInfo[];
     error?: string;
   }> {
@@ -105,20 +108,42 @@ export class GoogleDriveSyncService {
       accessToken,
       projectId,
       driveFolderId,
-      onProgress
+      onProgress,
+      selectedFiles
     );
   }
+
+  public async syncGranularProjectFiles(
+    accessToken: string,
+    projectId: string,
+    driveFolderId: string,
+    onProgress?: (progress: SyncProgress) => void,
+    selectedFiles?: { id: string; name: string }[]
+  ): Promise<{
+    success: boolean;
+    uploadedChapters: number;
+    downloadedChapters: number;
+    failedPullCount: number;
+    failedChapters: { id: string; title?: string; error?: string }[];
+    conflicts: ChapterConflictInfo[];
+    error?: string;
+  }> {
+    return this.syncGranularProject(accessToken, projectId, driveFolderId, onProgress, selectedFiles);
+  }
+
 
   public async importProjectFromSharedFolder(
     accessToken: string,
     sharedFolderId: string,
-    onProgress?: (progress: SyncProgress) => void
+    onProgress?: (progress: SyncProgress) => void,
+    selectedFiles?: { id: string; name: string }[]
   ): Promise<StoryProject> {
     return this.granularSync.importProjectFromSharedFolder(
       this.client,
       accessToken,
       sharedFolderId,
-      onProgress
+      onProgress,
+      selectedFiles
     );
   }
 
@@ -153,6 +178,7 @@ export class GoogleDriveSyncService {
     success: boolean;
     uploadedCount: number;
     downloadedCount: number;
+    failedPullCount: number;
     conflicts: SyncConflictInfo[];
   }> {
     return this.projectSync.syncBiDirectional(
@@ -165,3 +191,4 @@ export class GoogleDriveSyncService {
 }
 
 export const googleDriveSyncService = new GoogleDriveSyncService();
+

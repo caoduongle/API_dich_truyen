@@ -57,4 +57,24 @@ describe('granularSyncReconciliation', () => {
     expect(manifest.chapters[1].id).toBe('chap_2');
     expect(manifest.chapters[1].status).toBe('in_progress');
   });
+
+  it('correctly maps selectedFiles to manifest chapter fileIds and project metadata', () => {
+    const selectedFiles = [
+      { id: 'file_proj_json', name: 'project.json' },
+      { id: 'file_manifest_json', name: 'manifest.json' },
+      { id: 'file_chap_1', name: 'chapter_chap_1.json' },
+      { id: 'file_chap_2', name: 'chapter_chap_2.json' },
+    ];
+
+    const projectFile = selectedFiles.find((f) => f.name === 'project.json');
+    const manifestFile = selectedFiles.find((f) => f.name === 'manifest.json');
+    const chap1File = selectedFiles.find((f) => f.name === 'chapter_chap_1.json');
+    const chap3File = selectedFiles.find((f) => f.name === 'chapter_chap_3.json');
+
+    expect(projectFile?.id).toBe('file_proj_json');
+    expect(manifestFile?.id).toBe('file_manifest_json');
+    expect(chap1File?.id).toBe('file_chap_1');
+    expect(chap3File).toBeUndefined();
+  });
 });
+

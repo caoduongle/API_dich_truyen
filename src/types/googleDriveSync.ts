@@ -71,3 +71,34 @@ export interface ChapterConflictInfo {
   localChapter: Chapter;
   remoteChapter: Chapter;
 }
+
+export interface SelectedDriveFile {
+  id: string;
+  name: string;
+  mimeType?: string;
+}
+
+export interface OpenFilePickerOptions {
+  accessToken: string;
+  pickerApiKey?: string;
+  folderId: string;
+  title?: string;
+  onFilesSelected: (files: SelectedDriveFile[]) => void;
+  onCancel?: () => void;
+}
+
+export interface FailedChapterPull {
+  id: string;
+  title?: string;
+  error?: string;
+}
+
+export interface GranularProjectSyncSummary {
+  success: boolean;
+  uploadedChapters: number;
+  downloadedChapters: number;
+  failedPullCount: number;
+  failedChapters: FailedChapterPull[];
+  error?: string;
+}
+

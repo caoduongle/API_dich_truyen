@@ -78,4 +78,19 @@ describe('googleDriveSyncService reconciliation & serialization', () => {
     const action = reconcileProjectTimestamps(timestamp, timestamp);
     expect(action).toBe('in_sync');
   });
+
+  it('exposes syncGranularProjectFiles and importProjectFromSharedFolder on googleDriveSyncService', async () => {
+    const { googleDriveSyncService } = await import('../googleDriveSyncService');
+    expect(typeof googleDriveSyncService.syncGranularProjectFiles).toBe('function');
+    expect(typeof googleDriveSyncService.importProjectFromSharedFolder).toBe('function');
+    expect(typeof googleDriveSyncService.syncGranularProject).toBe('function');
+  });
+
+  it('exposes openFolderPicker and openFilePicker on googlePickerService', async () => {
+    const { googlePickerService } = await import('../googlePickerService');
+    expect(typeof googlePickerService.openFolderPicker).toBe('function');
+    expect(typeof googlePickerService.openFilePicker).toBe('function');
+    expect(typeof googlePickerService.getPickerApiKey).toBe('function');
+  });
 });
+

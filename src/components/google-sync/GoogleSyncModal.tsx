@@ -120,24 +120,46 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
         pickerApiKey: pickerKeyInput.trim() || googlePickerService.getPickerApiKey(),
         onFolderSelected: async (folderId, _folderName) => {
           try {
-            setIsSyncing(true);
-            const imported = await googleDriveSyncService.importProjectFromSharedFolder(
-              token,
+            // Bước 2: Mở Picker chọn tất cả file trong thư mục để cấp quyền drive.file
+            await googlePickerService.openFilePicker({
+              accessToken: token,
               folderId,
-              setSyncProgress
-            );
-            showToast({
-              message: `Đã mở và nạp dự án "${imported.title}" vào máy tính!`,
-              type: 'success',
+              pickerApiKey: pickerKeyInput.trim() || googlePickerService.getPickerApiKey(),
+              title: 'Chọn tất cả tệp trong thư mục dự án để cấp quyền truy cập',
+              onFilesSelected: async (selectedFiles) => {
+                try {
+                  setIsSyncing(true);
+                  const imported = await googleDriveSyncService.importProjectFromSharedFolder(
+                    token,
+                    folderId,
+                    setSyncProgress,
+                    selectedFiles
+                  );
+                  showToast({
+                    message: `Đã mở và nạp dự án "${imported.title}" vào máy tính!`,
+                    type: 'success',
+                  });
+                  onDataChanged?.();
+                } catch (importErr: any) {
+                  showToast({
+                    message: importErr.message || 'Không thể mở dự án từ thư mục này.',
+                    type: 'error',
+                  });
+                } finally {
+                  setIsSyncing(false);
+                  setIsOpeningPicker(false);
+                }
+              },
+              onCancel: () => {
+                setIsOpeningPicker(false);
+              },
             });
-            onDataChanged?.();
-          } catch (importErr: any) {
+          } catch (filePickerErr: any) {
+            setIsOpeningPicker(false);
             showToast({
-              message: importErr.message || 'Không thể mở dự án từ thư mục này.',
+              message: filePickerErr.message || 'Lỗi cấp quyền tệp dự án.',
               type: 'error',
             });
-          } finally {
-            setIsSyncing(false);
           }
         },
         onCancel: () => {
@@ -145,9 +167,8 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
         },
       });
     } catch (pickerErr: any) {
-      showToast({ message: pickerErr.message || 'Lỗi mở Google Picker.', type: 'error' });
-    } finally {
       setIsOpeningPicker(false);
+      showToast({ message: pickerErr.message || 'Lỗi mở Google Picker.', type: 'error' });
     }
   };
 
@@ -200,15 +221,23 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
     const res = await googleDriveSyncService.syncBiDirectional(token, setSyncProgress);
     setIsSyncing(false);
     if (res.success) {
-      showToast({
-        message: `Đồng bộ thành công! (Tải lên: ${res.uploadedCount}, Tải về: ${res.downloadedCount})`,
-        type: 'success',
-      });
+      if (res.failedPullCount > 0) {
+        showToast({
+          message: `Đồng bộ hoàn tất! (Tải lên: ${res.uploadedCount}, Tải về: ${res.downloadedCount}) — Còn ${res.failedPullCount} chương mới cần bấm "Đồng bộ file mới".`,
+          type: 'warning',
+        });
+      } else {
+        showToast({
+          message: `Đồng bộ thành công! (Tải lên: ${res.uploadedCount}, Tải về: ${res.downloadedCount})`,
+          type: 'success',
+        });
+      }
       onDataChanged?.();
     } else {
       showToast({ message: 'Đồng bộ dữ liệu gặp lỗi.', type: 'error' });
     }
   };
+
 
   return (
     <Modal
