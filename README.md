@@ -169,7 +169,16 @@ NODE_ENV=development
 
 # API Key mặc định của hệ thống (tùy chọn)
 GEMINI_API_KEY=your_gemini_api_key_here
+
+# Cấu hình Google Drive Sync & Google Picker (Tùy chọn)
+# 1. OAuth Client ID (Web Application):
+# VITE_GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+# 2. Picker API Key (Browser API Key):
+# VITE_GOOGLE_PICKER_API_KEY=your_picker_api_key
+# 3. Google Cloud App ID (Project Number dạng số - lấy tại Google Cloud Console -> IAM & Admin -> Settings -> Project number):
+# VITE_GOOGLE_APP_ID=123456789012
 ```
+
 
 ### 3. Khởi chạy Ứng dụng
 

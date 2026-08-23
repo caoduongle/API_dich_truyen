@@ -86,11 +86,45 @@ describe('googleDriveSyncService reconciliation & serialization', () => {
     expect(typeof googleDriveSyncService.syncGranularProject).toBe('function');
   });
 
-  it('exposes openFolderPicker and openFilePicker on googlePickerService', async () => {
+  it('exposes openFolderPicker, openFilePicker, and App ID helpers on googlePickerService', async () => {
     const { googlePickerService } = await import('../googlePickerService');
     expect(typeof googlePickerService.openFolderPicker).toBe('function');
     expect(typeof googlePickerService.openFilePicker).toBe('function');
     expect(typeof googlePickerService.getPickerApiKey).toBe('function');
+    expect(typeof googlePickerService.getAppId).toBe('function');
+    expect(typeof googlePickerService.setAppId).toBe('function');
+    expect(typeof googlePickerService.getCustomAppId).toBe('function');
+
+    // Test setAppId and getCustomAppId
+    googlePickerService.setAppId('123456789012');
+    expect(googlePickerService.getAppId()).toBe('123456789012');
+    expect(googlePickerService.getCustomAppId()).toBe('123456789012');
+
+    // Reset
+    googlePickerService.setAppId('');
+    expect(googlePickerService.getCustomAppId()).toBe('');
+  });
+
+  it('throws descriptive error if appId is missing when opening picker', async () => {
+    const { googlePickerService } = await import('../googlePickerService');
+    googlePickerService.setPickerApiKey('test_key');
+    googlePickerService.setAppId('');
+
+    await expect(
+      googlePickerService.openFolderPicker({
+        accessToken: 'mock_token',
+        onFolderSelected: () => {},
+      })
+    ).rejects.toThrow('Chưa cấu hình Google Cloud App ID (Project Number)');
+
+    await expect(
+      googlePickerService.openFilePicker({
+        accessToken: 'mock_token',
+        folderId: 'folder_123',
+        onFilesSelected: () => {},
+      })
+    ).rejects.toThrow('Chưa cấu hình Google Cloud App ID (Project Number)');
   });
 });
+
 

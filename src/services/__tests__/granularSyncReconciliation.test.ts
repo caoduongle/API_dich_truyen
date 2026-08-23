@@ -76,5 +76,31 @@ describe('granularSyncReconciliation', () => {
     expect(chap1File?.id).toBe('file_chap_1');
     expect(chap3File).toBeUndefined();
   });
+
+  it('detects omitted chapters when validating selectedFiles against manifest', () => {
+    const manifestChapters = [
+      { id: 'chap_1', title: 'Chương 1', fileId: 'f1', updatedAt: '2026-08-22T00:00:00Z', status: 'completed' as const },
+      { id: 'chap_2', title: 'Chương 2', fileId: 'f2', updatedAt: '2026-08-22T00:00:00Z', status: 'completed' as const },
+      { id: 'chap_3', title: 'Chương 3', fileId: 'f3', updatedAt: '2026-08-22T00:00:00Z', status: 'completed' as const },
+    ];
+
+    const selectedFiles = [
+      { id: 'f1', name: 'chapter_chap_1.json' },
+      { id: 'f3', name: 'chapter_chap_3.json' },
+    ];
+
+    const missingFiles: string[] = [];
+    for (const chapMeta of manifestChapters) {
+      const hasFile = selectedFiles.some(
+        (f) => f.name === `chapter_${chapMeta.id}.json` || (chapMeta.fileId && f.id === chapMeta.fileId)
+      );
+      if (!hasFile) {
+        missingFiles.push(`chapter_${chapMeta.id}.json`);
+      }
+    }
+
+    expect(missingFiles).toEqual(['chapter_chap_2.json']);
+  });
 });
+
 

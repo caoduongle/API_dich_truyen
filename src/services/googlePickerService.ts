@@ -5,21 +5,27 @@ declare const google: any;
 
 const GOOGLE_API_SCRIPT_URL = 'https://apis.google.com/js/api.js';
 const CUSTOM_PICKER_KEY = 'ai_dich_truyen_google_picker_key';
+const CUSTOM_APP_ID_KEY = 'ai_dich_truyen_google_app_id';
 
 class GooglePickerService {
   private scriptLoadingPromise: Promise<void> | null = null;
   private isPickerLoaded = false;
+  private inMemoryApiKey = '';
+  private inMemoryAppId = '';
 
   private getInitialApiKey(): string {
-    if (typeof window === 'undefined') return '';
-    const stored = localStorage.getItem(CUSTOM_PICKER_KEY);
-    if (stored && stored.trim()) return stored.trim();
+    if (this.inMemoryApiKey) return this.inMemoryApiKey;
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(CUSTOM_PICKER_KEY);
+      if (stored && stored.trim()) return stored.trim();
+    }
     return (import.meta.env.VITE_GOOGLE_PICKER_API_KEY || '').trim();
   }
 
   public setPickerApiKey(apiKey: string): void {
     const cleanKey = (apiKey || '').trim();
-    if (typeof window !== 'undefined') {
+    this.inMemoryApiKey = cleanKey;
+    if (typeof localStorage !== 'undefined') {
       if (cleanKey) {
         localStorage.setItem(CUSTOM_PICKER_KEY, cleanKey);
       } else {
@@ -33,10 +39,48 @@ class GooglePickerService {
   }
 
   public getCustomPickerApiKey(): string {
-    if (typeof window === 'undefined') return '';
-    const stored = localStorage.getItem(CUSTOM_PICKER_KEY);
-    return (stored && stored.trim()) || '';
+    if (this.inMemoryApiKey) return this.inMemoryApiKey;
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(CUSTOM_PICKER_KEY);
+      return (stored && stored.trim()) || '';
+    }
+    return '';
   }
+
+  private getInitialAppId(): string {
+    if (this.inMemoryAppId) return this.inMemoryAppId;
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(CUSTOM_APP_ID_KEY);
+      if (stored && stored.trim()) return stored.trim();
+    }
+    return (import.meta.env.VITE_GOOGLE_APP_ID || '').trim();
+  }
+
+  public setAppId(appId: string): void {
+    const cleanAppId = (appId || '').trim();
+    this.inMemoryAppId = cleanAppId;
+    if (typeof localStorage !== 'undefined') {
+      if (cleanAppId) {
+        localStorage.setItem(CUSTOM_APP_ID_KEY, cleanAppId);
+      } else {
+        localStorage.removeItem(CUSTOM_APP_ID_KEY);
+      }
+    }
+  }
+
+  public getAppId(): string {
+    return this.getInitialAppId();
+  }
+
+  public getCustomAppId(): string {
+    if (this.inMemoryAppId) return this.inMemoryAppId;
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(CUSTOM_APP_ID_KEY);
+      return (stored && stored.trim()) || '';
+    }
+    return '';
+  }
+
 
   /**
    * Tải động script Google API (apis.google.com/js/api.js) và nạp module picker
@@ -105,6 +149,13 @@ class GooglePickerService {
       );
     }
 
+    const appId = this.getAppId().trim();
+    if (!appId) {
+      throw new Error(
+        'Chưa cấu hình Google Cloud App ID (Project Number). Vui lòng nhập Project Number trong phần Cài đặt Đồng bộ.'
+      );
+    }
+
     await this.ensurePickerLoaded();
 
     if (typeof google === 'undefined' || !google.picker) {
@@ -121,6 +172,7 @@ class GooglePickerService {
       .addView(view)
       .setOAuthToken(accessToken)
       .setDeveloperKey(apiKey)
+      .setAppId(appId)
       .setTitle('Chọn thư mục dự án được chia sẻ (AI Dịch Truyện)')
       .setCallback((data: any) => {
         if (data.action === google.picker.Action.PICKED) {
@@ -156,6 +208,13 @@ class GooglePickerService {
       );
     }
 
+    const appId = this.getAppId().trim();
+    if (!appId) {
+      throw new Error(
+        'Chưa cấu hình Google Cloud App ID (Project Number). Vui lòng nhập Project Number trong phần Cài đặt Đồng bộ.'
+      );
+    }
+
     if (!folderId) {
       throw new Error('Thiếu ID thư mục Google Drive để mở danh sách tệp.');
     }
@@ -177,6 +236,7 @@ class GooglePickerService {
       .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
       .setOAuthToken(accessToken)
       .setDeveloperKey(apiKey)
+      .setAppId(appId)
       .setTitle(title || 'Chọn tất cả tệp để cấp quyền truy cập (AI Dịch Truyện)')
       .setCallback((data: any) => {
         if (data.action === google.picker.Action.PICKED) {
@@ -203,4 +263,5 @@ class GooglePickerService {
 }
 
 export const googlePickerService = new GooglePickerService();
+
 

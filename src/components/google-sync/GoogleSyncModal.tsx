@@ -35,9 +35,11 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
   const [authState, setAuthState] = useState<GoogleAuthState>(googleAuthService.getAuthState());
   const [clientIdInput, setClientIdInput] = useState<string>(googleAuthService.getCustomClientId());
   const [pickerKeyInput, setPickerKeyInput] = useState<string>(googlePickerService.getCustomPickerApiKey());
+  const [appIdInput, setAppIdInput] = useState<string>(googlePickerService.getCustomAppId());
   const [showAdvanced, setShowAdvanced] = useState<boolean>(() => !googleAuthService.getClientId());
   const [revealClientId, setRevealClientId] = useState<boolean>(false);
   const [revealPickerKey, setRevealPickerKey] = useState<boolean>(false);
+  const [revealAppId, setRevealAppId] = useState<boolean>(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isOpeningPicker, setIsOpeningPicker] = useState<boolean>(false);
@@ -57,6 +59,9 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
   const isCustomPickerKey = Boolean(
     typeof window !== 'undefined' && localStorage.getItem('ai_dich_truyen_google_picker_key')
   );
+  const isCustomAppId = Boolean(
+    typeof window !== 'undefined' && localStorage.getItem('ai_dich_truyen_google_app_id')
+  );
   const hasClientId = Boolean(clientIdInput.trim() || googleAuthService.getClientId());
 
   const handleSaveClientId = () => {
@@ -67,6 +72,11 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
   const handleSavePickerKey = () => {
     googlePickerService.setPickerApiKey(pickerKeyInput);
     showToast({ message: 'Đã lưu Google Picker API Key!', type: 'success' });
+  };
+
+  const handleSaveAppId = () => {
+    googlePickerService.setAppId(appIdInput);
+    showToast({ message: 'Đã lưu Google Cloud App ID!', type: 'success' });
   };
 
   const handleResetClientId = () => {
@@ -80,6 +90,13 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
     setPickerKeyInput('');
     showToast({ message: 'Đã khôi phục Google Picker Key mặc định.', type: 'info' });
   };
+
+  const handleResetAppId = () => {
+    googlePickerService.setAppId('');
+    setAppIdInput('');
+    showToast({ message: 'Đã khôi phục Google Cloud App ID mặc định.', type: 'info' });
+  };
+
 
   const handleLogin = async () => {
     try {
@@ -283,21 +300,29 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
           hasClientId={hasClientId}
           isCustomClientId={isCustomClientId}
           isCustomPickerKey={isCustomPickerKey}
+          isCustomAppId={isCustomAppId}
           showAdvanced={showAdvanced}
           setShowAdvanced={setShowAdvanced}
           clientIdInput={clientIdInput}
           setClientIdInput={setClientIdInput}
           pickerKeyInput={pickerKeyInput}
           setPickerKeyInput={setPickerKeyInput}
+          appIdInput={appIdInput}
+          setAppIdInput={setAppIdInput}
           revealClientId={revealClientId}
           setRevealClientId={setRevealClientId}
           revealPickerKey={revealPickerKey}
           setRevealPickerKey={setRevealPickerKey}
+          revealAppId={revealAppId}
+          setRevealAppId={setRevealAppId}
           onSaveClientId={handleSaveClientId}
           onSavePickerKey={handleSavePickerKey}
+          onSaveAppId={handleSaveAppId}
           onResetClientId={handleResetClientId}
           onResetPickerKey={handleResetPickerKey}
+          onResetAppId={handleResetAppId}
         />
+
 
         {/* Auth State Card */}
         {authState.isAuthenticated && authState.user ? (

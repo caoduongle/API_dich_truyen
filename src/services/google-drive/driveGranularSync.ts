@@ -391,7 +391,7 @@ export class DriveGranularSync {
     // 1. Tải project.json
     let projectFileId = selectedFiles?.find((f) => f.name === 'project.json')?.id;
 
-    if (!projectFileId) {
+    if (!projectFileId && !selectedFiles) {
       const projQuery = `'${sharedFolderId}' in parents and name = 'project.json' and trashed = false`;
       const projSearchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(projQuery)}&fields=files(id, name)&spaces=drive`;
       const projRes = await fetch(projSearchUrl, {
@@ -409,6 +409,11 @@ export class DriveGranularSync {
     }
 
     if (!projectFileId) {
+      if (selectedFiles) {
+        throw new Error(
+          'Chưa cấp quyền cho tệp: project.json. Vui lòng mở lại và chọn TẤT CẢ tệp trong hộp thoại Google Picker (Ctrl+A / Cmd+A).'
+        );
+      }
       throw new Error('Thư mục được chọn không chứa tệp project.json hợp lệ của AI Dịch Truyện.');
     }
 
@@ -417,7 +422,7 @@ export class DriveGranularSync {
     // 2. Tải manifest.json
     let manifestFileId = selectedFiles?.find((f) => f.name === MANIFEST_FILE_NAME)?.id;
 
-    if (!manifestFileId) {
+    if (!manifestFileId && !selectedFiles) {
       const manifestQuery = `'${sharedFolderId}' in parents and name = '${MANIFEST_FILE_NAME}' and trashed = false`;
       const manifestSearchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(manifestQuery)}&fields=files(id, name)&spaces=drive`;
       const manifestRes = await fetch(manifestSearchUrl, {
@@ -445,6 +450,26 @@ export class DriveGranularSync {
     }
 
     const chapters = manifest?.chapters || [];
+
+    // 3. Pre-download validation: kiểm tra toàn bộ danh sách chương trước khi tải
+    if (selectedFiles && chapters.length > 0) {
+      const missingFiles: string[] = [];
+      for (const chapMeta of chapters) {
+        const hasFile = selectedFiles.some(
+          (f) => f.name === `chapter_${chapMeta.id}.json` || (chapMeta.fileId && f.id === chapMeta.fileId)
+        );
+        if (!hasFile) {
+          missingFiles.push(`chapter_${chapMeta.id}.json`);
+        }
+      }
+
+      if (missingFiles.length > 0) {
+        throw new Error(
+          `Chưa cấp quyền cho các tệp: ${missingFiles.join(', ')}. Vui lòng mở lại và chọn TẤT CẢ tệp trong hộp thoại Google Picker (Ctrl+A / Cmd+A).`
+        );
+      }
+    }
+
     onProgress?.({
       status: 'syncing',
       message: `Đang tải ${chapters.length} chương truyện...`,
@@ -461,10 +486,7 @@ export class DriveGranularSync {
         progressPercent: percent,
       });
 
-      let fileId = chapMeta.fileId;
-      if (!fileId && selectedFiles) {
-        fileId = selectedFiles.find((f) => f.name === `chapter_${chapMeta.id}.json`)?.id;
-      }
+      let fileId = selectedFiles?.find((f) => f.name === `chapter_${chapMeta.id}.json`)?.id || chapMeta.fileId;
 
       if (fileId) {
         try {
@@ -475,6 +497,7 @@ export class DriveGranularSync {
         }
       }
     }
+
 
     const importedProject: StoryProject = {
       ...project,
