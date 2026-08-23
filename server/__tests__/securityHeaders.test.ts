@@ -12,20 +12,26 @@ function createTestApp(isProduction: boolean) {
         ? {
             directives: {
               defaultSrc: ["'self'"],
-              scriptSrc: ["'self'", "https://accounts.google.com", "https://apis.google.com"],
-              styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+              scriptSrc: ["'self'", "'unsafe-inline'", "https://apis.google.com", "https://accounts.google.com"],
+              styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com"],
               fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-              imgSrc: ["'self'", "data:", "blob:"],
+              imgSrc: ["'self'", "data:", "blob:", "https:", "*.googleusercontent.com"],
               connectSrc: [
                 "'self'",
                 "ws:",
                 "wss:",
-                "https://accounts.google.com",
-                "https://oauth2.googleapis.com",
                 "https://www.googleapis.com",
+                "https://accounts.google.com",
+                "https://content.googleapis.com",
+                "https://oauth2.googleapis.com",
                 "https://apis.google.com",
               ],
-              frameSrc: ["https://accounts.google.com"],
+              frameSrc: [
+                "https://drive.google.com",
+                "https://docs.google.com",
+                "https://accounts.google.com",
+                "https://content.googleapis.com",
+              ],
               objectSrc: ["'none'"],
               baseUri: ["'self'"],
               formAction: ["'self'"],
@@ -65,18 +71,18 @@ describe("Security Headers & CSP Configuration", () => {
 
       expect(csp).toBeDefined();
       expect(csp).toContain("default-src 'self'");
-      expect(csp).toContain("script-src 'self' https://accounts.google.com https://apis.google.com");
-      expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
+      expect(csp).toContain("script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com");
+      expect(csp).toContain("style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com");
       expect(csp).toContain("font-src 'self' https://fonts.gstatic.com data:");
-      expect(csp).toContain("img-src 'self' data: blob:");
-      expect(csp).toContain("connect-src 'self' ws: wss: https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://apis.google.com");
-      expect(csp).toContain("frame-src https://accounts.google.com");
+      expect(csp).toContain("img-src 'self' data: blob: https: *.googleusercontent.com");
+      expect(csp).toContain("connect-src 'self' ws: wss: https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com");
+      expect(csp).toContain("frame-src https://drive.google.com https://docs.google.com https://accounts.google.com https://content.googleapis.com");
       expect(csp).toContain("object-src 'none'");
       expect(csp).toContain("base-uri 'self'");
       expect(csp).toContain("form-action 'self'");
       expect(csp).toContain("frame-ancestors 'none'");
 
-      // Cross-Origin-Opener-Policy for GIS popup support
+      // Cross-Origin-Opener-Policy for GIS popup and Google Picker support
       expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin-allow-popups");
 
       // Standard helmet headers

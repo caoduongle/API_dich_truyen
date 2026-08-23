@@ -115,7 +115,7 @@ class GooglePickerService {
       .setMimeTypes('application/vnd.google-apps.folder')
       .setIncludeFolders(true);
 
-    const picker = new google.picker.PickerBuilder()
+    const builder = new google.picker.PickerBuilder()
       .addView(view)
       .setOAuthToken(accessToken)
       .setDeveloperKey(apiKey)
@@ -129,8 +129,13 @@ class GooglePickerService {
         } else if (data.action === google.picker.Action.CANCEL) {
           onCancel?.();
         }
-      })
-      .build();
+      });
+
+    if (typeof window !== 'undefined' && window.location.origin) {
+      builder.setOrigin(window.location.origin);
+    }
+
+    const picker = builder.build();
 
     picker.setVisible(true);
   }
