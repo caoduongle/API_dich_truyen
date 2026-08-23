@@ -23,6 +23,7 @@ app.use(requestIdMiddleware);
 
 app.use(
   helmet({
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     contentSecurityPolicy: isProduction
       ? {
           directives: {
@@ -35,8 +36,10 @@ app.use(
               "'self'",
               "ws:",
               "wss:",
+              "https://accounts.google.com",
               "https://oauth2.googleapis.com",
               "https://www.googleapis.com",
+              "https://apis.google.com",
             ],
             frameSrc: ["https://accounts.google.com"],
             objectSrc: ["'none'"],
