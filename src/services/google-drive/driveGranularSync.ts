@@ -219,6 +219,35 @@ export class DriveGranularSync {
     selectedFiles?: { id: string; name: string }[]
   ): Promise<GranularProjectSyncSummary & { conflicts: ChapterConflictInfo[] }> {
     try {
+      // Kiểm tra folder còn tồn tại trước khi làm bất cứ điều gì
+      const stillExists = await client.fileExists(accessToken, driveFolderId);
+      if (!stillExists) {
+        onProgress?.({
+          status: 'syncing',
+          message: 'Thư mục Drive cũ không còn tồn tại. Đang tạo lại backup mới...',
+          progressPercent: 15,
+        });
+
+        // Tạo lại toàn bộ subfolder + upload lại chapter local hiện có
+        await this.migrateProjectToGranularSubfolder(
+          client,
+          accessToken,
+          projectId,
+          onProgress
+        );
+
+        const localChapters = await getChaptersByProjectFromDB(projectId);
+
+        return {
+          success: true,
+          uploadedChapters: localChapters.length,
+          downloadedChapters: 0,
+          failedPullCount: 0,
+          failedChapters: [],
+          conflicts: [],
+        };
+      }
+
       onProgress?.({
         status: 'syncing',
         message: 'Đang kiểm tra dữ liệu chương từ thư mục chia sẻ...',
@@ -426,6 +455,15 @@ export class DriveGranularSync {
     onProgress?: (progress: SyncProgress) => void,
     selectedFiles?: { id: string; name: string }[]
   ): Promise<StoryProject> {
+    // Kiểm tra sớm xem thư mục có tồn tại không
+    const folderExists = await client.fileExists(accessToken, sharedFolderId);
+    if (!folderExists) {
+      throw new Error(
+        'Thư mục chia sẻ này không còn tồn tại trên Google Drive (có thể đã bị xoá). ' +
+        'Vui lòng chọn lại một thư mục dự án còn tồn tại, hoặc đồng bộ lại (Push) để tạo backup mới.'
+      );
+    }
+
     onProgress?.({
       status: 'syncing',
       message: 'Đang tải thông tin dự án từ thư mục chia sẻ...',

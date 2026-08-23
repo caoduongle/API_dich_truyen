@@ -9,10 +9,35 @@ export class DriveRestClient {
   private cachedFolderId: string | null = null;
 
   /**
+   * Kiểm tra 1 folder/file ID có còn tồn tại và truy cập được không.
+   * Trả về false nếu 404 / bị xoá / không có quyền — KHÔNG throw.
+   */
+  public async fileExists(accessToken: string, fileId: string): Promise<boolean> {
+    if (!fileId || !fileId.trim()) return false;
+    try {
+      const res = await fetch(
+        `${DRIVE_FILES_ENDPOINT}/${fileId}?fields=id,trashed`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!res.ok) return false;
+      const data = await res.json();
+      return !data.trashed;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Đảm bảo thư mục lưu trữ của ứng dụng tồn tại trên Google Drive
    */
   public async ensureAppFolder(accessToken: string): Promise<string> {
-    if (this.cachedFolderId) return this.cachedFolderId;
+    if (this.cachedFolderId) {
+      const exists = await this.fileExists(accessToken, this.cachedFolderId);
+      if (exists) {
+        return this.cachedFolderId;
+      }
+      this.cachedFolderId = null;
+    }
 
     const query = `mimeType = 'application/vnd.google-apps.folder' and name = '${APP_FOLDER_NAME}' and trashed = false`;
     const searchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(query)}&fields=files(id, name)&spaces=drive`;

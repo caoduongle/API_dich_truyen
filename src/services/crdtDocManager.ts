@@ -262,19 +262,20 @@ export function mergeChapterCrdt({
       } catch (err) {
         console.warn('[mergeChapterCrdt] Lỗi merge remote snapshot:', err);
       }
-    } else {
-      // Remote không có snapshot, cập nhật metadata từ remote nếu remote mới hơn
-      const remoteTime = remoteChapter.updatedAt ? new Date(remoteChapter.updatedAt).getTime() : 0;
-      const localTime = localChapter.updatedAt ? new Date(localChapter.updatedAt).getTime() : 0;
-      if (remoteTime > localTime) {
-        const meta = doc.getMap('metadata');
-        doc.transact(() => {
-          if (remoteChapter.title) meta.set('title', remoteChapter.title);
-          if (remoteChapter.status) meta.set('status', remoteChapter.status);
-          if (remoteChapter.paragraphs) meta.set('paragraphs', remoteChapter.paragraphs);
-          if (remoteChapter.translatedLines) meta.set('translatedLines', remoteChapter.translatedLines);
-        });
-      }
+    }
+
+    // Cập nhật metadata từ remote nếu remote mới hơn theo cơ chế Last-Write-Wins
+    const remoteTime = remoteChapter.updatedAt ? new Date(remoteChapter.updatedAt).getTime() : 0;
+    const localTime = localChapter.updatedAt ? new Date(localChapter.updatedAt).getTime() : 0;
+    if (remoteTime > localTime) {
+      const meta = doc.getMap('metadata');
+      doc.transact(() => {
+        if (remoteChapter.title) meta.set('title', remoteChapter.title);
+        if (remoteChapter.status) meta.set('status', remoteChapter.status);
+        if (remoteChapter.paragraphs) meta.set('paragraphs', remoteChapter.paragraphs);
+        if (remoteChapter.translatedLines) meta.set('translatedLines', remoteChapter.translatedLines);
+        if (remoteChapter.updatedAt) meta.set('updatedAt', remoteChapter.updatedAt);
+      });
     }
   } else {
     // 2b. Chưa có local CRDT lineage (chuyển đổi từ hệ thống cũ / fresh doc)
