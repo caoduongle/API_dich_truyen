@@ -28,6 +28,8 @@ import {
   reconcileChapterTimestamps,
   encodeChapterWithCrdt,
   buildSharedProjectManifest,
+  formatChapterFileName,
+  sanitizeChapterTitleSlug,
 } from './google-drive/driveGranularSync';
 
 export {
@@ -40,6 +42,8 @@ export {
   encodeChapterWithCrdt,
   serializeProjectForDrive,
   buildSharedProjectManifest,
+  formatChapterFileName,
+  sanitizeChapterTitleSlug,
   DriveRestClient,
   DriveProjectSync,
   DriveGranularSync,

@@ -30,6 +30,35 @@ export function reconcileChapterTimestamps(
 }
 
 /**
+ * Chuyển tiêu đề chương thành slug ngắn gọn an toàn cho tên file (tối đa 30 ký tự)
+ */
+export function sanitizeChapterTitleSlug(title: string): string {
+  if (!title) return '';
+  return title
+    .replace(/[đĐ]/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Bỏ dấu tiếng Việt
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')     // Thay ký tự đặc biệt bằng dấu gạch ngang
+    .slice(0, 30)
+    .replace(/^-+|-+$/g, '');        // Bỏ gạch ngang ở đầu/cuối sau khi cắt
+}
+
+
+/**
+ * Tạo tên file chương rõ ràng, dễ phân biệt trên Google Drive / Picker
+ * Ví dụ: "chapter_001_chuong-1-yem-nguc.json" hoặc "chapter_012.json"
+ */
+export function formatChapterFileName(index: number, title?: string, chapId?: string): string {
+  const padIndex = String(index + 1).padStart(3, '0');
+  const slug = sanitizeChapterTitleSlug(title || '');
+  if (slug) {
+    return `chapter_${padIndex}_${slug}.json`;
+  }
+  return `chapter_${padIndex}.json`;
+}
+
+/**
  * Đóng gói chapter JSON kèm CRDT binary update snapshot (Base64) để làm bản backup dự phòng.
  */
 export function encodeChapterWithCrdt(projectId: string, chap: Chapter): string {
@@ -63,9 +92,10 @@ export function buildSharedProjectManifest(
     projectId,
     title,
     updatedAt: new Date().toISOString(),
-    chapters: chapters.map((c) => ({
+    chapters: chapters.map((c, i) => ({
       id: c.id,
       title: c.title,
+      fileName: formatChapterFileName(i, c.title, c.id),
       updatedAt: c.updatedAt || c.createdAt || new Date().toISOString(),
       status: c.status || 'not_started',
     })),
@@ -110,7 +140,7 @@ export class DriveGranularSync {
       JSON.stringify(project, null, 2)
     );
 
-    // 2. Tách và tải lên từng chapter_{id}.json
+    // 2. Tách và tải lên từng file chương với tên có số thứ tự + tiêu đề
     const chapterManifestItems: ChapterManifestItem[] = [];
     for (let i = 0; i < chapters.length; i++) {
       const chap = chapters[i];
@@ -122,16 +152,19 @@ export class DriveGranularSync {
         progressPercent: percent,
       });
 
+      const fileName = formatChapterFileName(i, chap.title, chap.id);
+
       const fileId = await client.uploadJsonFile(
         accessToken,
         subfolderId,
-        `chapter_${chap.id}.json`,
+        fileName,
         encodeChapterWithCrdt(projectId, chap)
       );
 
       chapterManifestItems.push({
         id: chap.id,
         title: chap.title,
+        fileName,
         updatedAt: chap.updatedAt || chap.createdAt || new Date().toISOString(),
         status: chap.status || 'not_started',
         fileId,
@@ -153,6 +186,7 @@ export class DriveGranularSync {
       MANIFEST_FILE_NAME,
       JSON.stringify(sharedManifest, null, 2)
     );
+
 
     // 4. Cập nhật trạng thái dự án trong IndexedDB
     const updatedProject: StoryProject = {
@@ -252,16 +286,18 @@ export class DriveGranularSync {
         const action = reconcileChapterTimestamps(local?.updatedAt, remoteMeta?.updatedAt);
 
         if (action === 'push' && local) {
+          const fileName = remoteMeta?.fileName || formatChapterFileName(i, local.title, local.id);
           const fileId = await client.uploadJsonFile(
             accessToken,
             driveFolderId,
-            `chapter_${local.id}.json`,
+            fileName,
             encodeChapterWithCrdt(projectId, local)
           );
 
           remoteChaptersMap.set(local.id, {
             id: local.id,
             title: local.title,
+            fileName,
             updatedAt: local.updatedAt || new Date().toISOString(),
             status: local.status || 'not_started',
             fileId,
@@ -270,13 +306,21 @@ export class DriveGranularSync {
         } else if (action === 'pull' && remoteMeta) {
           // Tìm file ID của chapter
           let fileId = remoteMeta.fileId;
+          const expectedFileName = remoteMeta.fileName || formatChapterFileName(i, remoteMeta.title, chapId);
           if (!fileId && selectedFiles) {
-            fileId = selectedFiles.find((f) => f.name === `chapter_${chapId}.json`)?.id;
+            fileId = selectedFiles.find(
+              (f) =>
+                (remoteMeta.fileName && f.name === remoteMeta.fileName) ||
+                f.name === expectedFileName ||
+                f.name === `chapter_${chapId}.json` ||
+                f.name.includes(chapId) ||
+                (remoteMeta.fileId && f.id === remoteMeta.fileId)
+            )?.id;
           }
 
           if (!fileId) {
             const chapSearchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(
-              `'${driveFolderId}' in parents and name = 'chapter_${chapId}.json' and trashed = false`
+              `'${driveFolderId}' in parents and (name = '${expectedFileName}' or name = 'chapter_${chapId}.json') and trashed = false`
             )}&fields=files(id, name)&spaces=drive`;
             const chapSearchRes = await fetch(chapSearchUrl, {
               headers: { Authorization: `Bearer ${accessToken}` },
@@ -454,12 +498,19 @@ export class DriveGranularSync {
     // 3. Pre-download validation: kiểm tra toàn bộ danh sách chương trước khi tải
     if (selectedFiles && chapters.length > 0) {
       const missingFiles: string[] = [];
-      for (const chapMeta of chapters) {
+      for (let i = 0; i < chapters.length; i++) {
+        const chapMeta = chapters[i];
+        const expectedFileName = chapMeta.fileName || formatChapterFileName(i, chapMeta.title, chapMeta.id);
         const hasFile = selectedFiles.some(
-          (f) => f.name === `chapter_${chapMeta.id}.json` || (chapMeta.fileId && f.id === chapMeta.fileId)
+          (f) =>
+            (chapMeta.fileName && f.name === chapMeta.fileName) ||
+            f.name === expectedFileName ||
+            f.name === `chapter_${chapMeta.id}.json` ||
+            f.name.includes(chapMeta.id) ||
+            (chapMeta.fileId && f.id === chapMeta.fileId)
         );
         if (!hasFile) {
-          missingFiles.push(`chapter_${chapMeta.id}.json`);
+          missingFiles.push(expectedFileName);
         }
       }
 
@@ -486,7 +537,16 @@ export class DriveGranularSync {
         progressPercent: percent,
       });
 
-      let fileId = selectedFiles?.find((f) => f.name === `chapter_${chapMeta.id}.json`)?.id || chapMeta.fileId;
+      const expectedFileName = chapMeta.fileName || formatChapterFileName(i, chapMeta.title, chapMeta.id);
+      let fileId =
+        selectedFiles?.find(
+          (f) =>
+            (chapMeta.fileName && f.name === chapMeta.fileName) ||
+            f.name === expectedFileName ||
+            f.name === `chapter_${chapMeta.id}.json` ||
+            f.name.includes(chapMeta.id) ||
+            (chapMeta.fileId && f.id === chapMeta.fileId)
+        )?.id || chapMeta.fileId;
 
       if (fileId) {
         try {

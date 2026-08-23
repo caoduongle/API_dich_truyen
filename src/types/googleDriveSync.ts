@@ -53,7 +53,9 @@ export interface ChapterManifestItem {
   updatedAt: string;
   status: 'not_started' | 'in_progress' | 'completed';
   fileId?: string;
+  fileName?: string;
 }
+
 
 export interface SharedProjectManifest {
   version: string;
