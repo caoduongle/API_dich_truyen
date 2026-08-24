@@ -8,6 +8,7 @@ import {
   Mail,
   Loader2,
   Users,
+  Layers,
 } from 'lucide-react';
 import { StoryProject } from '../../types';
 import { CollaboratorPermission, SyncProgress } from '../../types/googleDriveSync';
@@ -19,6 +20,25 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { useNotifications } from '../NotificationSystem';
 import { getProjectFromDB } from '../../services/db';
+
+export type ShareStorageState = 'unshared' | 'granular' | 'bundle';
+
+export function resolveShareStorageState(project: StoryProject | null): {
+  state: ShareStorageState;
+  targetResourceId: string | null;
+  canManageCollaborators: boolean;
+} {
+  if (!project) {
+    return { state: 'unshared', targetResourceId: null, canManageCollaborators: false };
+  }
+  if (project.driveStorageFormat === 'bundle' && !!project.driveFileId) {
+    return { state: 'bundle', targetResourceId: project.driveFileId, canManageCollaborators: true };
+  }
+  if (project.driveStorageFormat === 'granular' && !!project.driveFolderId) {
+    return { state: 'granular', targetResourceId: project.driveFolderId, canManageCollaborators: true };
+  }
+  return { state: 'unshared', targetResourceId: null, canManageCollaborators: false };
+}
 
 interface ShareProjectModalProps {
   open: boolean;
@@ -44,10 +64,11 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
 
   const { showToast } = useNotifications();
 
-  const isGranular = project?.driveStorageFormat === 'granular' && !!project?.driveFolderId;
+  const { state: storageState, targetResourceId, canManageCollaborators } = resolveShareStorageState(project);
+  const isGranular = storageState === 'granular';
 
   const loadCollaborators = useCallback(async () => {
-    if (!project?.driveFolderId) return;
+    if (!targetResourceId) return;
     const token = googleAuthService.getValidAccessToken();
     if (!token) return;
 
@@ -55,7 +76,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
       setIsLoadingList(true);
       const list = await googleDrivePermissionsService.listFolderCollaborators(
         token,
-        project.driveFolderId
+        targetResourceId
       );
       setCollaborators(list);
     } catch (err: any) {
@@ -63,13 +84,13 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
     } finally {
       setIsLoadingList(false);
     }
-  }, [project?.driveFolderId]);
+  }, [targetResourceId]);
 
   useEffect(() => {
-    if (open && isGranular) {
+    if (open && canManageCollaborators) {
       loadCollaborators();
     }
-  }, [open, isGranular, loadCollaborators]);
+  }, [open, canManageCollaborators, loadCollaborators]);
 
   const handleMigrate = async () => {
     if (!project) return;
@@ -81,7 +102,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
 
     try {
       setIsMigrating(true);
-      const folderId = await googleDriveSyncService.migrateProjectToGranularSubfolder(
+      const fileId = await googleDriveSyncService.migrateOwnerProjectToBundle(
         token,
         project.id,
         setMigrationProgress
@@ -91,10 +112,12 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
         onProjectUpdated?.(updated);
       }
       showToast({
-        message: 'Đã khởi tạo thư mục riêng và tách nhỏ từng chương thành công!',
+        message: 'Đã đóng gói dự án dạng 1-file và sẵn sàng chia sẻ thành công!',
         type: 'success',
       });
-      loadCollaborators();
+      if (fileId) {
+        loadCollaborators();
+      }
     } catch (err: any) {
       showToast({ message: err.message || 'Lỗi chuyển đổi cấu trúc dự án.', type: 'error' });
     } finally {
@@ -102,9 +125,52 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
     }
   };
 
+  const handleUpgradeGranularToBundle = async () => {
+    if (!project) return;
+    const token = googleAuthService.getValidAccessToken();
+    if (!token) {
+      showToast({ message: 'Vui lòng đăng nhập Google trước khi nâng cấp dự án.', type: 'warning' });
+      return;
+    }
+
+    if (
+      !window.confirm(
+        'Nâng cấp lên gói 1-file sẽ tạo file dữ liệu mới và chuyển dự án sang chuẩn đồng bộ tối ưu hơn. ' +
+          'Các cộng tác viên cũ sẽ cần được cấp quyền lại trên file mới này và mở file mới qua Google Picker. ' +
+          'Bạn có chắc chắn muốn nâng cấp ngay bây giờ?'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setIsMigrating(true);
+      const fileId = await googleDriveSyncService.migrateOwnerProjectToBundle(
+        token,
+        project.id,
+        setMigrationProgress
+      );
+      const updated = await getProjectFromDB(project.id);
+      if (updated) {
+        onProjectUpdated?.(updated);
+      }
+      showToast({
+        message: 'Đã nâng cấp dự án lên gói 1-file thành công! Hãy chia sẻ lại với cộng tác viên.',
+        type: 'success',
+      });
+      if (fileId) {
+        loadCollaborators();
+      }
+    } catch (err: any) {
+      showToast({ message: err.message || 'Lỗi nâng cấp dự án sang gói 1-file.', type: 'error' });
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   const handleAddCollaborator = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!project?.driveFolderId) return;
+    if (!targetResourceId) return;
     const token = googleAuthService.getValidAccessToken();
     if (!token) {
       showToast({ message: 'Phiên đăng nhập đã hết hạn.', type: 'error' });
@@ -121,7 +187,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
       setIsSharing(true);
       const perm = await googleDrivePermissionsService.shareFolderWithUser(
         token,
-        project.driveFolderId,
+        targetResourceId,
         cleanEmail,
         roleInput
       );
@@ -139,7 +205,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
   };
 
   const handleRevoke = async (permissionId: string, email: string) => {
-    if (!project?.driveFolderId) return;
+    if (!targetResourceId) return;
     const token = googleAuthService.getValidAccessToken();
     if (!token) return;
 
@@ -151,7 +217,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
       setRevokingId(permissionId);
       await googleDrivePermissionsService.revokeFolderPermission(
         token,
-        project.driveFolderId,
+        targetResourceId,
         permissionId
       );
       showToast({ message: 'Đã thu hồi quyền thành công.', type: 'info' });
@@ -194,15 +260,15 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
             Cơ chế chia sẻ riêng biệt & an toàn:
           </div>
           <p>
-            • Dự án được lưu trong một thư mục riêng <code>AI_Dich_Truyen_Data/{project.id}/</code> hoặc gói 1-file.
+            • Dự án được lưu trữ thành 1 file dữ liệu duy nhất trong thư mục ứng dụng Google Drive (<code>AI_Dich_Truyen_Data</code>).
           </p>
           <p>
-            • Người được mời chỉ có quyền truy cập đúng truyện này, không thấy các dự án khác trong Drive của bạn.
+            • Người được mời chỉ được cấp quyền trên đúng file truyện này, hoàn toàn không xem được các dự án khác trong Drive của bạn.
           </p>
         </div>
 
-        {/* Trạng thái 1: Chưa chuyển sang cấu trúc thư mục riêng */}
-        {!isGranular ? (
+        {/* Trạng thái 1: Chưa chuyển sang cấu trúc gói 1-file */}
+        {!canManageCollaborators ? (
           <div className="p-5 border border-parchment-2 rounded-[2px] bg-ink/5 text-center space-y-3">
             <div className="w-12 h-12 rounded-full bg-gold/15 flex items-center justify-center mx-auto border border-gold/30">
               <FolderLock className="w-6 h-6 text-gold" />
@@ -212,7 +278,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
                 Chuẩn bị dự án để chia sẻ
               </h3>
               <p className="text-xs text-text-muted max-w-md mx-auto">
-                Hệ thống sẽ tạo thư mục riêng cho truyện này trên Google Drive và chia nhỏ các chương thành từng file độc lập để nhiều người có thể dịch đồng thời mà không đè bản dịch của nhau.
+                Hệ thống sẽ đóng gói toàn bộ truyện thành một gói 1-file duy nhất trên Google Drive và lưu trữ an toàn. Người được mời sẽ có quyền truy cập trực tiếp để cùng dịch mà không lo phát sinh lỗi thiếu chương hay trùng file.
               </p>
             </div>
 
@@ -240,13 +306,50 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
                 icon={isMigrating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
                 className="mx-auto"
               >
-                {isMigrating ? 'Đang chuẩn bị thư mục...' : 'Khởi tạo thư mục & Sẵn sàng chia sẻ'}
+                {isMigrating ? 'Đang đóng gói dự án...' : 'Khởi tạo gói 1-file & Sẵn sàng chia sẻ'}
               </Button>
             </div>
           </div>
         ) : (
-          /* Trạng thái 2: Đã là thư mục riêng, quản lý cộng tác viên */
+          /* Trạng thái 2 & 3: Đã là bundle hoặc granular, quản lý cộng tác viên */
           <div className="space-y-4">
+            {/* Banner nâng cấp cho dự án Granular cũ */}
+            {isGranular && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-[2px] text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    Cấu trúc thư mục granular cũ (Spec 069)
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleUpgradeGranularToBundle}
+                    disabled={isMigrating}
+                    icon={isMigrating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+                  >
+                    {isMigrating ? 'Đang nâng cấp...' : 'Nâng cấp lên gói 1-file'}
+                  </Button>
+                </div>
+                <p className="text-text-muted text-[11px]">
+                  Dự án này đang lưu ở dạng thư mục nhiều file. Bạn vẫn có thể quản lý cộng tác viên bên dưới, hoặc chủ động bấm nút nâng cấp sang gói 1-file để tối ưu tốc độ và độ ổn định khi đồng bộ.
+                </p>
+                {migrationProgress && isMigrating && (
+                  <div className="space-y-1 pt-1">
+                    <div className="flex justify-between text-[11px] text-text-muted">
+                      <span>{migrationProgress.message}</span>
+                      <span>{migrationProgress.progressPercent}%</span>
+                    </div>
+                    <div className="w-full h-1 bg-ink/20 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gold transition-all duration-300"
+                        style={{ width: `${migrationProgress.progressPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Form mời cộng tác viên */}
             <form onSubmit={handleAddCollaborator} className="border border-parchment-2 rounded-[2px] p-3.5 bg-ink/5 space-y-3">
               <label className="text-xs font-bold text-text-main flex items-center gap-1.5">

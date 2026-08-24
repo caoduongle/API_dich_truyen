@@ -4,11 +4,11 @@ const DRIVE_FILES_ENDPOINT = 'https://www.googleapis.com/drive/v3/files';
 
 class GoogleDrivePermissionsService {
   /**
-   * Cấp quyền truy cập (writer / reader) trên một thư mục Google Drive cho email người dùng
+   * Cấp quyền truy cập (writer / reader) trên một tài nguyên Google Drive (file hoặc folder) cho email người dùng
    */
   public async shareFolderWithUser(
     accessToken: string,
-    folderId: string,
+    resourceId: string,
     emailAddress: string,
     role: 'writer' | 'reader' = 'writer'
   ): Promise<CollaboratorPermission> {
@@ -17,7 +17,7 @@ class GoogleDrivePermissionsService {
       throw new Error('Vui lòng nhập địa chỉ email Google hợp lệ.');
     }
 
-    const url = `${DRIVE_FILES_ENDPOINT}/${folderId}/permissions?fields=id,role,type,emailAddress,displayName,photoLink&sendNotificationEmail=false`;
+    const url = `${DRIVE_FILES_ENDPOINT}/${resourceId}/permissions?fields=id,role,type,emailAddress,displayName,photoLink&sendNotificationEmail=false`;
 
     const res = await fetch(url, {
       method: 'POST',
@@ -50,13 +50,13 @@ class GoogleDrivePermissionsService {
   }
 
   /**
-   * Lấy danh sách cộng tác viên có quyền truy cập trên thư mục
+   * Lấy danh sách cộng tác viên có quyền truy cập trên tài nguyên Google Drive (file hoặc folder)
    */
   public async listFolderCollaborators(
     accessToken: string,
-    folderId: string
+    resourceId: string
   ): Promise<CollaboratorPermission[]> {
-    const url = `${DRIVE_FILES_ENDPOINT}/${folderId}/permissions?fields=permissions(id,role,type,emailAddress,displayName,photoLink)`;
+    const url = `${DRIVE_FILES_ENDPOINT}/${resourceId}/permissions?fields=permissions(id,role,type,emailAddress,displayName,photoLink)`;
 
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -65,7 +65,7 @@ class GoogleDrivePermissionsService {
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       throw new Error(
-        errData.error?.message || `Không thể lấy danh sách quyền thư mục (HTTP ${res.status})`
+        errData.error?.message || `Không thể lấy danh sách quyền tài nguyên (HTTP ${res.status})`
       );
     }
 
@@ -84,14 +84,14 @@ class GoogleDrivePermissionsService {
   }
 
   /**
-   * Thu hồi quyền truy cập của cộng tác viên khỏi thư mục
+   * Thu hồi quyền truy cập của cộng tác viên khỏi tài nguyên Google Drive (file hoặc folder)
    */
   public async revokeFolderPermission(
     accessToken: string,
-    folderId: string,
+    resourceId: string,
     permissionId: string
   ): Promise<boolean> {
-    const url = `${DRIVE_FILES_ENDPOINT}/${folderId}/permissions/${permissionId}`;
+    const url = `${DRIVE_FILES_ENDPOINT}/${resourceId}/permissions/${permissionId}`;
 
     const res = await fetch(url, {
       method: 'DELETE',

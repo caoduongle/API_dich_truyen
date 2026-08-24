@@ -72,15 +72,15 @@
 
 ## Phase 6: User Story 4 - Deprecate Spec 069 & Owner Migration (Priority: P3)
 
-**Goal**: Remove obsolete "Đồng bộ file mới" workaround UI and provide automatic owner migration to bundle format.
+**Goal**: Remove obsolete "Đồng bộ file mới" workaround UI and provide explicit owner migration to bundle format.
 
-**Independent Test**: Verify `ShareProjectModal` has no "Đồng bộ file mới" card or button, and an existing granular project owned by User A automatically migrates to bundle format on next push.
+**Independent Test**: Verify `ShareProjectModal` has no "Đồng bộ file mới" card or button, and an existing granular project owned by User A can be explicitly upgraded to bundle format with collaborator re-invite awareness.
 
 - [x] T016 [P] [US4] Remove "Đồng bộ file mới" card, buttons, and `handleSyncNewFiles` logic from `src/components/google-sync/ShareProjectModal.tsx`
 - [x] T017 [P] [US4] Remove references to "Đồng bộ file mới" toast messages and warnings from `src/components/google-sync/GoogleSyncModal.tsx` and `src/services/google-drive/driveGranularSync.ts`
-- [x] T018 [US4] Implement automatic project migration in `src/services/google-drive/driveBundleSync.ts` to repackage legacy granular projects into `project_bundle_<id>.json` on owner sync
+- [x] T018 [US4] Implement owner project migration in `src/services/google-drive/driveBundleSync.ts` to repackage legacy granular/monolithic projects into `project_bundle_<id>.json` on explicit owner upgrade in Share modal
 
-**Checkpoint**: User Story 4 is complete. Legacy workarounds are cleanly deprecated and migration is seamless.
+**Checkpoint**: User Story 4 is complete. Legacy workarounds are cleanly deprecated and migration is explicit and secure.
 
 ---
 
