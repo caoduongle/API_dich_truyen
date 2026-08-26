@@ -38,7 +38,6 @@ import { metricsService } from "../services/metricsService";
 import { modelInfoService } from "../services/modelInfoService";
 import { redisManager } from "../services/redisService";
 import { SERVER_CONFIG } from "@shared/constants";
-import hakoRouter from "./hako";
 
 const router = Router();
 
@@ -172,9 +171,6 @@ router.post("/qa-critique", idempotencyMiddleware, extractCustomRpmMiddleware, r
 
 // --- Routes for Bilingual alignment ---
 router.post("/align-chapter", extractCustomRpmMiddleware, requireEphemeralApiKeys, validateModelMiddleware, alignChapter);
-
-// --- Routes for Moderator Hako Quality Checker (Read-Only) ---
-router.use("/hako", hakoRouter);
 
 // --- Routes for Quota & Usage Tracking & Model Verification ---
 router.post("/quota-status", getQuotaStatusHandler);

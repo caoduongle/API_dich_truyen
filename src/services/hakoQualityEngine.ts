@@ -1,5 +1,5 @@
 /**
- * Quality Inspection Engine for Moderator Hako Checker
+ * Quality Inspection Engine for Moderator Project Quality Checker
  * Feature: 075-moderator-quality-checker
  *
  * Implements:
@@ -30,7 +30,8 @@ export function generateIssueId(): string {
  * 1. HEURISTIC SCAN: Quét quy tắc nhanh trên văn bản tiếng Việt
  */
 export function runHeuristicQualityScan(chapter: {
-  url: string;
+  chapterId?: string;
+  url?: string;
   title: string;
   vietnameseContent: string;
 }): QualityIssue[] {
@@ -38,6 +39,7 @@ export function runHeuristicQualityScan(chapter: {
   const text = chapter.vietnameseContent || '';
   if (!text.trim()) return issues;
 
+  const chapterId = chapter.chapterId || chapter.url || '';
   const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
 
   // --- Rule 1: Phát hiện ký tự tiếng Trung / Hán tự chưa dịch (Raw Leak) ---
@@ -51,7 +53,7 @@ export function runHeuristicQualityScan(chapter: {
 
       issues.push({
         id: generateIssueId(),
-        chapterUrl: chapter.url,
+        chapterId,
         chapterTitle: chapter.title,
         category: 'raw_leak',
         severity,
@@ -73,7 +75,7 @@ export function runHeuristicQualityScan(chapter: {
     if (curr.length > 25 && curr === next) {
       issues.push({
         id: generateIssueId(),
-        chapterUrl: chapter.url,
+        chapterId,
         chapterTitle: chapter.title,
         category: 'repetition',
         severity: 'major',
@@ -94,7 +96,7 @@ export function runHeuristicQualityScan(chapter: {
     if (match) {
       issues.push({
         id: generateIssueId(),
-        chapterUrl: chapter.url,
+        chapterId,
         chapterTitle: chapter.title,
         category: 'other',
         severity: 'warning',
@@ -114,9 +116,10 @@ export function runHeuristicQualityScan(chapter: {
 export interface AiQualityScanInput {
   apiKeys: string[];
   model?: string;
-  novelTitle: string;
+  projectTitle: string;
   chapters: Array<{
-    url: string;
+    chapterId?: string;
+    url?: string;
     title: string;
     vietnameseContent: string;
     rawChineseContent?: string;
@@ -129,7 +132,7 @@ export interface AiQualityScanInput {
  * 2. AI SEMANTIC SCAN: Phân tích chất lượng văn phong, nhất quán tên riêng, giới tính và đối chiếu raw
  */
 export async function runAiQualityScan(input: AiQualityScanInput): Promise<QualityIssue[]> {
-  const { apiKeys, model, novelTitle, chapters, onProgress, signal } = input;
+  const { apiKeys, model, projectTitle, chapters, onProgress, signal } = input;
   const allAiIssues: QualityIssue[] = [];
 
   const rawKeys = Array.isArray(apiKeys) ? apiKeys.filter((k) => k && k.trim()) : [];
@@ -141,6 +144,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
 
   for (let idx = 0; idx < chapters.length; idx++) {
     const chapter = chapters[idx];
+    const chapterId = chapter.chapterId || chapter.url || '';
     const hasRaw = !!chapter.rawChineseContent && chapter.rawChineseContent.trim().length > 0;
 
     if (onProgress) {
@@ -167,7 +171,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
     const systemInstruction =
       LITERARY_TRANSLATION_FRAMING +
       `Bạn là chuyên gia kiểm định chất lượng bản dịch văn học Trung - Việt hàng đầu.\n` +
-      `Nhiệm vụ của bạn là rà soát chương truyện "${chapter.title}" thuộc bộ truyện "${novelTitle}" và chỉ ra các lỗi chất lượng thực sự nghiêm trọng hoặc gây khó chịu cho độc giả.\n\n` +
+      `Nhiệm vụ của bạn là rà soát chương truyện "${chapter.title}" thuộc bộ truyện "${projectTitle}" và chỉ ra các lỗi chất lượng thực sự nghiêm trọng hoặc gây khó chịu cho độc giả.\n\n` +
       `Các danh mục lỗi cần phát hiện:\n` +
       `1. "inconsistent_name": Tên nhân vật, địa danh, môn phái bị đổi cách dịch hoặc mâu thuẫn giữa các đoạn.\n` +
       `2. "pronoun_gender": Đại từ xưng hô, nhân xưng hoặc giới tính nhân vật bị mâu thuẫn bất thường (ví dụ: nhân vật nữ nhưng xưng "hắn", "anh" biến thành "cô").\n` +
@@ -222,7 +226,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
       required: ['issues'],
     };
 
-    let userPrompt = `TÊN TRUYỆN: ${novelTitle}\nTIÊU ĐỀ CHƯƠNG: ${chapter.title}\n\n`;
+    let userPrompt = `TÊN TRUYỆN: ${projectTitle}\nTIÊU ĐỀ CHƯƠNG: ${chapter.title}\n\n`;
     if (hasRaw) {
       userPrompt += `--- VĂN BẢN RAW TIẾNG TRUNG GỐC ---\n${sanitizedRaw}\n\n`;
     }
@@ -247,7 +251,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
 
         allAiIssues.push({
           id: generateIssueId(),
-          chapterUrl: chapter.url,
+          chapterId,
           chapterTitle: chapter.title,
           category: (item.category as QualityIssueCategory) || 'other',
           severity: (item.severity as QualityIssueSeverity) || 'major',
@@ -263,10 +267,9 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
     } catch (err: any) {
       if (err.name === 'AbortError') throw err;
       console.warn(`[hakoQualityEngine] AI scan failed for chapter "${chapter.title}":`, err);
-      // Ghi nhận cảnh báo nếu AI phân tích chương này bị lỗi
       allAiIssues.push({
         id: generateIssueId(),
-        chapterUrl: chapter.url,
+        chapterId,
         chapterTitle: chapter.title,
         category: 'other',
         severity: 'warning',
@@ -326,9 +329,8 @@ export function generateQualityReport(session: QualityReviewSession): QualityRep
     byCategory,
   };
 
-  // Tạo định dạng Markdown
-  const novelTitle = session.novelMeta?.title || 'Bộ truyện Hako';
-  const totalChapters = session.selectedChapterUrls.length;
+  const projectTitle = session.projectTitle || 'Dự án dịch';
+  const totalChapters = session.selectedChapterIds ? session.selectedChapterIds.length : 0;
   const dateStr = new Date().toLocaleDateString('vi-VN', {
     year: 'numeric',
     month: '2-digit',
@@ -337,9 +339,8 @@ export function generateQualityReport(session: QualityReviewSession): QualityRep
     minute: '2-digit',
   });
 
-  let md = `# BÁO CÁO KIỂM ĐỊNH CHẤT LƯỢNG BẢN DỊCH HAKO\n\n`;
-  md += `- **Bộ truyện**: ${novelTitle}\n`;
-  md += `- **Liên kết gốc**: ${session.novelUrl}\n`;
+  let md = `# BÁO CÁO KIỂM ĐỊNH CHẤT LƯỢNG BẢN DỊCH\n\n`;
+  md += `- **Dự án**: ${projectTitle}\n`;
   md += `- **Thời gian kiểm định**: ${dateStr}\n`;
   md += `- **Số chương rà soát**: ${totalChapters} chương\n`;
   md += `- **Tổng số lỗi đã xác nhận**: ${confirmedIssues.length} lỗi (Nghiêm trọng: ${bySeverity.critical}, Lớn: ${bySeverity.major}, Nhẹ: ${bySeverity.minor}, Cảnh báo: ${bySeverity.warning})\n\n`;
@@ -408,8 +409,8 @@ export function generateQualityReport(session: QualityReviewSession): QualityRep
 
   return {
     sessionId: session.id,
-    novelTitle,
-    novelUrl: session.novelUrl,
+    projectTitle,
+    projectId: session.projectId || '',
     generatedAt: new Date().toISOString(),
     totalChaptersReviewed: totalChapters,
     stats,

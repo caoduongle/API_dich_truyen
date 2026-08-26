@@ -19,7 +19,7 @@ describe('hakoQualityEngine Unit Tests', () => {
   describe('runHeuristicQualityScan', () => {
     it('detects CJK Chinese characters in Vietnamese translation as raw leaks', () => {
       const chapter = {
-        url: 'https://ln.hako.vn/truyen/1/c1',
+        chapterId: 'c1',
         title: 'Chương 1',
         vietnameseContent: 'Hắn nhìn về phía trước, đột nhiên phát hiện một gốc 龙涎草 mọc trên vách đá.',
       };
@@ -29,13 +29,14 @@ describe('hakoQualityEngine Unit Tests', () => {
       expect(issues[0].category).toBe('raw_leak');
       expect(issues[0].severity).toBe('major');
       expect(issues[0].vietnameseSnippet).toContain('龙涎草');
+      expect(issues[0].chapterId).toBe('c1');
       expect(issues[0].decision).toBe('pending');
       expect(issues[0].detectedBy).toBe('heuristic');
     });
 
     it('marks severity as critical when raw leaks have 5 or more CJK characters', () => {
       const chapter = {
-        url: 'https://ln.hako.vn/truyen/1/c1',
+        chapterId: 'c1',
         title: 'Chương 1',
         vietnameseContent: 'Câu này hoàn toàn chưa dịch: 斗破苍穹大结局 toàn bộ là tiếng Trung.',
       };
@@ -48,7 +49,7 @@ describe('hakoQualityEngine Unit Tests', () => {
 
     it('detects duplicate consecutive paragraphs', () => {
       const chapter = {
-        url: 'https://ln.hako.vn/truyen/1/c2',
+        chapterId: 'c2',
         title: 'Chương 2',
         vietnameseContent: [
           'Tiêu Viêm thở dài một hơi, chậm rãi bước ra khỏi phòng luyện công.',
@@ -66,7 +67,7 @@ describe('hakoQualityEngine Unit Tests', () => {
 
     it('detects placeholder tags and error markers', () => {
       const chapter = {
-        url: 'https://ln.hako.vn/truyen/1/c3',
+        chapterId: 'c3',
         title: 'Chương 3',
         vietnameseContent: 'Hắn vận chuyển công pháp [chưa dịch] để hồi phục đấu khí.',
       };
@@ -80,7 +81,7 @@ describe('hakoQualityEngine Unit Tests', () => {
 
     it('returns empty array when text is clean', () => {
       const chapter = {
-        url: 'https://ln.hako.vn/truyen/1/c4',
+        chapterId: 'c4',
         title: 'Chương 4',
         vietnameseContent: 'Tiêu Viêm mở mắt ra, nhìn thấy Dược Lão đang mỉm cười nhìn mình.\n\n"Sư phụ, con đã đột phá rồi."',
       };
@@ -94,22 +95,35 @@ describe('hakoQualityEngine Unit Tests', () => {
     it('calculates statistics and formats markdown report accurately', () => {
       const mockSession: QualityReviewSession = {
         id: 'test-session-1',
-        novelUrl: 'https://ln.hako.vn/truyen/123-dau-pha',
-        novelMeta: {
-          url: 'https://ln.hako.vn/truyen/123-dau-pha',
-          title: 'Đấu Phá Thương Khung',
-          author: 'Thiên Tằm Thổ Đậu',
-          artist: 'Đang cập nhật',
-          description: 'Mô tả truyện...',
-          volumes: [],
-          fetchedAt: new Date().toISOString(),
+        projectId: 'proj-123',
+        projectTitle: 'Đấu Phá Thương Khung',
+        selectedChapterIds: ['c1', 'c2'],
+        chapters: {
+          c1: {
+            chapterId: 'c1',
+            title: 'Chương 1: Mở màn',
+            chapterNumber: 1,
+            vietnameseContent: 'Nội dung chương 1...',
+            rawChineseContent: '第1章...',
+            translationType: 'polished',
+            wordCount: 1500,
+            status: 'done',
+          },
+          c2: {
+            chapterId: 'c2',
+            title: 'Chương 2: Đấu Khí Các',
+            chapterNumber: 2,
+            vietnameseContent: 'Nội dung chương 2...',
+            rawChineseContent: '第2章...',
+            translationType: 'raw',
+            wordCount: 1800,
+            status: 'done',
+          },
         },
-        selectedChapterUrls: ['https://ln.hako.vn/truyen/123/c1', 'https://ln.hako.vn/truyen/123/c2'],
-        chapters: {},
         issues: [
           {
             id: 'i1',
-            chapterUrl: 'https://ln.hako.vn/truyen/123/c1',
+            chapterId: 'c1',
             chapterTitle: 'Chương 1: Mở màn',
             category: 'inconsistent_name',
             severity: 'major',
@@ -122,7 +136,7 @@ describe('hakoQualityEngine Unit Tests', () => {
           },
           {
             id: 'i2',
-            chapterUrl: 'https://ln.hako.vn/truyen/123/c1',
+            chapterId: 'c1',
             chapterTitle: 'Chương 1: Mở màn',
             category: 'raw_leak',
             severity: 'critical',
@@ -134,7 +148,7 @@ describe('hakoQualityEngine Unit Tests', () => {
           },
           {
             id: 'i3',
-            chapterUrl: 'https://ln.hako.vn/truyen/123/c2',
+            chapterId: 'c2',
             chapterTitle: 'Chương 2: Đấu Khí Các',
             category: 'pronoun_gender',
             severity: 'minor',
@@ -146,7 +160,7 @@ describe('hakoQualityEngine Unit Tests', () => {
           },
           {
             id: 'i4',
-            chapterUrl: 'https://ln.hako.vn/truyen/123/c2',
+            chapterId: 'c2',
             chapterTitle: 'Chương 2: Đấu Khí Các',
             category: 'other',
             severity: 'warning',
@@ -171,7 +185,7 @@ describe('hakoQualityEngine Unit Tests', () => {
       expect(report.stats.bySeverity.critical).toBe(1);
       expect(report.stats.bySeverity.major).toBe(1);
 
-      expect(report.formattedMarkdown).toContain('# BÁO CÁO KIỂM ĐỊNH CHẤT LƯỢNG BẢN DỊCH HAKO');
+      expect(report.formattedMarkdown).toContain('# BÁO CÁO KIỂM ĐỊNH CHẤT LƯỢNG BẢN DỊCH');
       expect(report.formattedMarkdown).toContain('Đấu Phá Thương Khung');
       expect(report.formattedMarkdown).toContain('Chương 1: Mở màn');
       expect(report.formattedMarkdown).toContain('Tên đại ca bị nhầm thành tên cha');

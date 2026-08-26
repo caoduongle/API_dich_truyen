@@ -1,5 +1,5 @@
 /**
- * Persistent IndexedDB store for Moderator Hako Quality Checker Sessions
+ * Persistent IndexedDB store for Moderator Project Quality Checker Sessions
  * Feature: 075-moderator-quality-checker
  *
  * Isolated in its own dedicated database (HakoQualityCheckerDB) to guarantee
@@ -9,7 +9,7 @@
 import { QualityReviewSession } from '../types/hakoChecker';
 
 const DB_NAME = 'HakoQualityCheckerDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'hako_quality_sessions';
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -23,10 +23,16 @@ function openDatabase(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
+      let store: IDBObjectStore;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
         store.createIndex('updatedAt', 'updatedAt', { unique: false });
-        store.createIndex('novelUrl', 'novelUrl', { unique: false });
+        store.createIndex('projectId', 'projectId', { unique: false });
+      } else {
+        store = (event.target as IDBOpenDBRequest).transaction!.objectStore(STORE_NAME);
+        if (!store.indexNames.contains('projectId')) {
+          store.createIndex('projectId', 'projectId', { unique: false });
+        }
       }
     };
 
@@ -43,7 +49,7 @@ export async function saveSession(session: QualityReviewSession): Promise<Qualit
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    const updatedSession = {
+    const updatedSession: QualityReviewSession = {
       ...session,
       updatedAt: new Date().toISOString(),
     };
@@ -89,6 +95,30 @@ export async function getLatestSession(): Promise<QualityReviewSession | null> {
       resolve(items[0]);
     };
     req.onerror = () => reject(req.error || new Error('Lỗi khi lấy phiên gần nhất'));
+  });
+}
+
+/**
+ * Lấy phiên làm việc theo projectId
+ */
+export async function getSessionByProjectId(projectId: string): Promise<QualityReviewSession | null> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.getAll();
+
+    req.onsuccess = () => {
+      const items: QualityReviewSession[] = req.result || [];
+      const filtered = items.filter((item) => item.projectId === projectId);
+      if (filtered.length === 0) {
+        resolve(null);
+        return;
+      }
+      filtered.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      resolve(filtered[0]);
+    };
+    req.onerror = () => reject(req.error || new Error('Lỗi khi lấy phiên theo projectId'));
   });
 }
 

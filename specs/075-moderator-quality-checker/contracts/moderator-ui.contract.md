@@ -4,20 +4,21 @@
 **Date**: 2026-08-27
 **Status**: Completed
 
+---
+
 ## 1. Component Hierarchy & Navigation
 
 - **Navigation Integration**:
   - Main Tab: `hako-checker` (Alt+6 keyboard shortcut).
-  - Title in Vietnamese: `Kiểm Định Hako`.
+  - Title: `Kiểm Định Chất Lượng`.
   - Icon: `ShieldCheck` from `lucide-react`.
 
 - **Component Hierarchy**:
   ```text
   src/components/hako-checker/
   ├── HakoCheckerWorkspace.tsx          # Main workspace container
-  ├── HakoNovelImporter.tsx             # URL input & metadata fetcher + rate-limit handler
-  ├── HakoChapterSelector.tsx           # Multi-select for up to 12 chapters + raw input accordions
-  ├── HakoIssueReviewPanel.tsx          # Issue filtering, decision buttons (Confirm/Review/Dismiss)
+  ├── HakoProjectSelector.tsx           # Project dropdown & Chapter selector (1-12 limit) with raw drawers
+  ├── HakoIssueReviewPanel.tsx          # Issue filtering, stats, decision buttons (Confirm/Review/Dismiss)
   ├── HakoIssueCard.tsx                 # Detailed card with snippets, raw diff, moderator note
   └── HakoReportExportModal.tsx         # Summary stats & formatted report copy modal
   ```
@@ -34,27 +35,18 @@ export interface HakoCheckerWorkspaceProps {
 }
 ```
 
-### `HakoNovelImporter`
+### `HakoProjectSelector` (or `HakoChapterSelector`)
 ```typescript
-export interface HakoNovelImporterProps {
-  novelUrl: string;
-  onUrlChange: (url: string) => void;
-  onFetchMeta: (url: string) => Promise<void>;
-  isLoading: boolean;
-  error?: { message: string; code: string; retryAfterSeconds?: number };
-}
-```
-
-### `HakoChapterSelector`
-```typescript
-export interface HakoChapterSelectorProps {
-  novelMeta: HakoNovelMeta;
-  selectedUrls: Set<string>;
-  onToggleChapter: (url: string) => void;
-  onSelectRange: (urls: string[]) => void;
+export interface HakoProjectSelectorProps {
+  projects: StoryProject[];
+  selectedProjectId: string | null;
+  onSelectProject: (projectId: string) => void;
+  selectedChapterIds: string[];
+  chapters: Record<string, ProjectReviewChapter>;
+  onToggleChapter: (chapterId: string) => void;
+  onSelectRange: (chapterIds: string[]) => void;
   onClearSelection: () => void;
-  rawTexts: Record<string, string>;
-  onUpdateRawText: (url: string, raw: string) => void;
+  onUpdateRawText: (chapterId: string, rawText: string) => void;
   onStartAnalysis: () => void;
   isAnalyzing: boolean;
 }
@@ -64,10 +56,27 @@ export interface HakoChapterSelectorProps {
 ```typescript
 export interface HakoIssueReviewPanelProps {
   issues: QualityIssue[];
-  chapters: Record<string, HakoReviewChapter>;
-  onDecisionChange: (issueId: string, decision: QualityIssueDecision) => void;
-  onNoteChange: (issueId: string, note: string) => void;
+  chapters: Record<string, ProjectReviewChapter>;
+  onDecisionChange: (issueId: string, decision: QualityIssueDecision, note?: string) => void;
   onOpenExportModal: () => void;
   onReanalyze: () => void;
+  isAnalyzing: boolean;
+}
+```
+
+### `HakoIssueCard`
+```typescript
+export interface HakoIssueCardProps {
+  issue: QualityIssue;
+  onDecisionChange: (issueId: string, decision: QualityIssueDecision, note?: string) => void;
+}
+```
+
+### `HakoReportExportModal`
+```typescript
+export interface HakoReportExportModalProps {
+  open: boolean;
+  onClose: () => void;
+  session: QualityReviewSession | null;
 }
 ```

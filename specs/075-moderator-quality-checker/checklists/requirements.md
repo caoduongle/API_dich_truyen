@@ -1,4 +1,4 @@
-# Specification Quality Checklist: Moderator Hako Quality Checker Workspace
+# Specification Quality Checklist: Moderator Project Quality Checker Workspace
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-08-27

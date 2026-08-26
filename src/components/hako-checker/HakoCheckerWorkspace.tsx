@@ -2,37 +2,29 @@
  * HakoCheckerWorkspace Component
  * Feature: 075-moderator-quality-checker
  *
- * Khu vực làm việc chính của Moderator để kiểm định chất lượng các chương truyện Hako.
- * Tích hợp toàn bộ luồng: Tìm nạp truyện -> Chọn chương -> Rà soát Heuristic & AI -> Duyệt lỗi -> Xuất báo cáo.
+ * Khu vực làm việc chính của Moderator để kiểm định chất lượng các chương truyện trong dự án.
+ * Tích hợp toàn bộ luồng: Chọn dự án -> Chọn chương -> Rà soát Heuristic & AI -> Duyệt lỗi -> Xuất báo cáo.
  */
 
 import React, { useState, useRef, useCallback } from 'react';
 import {
   ShieldCheck,
   RefreshCw,
-  Sparkles,
-  BookOpen,
   RotateCcw,
-  CheckCircle,
-  AlertTriangle,
 } from 'lucide-react';
 import {
-  HakoReviewChapter,
   QualityIssue,
 } from '../../types/hakoChecker';
 import { useHakoReviewSession } from '../../hooks/useHakoReviewSession';
-import { fetchHakoChapterContent, HakoApiError } from '../../services/hakoApiService';
+import { useProjectContext } from '../../context/ProjectContext';
 import {
   runHeuristicQualityScan,
   runAiQualityScan,
 } from '../../services/hakoQualityEngine';
-import { HakoNovelImporter } from './HakoNovelImporter';
 import { HakoChapterSelector } from './HakoChapterSelector';
 import { HakoIssueReviewPanel } from './HakoIssueReviewPanel';
 import { HakoReportExportModal } from './HakoReportExportModal';
 import { Button } from '../ui/Button';
-import { Badge } from '../ui/Badge';
-import { Seal } from '../ui/Seal';
 
 export interface HakoCheckerWorkspaceProps {
   apiKeys: string[];
@@ -43,17 +35,16 @@ export function HakoCheckerWorkspace({
   apiKeys,
   selectedModel,
 }: HakoCheckerWorkspaceProps) {
+  const { projects } = useProjectContext();
   const {
     session,
     isLoadingSession,
-    isFetchingMeta,
     isAnalyzing,
     analysisProgress,
-    error,
     setError,
     setIsAnalyzing,
     setAnalysisProgress,
-    fetchNovel,
+    selectProject,
     toggleChapterSelection,
     selectChapterRange,
     clearChapterSelection,
@@ -66,11 +57,21 @@ export function HakoCheckerWorkspace({
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  const handleSelectProject = useCallback(
+    async (projectId: string) => {
+      const proj = projects.find((p) => p.id === projectId);
+      if (proj) {
+        await selectProject(proj);
+      }
+    },
+    [projects, selectProject]
+  );
+
   /**
    * Kích hoạt quy trình phân tích chất lượng toàn diện (Heuristic + AI)
    */
   const handleStartAnalysis = useCallback(async () => {
-    if (!session || !session.novelMeta || session.selectedChapterUrls.length === 0) {
+    if (!session || !session.projectId || session.selectedChapterIds.length === 0) {
       return;
     }
 
@@ -78,56 +79,25 @@ export function HakoCheckerWorkspace({
     setError(null);
     abortControllerRef.current = new AbortController();
 
-    const selectedUrls = session.selectedChapterUrls;
-    const totalSelected = selectedUrls.length;
-    const loadedChapters: Record<string, HakoReviewChapter> = { ...session.chapters };
+    const selectedIds = session.selectedChapterIds;
+    const loadedChapters = { ...session.chapters };
     const allDetectedIssues: QualityIssue[] = [];
 
     try {
-      // BƯỚC 1: Tải nội dung văn bản tiếng Việt của các chương đã chọn (nếu chưa tải)
-      for (let i = 0; i < selectedUrls.length; i++) {
-        const url = selectedUrls[i];
-        let chData = loadedChapters[url];
+      // BƯỚC 1: Chạy quét Heuristic tức thì cho các chương đã chọn
+      for (let i = 0; i < selectedIds.length; i++) {
+        const id = selectedIds[i];
+        const chData = loadedChapters[id];
 
-        if (!chData || !chData.vietnameseContent) {
+        if (chData && chData.vietnameseContent) {
           setAnalysisProgress({
             current: i + 1,
-            total: totalSelected,
-            message: `Đang tải nội dung chương ${i + 1}/${totalSelected} từ Hako...`,
+            total: selectedIds.length,
+            message: `Đang quét quy tắc nhanh (Heuristic) chương ${i + 1}/${selectedIds.length}: "${chData.title}"...`,
           });
 
-          try {
-            const fetched = await fetchHakoChapterContent(url);
-            chData = {
-              url,
-              title: fetched.title || chData?.title || 'Chương truyện',
-              volumeTitle: fetched.volumeTitle || chData?.volumeTitle || '',
-              vietnameseContent: fetched.content,
-              rawChineseContent: chData?.rawChineseContent,
-              wordCount: fetched.wordCount,
-              status: 'loaded',
-            };
-            loadedChapters[url] = chData;
-          } catch (err: any) {
-            console.error(`Failed to fetch content for chapter ${url}:`, err);
-            chData = {
-              url,
-              title: chData?.title || 'Chương truyện',
-              volumeTitle: chData?.volumeTitle || '',
-              vietnameseContent: '',
-              rawChineseContent: chData?.rawChineseContent,
-              wordCount: 0,
-              status: 'error',
-              errorMessage: err.message || 'Lỗi khi tải nội dung chương',
-            };
-            loadedChapters[url] = chData;
-          }
-        }
-
-        // BƯỚC 2: Chạy quét Heuristic tức thì cho chương này
-        if (chData.vietnameseContent) {
           const heuristicIssues = runHeuristicQualityScan({
-            url: chData.url,
+            chapterId: chData.chapterId,
             title: chData.title,
             vietnameseContent: chData.vietnameseContent,
           });
@@ -135,12 +105,12 @@ export function HakoCheckerWorkspace({
         }
       }
 
-      // BƯỚC 3: Chạy quét AI Semantic sâu qua Gemini API
-      const validChaptersForAi = selectedUrls
-        .map((url) => loadedChapters[url])
+      // BƯỚC 2: Chạy quét AI Semantic sâu qua Gemini API
+      const validChaptersForAi = selectedIds
+        .map((id) => loadedChapters[id])
         .filter((ch) => ch && ch.vietnameseContent && ch.vietnameseContent.trim().length > 0)
         .map((ch) => ({
-          url: ch.url,
+          chapterId: ch.chapterId,
           title: ch.title,
           vietnameseContent: ch.vietnameseContent,
           rawChineseContent: ch.rawChineseContent,
@@ -156,7 +126,7 @@ export function HakoCheckerWorkspace({
         const aiIssues = await runAiQualityScan({
           apiKeys,
           model: selectedModel,
-          novelTitle: session.novelMeta.title,
+          projectTitle: session.projectTitle,
           chapters: validChaptersForAi,
           onProgress: (curr, total, msg) => {
             setAnalysisProgress({ current: curr, total, message: msg });
@@ -177,14 +147,21 @@ export function HakoCheckerWorkspace({
         setError({
           code: err.code || 'ANALYSIS_ERROR',
           message: err.message || 'Đã xảy ra lỗi trong quá trình phân tích chất lượng chương.',
-          retryAfterSeconds: err.retryAfterSeconds,
         });
       }
     } finally {
       setIsAnalyzing(false);
       abortControllerRef.current = null;
     }
-  }, [session, apiKeys, selectedModel, setIsAnalyzing, setError, setAnalysisProgress, updateSessionChaptersAndIssues]);
+  }, [
+    session,
+    apiKeys,
+    selectedModel,
+    setIsAnalyzing,
+    setError,
+    setAnalysisProgress,
+    updateSessionChaptersAndIssues,
+  ]);
 
   const handleCancelAnalysis = () => {
     if (abortControllerRef.current) {
@@ -204,8 +181,7 @@ export function HakoCheckerWorkspace({
     );
   }
 
-  const hasNovelMeta = !!session?.novelMeta;
-  const hasIssues = !!(session?.issues && session.issues.length > 0);
+  const hasProjectSelected = !!session?.projectId;
 
   return (
     <div className="space-y-6">
@@ -218,19 +194,19 @@ export function HakoCheckerWorkspace({
             </div>
             <div>
               <h2 className="text-base font-display font-bold text-text-main flex items-center gap-2">
-                Kiểm Định Chất Lượng Bản Dịch Hako
+                Kiểm Định Chất Lượng Bản Dịch
                 <span className="text-[9px] font-mono text-text-muted bg-parchment-2 px-1.5 py-0.5 rounded-[2px] border border-parchment-2">
                   Moderator Workspace
                 </span>
               </h2>
               <p className="text-xs text-text-muted mt-0.5">
-                Rà soát lỗi dịch thuật, xưng hô, tên riêng và sót raw trên các chương đã đăng công khai trên Hako/Docln
+                Rà soát lỗi dịch thuật, xưng hô, tên riêng, sót raw và ngữ nghĩa trực tiếp từ các chương trong dự án
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {hasNovelMeta && (
+            {hasProjectSelected && (
               <Button
                 type="button"
                 variant="ghost"
@@ -240,24 +216,14 @@ export function HakoCheckerWorkspace({
                 icon={<RotateCcw className="w-3.5 h-3.5" />}
                 className="text-xs text-text-muted hover:text-text-main"
               >
-                Nhập truyện mới
+                Đặt lại phiên
               </Button>
             )}
           </div>
         </div>
       </div>
 
-      {/* 1. Novel Importer */}
-      <HakoNovelImporter
-        novelUrl={session?.novelUrl || ''}
-        novelMeta={session?.novelMeta || null}
-        onFetchMeta={fetchNovel}
-        isLoading={isFetchingMeta}
-        error={error}
-        onClearError={() => setError(null)}
-      />
-
-      {/* 2. Analysis Progress Banner */}
+      {/* Analysis Progress Banner */}
       {isAnalyzing && (
         <div className="bg-ink border-2 border-polish/60 rounded-md p-5 shadow-md animate-in fade-in duration-200">
           <div className="flex items-center justify-between mb-3">
@@ -298,23 +264,23 @@ export function HakoCheckerWorkspace({
         </div>
       )}
 
-      {/* 3. Chapter Selector (when novel is loaded) */}
-      {hasNovelMeta && (
-        <HakoChapterSelector
-          novelMeta={session.novelMeta!}
-          selectedUrls={session.selectedChapterUrls}
-          chapters={session.chapters}
-          onToggleChapter={toggleChapterSelection}
-          onSelectRange={selectChapterRange}
-          onClearSelection={clearChapterSelection}
-          onUpdateRawText={updateChapterRawText}
-          onStartAnalysis={handleStartAnalysis}
-          isAnalyzing={isAnalyzing}
-        />
-      )}
+      {/* Chapter & Project Selector */}
+      <HakoChapterSelector
+        projects={projects}
+        selectedProjectId={session?.projectId || null}
+        onSelectProject={handleSelectProject}
+        selectedChapterIds={session?.selectedChapterIds || []}
+        chapters={session?.chapters || {}}
+        onToggleChapter={toggleChapterSelection}
+        onSelectRange={selectChapterRange}
+        onClearSelection={clearChapterSelection}
+        onUpdateRawText={updateChapterRawText}
+        onStartAnalysis={handleStartAnalysis}
+        isAnalyzing={isAnalyzing}
+      />
 
-      {/* 4. Issue Review Panel (when issues exist or analysis completed) */}
-      {hasNovelMeta && session.status === 'completed' && (
+      {/* Issue Review Panel (when issues exist or analysis completed) */}
+      {hasProjectSelected && session.status === 'completed' && (
         <HakoIssueReviewPanel
           issues={session.issues}
           chapters={session.chapters}
@@ -325,7 +291,7 @@ export function HakoCheckerWorkspace({
         />
       )}
 
-      {/* 5. Report Export Modal */}
+      {/* Report Export Modal */}
       <HakoReportExportModal
         open={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}

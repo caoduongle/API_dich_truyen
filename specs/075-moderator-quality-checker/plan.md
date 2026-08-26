@@ -1,27 +1,26 @@
-# Implementation Plan: Moderator Hako Quality Checker Workspace
+# Implementation Plan: Moderator Project Quality Checker Workspace
 
 **Branch**: `075-moderator-quality-checker` | **Date**: 2026-08-27 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `specs/075-moderator-quality-checker/spec.md`
+**Input**: Feature specification from `specs/075-moderator-quality-checker/spec.md` (updated for direct project integration).
 
 ## Summary
 
-Build a dedicated, read-only quality checking workspace for moderators and editors to inspect published light novel chapters directly from Hako/Docln (ln.hako.vn / docln.net). The feature fetches public novel metadata and up to 12 selected chapters via a lightweight server proxy, applies rule-based heuristic checks (raw leak, repetition, error tags) alongside AI-driven semantic critiques (name consistency, pronoun/gender continuity, terminology drift, and optional bilingual raw Chinese alignment), allows moderators to confirm/review/dismiss issues with persistent local storage, and exports structured reports for translators.
+Refactor the Moderator Quality Checker Workspace to inspect chapters directly from the user's existing translation projects (`StoryProject` and `Chapter` entities) instead of scraping Hako/Docln via URL proxies. The workspace enables moderators to select a translation project, choose up to 12 translated chapters, automatically bind `sourceText` as the raw Chinese text and `polishedTranslation` / `rawTranslation` as the Vietnamese translation, run hybrid rule-based heuristic checks alongside AI semantic critique, record persistent decisions (Confirm / Review Needed / Dismiss) in an isolated session store, and export structured Markdown reports for translators. All server-side scraping routes, controllers, and services are completely removed.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.8+, Node.js 22+, React 19  
 **Primary Dependencies**: Express 4, Vite 6, Tailwind CSS v4, `clsx`, `tailwind-merge`, `lucide-react`, `motion`  
-**Storage**: IndexedDB (`hako_quality_sessions` store) / persistent browser storage, isolated from main project translation store  
-**Testing**: `vitest run` (unit, integration & contract tests), `tsc --noEmit`  
-**Target Platform**: Modern Web Browsers (Chrome, Firefox, Safari, Edge) + Node.js backend  
-**Project Type**: Full-stack web application (React frontend + Express API proxy)  
-**Performance Goals**: <5s novel metadata fetch, <60s 12-chapter heuristic + AI analysis  
-**Constraints**: 
-- Strictly read-only public fetching; zero Hako cookies or account credentials.
-- Zero modification to existing 2-stage translation pipeline (raw -> polish) or existing DB schemas.
-- Reuses existing Gemini API keys & model configuration from `AIConfigContext` without prompting moderator.
-- Explicit, user-friendly error messages with countdown for Hako 429 rate limits or anti-bot challenges.
+**Storage**: IndexedDB (`hako_quality_sessions` in `HakoQualityCheckerDB`), isolated from the main translation project stores  
+**Testing**: `vitest run`, `tsc --noEmit`, `vite build`  
+**Target Platform**: Modern Web Browsers + Node.js backend  
+**Project Type**: Full-stack web application (React frontend + Express backend)  
+**Performance Goals**: <0.5s chapter list load (local memory), <60s 12-chapter heuristic + AI analysis  
+**Constraints**:
+- Zero network web scraping / zero third-party dependencies on Hako/Docln.
+- Read-only consumption of `StoryProject` and `Chapter` data; zero schema modifications to `src/types.ts` or `src/services/db.ts`.
+- Reuses existing Gemini API keys & model configuration from `AIConfigContext`.
 - Maximum 12 chapters per review batch.
 
 ## Constitution Check
@@ -31,10 +30,10 @@ Build a dedicated, read-only quality checking workspace for moderators and edito
 | Principle | Status | Evaluation |
 |---|---|---|
 | **I. Strict Quality Gates** | PASS | All changes will pass `tsc --noEmit`, `vitest run`, and `vite build`. No tests skipped. |
-| **II. Dependency Minimization** | PASS | No new npm packages added. Reuses existing `clsx`, `tailwind-merge`, `lucide-react`, `motion`, and UI primitives (`Button`, `Badge`, `Seal`, `Kbd`, `EmptyState`). |
-| **III. Strict Concern Separation** | PASS | Dedicated server route (`/api/hako/*`) and isolated frontend component folder (`src/components/hako-checker/`). Existing translation pipeline and controllers remain untouched. |
-| **IV. Immutable Core Schemas** | PASS | No changes to `Chapter`, `StoryProject`, or existing IndexedDB object stores. New data structures stored in dedicated `hako_quality_sessions` store. |
-| **V. Atomic Commits & Docs** | PASS | Modular changes, contract tests, and complete documentation artifacts. |
+| **II. Dependency Minimization** | PASS | No new npm packages. Reduces code complexity by removing unused scraper logic. |
+| **III. Strict Concern Separation** | PASS | Quality checking logic isolated in `src/components/hako-checker/` and `src/services/hakoQualityEngine.ts`. Read-only consumption of projects. |
+| **IV. Immutable Core Schemas** | PASS | No changes to `Chapter`, `StoryProject`, or existing IndexedDB stores. Reviews persisted in separate `HakoQualityCheckerDB`. |
+| **V. Atomic Commits & Docs** | PASS | Full specification, data model, contracts, and quickstart documentation. |
 
 ## Project Structure
 
@@ -44,16 +43,15 @@ Build a dedicated, read-only quality checking workspace for moderators and edito
 specs/075-moderator-quality-checker/
 ├── spec.md              # Feature specification
 ├── plan.md              # This file (Speckit implementation plan)
-├── research.md          # Phase 0 research & architectural decisions
-├── data-model.md        # Phase 1 data entities & schemas
-├── quickstart.md        # Phase 1 validation guide & test scenarios
-├── contracts/           # Phase 1 interface contracts
-│   ├── hako-api.contract.md
+├── research.md          # Architectural decisions (direct project integration)
+├── data-model.md        # Entities & schemas
+├── quickstart.md        # Validation scenarios
+├── contracts/           # Component & service contracts
 │   ├── quality-checker-service.contract.md
-│   └── moderator-ui.contract.md
-├── checklists/
-│   └── requirements.md  # Quality checklist
-└── tasks.md             # Phase 2 task checklist (generated by /speckit-tasks)
+│   ├── moderator-ui.contract.md
+│   └── hako-api.contract.md (deprecated & removed)
+└── checklists/
+    └── requirements.md  # Quality checklist
 ```
 
 ### Source Code Layout
@@ -61,33 +59,33 @@ specs/075-moderator-quality-checker/
 ```text
 server/
 ├── routes/
-│   ├── api.ts                           # Mount /api/hako routes
-│   └── hako.ts                          # [NEW] Read-only Hako proxy endpoints
+│   ├── api.ts                           # [MODIFY] Remove /hako route mount
+│   └── hako.ts                          # [DELETE] Removed scraping route
 ├── controllers/
-│   └── hakoController.ts                # [NEW] Controller for novel metadata & chapter fetching
+│   └── hakoController.ts                # [DELETE] Removed scraping controller
 ├── services/
-│   └── hakoScraperService.ts            # [NEW] Public HTML scraper & anti-bot/rate-limit detector
+│   └── hakoScraperService.ts            # [DELETE] Removed scraping service
 └── __tests__/
-    └── hakoScraper.test.ts              # [NEW] Unit & contract tests for Hako scraper
+    └── hakoScraper.test.ts              # [DELETE] Removed scraper unit tests
 
 src/
 ├── types/
-│   └── hakoChecker.ts                   # [NEW] TypeScript types for Hako quality checker
+│   └── hakoChecker.ts                   # [MODIFY] Update types for ProjectReviewChapter & QualityReviewSession
 ├── services/
-│   ├── hakoApiService.ts                # [NEW] API client for server Hako endpoints
-│   ├── hakoQualityEngine.ts             # [NEW] Heuristic scans + Gemini AI semantic analysis
-│   └── hakoSessionStore.ts              # [NEW] Persistent IndexedDB store for review sessions
+│   ├── hakoApiService.ts                # [DELETE] Removed client scraping service
+│   ├── hakoQualityEngine.ts             # [RETAIN/ADAPT] Heuristic scans + Gemini AI semantic analysis
+│   └── hakoSessionStore.ts              # [RETAIN/ADAPT] Persistent IndexedDB store for review sessions
 ├── hooks/
-│   └── useHakoReviewSession.ts          # [NEW] React hook for moderator session state
+│   └── useHakoReviewSession.ts          # [MODIFY] Project-based session state & chapter loading
 ├── components/
-│   └── hako-checker/                    # [NEW] Moderator Quality Checker UI
-│       ├── HakoCheckerWorkspace.tsx     # Main container & tab view
-│       ├── HakoNovelImporter.tsx        # Novel URL input & metadata card + anti-bot alert
-│       ├── HakoChapterSelector.tsx      # Multi-select (1-12 chapters) & raw input drawer
-│       ├── HakoIssueReviewPanel.tsx     # Issue list, filters & decision actions
-│       ├── HakoIssueCard.tsx            # Single issue card with snippets, raw diff, notes
-│       └── HakoReportExportModal.tsx    # Report summary stats & formatted Markdown export
-└── App.tsx                              # Add "Kiểm Định Hako" tab (Alt+6)
+│   └── hako-checker/
+│       ├── HakoCheckerWorkspace.tsx     # [MODIFY] Main container consuming ProjectContext & projects
+│       ├── HakoChapterSelector.tsx      # [MODIFY] Project dropdown + Chapter selector (1-12 limit) with raw drawers
+│       ├── HakoNovelImporter.tsx        # [DELETE] Removed URL scraping importer
+│       ├── HakoIssueReviewPanel.tsx     # [RETAIN] Issue list, filters & decision actions
+│       ├── HakoIssueCard.tsx            # [RETAIN] Single issue card with snippets, raw diff, notes
+│       └── HakoReportExportModal.tsx    # [RETAIN] Report summary stats & formatted Markdown export
+└── App.tsx                              # [RETAIN] "Kiểm Định Hako" tab (Alt+6) passing projects & AI config
 ```
 
 ## Complexity Tracking

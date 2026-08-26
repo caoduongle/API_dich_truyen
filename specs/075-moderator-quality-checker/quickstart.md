@@ -1,67 +1,62 @@
-# Quickstart & Validation Guide: Moderator Hako Quality Checker
+# Quickstart & Validation Guide: Moderator Project Quality Checker Workspace
 
 **Feature**: `075-moderator-quality-checker`
 **Date**: 2026-08-27
 **Status**: Completed
 
-## 1. Prerequisites
+---
 
-- Node.js 20+ installed.
-- Valid API keys configured in AI Settings (`Cấu hình AI`) or local testing environment.
-- Server running locally via `npm run dev`.
+## Prerequisites
+
+1. Ensure development server is running (`npm run dev` and backend server).
+2. Have at least one `StoryProject` created with 1 or more translated chapters (`polishedTranslation` or `rawTranslation`).
+3. Ensure at least one Gemini API Key is configured in "Cấu hình AI" (Alt+,).
 
 ---
 
-## 2. Validation Scenarios
+## Validation Scenarios
 
-### Scenario 1: Import Novel Metadata from Hako
-1. Navigate to the app at `http://localhost:5173`.
-2. Click the new **Kiểm Định Hako** tab in the navigation bar (or press `Alt+6`).
-3. Paste a public Hako novel URL into the input field:
-   `https://ln.hako.vn/truyen/1234-ten-truyen` (or test URL).
-4. Click **Tìm nạp thông tin truyện**.
-5. **Expected Outcome**:
-   - Title, author, artist, and volume/chapter hierarchy are loaded and displayed accurately.
-   - If Hako limits the rate (429/403), an alert explains the rate limit with a countdown.
+### Scenario 1: Chọn dự án và xem danh sách chương kiểm định
 
-### Scenario 2: Select Chapters & Run Heuristic + AI Scan
-1. Select 3 chapters from the list (confirm selection counter says `3/12`).
-2. Optional: Expand Chapter 1 and paste a raw Chinese text paragraph into the raw text input.
-3. Click **Bắt đầu kiểm định chất lượng**.
-4. **Expected Outcome**:
-   - Immediate heuristic scan flags raw leaks / duplicate text.
-   - AI critique analyzes character name consistency, pronoun gender continuity, and raw comparison.
-   - Issues are presented with severity badges (`Nghiêm trọng`, `Lớn`, `Nhẹ`, `Cảnh báo`), snippets, and explanations.
-
-### Scenario 3: Moderator Decision & Persistence Verification
-1. On Issue #1, click **Xác nhận** (Confirm) and type a note: "Cần đổi tên nhân vật về Tiêu Viêm".
-2. On Issue #2, click **Bác bỏ** (Dismiss).
-3. On Issue #3, click **Yêu cầu xem lại** (Needs Review).
-4. Switch to the **Mặt Trận Dịch Thuật** tab (`Alt+1`), then switch back to **Kiểm Định Hako** (`Alt+6`).
-5. Reload the page (`F5`).
-6. **Expected Outcome**:
-   - All 3 decisions, notes, and session state are preserved accurately without data loss.
-
-### Scenario 4: Export & Copy Quality Report
-1. Click **Xuất báo cáo kiểm định**.
-2. Review the statistics breakdown and formatted Markdown preview.
-3. Click **Sao chép vào Clipboard**.
-4. **Expected Outcome**:
-   - Formatted report is copied to clipboard and a success toast notification is shown.
+1. Nhấn `Alt+6` hoặc click vào tab **Kiểm Định Hako** trên thanh điều hướng.
+2. Tại khu vực chọn dự án, chọn một dự án dịch hiện có trong danh sách.
+3. **Kết quả mong đợi**:
+   - Danh sách chương của dự án hiển thị tức thì (< 0.5s) từ dữ liệu cục bộ.
+   - Mỗi chương hiển thị rõ: số thứ tự, tiêu đề, số từ, và nhãn trạng thái (*Đã biên tập*, *Đã dịch thô*, hoặc *Chưa dịch*).
+   - Các chương chưa có bản dịch bị vô hiệu hóa chọn.
 
 ---
 
-## 3. Automated Test Execution
+### Scenario 2: Chọn chương và kích hoạt kiểm định tự động (Heuristic + AI)
 
-Run the automated contract and unit tests for the quality checker feature:
+1. Chọn từ 1 đến 12 chương đã có bản dịch.
+2. (Tùy chọn) Nhấn "+ Thêm Raw" tại một chương để xem văn bản `sourceText` tự động nạp sẵn hoặc dán đè văn bản raw khác.
+3. Nhấn **"Bắt đầu kiểm định"**.
+4. **Kết quả mong đợi**:
+   - Thanh tiến trình hiển thị rõ bước tải và phân tích Heuristic / AI từng chương.
+   - Sau khi hoàn tất, danh sách lỗi nghi vấn xuất hiện trong bảng kiểm duyệt (`HakoIssueReviewPanel`).
+   - Các lỗi được phân loại chính xác: *Tên riêng không nhất quán*, *Xưng hô / Giới tính*, *Thuật ngữ*, *Sót raw*, *Trùng lặp*, *Sai nghĩa*, *Bỏ sót*, *Dịch thừa*.
 
-```bash
-# Run unit & contract tests for Hako fetcher and quality checker
-npm test
+---
 
-# Verify type safety
-npm run lint
+### Scenario 3: Duyệt quyết định và kiểm tra tính lưu trữ bền vững
 
-# Verify production bundle build
-npm run build
-```
+1. Trên các thẻ lỗi (`HakoIssueCard`), thử nhấn các nút quyết định:
+   - Nhấn **"Xác nhận lỗi"** (chuyển sang màu đỏ chu sa / polish).
+   - Nhấn **"Cần xem lại"** (chuyển sang màu hổ phách / amber).
+   - Nhấn **"Bác bỏ"** (làm mờ thẻ).
+   - Nhấn "+ Thêm ghi chú" và nhập hướng dẫn sửa lỗi cho dịch giả.
+2. Tải lại trang trình duyệt (F5) hoặc chuyển sang tab khác (Alt+1) rồi quay lại tab Kiểm Định (Alt+6).
+3. **Kết quả mong đợi**:
+   - Toàn bộ phiên làm việc, danh sách chương đã chọn, toàn bộ lỗi phát hiện, trạng thái quyết định và ghi chú được khôi phục 100% nguyên vẹn từ IndexedDB.
+
+---
+
+### Scenario 4: Xuất và sao chép báo cáo Markdown vào Clipboard
+
+1. Tại bảng kiểm duyệt lỗi, nhấn **"Xuất báo cáo"**.
+2. Modal báo cáo hiển thị thống kê tổng quan (số lỗi nghiêm trọng, lớn, nhẹ, cảnh báo) và bản xem trước Markdown.
+3. Nhấn **"Sao chép vào Clipboard"**.
+4. **Kết quả mong đợi**:
+   - Nút chuyển sang trạng thái "Đã sao chép vào Clipboard!" với biểu tượng checkmark.
+   - Dán vào trình soạn thảo (Notepad / Discord) kiểm tra: báo cáo có định dạng Markdown rõ ràng, phân nhóm theo từng chương kèm trích dẫn bằng chứng và ghi chú của moderator.

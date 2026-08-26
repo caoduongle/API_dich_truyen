@@ -101,7 +101,7 @@ export function HakoReportExportModal({ open, onClose, session }: HakoReportExpo
             <div className="flex items-center gap-2">
               <Seal character="報" tone="polish" className="text-[11px]" />
               <span className="text-xs font-display font-bold text-text-main">
-                {report.novelTitle}
+                {report.projectTitle}
               </span>
             </div>
 

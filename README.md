@@ -61,6 +61,11 @@ Hệ thống dịch tiểu thuyết chữ Trung Quốc sang tiếng Việt sử 
 - **Hiện Diện Trực Tiếp (Live Presence / Awareness)**: Hiển thị avatar, màu sắc định danh và trạng thái gõ phím của cộng tác viên đang cùng mở chương.
 - **Chế Độ Kép Online / Offline Hoàn Hảo**: Tiếp tục làm việc bình thường khi mất mạng, tự động hội tụ khi kết nối lại, kết hợp sao lưu snapshot nhị phân định kỳ lên Google Drive.
 
+### 🛡️ 8. Kiểm Định Chất Lượng Bản Dịch Cho Moderator (Moderator Quality Checker)
+- **Tích Hợp Trực Tiếp Từ Dự Án (Zero Scraping)**: Nạp chương trực tiếp từ `StoryProject` trong IndexedDB, tự động liên kết `sourceText` (raw) và bản dịch (`polishedTranslation`/`rawTranslation`), hoàn toàn offline và miễn nhiễm với rate-limiting.
+- **Phân Tích Lai Heuristic & AI Semantic**: Tự động phát hiện bất nhất tên riêng, sai xưng hô/giới tính, thuật ngữ lệch chuẩn, sót Hán tự/raw, lặp đoạn, sai nghĩa, bỏ sót, hoặc dịch thừa/bịa nghĩa.
+- **Duyệt Quyết Định & Xuất Báo Cáo Markdown**: Cho phép moderator xác nhận, yêu cầu xem lại hoặc bác bỏ từng lỗi, lưu trữ bền vững trong cơ sở dữ liệu riêng biệt (`HakoQualityCheckerDB`), và xuất báo cáo Markdown dạng cấu trúc gửi cho dịch giả trong 1 click.
+
 ---
 
 ## 🏛️ Sơ đồ Kiến trúc Hệ thống (Architecture Map)

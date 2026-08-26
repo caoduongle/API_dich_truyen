@@ -1,5 +1,5 @@
 /**
- * TypeScript types for Moderator Hako Quality Checker Workspace
+ * TypeScript types for Moderator Project Quality Checker Workspace
  * Feature: 075-moderator-quality-checker
  */
 
@@ -27,34 +27,13 @@ export type QualityIssueDecision =
   | 'review_needed'        // Moderator đánh dấu cần hội ý thêm
   | 'dismissed';           // Moderator bác bỏ / bỏ qua
 
-export interface HakoChapterMeta {
-  url: string;
+export interface ProjectReviewChapter {
+  chapterId: string;
   title: string;
-  order: number;
-}
-
-export interface HakoVolume {
-  volumeTitle: string;
-  chapters: HakoChapterMeta[];
-}
-
-export interface HakoNovelMeta {
-  url: string;
-  title: string;
-  author: string;
-  artist: string;
-  description: string;
-  coverUrl?: string;
-  volumes: HakoVolume[];
-  fetchedAt: string;
-}
-
-export interface HakoReviewChapter {
-  url: string;
-  title: string;
-  volumeTitle: string;
+  chapterNumber: number;
   vietnameseContent: string;
   rawChineseContent?: string;
+  translationType: 'polished' | 'raw' | 'none';
   wordCount: number;
   status: 'pending' | 'loaded' | 'analyzing' | 'done' | 'error';
   errorMessage?: string;
@@ -62,7 +41,7 @@ export interface HakoReviewChapter {
 
 export interface QualityIssue {
   id: string;                      // UUID định danh lỗi
-  chapterUrl: string;
+  chapterId: string;
   chapterTitle: string;
   category: QualityIssueCategory;
   severity: QualityIssueSeverity;
@@ -78,18 +57,17 @@ export interface QualityIssue {
 
 export interface QualityReviewSession {
   id: string;
-  novelUrl: string;
-  novelMeta: HakoNovelMeta | null;
-  selectedChapterUrls: string[];   // Tối đa 12 URLs
-  chapters: Record<string, HakoReviewChapter>;
+  projectId: string;
+  projectTitle: string;
+  selectedChapterIds: string[];    // Tối đa 12 chapter IDs
+  chapters: Record<string, ProjectReviewChapter>;
   issues: QualityIssue[];
   createdAt: string;
   updatedAt: string;
-  status: 'idle' | 'fetching_novel' | 'fetching_chapters' | 'analyzing' | 'completed' | 'error';
+  status: 'idle' | 'analyzing' | 'completed' | 'error';
   error?: {
     code: string;
     message: string;
-    retryAfterSeconds?: number;
   };
 }
 
@@ -105,8 +83,8 @@ export interface QualityReportStats {
 
 export interface QualityReport {
   sessionId: string;
-  novelTitle: string;
-  novelUrl: string;
+  projectTitle: string;
+  projectId: string;
   generatedAt: string;
   totalChaptersReviewed: number;
   stats: QualityReportStats;

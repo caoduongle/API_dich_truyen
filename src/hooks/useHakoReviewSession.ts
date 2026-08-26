@@ -1,40 +1,39 @@
 /**
- * React hook for managing Moderator Hako Quality Checker session state
+ * React hook for managing Moderator Project Quality Checker session state
  * Feature: 075-moderator-quality-checker
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   QualityReviewSession,
-  HakoNovelMeta,
-  HakoReviewChapter,
+  ProjectReviewChapter,
   QualityIssue,
   QualityIssueDecision,
 } from '../types/hakoChecker';
+import { StoryProject } from '../types';
+import { getChapterFromDB } from '../services/db';
 import {
   saveSession,
   getLatestSession,
   deleteSession as deleteSessionFromDb,
 } from '../services/hakoSessionStore';
-import { fetchHakoNovelMeta, HakoApiError } from '../services/hakoApiService';
 
 export interface UseHakoReviewSessionReturn {
   session: QualityReviewSession | null;
   isLoadingSession: boolean;
-  isFetchingMeta: boolean;
   isAnalyzing: boolean;
   analysisProgress: { current: number; total: number; message: string };
-  error: { code: string; message: string; retryAfterSeconds?: number } | null;
-  setError: (err: { code: string; message: string; retryAfterSeconds?: number } | null) => void;
+  error: { code: string; message: string } | null;
+  setError: (err: { code: string; message: string } | null) => void;
   setIsAnalyzing: (analyzing: boolean) => void;
   setAnalysisProgress: (progress: { current: number; total: number; message: string }) => void;
-  fetchNovel: (url: string) => Promise<void>;
-  toggleChapterSelection: (url: string, chapterTitle?: string, volumeTitle?: string) => void;
-  selectChapterRange: (urls: string[]) => void;
+  selectProject: (project: StoryProject) => Promise<void>;
+  toggleChapterSelection: (chapterId: string) => void;
+  selectChapterRange: (chapterIds: string[]) => void;
   clearChapterSelection: () => void;
-  updateChapterRawText: (url: string, rawText: string) => void;
+  updateChapterRawText: (chapterId: string, rawText: string) => void;
   updateSessionChaptersAndIssues: (
-    chapters: Record<string, HakoReviewChapter>,
+    chapters: Record<string, ProjectReviewChapter>,
     issues: QualityIssue[]
   ) => Promise<void>;
   updateIssueDecision: (
@@ -49,10 +48,10 @@ const MAX_CHAPTERS_LIMIT = 12;
 
 function createEmptySession(id?: string): QualityReviewSession {
   return {
-    id: id || `hako-session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    novelUrl: '',
-    novelMeta: null,
-    selectedChapterUrls: [],
+    id: id || `quality-session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+    projectId: '',
+    projectTitle: '',
+    selectedChapterIds: [],
     chapters: {},
     issues: [],
     createdAt: new Date().toISOString(),
@@ -64,10 +63,9 @@ function createEmptySession(id?: string): QualityReviewSession {
 export function useHakoReviewSession(): UseHakoReviewSessionReturn {
   const [session, setSession] = useState<QualityReviewSession | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
-  const [isFetchingMeta, setIsFetchingMeta] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, message: '' });
-  const [error, setError] = useState<{ code: string; message: string; retryAfterSeconds?: number } | null>(null);
+  const [error, setError] = useState<{ code: string; message: string } | null>(null);
 
   const sessionRef = useRef<QualityReviewSession | null>(null);
   sessionRef.current = session;
@@ -116,46 +114,59 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
   }, []);
 
   /**
-   * Tìm nạp thông tin bộ truyện từ Hako URL
+   * Chọn dự án dịch từ ứng dụng và khởi tạo danh sách chương
    */
-  const fetchNovel = useCallback(
-    async (url: string) => {
-      const cleanUrl = url?.trim();
-      if (!cleanUrl) {
-        setError({
-          code: 'INVALID_HAKO_URL',
-          message: 'Vui lòng nhập đường dẫn truyện Hako/Docln hợp lệ.',
-        });
-        return;
-      }
+  const selectProject = useCallback(
+    async (project: StoryProject) => {
+      if (!project || !project.id) return;
 
-      setIsFetchingMeta(true);
+      const current = sessionRef.current || createEmptySession();
+
+      // Nạp chi tiết từng chapter từ IndexedDB CHAPTERS_STORE
+      const fullChapters = await Promise.all(
+        (project.chapters || []).map(async (meta, index) => {
+          const fullChap = await getChapterFromDB(meta.id);
+          const viContent = fullChap?.polishedTranslation || fullChap?.rawTranslation || '';
+          const translationType: 'polished' | 'raw' | 'none' = fullChap?.polishedTranslation
+            ? 'polished'
+            : fullChap?.rawTranslation
+            ? 'raw'
+            : 'none';
+          const words = viContent ? viContent.trim().split(/\s+/).filter(Boolean).length : 0;
+          const existingChapter = current.projectId === project.id ? current.chapters[meta.id] : null;
+
+          return {
+            chapterId: meta.id,
+            title: meta.title || `Chương ${index + 1}`,
+            chapterNumber: index + 1,
+            vietnameseContent: viContent,
+            rawChineseContent: existingChapter?.rawChineseContent ?? (fullChap?.sourceText || undefined),
+            translationType,
+            wordCount: words,
+            status: 'pending' as const,
+          };
+        })
+      );
+
+      const chaptersRecord: Record<string, ProjectReviewChapter> = {};
+      fullChapters.forEach((ch) => {
+        chaptersRecord[ch.chapterId] = ch;
+      });
+
+      const isSameProject = current.projectId === project.id;
+      const updated: QualityReviewSession = {
+        ...current,
+        projectId: project.id,
+        projectTitle: project.title,
+        selectedChapterIds: isSameProject ? current.selectedChapterIds : [],
+        chapters: chaptersRecord,
+        issues: isSameProject ? current.issues : [],
+        status: isSameProject ? current.status : 'idle',
+        error: undefined,
+      };
+
       setError(null);
-
-      try {
-        const meta: HakoNovelMeta = await fetchHakoNovelMeta(cleanUrl);
-        const current = sessionRef.current || createEmptySession();
-
-        const updated: QualityReviewSession = {
-          ...current,
-          novelUrl: cleanUrl,
-          novelMeta: meta,
-          selectedChapterUrls: [], // Reset selection khi nạp truyện mới
-          chapters: {},
-          issues: [],
-          status: 'idle',
-          error: undefined,
-        };
-
-        await persistSession(updated);
-      } catch (err: any) {
-        const code = err.code || 'HAKO_FETCH_ERROR';
-        const message = err.message || 'Không thể tìm nạp thông tin truyện từ Hako.';
-        const retryAfterSeconds = err.retryAfterSeconds;
-        setError({ code, message, retryAfterSeconds });
-      } finally {
-        setIsFetchingMeta(false);
-      }
+      await persistSession(updated);
     },
     [persistSession]
   );
@@ -164,44 +175,39 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
    * Bật/tắt chọn một chương (giới hạn 12 chương)
    */
   const toggleChapterSelection = useCallback(
-    (url: string, chapterTitle?: string, volumeTitle?: string) => {
+    (chapterId: string) => {
       const current = sessionRef.current;
       if (!current) return;
 
-      const isSelected = current.selectedChapterUrls.includes(url);
-      let newSelectedUrls: string[];
+      const chapter = current.chapters[chapterId];
+      if (chapter && chapter.translationType === 'none') {
+        setError({
+          code: 'CHAPTER_NOT_TRANSLATED',
+          message: 'Chương này chưa có bản dịch (chưa dịch thô hoặc chưa biên tập), không thể chọn để kiểm định.',
+        });
+        return;
+      }
+
+      const isSelected = current.selectedChapterIds.includes(chapterId);
+      let newSelectedIds: string[];
 
       if (isSelected) {
-        newSelectedUrls = current.selectedChapterUrls.filter((u) => u !== url);
+        newSelectedIds = current.selectedChapterIds.filter((id) => id !== chapterId);
       } else {
-        if (current.selectedChapterUrls.length >= MAX_CHAPTERS_LIMIT) {
+        if (current.selectedChapterIds.length >= MAX_CHAPTERS_LIMIT) {
           setError({
             code: 'CHAPTER_LIMIT_EXCEEDED',
             message: `Mỗi lượt rà soát chỉ được chọn tối đa ${MAX_CHAPTERS_LIMIT} chương để đảm bảo tốc độ và tránh quá tải.`,
           });
           return;
         }
-        newSelectedUrls = [...current.selectedChapterUrls, url];
-      }
-
-      // Khởi tạo hoặc giữ chapter entry
-      const newChapters = { ...current.chapters };
-      if (!isSelected && !newChapters[url]) {
-        newChapters[url] = {
-          url,
-          title: chapterTitle || 'Chương truyện',
-          volumeTitle: volumeTitle || '',
-          vietnameseContent: '',
-          wordCount: 0,
-          status: 'pending',
-        };
+        newSelectedIds = [...current.selectedChapterIds, chapterId];
       }
 
       setError(null);
       const updated: QualityReviewSession = {
         ...current,
-        selectedChapterUrls: newSelectedUrls,
-        chapters: newChapters,
+        selectedChapterIds: newSelectedIds,
       };
 
       persistSession(updated);
@@ -213,12 +219,17 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
    * Chọn một danh sách chương (giới hạn 12)
    */
   const selectChapterRange = useCallback(
-    (urls: string[]) => {
+    (chapterIds: string[]) => {
       const current = sessionRef.current;
       if (!current) return;
 
-      const boundedUrls = urls.slice(0, MAX_CHAPTERS_LIMIT);
-      if (urls.length > MAX_CHAPTERS_LIMIT) {
+      const translatableIds = chapterIds.filter((id) => {
+        const ch = current.chapters[id];
+        return ch && ch.translationType !== 'none';
+      });
+
+      const boundedIds = translatableIds.slice(0, MAX_CHAPTERS_LIMIT);
+      if (translatableIds.length > MAX_CHAPTERS_LIMIT) {
         setError({
           code: 'CHAPTER_LIMIT_EXCEEDED',
           message: `Đã tự động giới hạn ${MAX_CHAPTERS_LIMIT} chương đầu tiên theo quy định tối đa mỗi lượt rà soát.`,
@@ -229,7 +240,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
 
       const updated: QualityReviewSession = {
         ...current,
-        selectedChapterUrls: boundedUrls,
+        selectedChapterIds: boundedIds,
       };
 
       persistSession(updated);
@@ -247,32 +258,26 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
     setError(null);
     const updated: QualityReviewSession = {
       ...current,
-      selectedChapterUrls: [],
+      selectedChapterIds: [],
     };
 
     persistSession(updated);
   }, [persistSession]);
 
   /**
-   * Cập nhật văn bản raw tiếng Trung cho một chương
+   * Cập nhật văn bản raw tiếng Trung cho một chương (không sửa sourceText gốc của project)
    */
   const updateChapterRawText = useCallback(
-    (url: string, rawText: string) => {
+    (chapterId: string, rawText: string) => {
       const current = sessionRef.current;
       if (!current) return;
 
-      const chapter = current.chapters[url] || {
-        url,
-        title: 'Chương truyện',
-        volumeTitle: '',
-        vietnameseContent: '',
-        wordCount: 0,
-        status: 'pending',
-      };
+      const chapter = current.chapters[chapterId];
+      if (!chapter) return;
 
       const updatedChapters = {
         ...current.chapters,
-        [url]: {
+        [chapterId]: {
           ...chapter,
           rawChineseContent: rawText.trim() || undefined,
         },
@@ -292,7 +297,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
    * Cập nhật toàn bộ chapters và issues sau khi phân tích xong
    */
   const updateSessionChaptersAndIssues = useCallback(
-    async (chapters: Record<string, HakoReviewChapter>, issues: QualityIssue[]) => {
+    async (chapters: Record<string, ProjectReviewChapter>, issues: QualityIssue[]) => {
       const current = sessionRef.current;
       if (!current) return;
 
@@ -353,14 +358,13 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
   return {
     session,
     isLoadingSession,
-    isFetchingMeta,
     isAnalyzing,
     analysisProgress,
     error,
     setError,
     setIsAnalyzing,
     setAnalysisProgress,
-    fetchNovel,
+    selectProject,
     toggleChapterSelection,
     selectChapterRange,
     clearChapterSelection,

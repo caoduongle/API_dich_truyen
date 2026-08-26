@@ -23,7 +23,7 @@ import {
   QualityIssueDecision,
   QualityIssueSeverity,
   QualityIssueCategory,
-  HakoReviewChapter,
+  ProjectReviewChapter,
 } from '../../types/hakoChecker';
 import { HakoIssueCard } from './HakoIssueCard';
 import { Button } from '../ui/Button';
@@ -34,7 +34,7 @@ import { cn } from '../../lib/cn';
 
 export interface HakoIssueReviewPanelProps {
   issues: QualityIssue[];
-  chapters: Record<string, HakoReviewChapter>;
+  chapters: Record<string, ProjectReviewChapter>;
   onDecisionChange: (issueId: string, decision: QualityIssueDecision, note?: string) => void;
   onOpenExportModal: () => void;
   onReanalyze: () => void;
@@ -52,7 +52,7 @@ export function HakoIssueReviewPanel({
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterDecision, setFilterDecision] = useState<string>('all');
-  const [filterChapterUrl, setFilterChapterUrl] = useState<string>('all');
+  const [filterChapterId, setFilterChapterId] = useState<string>('all');
 
   // Stats calculation
   const stats = useMemo(() => {
@@ -86,37 +86,88 @@ export function HakoIssueReviewPanel({
       if (filterSeverity !== 'all' && issue.severity !== filterSeverity) return false;
       if (filterCategory !== 'all' && issue.category !== filterCategory) return false;
       if (filterDecision !== 'all' && issue.decision !== filterDecision) return false;
-      if (filterChapterUrl !== 'all' && issue.chapterUrl !== filterChapterUrl) return false;
+      if (filterChapterId !== 'all' && issue.chapterId !== filterChapterId) return false;
       return true;
     });
-  }, [issues, filterSeverity, filterCategory, filterDecision, filterChapterUrl]);
+  }, [issues, filterSeverity, filterCategory, filterDecision, filterChapterId]);
 
   // Unique chapters in the issue list for filter dropdown
   const chapterOptions = useMemo(() => {
     const map = new Map<string, string>();
-    issues.forEach((i) => map.set(i.chapterUrl, i.chapterTitle));
-    return Array.from(map.entries()).map(([url, title]) => ({ url, title }));
+    issues.forEach((i) => map.set(i.chapterId, i.chapterTitle));
+    return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
   }, [issues]);
+
+  // Batch action: Confirm all / Dismiss all filtered issues
+  const handleBatchConfirm = () => {
+    filteredIssues.forEach((issue) => {
+      if (issue.decision === 'pending') {
+        onDecisionChange(issue.id, 'confirmed');
+      }
+    });
+  };
+
+  const handleBatchDismiss = () => {
+    filteredIssues.forEach((issue) => {
+      if (issue.decision === 'pending') {
+        onDecisionChange(issue.id, 'dismissed');
+      }
+    });
+  };
 
   return (
     <div className="space-y-4">
-      {/* Top Header & Statistics Summary */}
-      <div className="bg-parchment border border-parchment-2 rounded-md p-5 shadow-xs">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-parchment-2">
-          <div className="flex items-center gap-3">
-            <Seal character="評" tone="polish" className="text-[12px]" />
-            <div>
-              <h3 className="text-base font-display font-bold text-text-main flex items-center gap-2">
-                Kết quả kiểm định chất lượng bản dịch
-              </h3>
-              <p className="text-xs text-text-muted mt-0.5">
-                Tổng cộng phát hiện <strong>{stats.total} lỗi nghi vấn</strong> trên các chương đã chọn
-              </p>
+      {/* Overview Stats Bar & Export Trigger */}
+      <div className="bg-parchment border border-parchment-2 rounded-md p-4 shadow-xs">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Seal character="評" tone="polish" className="text-[11px]" />
+              <span className="text-xs font-display font-bold text-text-main">
+                Kết quả kiểm định chất lượng:
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {/* Total Badge */}
+              <Badge tone="neutral" className="font-mono font-bold px-2 py-0.5">
+                Tổng {stats.total} lỗi
+              </Badge>
+
+              {/* Confirmed Badge */}
+              <Badge tone="polish" className="font-mono font-bold px-2 py-0.5 flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" />
+                <span>{stats.confirmed} đã xác nhận</span>
+              </Badge>
+
+              {/* Review Needed Badge */}
+              {stats.reviewNeeded > 0 && (
+                <Badge tone="neutral" className="font-mono font-bold px-2 py-0.5 text-amber-300 border-amber-500/40 flex items-center gap-1">
+                  <HelpCircle className="w-3 h-3 text-amber-400" />
+                  <span>{stats.reviewNeeded} cần xem lại</span>
+                </Badge>
+              )}
+
+              {/* Pending Badge */}
+              {stats.pending > 0 && (
+                <Badge tone="neutral" className="font-mono text-text-muted px-2 py-0.5 flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  <span>{stats.pending} chờ duyệt</span>
+                </Badge>
+              )}
+
+              {/* Dismissed Badge */}
+              {stats.dismissed > 0 && (
+                <Badge tone="neutral" className="font-mono text-text-muted/60 px-2 py-0.5 flex items-center gap-1">
+                  <XCircle className="w-3 h-3" />
+                  <span>{stats.dismissed} đã bỏ qua</span>
+                </Badge>
+              )}
             </div>
           </div>
 
-          {/* Action buttons: Export Report & Re-analyze */}
-          <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
+          {/* Action CTAs */}
+          <div className="flex items-center gap-2 w-full lg:w-auto justify-end">
             <Button
               type="button"
               variant="secondary"
@@ -124,6 +175,7 @@ export function HakoIssueReviewPanel({
               onClick={onReanalyze}
               disabled={isAnalyzing}
               icon={<RotateCcw className="w-3.5 h-3.5" />}
+              className="text-xs"
             >
               Rà soát lại
             </Button>
@@ -134,199 +186,130 @@ export function HakoIssueReviewPanel({
               size="sm"
               onClick={onOpenExportModal}
               icon={<Download className="w-3.5 h-3.5" />}
-              className="font-bold"
+              className="text-xs font-bold"
             >
-              Xuất báo cáo ({stats.confirmed} lỗi)
+              Xuất báo cáo kiểm định
             </Button>
           </div>
         </div>
-
-        {/* Stats Count Badges */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2.5 pt-4">
-          <div
-            onClick={() => setFilterDecision('confirmed')}
-            className={cn(
-              'p-2.5 rounded-[3px] border transition-all cursor-pointer select-none',
-              filterDecision === 'confirmed'
-                ? 'bg-polish/20 border-polish/60 ring-1 ring-polish/30'
-                : 'bg-ink/50 border-parchment-2 hover:bg-parchment-2/30'
-            )}
-          >
-            <div className="flex items-center justify-between text-xs font-semibold text-polish mb-1">
-              <span className="flex items-center gap-1">
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>Đã xác nhận</span>
-              </span>
-              <span className="font-mono text-sm font-bold">{stats.confirmed}</span>
-            </div>
-            <p className="text-[10px] text-text-muted">Cần dịch giả sửa</p>
-          </div>
-
-          <div
-            onClick={() => setFilterDecision('review_needed')}
-            className={cn(
-              'p-2.5 rounded-[3px] border transition-all cursor-pointer select-none',
-              filterDecision === 'review_needed'
-                ? 'bg-amber-950/50 border-amber-700 ring-1 ring-amber-700/30'
-                : 'bg-ink/50 border-parchment-2 hover:bg-parchment-2/30'
-            )}
-          >
-            <div className="flex items-center justify-between text-xs font-semibold text-amber-300 mb-1">
-              <span className="flex items-center gap-1">
-                <HelpCircle className="w-3.5 h-3.5" />
-                <span>Cần xem lại</span>
-              </span>
-              <span className="font-mono text-sm font-bold">{stats.reviewNeeded}</span>
-            </div>
-            <p className="text-[10px] text-text-muted">Cần hội ý thêm</p>
-          </div>
-
-          <div
-            onClick={() => setFilterDecision('dismissed')}
-            className={cn(
-              'p-2.5 rounded-[3px] border transition-all cursor-pointer select-none',
-              filterDecision === 'dismissed'
-                ? 'bg-ink/80 border-parchment-2 ring-1 ring-parchment-2'
-                : 'bg-ink/50 border-parchment-2 hover:bg-parchment-2/30'
-            )}
-          >
-            <div className="flex items-center justify-between text-xs font-semibold text-text-muted mb-1">
-              <span className="flex items-center gap-1">
-                <XCircle className="w-3.5 h-3.5" />
-                <span>Đã bỏ qua</span>
-              </span>
-              <span className="font-mono text-sm font-bold">{stats.dismissed}</span>
-            </div>
-            <p className="text-[10px] text-text-muted">Bác bỏ nghi vấn</p>
-          </div>
-
-          <div
-            onClick={() => setFilterDecision('pending')}
-            className={cn(
-              'p-2.5 rounded-[3px] border transition-all cursor-pointer select-none',
-              filterDecision === 'pending'
-                ? 'bg-parchment-2/60 border-parchment-2 ring-1 ring-parchment-2'
-                : 'bg-ink/50 border-parchment-2 hover:bg-parchment-2/30'
-            )}
-          >
-            <div className="flex items-center justify-between text-xs font-semibold text-text-main mb-1">
-              <span className="flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-text-muted" />
-                <span>Chờ xử lý</span>
-              </span>
-              <span className="font-mono text-sm font-bold">{stats.pending}</span>
-            </div>
-            <p className="text-[10px] text-text-muted">Chưa duyệt</p>
-          </div>
-
-          <div
-            onClick={() => {
-              setFilterDecision('all');
-              setFilterSeverity('all');
-              setFilterCategory('all');
-              setFilterChapterUrl('all');
-            }}
-            className="p-2.5 rounded-[3px] border border-parchment-2 bg-ink/30 hover:bg-parchment-2/30 transition-all cursor-pointer select-none hidden md:block"
-          >
-            <div className="flex items-center justify-between text-xs font-semibold text-text-main mb-1">
-              <span>Tổng số lỗi</span>
-              <span className="font-mono text-sm font-bold">{stats.total}</span>
-            </div>
-            <p className="text-[10px] text-text-muted">Xem tất cả</p>
-          </div>
-        </div>
       </div>
 
-      {/* Filter Bar */}
-      <div className="bg-parchment border border-parchment-2 rounded-md p-3.5 shadow-xs">
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="flex items-center gap-1 text-text-muted font-bold uppercase tracking-wider text-[10px] shrink-0">
-            <Filter className="w-3.5 h-3.5 text-polish" />
-            <span>Bộ lọc:</span>
-          </span>
+      {/* Multi-Criteria Filter Bar */}
+      <div className="bg-ink/50 border border-parchment-2 rounded-md p-3.5 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="flex items-center gap-1 text-text-muted font-bold tracking-wider uppercase text-[10px]">
+              <Filter className="w-3 h-3 text-polish" />
+              <span>Bộ lọc:</span>
+            </span>
 
-          {/* Severity Filter */}
-          <select
-            value={filterSeverity}
-            onChange={(e) => setFilterSeverity(e.target.value)}
-            className="bg-ink/70 border border-parchment-2 rounded-[2px] px-2.5 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer"
-          >
-            <option value="all">Mọi mức độ ({stats.total})</option>
-            <option value="critical">Nghiêm trọng ({stats.critical})</option>
-            <option value="major">Lớn ({stats.major})</option>
-            <option value="minor">Nhẹ ({stats.minor})</option>
-            <option value="warning">Cảnh báo ({stats.warning})</option>
-          </select>
-
-          {/* Category Filter */}
-          <select
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className="bg-ink/70 border border-parchment-2 rounded-[2px] px-2.5 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer"
-          >
-            <option value="all">Mọi danh mục lỗi</option>
-            <option value="inconsistent_name">Tên riêng không nhất quán</option>
-            <option value="pronoun_gender">Xưng hô / Giới tính</option>
-            <option value="terminology_drift">Thuật ngữ không đồng bộ</option>
-            <option value="raw_leak">Sót Hán tự / Raw</option>
-            <option value="repetition">Trùng lặp đoạn văn</option>
-            <option value="mistranslation">Dịch sai nghĩa gốc</option>
-            <option value="omission">Bỏ sót câu / đoạn</option>
-            <option value="hallucination">Dịch thừa / Bịa nghĩa</option>
-            <option value="other">Khác</option>
-          </select>
-
-          {/* Decision Status Filter */}
-          <select
-            value={filterDecision}
-            onChange={(e) => setFilterDecision(e.target.value)}
-            className="bg-ink/70 border border-parchment-2 rounded-[2px] px-2.5 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer"
-          >
-            <option value="all">Mọi trạng thái quyết định</option>
-            <option value="pending">Chờ xử lý ({stats.pending})</option>
-            <option value="confirmed">Đã xác nhận ({stats.confirmed})</option>
-            <option value="review_needed">Cần xem lại ({stats.reviewNeeded})</option>
-            <option value="dismissed">Đã bỏ qua ({stats.dismissed})</option>
-          </select>
-
-          {/* Chapter Filter */}
-          {chapterOptions.length > 1 && (
+            {/* Severity Filter */}
             <select
-              value={filterChapterUrl}
-              onChange={(e) => setFilterChapterUrl(e.target.value)}
-              className="bg-ink/70 border border-parchment-2 rounded-[2px] px-2.5 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer max-w-[200px] truncate"
+              value={filterSeverity}
+              onChange={(e) => setFilterSeverity(e.target.value)}
+              className="bg-ink border border-parchment-2 rounded-[2px] px-2 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer"
             >
-              <option value="all">Tất cả các chương ({chapterOptions.length})</option>
-              {chapterOptions.map((ch) => (
-                <option key={ch.url} value={ch.url}>
-                  {ch.title}
-                </option>
-              ))}
+              <option value="all">Tất cả mức độ</option>
+              <option value="critical">Nghiêm trọng ({stats.critical})</option>
+              <option value="major">Lớn ({stats.major})</option>
+              <option value="minor">Nhẹ ({stats.minor})</option>
+              <option value="warning">Cảnh báo ({stats.warning})</option>
             </select>
-          )}
 
-          {/* Clear Filters */}
-          {(filterSeverity !== 'all' ||
-            filterCategory !== 'all' ||
-            filterDecision !== 'all' ||
-            filterChapterUrl !== 'all') && (
-            <button
-              type="button"
-              onClick={() => {
-                setFilterSeverity('all');
-                setFilterCategory('all');
-                setFilterDecision('all');
-                setFilterChapterUrl('all');
-              }}
-              className="text-[11px] text-polish hover:underline font-medium ml-auto cursor-pointer"
+            {/* Category Filter */}
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="bg-ink border border-parchment-2 rounded-[2px] px-2 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer"
             >
-              Xóa bộ lọc
-            </button>
-          )}
+              <option value="all">Tất cả phân loại</option>
+              <option value="inconsistent_name">Tên riêng không nhất quán</option>
+              <option value="pronoun_gender">Xưng hô / Giới tính mâu thuẫn</option>
+              <option value="terminology_drift">Thuật ngữ không đồng bộ</option>
+              <option value="raw_leak">Sót ký tự Raw / Hán tự</option>
+              <option value="repetition">Trùng lặp đoạn văn</option>
+              <option value="mistranslation">Dịch sai nghĩa gốc</option>
+              <option value="omission">Bỏ sót câu / đoạn</option>
+              <option value="hallucination">Dịch thừa / Bịa nghĩa</option>
+              <option value="other">Lỗi biên tập khác</option>
+            </select>
+
+            {/* Decision Status Filter */}
+            <select
+              value={filterDecision}
+              onChange={(e) => setFilterDecision(e.target.value)}
+              className="bg-ink border border-parchment-2 rounded-[2px] px-2 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer"
+            >
+              <option value="all">Tất cả trạng thái</option>
+              <option value="pending">Chờ duyệt ({stats.pending})</option>
+              <option value="confirmed">Đã xác nhận ({stats.confirmed})</option>
+              <option value="review_needed">Cần xem lại ({stats.reviewNeeded})</option>
+              <option value="dismissed">Đã bỏ qua ({stats.dismissed})</option>
+            </select>
+
+            {/* Chapter Filter */}
+            {chapterOptions.length > 1 && (
+              <select
+                value={filterChapterId}
+                onChange={(e) => setFilterChapterId(e.target.value)}
+                className="bg-ink border border-parchment-2 rounded-[2px] px-2 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer max-w-[200px] truncate"
+              >
+                <option value="all">Tất cả các chương ({chapterOptions.length})</option>
+                {chapterOptions.map((ch) => (
+                  <option key={ch.id} value={ch.id}>
+                    {ch.title}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Reset Filter Button */}
+            {(filterSeverity !== 'all' ||
+              filterCategory !== 'all' ||
+              filterDecision !== 'all' ||
+              filterChapterId !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterSeverity('all');
+                  setFilterCategory('all');
+                  setFilterDecision('all');
+                  setFilterChapterId('all');
+                }}
+                className="text-[11px] text-polish hover:underline cursor-pointer ml-1"
+              >
+                Đặt lại bộ lọc
+              </button>
+            )}
+          </div>
+
+          {/* Quick Batch Actions */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            {stats.pending > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleBatchConfirm}
+                  className="text-[10px] text-polish hover:bg-polish/15 px-2 py-0.5 rounded-[2px] border border-polish/30 transition-colors cursor-pointer"
+                  title="Xác nhận toàn bộ các lỗi đang chờ duyệt trong bộ lọc này"
+                >
+                  Duyệt nhanh tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBatchDismiss}
+                  className="text-[10px] text-text-muted hover:bg-parchment-2 px-2 py-0.5 rounded-[2px] border border-parchment-2 transition-colors cursor-pointer"
+                  title="Bỏ qua toàn bộ các lỗi đang chờ duyệt trong bộ lọc này"
+                >
+                  Bỏ qua tất cả
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Issue Cards List */}
+      {/* Issues List or Empty State */}
       {filteredIssues.length === 0 ? (
         <div className="bg-parchment border border-parchment-2 rounded-md p-8 shadow-xs">
           <EmptyState
@@ -347,7 +330,7 @@ export function HakoIssueReviewPanel({
                     setFilterSeverity('all');
                     setFilterCategory('all');
                     setFilterDecision('all');
-                    setFilterChapterUrl('all');
+                    setFilterChapterId('all');
                   }}
                   className="text-xs"
                 >
