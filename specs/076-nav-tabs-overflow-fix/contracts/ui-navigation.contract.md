@@ -1,4 +1,4 @@
-# Contract: UI Navigation Bar & Scroll Overflow
+# Contract: UI Navigation Bar, Chevrons & More Dropdown
 
 **Feature**: `076-nav-tabs-overflow-fix`
 **Date**: 2026-08-27
@@ -23,20 +23,28 @@ All tab buttons MUST implement:
 - `aria-controls={`panel-${tabKey}`}`
 - `tabIndex={0}`
 - `id={`tab-${tabKey}`}`
+- `title={`${t(labelKey)} (${shortcut})`}` for hover accessibility
 
 ---
 
-## 2. Scroll & Fade Behavior Contract
+## 2. Scroll & Chevron Control Contract
 
 - **Auto Scroll**:
   ```typescript
-  const tabEl = document.getElementById(`tab-${activeTab}`);
-  tabEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  scrollToElement(`tab-${activeTab}`, 'smooth');
   ```
-- **Overflow Detection**:
-  - `canScrollLeft`: `container.scrollLeft > 1`
-  - `canScrollRight`: `container.scrollLeft + container.clientWidth < container.scrollWidth - 1`
+- **Chevron Actions**:
+  - Left Chevron (`ChevronLeft`): visible when `canScrollLeft === true`, calls `scrollLeftAction()` (-200px offset).
+  - Right Chevron (`ChevronRight`): visible when `canScrollRight === true`, calls `scrollRightAction()` (+200px offset).
 - **Fade Overlays**:
   - Left overlay active when `canScrollLeft === true`.
   - Right overlay active when `canScrollRight === true`.
-  - Both overlays MUST have `pointer-events: none` and `z-index: 10` (beneath header buttons, above tab background).
+  - Both overlays MUST have `pointer-events: none` and `z-10`.
+
+---
+
+## 3. More Dropdown Menu Contract
+
+- Trigger button ID: `nav-more-menu-btn` with `aria-haspopup="true"` and `aria-expanded={isOpen}`.
+- Dropdown container: `role="menu"`, positioned beneath the button with click-outside listener and `Escape` key close handler.
+- Dropdown items: `role="menuitem"`, each invoking `switchTab(key)` and closing the dropdown.

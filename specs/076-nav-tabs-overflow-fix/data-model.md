@@ -1,4 +1,4 @@
-# Data Model & State: Nav Tabs Overflow & Visibility
+# Data Model & State: Kế Hoạch Toàn Diện — Thanh Điều Hướng Tab Chính
 
 **Feature**: `076-nav-tabs-overflow-fix`
 **Date**: 2026-08-27
@@ -22,30 +22,52 @@ export interface ScrollOverflowState {
   canScrollRight: boolean;
 }
 
-export interface NavTabItem {
-  id: string;             // e.g. "tab-translate"
-  key: ActiveNavTab;      // e.g. "translate"
-  labelKey: string;       // e.g. "nav.translate"
-  shortcut: string;       // e.g. "Alt+1"
-  icon: string;           // icon component
-  badgeCount?: number;    // optional count badge
-  warningCount?: number;  // optional warning badge
+export interface UseScrollOverflowReturn<T extends HTMLElement = HTMLElement> {
+  containerRef: React.RefObject<T | null>;
+  canScrollLeft: boolean;
+  canScrollRight: boolean;
+  checkOverflow: () => void;
+  scrollToElement: (elementOrId: HTMLElement | string | null, behavior?: ScrollBehavior) => void;
+  scrollByOffset: (offset: number, behavior?: ScrollBehavior) => void;
+  scrollLeftAction: () => void;
+  scrollRightAction: () => void;
+}
+
+export interface NavTabItemConfig {
+  key: ActiveNavTab;
+  id: string;
+  labelKey: string;
+  shortcut: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badgeCount?: number;
+  warningCount?: number;
 }
 ```
 
 ---
 
-## 2. State & Flow
+## 2. Navigation Interaction State Diagram
 
 ```mermaid
 stateDiagram-v2
-  [*] --> TabRendered: Component Mount
-  TabRendered --> CheckOverflow: Layout / Resize / Scroll
-  CheckOverflow --> ShowFadeLeft: scrollLeft > 1
-  CheckOverflow --> ShowFadeRight: scrollLeft + clientWidth < scrollWidth - 1
-  CheckOverflow --> HideFades: No overflow
+  [*] --> Idle: Mount Navigation Bar
+  Idle --> UserClickTab: Direct Tab Click
+  Idle --> HotkeyTrigger: Press Alt+1..6
+  Idle --> ClickChevron: Click < or > button
+  Idle --> OpenMoreMenu: Click "Thêm ▾"
+  Idle --> WindowResize: Screen size changes
 
-  TabRendered --> SwitchTab: User clicks or presses Alt+1..6
-  SwitchTab --> AutoScroll: element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
-  AutoScroll --> CheckOverflow
+  UserClickTab --> SwitchTab: switchTab(key)
+  HotkeyTrigger --> SwitchTab: switchTab(key)
+  OpenMoreMenu --> DropdownOpen: Render 6 items
+  DropdownOpen --> SwitchTab: Select item in dropdown & close
+
+  SwitchTab --> AutoScroll: scrollToElement('tab-' + key)
+  ClickChevron --> ScrollByOffset: scrollByOffset(+/- 200px)
+  AutoScroll --> CheckOverflow: scroll event fired
+  ScrollByOffset --> CheckOverflow: scroll event fired
+  WindowResize --> CheckOverflow: resize event fired
+
+  CheckOverflow --> UpdateVisualState: canScrollLeft / canScrollRight
+  UpdateVisualState --> Idle: Update Chevrons & Gradient Masks
 ```

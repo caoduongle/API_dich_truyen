@@ -1,4 +1,4 @@
-# Tasks: Sửa Lỗi Tràn & Hiển Thị Thanh Điều Hướng Tab Chính
+# Tasks: Kế Hoạch Giải Quyết Toàn Diện — Thanh Điều Hướng Tab Chính
 
 **Feature**: `076-nav-tabs-overflow-fix`
 **Date**: 2026-08-27
@@ -6,66 +6,68 @@
 
 ---
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 1: Setup & CSS Utilities (Shared Infrastructure)
 
-**Purpose**: Verify navigation tab structure and setup baseline types.
+**Purpose**: Configure CSS utilities and navigation baseline classes.
 
-- [X] T001 Verify all 6 tab identifiers (`tab-translate`, `tab-auto-translate`, `tab-glossary`, `tab-history`, `tab-projects`, `tab-hako-checker`) and shortcut bindings in `src/App.tsx`
+- [X] T001 [P] Verify and update CSS utility classes in `src/index.css` for hidden scrollbar (`.scrollbar-none`) and smooth scroll behavior
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Core hook for tracking horizontal scroll overflow and auto-scrolling active tab element.
+**Purpose**: Core hook enhancements for horizontal overflow detection, offset step scrolling, and active element auto-focus.
 
-- [X] T002 Implement custom hook `useScrollOverflow` in `src/hooks/useScrollOverflow.ts` with `canScrollLeft`, `canScrollRight`, `checkOverflow`, and `scrollToElement` methods with passive scroll/resize listeners
-- [X] T003 [P] Add unit test suite in `src/hooks/__tests__/useScrollOverflow.test.ts` to test overflow detection logic and element scrolling
+- [X] T002 Update `src/hooks/useScrollOverflow.ts` to provide `scrollByOffset`, `scrollLeftAction`, `scrollRightAction`, `scrollToElement`, and `calculateScrollOverflow` with passive scroll/resize listeners
+- [X] T003 [P] Update unit test suite in `src/hooks/__tests__/useScrollOverflow.test.ts` covering offset scrolling calculations, boundaries, and element focus
 
-**Checkpoint**: Foundation ready — hook is tested and ready to integrate into navigation header.
+**Checkpoint**: Foundation ready — hook is tested and ready to power Chevrons, Auto-scroll, and Gradient masks.
 
 ---
 
-## Phase 3: User Story 1 — Tự động cuộn tab kích hoạt vào vùng hiển thị (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 — Container cuộn mượt mà, Nút Chevron & Auto-Scroll (Priority: P1) 🎯 MVP
 
-**Goal**: When switching tabs via mouse click or hotkeys (`Alt+1` to `Alt+6`), the activated tab element automatically scrolls into view if it was partially or fully hidden.
+**Goal**: Nav tabs container smoothly scrolls horizontally with visible `<` and `>` Chevron buttons at edges, gradient masks, and active tab auto-scrolling on click / `Alt+1..6`.
 
-**Independent Test**: Resize browser window to laptop width (~1280px); press `Alt+6`; Tab 6 ("Kiểm Định Hako") smoothly scrolls into full view with active highlight.
+**Independent Test**: Resize browser to 1280px; click right Chevron button `>` to scroll 200px; press `Alt+6` to auto-scroll Tab 6 into full view.
 
 ### Implementation for User Story 1
 
-- [X] T004 [US1] Attach `useScrollOverflow` ref to the tab container in `src/App.tsx` and trigger auto-scroll to `document.getElementById('tab-' + activeTab)` on `activeTab` changes
-- [X] T005 [US1] Verify that hotkeys `Alt+1` through `Alt+6` and direct mouse clicks on all 6 tabs correctly invoke auto-scrolling
+- [X] T004 [US1] Add left and right Chevron buttons (`ChevronLeft`, `ChevronRight` from `lucide-react`) at `z-20` in `src/App.tsx`, wired to `scrollLeftAction` and `scrollRightAction`, conditionally rendered based on `canScrollLeft` and `canScrollRight`
+- [X] T005 [US1] Add `shrink-0` (`flex-shrink: 0`) to all 6 tab buttons in `src/App.tsx` and ensure smooth auto-scroll on `activeTab` changes
+- [X] T006 [US1] Position subtle Gradient Masks (`bg-gradient-to-r/l from-parchment to-transparent`) at `z-10` with `pointer-events-none` in `src/App.tsx`
 
-**Checkpoint**: US1 fully functional — Tab 6 is never hidden or unreachable when triggered.
+**Checkpoint**: US1 fully functional — Chevrons, auto-scroll, and gradient masks work cohesively.
 
 ---
 
-## Phase 4: User Story 2 — Hiển thị chỉ báo thị giác khi dải tab bị tràn biên (Priority: P1)
+## Phase 4: User Story 2 — Tối ưu hóa mật độ hiển thị (Responsive Density) (Priority: P1)
 
-**Goal**: Render subtle, elegant gradient fade overlays at the left and right edges of the scrolling tab strip when offscreen tabs exist.
+**Goal**: Compact tab button padding, responsive `Kbd` shortcut badges (hidden < 1440px), hover tooltips, and isolated project title block.
 
-**Independent Test**: On a narrower viewport, verify right edge shows `from-parchment to-transparent` fade overlay; scrolling right hides right overlay and shows left overlay.
+**Independent Test**: View tabs at 1280px (< 1440px): `Kbd` badges are hidden, tab padding is compact (`px-2.5 sm:px-3 py-1.5 sm:py-2`), hover displays `title` tooltip with shortcut.
 
 ### Implementation for User Story 2
 
-- [X] T006 [US2] Add left and right fade overlay elements in `src/App.tsx` with `bg-gradient-to-r from-parchment to-transparent` (left) and `bg-gradient-to-l from-parchment to-transparent` (right), `pointer-events-none`, and `z-10`, conditionally rendered based on `canScrollLeft` and `canScrollRight`
-- [X] T007 [US2] Verify that fade overlays do not block mouse clicks (`pointer-events-none`) and disappear on wide screens where no overflow exists
+- [X] T007 [US2] Update padding of tab buttons in `src/App.tsx` to `px-2.5 sm:px-3 py-1.5 sm:py-2` and add hover `title` tooltip attributes containing label and hotkey for each tab
+- [X] T008 [US2] Update `Kbd` shortcut badges in `src/App.tsx` to `hidden 2xl:inline-block text-[9px]` to hide gracefully on screens below 1440px
+- [X] T009 [US2] Isolate `activeProject.title` in `src/App.tsx` in a static right-aligned flex block with `max-w-[160px] md:max-w-[220px] lg:max-w-[300px]`, `truncate`, and tooltip
 
-**Checkpoint**: US2 fully functional — users have intuitive visual affordance for scrollable tabs.
+**Checkpoint**: US2 fully functional — tab strip fits more items naturally and never cramps labels.
 
 ---
 
-## Phase 5: User Story 3 — Tách biệt và bảo toàn khối thông tin bộ truyện hiện tại (Priority: P2)
+## Phase 5: User Story 3 — Menu xổ xuống "Thêm ▾" (More Dropdown Menu) dự phòng (Priority: P2)
 
-**Goal**: Ensure `activeProject.title` is isolated on the right side with bounded width, ellipsis truncation, and tooltip, without competing with the tab scrolling container.
+**Goal**: Provide a fallback dropdown menu popover ("Thêm ▾" / `MoreHorizontal`) allowing instant 1-click navigation to any of the 6 tabs.
 
-**Independent Test**: Load a project with a long title; verify title remains stationary on the right with ellipsis, while tab buttons scroll cleanly inside their allocated flex region.
+**Independent Test**: Click "Thêm ▾" button; popover menu opens with all 6 tabs and badges; click "Kiểm Tra Hako" to jump directly to Tab 6.
 
 ### Implementation for User Story 3
 
-- [X] T008 [US3] Restructure the nav bar container in `src/App.tsx` into a flex layout separating the scrollable tab region (`flex-1 min-w-0 relative`) and the static project title indicator (`shrink-0` with `max-w` and `truncate` with `title` tooltip)
+- [X] T010 [US3] Implement accessible More Dropdown menu popover in `src/App.tsx` with click-outside listener, `Escape` key close handler, and full listing of 6 tabs with icons, labels, badges, and hotkeys
 
-**Checkpoint**: US3 fully functional — project title and tab navigation coexist harmoniously.
+**Checkpoint**: US3 fully functional — all tabs accessible in 1 click regardless of scroll position.
 
 ---
 
@@ -73,8 +75,8 @@
 
 **Purpose**: Verification, test suite pass, and zero-regression quality gate checks.
 
-- [X] T009 Run `npm run lint` (`tsc --noEmit`), `npm test` (`vitest run`), and `npm run build` (`vite build + esbuild`) to verify all quality gates pass cleanly with 0 errors
-- [X] T010 Execute end-to-end verification of Scenarios 1–4 from `specs/076-nav-tabs-overflow-fix/quickstart.md`
+- [X] T011 Run `npm run lint` (`tsc --noEmit`), `npm test` (`vitest run`), and `npm run build` (`vite build + esbuild`) to verify all quality gates pass cleanly with 0 errors
+- [X] T012 Execute end-to-end verification of Scenarios 1–5 from `specs/076-nav-tabs-overflow-fix/quickstart.md`
 
 ---
 
@@ -84,19 +86,20 @@
 
 - **Setup (Phase 1)**: Can start immediately.
 - **Foundational (Phase 2)**: Depends on Phase 1. T002 and T003 can run in parallel.
-- **US1 (Phase 3)**: Depends on Phase 2. Integrates hook into `src/App.tsx`.
-- **US2 (Phase 4)**: Depends on US1 (enhances visual feedback).
-- **US3 (Phase 5)**: Depends on US1/US2 (polishes layout structure).
+- **US1 (Phase 3)**: Depends on Phase 2. Implements Chevrons, auto-scroll, and masks.
+- **US2 (Phase 4)**: Depends on US1. Enhances responsive density.
+- **US3 (Phase 5)**: Depends on US1/US2. Adds fallback More dropdown menu.
 - **Polish (Phase 6)**: Runs after all user stories are complete.
 
 ---
 
 ## Implementation Strategy
 
-### MVP First (User Story 1)
+### MVP First (User Story 1 + 2)
 
-1. Complete Phase 1 & 2 (Hook & Unit Test)
-2. Complete Phase 3 (Auto-scroll wiring in `src/App.tsx`)
-3. **STOP and VALIDATE**: Verify `Alt+6` auto-scrolls to Tab 6.
-4. Complete Phase 4 (Fade overlays) & Phase 5 (Project title isolation).
-5. Run Quality Gates (Phase 6).
+1. Complete Phase 1 & 2 (Hook with offset actions & unit tests).
+2. Complete Phase 3 (Chevrons + auto-scroll + masks).
+3. Complete Phase 4 (Responsive density & tooltips).
+4. **STOP and VALIDATE**: Test navigation on laptop viewport.
+5. Complete Phase 5 (More Dropdown Menu).
+6. Run Quality Gates (Phase 6).

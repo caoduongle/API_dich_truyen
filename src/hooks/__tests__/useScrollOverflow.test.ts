@@ -43,6 +43,28 @@ describe('useScrollOverflow Unit Tests', () => {
       const result2 = calculateScrollOverflow(15, 500, 1000, 10);
       expect(result2.canScrollLeft).toBe(true); // 15 > threshold 10
     });
+
+    it('accurately detects boundary conditions on common screen widths (1024, 1280, 1366, 1920)', () => {
+      // Laptop 1024px with 1400px tabs
+      const laptop1024 = calculateScrollOverflow(0, 1024, 1400);
+      expect(laptop1024.canScrollLeft).toBe(false);
+      expect(laptop1024.canScrollRight).toBe(true);
+
+      // Laptop 1280px with 1400px tabs scrolled by 100px
+      const laptop1280 = calculateScrollOverflow(100, 1280, 1400);
+      expect(laptop1280.canScrollLeft).toBe(true);
+      expect(laptop1280.canScrollRight).toBe(true);
+
+      // Laptop 1366px scrolled to end
+      const laptop1366 = calculateScrollOverflow(34, 1366, 1400);
+      expect(laptop1366.canScrollLeft).toBe(true);
+      expect(laptop1366.canScrollRight).toBe(false);
+
+      // Desktop 1920px with 1400px tabs (no overflow)
+      const desktop1920 = calculateScrollOverflow(0, 1920, 1400);
+      expect(desktop1920.canScrollLeft).toBe(false);
+      expect(desktop1920.canScrollRight).toBe(false);
+    });
   });
 
   describe('scrollElementIntoView', () => {

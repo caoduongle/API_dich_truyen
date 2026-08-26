@@ -1,4 +1,4 @@
-# Implementation Plan: Sửa Lỗi Tràn & Hiển Thị Thanh Điều Hướng Tab Chính
+# Implementation Plan: Kế Hoạch Giải Quyết Toàn Diện — Thanh Điều Hướng Tab Chính
 
 **Branch**: `076-nav-tabs-overflow-fix` | **Date**: 2026-08-27 | **Spec**: [spec.md](./spec.md)
 
@@ -6,16 +6,24 @@
 
 ## Summary
 
-Khắc phục lỗi thanh điều hướng chính trong `src/App.tsx` che mất Tab 6 ("Kiểm Tra Chất Lượng" - Alt+6) khi hiển thị trên các màn hình laptop/cửa sổ có độ rộng hạn chế. Giải pháp bao gồm:
-1. **Tự động cuộn tab kích hoạt vào vùng hiển thị**: Khi người dùng click chuột hoặc dùng phím tắt `Alt+1..6`, tự động gọi `scrollIntoView` mượt mà cho nút tab tương ứng.
-2. **Chỉ báo tràn mờ chuyển sắc (Fade Overlays)**: Hiển thị lớp phủ mờ tinh tế cùng tông `bg-parchment` ở mép trái/phải khi có nội dung bị khuất, `pointer-events-none`.
-3. **Tách biệt khối thông tin truyện hiện tại (`activeProject.title`)**: Đưa khối tên truyện ra ngoài luồng cuộn của dải tab, hỗ trợ co giãn tối đa và `truncate` kèm tooltip.
+Kế hoạch giải quyết toàn diện cho thanh điều hướng tab chính gồm 3 giai đoạn:
+1. **Giai đoạn 1: Container cuộn mượt mà, Nút Chevron & Auto-Scroll**:
+   - Container `overflow-x-auto` với `scrollbar-none`, `scroll-behavior: smooth` và `shrink-0` cho mỗi tab.
+   - Hai nút cuộn Chevron trái/phải (`<`, `>`) ở hai đầu, tự động ẩn/hiện và cuộn offset 200px.
+   - Lớp phủ mờ chuyển sắc (Gradient Mask) tinh tế ở hai mép.
+   - Tự động cuộn `scrollIntoView` mượt mà khi `activeTab` thay đổi.
+2. **Giai đoạn 2: Tối ưu hoá mật độ hiển thị (Responsive Density)**:
+   - Co giãn padding linh hoạt (`px-2.5 sm:px-3 py-1.5 sm:py-2`).
+   - Ẩn phím tắt `Kbd` trên màn hình `< 1440px` (`hidden 2xl:inline-block`), hiển thị trong `title` tooltip của nút tab.
+   - Tách biệt khối thông tin bộ truyện hiện tại (`activeProject.title`) ở góc phải độc lập, `truncate` có tooltip.
+3. **Giai đoạn 3: Menu xổ xuống "Thêm ▾" (More Dropdown Menu)**:
+   - Dropdown menu popover ở cuối dải tab liệt kê trọn bộ 6 tab, cho phép chuyển tab tức thời chỉ trong 1 click.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.8+, React 19  
 **Primary Dependencies**: Tailwind CSS v4, `clsx`, `tailwind-merge`, `lucide-react` (Zero new dependencies)  
-**Storage**: N/A (UI layout & DOM scroll behavior only)  
+**Storage**: N/A (UI layout & DOM scroll state only)  
 **Testing**: Vitest 4.1 (`npm test`), TypeScript Typecheck (`npm run lint`), Production build (`npm run build`)  
 **Target Platform**: Modern Desktop/Laptop Browsers (Chrome, Edge, Firefox, Safari) + Tablet/Mobile  
 **Project Type**: React Web Frontend  
@@ -27,10 +35,10 @@ Khắc phục lỗi thanh điều hướng chính trong `src/App.tsx` che mất 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - [x] **Principle I (Strict Quality Gates)**: `npm run lint`, `npm test`, `npm run build` must all pass cleanly.
-- [x] **Principle II (Dependency Minimization)**: Zero new dependencies added. Reuses existing Tailwind tokens (`bg-parchment`, `from-parchment`), `Kbd`, `Badge`.
-- [x] **Principle III (Domain Boundary Preservation)**: Only touches navigation UI layout in `src/App.tsx` and optional scroll hook. Zero modification to translation pipeline or Gemini API.
-- [x] **Principle IV (Immutable Core Schemas)**: No changes to `src/types.ts` schemas, IndexedDB, or user-facing Vietnamese strings.
-- [x] **Principle V (Atomic Commits & Docs)**: Small, targeted changes to `src/App.tsx`.
+- [x] **Principle II (Dependency Minimization)**: Zero new dependencies added. Reuses existing Tailwind tokens (`bg-parchment`, `from-parchment`), `Kbd`, `Badge`, `lucide-react`.
+- [x] **Principle III (Domain Boundary Preservation)**: Only touches navigation UI in `src/App.tsx`, `src/hooks/useScrollOverflow.ts`, and optional CSS utilities. Zero modification to translation pipeline or Gemini API.
+- [x] **Principle IV (Immutable Core Schemas)**: No changes to `src/types.ts` schemas or IndexedDB.
+- [x] **Principle V (Atomic Commits & Docs)**: Synchronized documentation across all artifacts.
 
 ## Project Structure
 
@@ -53,18 +61,18 @@ specs/076-nav-tabs-overflow-fix/
 
 ```text
 src/
-├── App.tsx              # Main navigation tab strip, auto-scroll and overflow fade overlays
+├── App.tsx              # Main navigation tab strip with Chevrons, Fade Masks, and More Menu
 ├── hooks/
-│   └── useScrollOverflow.ts (optional helper hook or inline in App.tsx)
-└── types.ts             # Unchanged
+│   ├── useScrollOverflow.ts # Scroll overflow calculations, offset scrolling, element scrolling
+│   └── __tests__/useScrollOverflow.test.ts
+└── index.css            # Utility classes (.scrollbar-none)
 ```
-
-**Structure Decision**: Update `src/App.tsx` directly or provide a lightweight hook in `src/hooks/useScrollOverflow.ts` to manage horizontal scroll overflow detection and automatic scrolling for the active tab.
 
 ## Complexity Tracking
 
 | Item | Decision & Rationale |
 |---|---|
-| Auto-scroll | Native `element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })` triggered on `activeTab` changes. |
-| Overflow Indicators | Two absolute `div` elements with `pointer-events-none` and `bg-gradient-to-r/l from-parchment to-transparent` conditionally shown when `canScrollLeft` / `canScrollRight` is true. |
-| Project Title Layout | Flex row with `flex-1 min-w-0` for tab container and `shrink-0` with max width for project title container. |
+| Chevron Buttons | Positioned absolute at `z-20` on left and right, calling `scrollByOffset(-200)` and `scrollByOffset(200)`. |
+| Gradient Masks | `pointer-events-none absolute z-10 w-10 bg-gradient-to-r/l from-parchment to-transparent`. |
+| Responsive Density | `hidden 2xl:inline-block` for `Kbd`, tooltip `title` on all buttons, `shrink-0` on items. |
+| More Dropdown Menu | Simple accessible popover with click-outside listener listing all 6 tabs for instant 1-click navigation. |

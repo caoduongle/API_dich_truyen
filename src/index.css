@@ -92,11 +92,13 @@ html {
 }
 
 /* LỚP ẨN THANH CUỘN NHƯNG VẪN CHO PHÉP TRƯỢT */
-.scrollbar-none {
+.scrollbar-none,
+.no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
-.scrollbar-none::-webkit-scrollbar {
+.scrollbar-none::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 

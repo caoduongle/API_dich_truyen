@@ -1,4 +1,4 @@
-# Quickstart & Verification Guide: Nav Tabs Overflow & Visibility
+# Quickstart & Verification Guide: Kế Hoạch Toàn Diện — Thanh Điều Hướng Tab Chính
 
 **Feature**: `076-nav-tabs-overflow-fix`
 **Date**: 2026-08-27
@@ -17,34 +17,42 @@ Open browser at `http://localhost:3000`.
 
 ## 2. Validation Scenarios
 
-### Scenario 1: Tab 6 Visibility via Keyboard Shortcut (Alt+6)
-1. Resize browser window to ~1280px or 1024px (standard laptop width).
-2. Observe that Tab 6 ("Kiểm Định Hako") might be partially offscreen.
-3. Press `Alt+6` on the keyboard.
-4. **Expected Result**: The tab strip automatically and smoothly scrolls to the right, bringing Tab 6 into full view with active highlight (`border-polish text-text-main bg-parchment-2/40`).
-5. Press `Alt+1`.
-6. **Expected Result**: The tab strip automatically scrolls back to the left, showing Tab 1.
+### Scenario 1: Chevron Navigation & Smooth Offset Scrolling
+1. Resize browser window to ~1280px.
+2. Verify that the right Chevron button `>` appears on the right edge along with the gradient fade.
+3. Click the right Chevron button `>`:
+   - **Expected Result**: Dải tab cuộn mượt mà sang phải 200px. Nút Chevron trái `<` xuất hiện ở mép trái.
+4. Click the left Chevron button `<`:
+   - **Expected Result**: Dải tab cuộn mượt mà trở lại sang trái.
 
 ---
 
-### Scenario 2: Visual Overflow Fade Indicators
-1. At 1280px width, observe the right edge of the tab strip.
-2. **Expected Result**: A subtle, elegant fade gradient (`from-parchment to-transparent`) indicates more tabs are available to the right.
-3. Scroll or navigate to Tab 6.
-4. **Expected Result**: The left edge now displays the fade gradient, while the right edge fade disappears because the end of the list is reached.
-5. Maximize window on a wide monitor (>1600px).
-6. **Expected Result**: Both left and right fade overlays disappear completely since all 6 tabs fit naturally.
+### Scenario 2: Active Tab Auto-Scroll via Hotkeys
+1. At 1280px width, press `Alt+6`.
+2. **Expected Result**: Tab 6 ("Kiểm Định Hako") tự động cuộn vào giữa khung nhìn, sáng viền active đỏ chu sa.
+3. Press `Alt+1`.
+4. **Expected Result**: Tab 1 ("Dịch Thuật") tự động cuộn về mép trái.
 
 ---
 
-### Scenario 3: Isolated Active Project Indicator
-1. Open a story project with a long title (e.g., "Đấu Phá Thương Khung Chi Vô Thượng Cảnh Giới").
-2. Check the right side of the tab bar.
-3. **Expected Result**: The project title is displayed cleanly, truncated with an ellipsis if needed, and separated by a subtle border, never overlapping or being scrolled away with the tab list.
+### Scenario 3: Responsive Density (Padding & Kbd Shortcuts)
+1. Trên màn hình < 1440px:
+   - **Expected Result**: Huy hiệu `Kbd` ẩn đi, nút tab co gọn với padding `px-2.5 sm:px-3 py-1.5 sm:py-2`.
+   - Rê chuột vào từng nút tab: Tooltip hiển thị đầy đủ tên và phím tắt (e.g., `Kiểm Định Hako (Alt+6)`).
+2. Phóng to màn hình >= 1440px (`2xl:`):
+   - **Expected Result**: Huy hiệu `Kbd` hiển thị nổi bật bên cạnh tên tab.
 
 ---
 
-### Scenario 4: Automated Quality Gates
+### Scenario 4: "More Tabs" Dropdown Menu
+1. Click nút "Thêm ▾" / `MoreHorizontal` ở góc phải dải tab.
+2. **Expected Result**: Dropdown mở ra hiển thị đầy đủ 6 tab kèm biểu tượng, nhãn tiếng Việt, phím tắt và số lượng badge.
+3. Click chọn "Quản Lý Từ Điển":
+   - **Expected Result**: Ứng dụng chuyển sang tab Từ Điển, dải tab tự động cuộn đến Tab 3 và dropdown tự đóng.
+
+---
+
+### Scenario 5: Automated Quality Gates
 ```bash
 npm run lint    # Type check MUST pass with 0 errors
 npm test        # Vitest suite MUST pass 100%

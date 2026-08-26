@@ -1,4 +1,4 @@
-# Research & Architectural Decisions: Nav Tabs Overflow & Visibility
+# Research & Architectural Decisions: Kế Hoạch Toàn Diện — Thanh Điều Hướng Tab Chính
 
 **Feature**: `076-nav-tabs-overflow-fix`
 **Date**: 2026-08-27
@@ -8,43 +8,47 @@
 
 ## 1. Architectural Decisions
 
-### Decision 1: Dedicated Tab Auto-Scroll & Overflow Detection Hook (`useScrollOverflow`)
+### Decision 1: Enhanced Scroll Control Hook with Offset Navigation (`useScrollOverflow`)
 
-- **Context**: The tab bar contains 6 tabs with icons, Vietnamese labels, shortcut badges (`Kbd`), and dynamic count badges (`Badge`). On typical laptop screen widths (1024px - 1440px), the total tab strip width exceeds available screen width. The existing `.scrollbar-none` class hides the scrollbar, making the container look static and concealing Tab 6 ("Kiểm Định Hako").
+- **Context**: Users need multiple ways to navigate tabs: direct click, hotkeys (`Alt+1..6`), mouse-wheel / trackpad swipe, and dedicated step-by-step scrolling buttons (`<` and `>`).
 - **Decision**:
-  - Implement a lightweight custom hook `useScrollOverflow(containerRef, deps)` or integrate directly with `useEffect` + `ResizeObserver`.
-  - Calculate `canScrollLeft = scrollLeft > 1` and `canScrollRight = scrollLeft + clientWidth < scrollWidth - 1`.
-  - On `activeTab` transition (mouse click or `Alt+1..6`), target `document.getElementById(`tab-${activeTab}`)` and execute `scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })`.
-- **Rationale**:
-  - Instant, reliable, native browser API with zero performance overhead.
-  - Automatically handles both mouse clicks and keyboard shortcut navigations.
-- **Alternatives Considered**:
-  - *Showing a permanent horizontal scrollbar*: Rejected. Cluttered UI that violates the "Mực & Chu Sa" design aesthetic.
-  - *Pagination / Dropdown for extra tabs*: Rejected. Violates constraint to preserve the 6-tab flat structure with hotkeys.
+  - Extend `useScrollOverflow` to include `scrollByOffset(offset: number)` and convenience helpers `scrollLeftAction` / `scrollRightAction` with a default step of `200px`.
+  - Listen to `scroll`, `resize`, and `ResizeObserver` events passively to compute `canScrollLeft` and `canScrollRight`.
+  - Maintain `scrollToElement(id, 'smooth')` for automatic focus on `activeTab` changes.
+- **Rationale**: Single source of truth for all horizontal scrolling calculations and animations.
 
 ---
 
-### Decision 2: Non-Intrusive Gradient Fade Indicators
+### Decision 2: Chevron Navigation Buttons & Gradient Masks
 
-- **Context**: Users need visual feedback that additional tabs are hidden offscreen to the left or right without adding distracting buttons or colored icons.
+- **Context**: On screens with hidden overflow, users need clear visual feedback and explicit click targets to scroll the tab list without needing trackpad gestures.
 - **Decision**:
-  - Render subtle fade overlays positioned absolutely at the left and right edges of the scrolling tab wrapper:
-    - Left: `absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-parchment to-transparent pointer-events-none z-10`
-    - Right: `absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-parchment to-transparent pointer-events-none z-10`
-  - Only show left fade when `canScrollLeft` is true; only show right fade when `canScrollRight` is true.
+  - Position circular Chevron buttons (`ChevronLeft`, `ChevronRight` from `lucide-react`) at `absolute left-0 / right-0 top-1/2 -translate-y-1/2 z-20`.
+  - Buttons styled with `bg-ink/90 border border-parchment-2 shadow-xs text-text-muted hover:text-text-main`.
+  - Render gradient masks `bg-gradient-to-r/l from-parchment to-transparent` beneath the Chevron buttons (`z-10`, `pointer-events-none`).
 - **Rationale**:
-  - Uses existing design system token `from-parchment` which harmonizes with theme colors in both dark and light modes.
-  - `pointer-events-none` guarantees clicks on tabs near the edges pass through without hindrance.
-  - Zero external dependencies.
+  - Provides intuitive affordance matching the "Mực & Chu Sa" aesthetic.
+  - `pointer-events-none` on masks ensures clicks on tab buttons under the gradient still work effortlessly.
 
 ---
 
-### Decision 3: Layout Isolation for Active Project Title Indicator
+### Decision 3: Responsive Density Optimization
 
-- **Context**: Previously, `<nav>` and `{activeProject && (<div>...</div>)}` shared a single `flex justify-between overflow-x-auto` container, causing the project title to compete with tabs and get pushed out of view during scrolling.
+- **Context**: Standard laptop screens (1366x768, 1440x900) have limited horizontal space. Displaying full shortcut badges (`Kbd Alt+X`) and overly generous padding forces unnecessary overflow.
 - **Decision**:
-  - Restructure the header container into two distinct flex columns/sections:
-    - **Tab Navigation Area**: `relative flex-1 min-w-0 overflow-hidden` containing the scrollable `<nav>` and fade overlays.
-    - **Project Indicator Area**: `shrink-0 flex items-center pl-3 border-l border-parchment-2/60 ml-2 hidden sm:flex` containing `activeProject.title` with `max-w-[180px] md:max-w-[240px] lg:max-w-[320px] truncate` and full `title` tooltip.
-- **Rationale**:
-  - Guarantees the active project title is always visible and static on the right, while the tab list scrolls independently within its allocated space.
+  - Responsive padding: `px-2.5 sm:px-3 py-1.5 sm:py-2` (balanced click area and compact width).
+  - Shortcut badge visibility: Hide `Kbd` on screens `< 1440px` (`hidden 2xl:inline-block`), and encode shortcut into the `title` attribute of the tab button (e.g. `title="Kiểm Tra Chất Lượng (Alt+6)"`).
+  - Item integrity: Add `shrink-0` (`flex-shrink: 0`) to all tab buttons to completely prevent label cramping.
+- **Rationale**: Fits more tabs directly on screen without sacrificing shortcut discoverability.
+
+---
+
+### Decision 4: "More Tabs" Popover Dropdown Menu (Fallback Navigation)
+
+- **Context**: On very narrow viewports (e.g. tablet portrait, split-screen < 768px), or for users preferring list navigation, a dropdown menu allows jumping to any tab in 1 click.
+- **Decision**:
+  - Add a lightweight popover menu button ("Thêm ▾" or `MoreHorizontal`) on the right of the tab bar.
+  - Dropdown lists all 6 tabs with their icon, Vietnamese title, count badge, and shortcut.
+  - Clicking any tab executes `switchTab(tab)` and closes the menu.
+  - Accessible click-outside listener and `Escape` key handler.
+- **Rationale**: Guarantees 100% reachability of all features even on extreme screen constraints.

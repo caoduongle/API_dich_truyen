@@ -2,8 +2,8 @@
  * useScrollOverflow Hook & Helpers
  * Feature: 076-nav-tabs-overflow-fix
  *
- * Theo dõi trạng thái cuộn ngang của một phần tử container (tràn trái / tràn phải)
- * và cung cấp hàm cuộn mượt mà một phần tử con vào vùng nhìn thấy.
+ * Theo dõi trạng thái cuộn ngang của một phần tử container (tràn trái / tràn phải),
+ * cung cấp hàm cuộn từng nấc (Chevron click) và cuộn mượt mà một phần tử con vào vùng nhìn thấy.
  */
 
 import { useState, useEffect, useCallback, useRef, RefObject } from 'react';
@@ -13,6 +13,10 @@ export interface UseScrollOverflowOptions {
    * Ngưỡng pixel để xác định bắt đầu cuộn khỏi mép biên (mặc định: 1)
    */
   threshold?: number;
+  /**
+   * Khoảng cách cuộn mặc định cho nút Chevron (mặc định: 200px)
+   */
+  scrollStep?: number;
 }
 
 export interface ScrollOverflowState {
@@ -26,6 +30,9 @@ export interface UseScrollOverflowReturn<T extends HTMLElement = HTMLElement> {
   canScrollRight: boolean;
   checkOverflow: () => void;
   scrollToElement: (elementOrId: HTMLElement | string | null, behavior?: ScrollBehavior) => void;
+  scrollByOffset: (offset: number, behavior?: ScrollBehavior) => void;
+  scrollLeftAction: () => void;
+  scrollRightAction: () => void;
 }
 
 /**
@@ -77,7 +84,7 @@ export function scrollElementIntoView(
 export function useScrollOverflow<T extends HTMLElement = HTMLElement>(
   options: UseScrollOverflowOptions = {}
 ): UseScrollOverflowReturn<T> {
-  const { threshold = 1 } = options;
+  const { threshold = 1, scrollStep = 200 } = options;
   const containerRef = useRef<T | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -107,6 +114,28 @@ export function useScrollOverflow<T extends HTMLElement = HTMLElement>(
     },
     []
   );
+
+  const scrollByOffset = useCallback(
+    (offset: number, behavior: ScrollBehavior = 'smooth') => {
+      const el = containerRef.current;
+      if (!el) return;
+
+      if (typeof el.scrollBy === 'function') {
+        el.scrollBy({ left: offset, behavior });
+      } else {
+        el.scrollLeft += offset;
+      }
+    },
+    []
+  );
+
+  const scrollLeftAction = useCallback(() => {
+    scrollByOffset(-scrollStep);
+  }, [scrollByOffset, scrollStep]);
+
+  const scrollRightAction = useCallback(() => {
+    scrollByOffset(scrollStep);
+  }, [scrollByOffset, scrollStep]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -152,6 +181,9 @@ export function useScrollOverflow<T extends HTMLElement = HTMLElement>(
     canScrollRight,
     checkOverflow,
     scrollToElement,
+    scrollByOffset,
+    scrollLeftAction,
+    scrollRightAction,
   };
 }
 

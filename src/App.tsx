@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useTransition } from 'react';
 import { 
-  BookOpenText, Settings, History, Folder, Cpu, Languages, Lock, Unlock, ShieldCheck 
+  BookOpenText, Settings, History, Folder, Cpu, Languages, Lock, Unlock, ShieldCheck,
+  ChevronLeft, ChevronRight, MoreHorizontal, ChevronDown
 } from 'lucide-react';
 import { Chapter, StoryProject } from './types';
 import { NotificationProvider } from './components/NotificationSystem';
@@ -100,7 +101,33 @@ function AppContent() {
     canScrollLeft,
     canScrollRight,
     scrollToElement,
-  } = useScrollOverflow<HTMLDivElement>();
+    scrollLeftAction,
+    scrollRightAction,
+  } = useScrollOverflow<HTMLDivElement>({ threshold: 2, scrollStep: 220 });
+
+  const [showMoreNavMenu, setShowMoreNavMenu] = useState(false);
+  const moreMenuRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Đóng More Menu khi click ra ngoài hoặc bấm Escape
+  useEffect(() => {
+    if (!showMoreNavMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreNavMenu(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowMoreNavMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showMoreNavMenu]);
 
   // Tự động cuộn tab kích hoạt vào vùng nhìn thấy khi activeTab thay đổi (click hoặc phím tắt Alt+1..6)
   useEffect(() => {
@@ -258,20 +285,33 @@ function AppContent() {
       <div className="bg-parchment border-b border-parchment-2 sticky top-14 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-2 py-0.5">
-            {/* Scrollable Tab Navigation Area with Fade Overlays */}
+            {/* Scrollable Tab Navigation Area with Chevrons & Fade Overlays */}
             <div className="relative flex-1 min-w-0 overflow-hidden">
+              {/* Left Chevron Button */}
+              {canScrollLeft && (
+                <button
+                  type="button"
+                  onClick={scrollLeftAction}
+                  aria-label="Cuộn các tab sang trái"
+                  title="Cuộn các tab sang trái"
+                  className="absolute left-0.5 top-1/2 -translate-y-1/2 z-20 w-6 h-6 flex items-center justify-center rounded-full bg-ink/90 border border-parchment-2 text-text-muted hover:text-text-main shadow-xs transition-all hover:bg-parchment-2/80 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+              )}
+
               {/* Left Fade Overlay */}
               {canScrollLeft && (
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-parchment to-transparent z-10"
+                  className="pointer-events-none absolute left-0 top-0 bottom-0 w-10 bg-gradient-to-r from-parchment to-transparent z-10"
                 />
               )}
 
               {/* Scrollable Tabs Row */}
               <div
                 ref={tabNavContainerRef}
-                className="overflow-x-auto scrollbar-none"
+                className="overflow-x-auto scrollbar-none scroll-smooth"
               >
                 <nav role="tablist" aria-label="Phân vùng làm việc chính" className="flex space-x-1 min-w-max">
                   <button
@@ -281,7 +321,8 @@ function AppContent() {
                     aria-controls="panel-translate"
                     tabIndex={0}
                     onClick={() => switchTab('translate')}
-                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                    title={`${t('nav.translate')} (Alt+1)`}
+                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                       activeTab === 'translate'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
@@ -289,7 +330,7 @@ function AppContent() {
                   >
                     <BookOpenText className="w-3.5 h-3.5 shrink-0 text-polish" />
                     <span>{t('nav.translate')}</span>
-                    <Kbd className="hidden md:inline-block text-[9px]">Alt+1</Kbd>
+                    <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+1</Kbd>
                   </button>
 
                   <button
@@ -299,7 +340,8 @@ function AppContent() {
                     aria-controls="panel-auto-translate"
                     tabIndex={0}
                     onClick={() => switchTab('auto-translate')}
-                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                    title={`${t('nav.autoTranslate')} (Alt+2)`}
+                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
                       activeTab === 'auto-translate'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
@@ -307,7 +349,7 @@ function AppContent() {
                   >
                     <Cpu className={`w-3.5 h-3.5 shrink-0 ${isAutoTranslating ? 'text-polish animate-pulse' : 'text-text-muted'}`} />
                     <span>{t('nav.autoTranslate')}</span>
-                    <Kbd className="hidden md:inline-block text-[9px]">Alt+2</Kbd>
+                    <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+2</Kbd>
                   </button>
 
                   <button
@@ -317,7 +359,8 @@ function AppContent() {
                     aria-controls="panel-glossary"
                     tabIndex={0}
                     onClick={() => switchTab('glossary')}
-                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                    title={`${t('nav.glossary')} (Alt+3)`}
+                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
                       activeTab === 'glossary'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
@@ -325,7 +368,7 @@ function AppContent() {
                   >
                     <Settings className="w-3.5 h-3.5 shrink-0 text-text-muted" />
                     <span>{t('nav.glossary')}</span>
-                    <Kbd className="hidden md:inline-block text-[9px]">Alt+3</Kbd>
+                    <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+3</Kbd>
                     {activeProject && activeProject.glossary.length > 0 && (
                       <Badge tone="neutral" className="ml-0.5">
                         {activeProject.glossary.length}
@@ -345,7 +388,8 @@ function AppContent() {
                     aria-controls="panel-history"
                     tabIndex={0}
                     onClick={() => switchTab('history')}
-                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                    title={`${t('nav.history')} (Alt+4)`}
+                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
                       activeTab === 'history'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
@@ -353,7 +397,7 @@ function AppContent() {
                   >
                     <History className="w-3.5 h-3.5 shrink-0 text-text-muted" />
                     <span>{t('nav.history')}</span>
-                    <Kbd className="hidden md:inline-block text-[9px]">Alt+4</Kbd>
+                    <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+4</Kbd>
                     {activeProject && activeProject.chapters.length > 0 && (
                       <Badge tone="neutral" className="ml-0.5">
                         {activeProject.chapters.length}
@@ -368,7 +412,8 @@ function AppContent() {
                     aria-controls="panel-projects"
                     tabIndex={0}
                     onClick={() => switchTab('projects')}
-                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                    title={`${t('nav.projects')} (Alt+5)`}
+                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                       activeTab === 'projects'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
@@ -376,7 +421,7 @@ function AppContent() {
                   >
                     <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />
                     <span>{t('nav.projects')}</span>
-                    <Kbd className="hidden md:inline-block text-[9px]">Alt+5</Kbd>
+                    <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+5</Kbd>
                     <Badge tone="neutral" className="ml-0.5">
                       {projects.length}
                     </Badge>
@@ -389,7 +434,8 @@ function AppContent() {
                     aria-controls="panel-hako-checker"
                     tabIndex={0}
                     onClick={() => switchTab('hako-checker')}
-                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                    title={`${t('nav.hakoChecker')} (Alt+6)`}
+                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                       activeTab === 'hako-checker'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
@@ -397,7 +443,7 @@ function AppContent() {
                   >
                     <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-polish" />
                     <span>{t('nav.hakoChecker')}</span>
-                    <Kbd className="hidden md:inline-block text-[9px]">Alt+6</Kbd>
+                    <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+6</Kbd>
                   </button>
                 </nav>
               </div>
@@ -406,8 +452,137 @@ function AppContent() {
               {canScrollRight && (
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-parchment to-transparent z-10"
+                  className="pointer-events-none absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-parchment to-transparent z-10"
                 />
+              )}
+
+              {/* Right Chevron Button */}
+              {canScrollRight && (
+                <button
+                  type="button"
+                  onClick={scrollRightAction}
+                  aria-label="Cuộn các tab sang phải"
+                  title="Cuộn các tab sang phải"
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2 z-20 w-6 h-6 flex items-center justify-center rounded-full bg-ink/90 border border-parchment-2 text-text-muted hover:text-text-main shadow-xs transition-all hover:bg-parchment-2/80 cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* More Tabs Popover Dropdown Menu */}
+            <div className="relative shrink-0 flex items-center">
+              <button
+                id="nav-more-menu-btn"
+                type="button"
+                onClick={() => setShowMoreNavMenu((prev) => !prev)}
+                aria-haspopup="true"
+                aria-expanded={showMoreNavMenu}
+                title="Danh sách tất cả phân vùng làm việc"
+                className={`flex items-center gap-1 px-2 py-1.5 text-xs font-semibold rounded-[2px] border transition-colors cursor-pointer ${
+                  showMoreNavMenu
+                    ? 'bg-parchment-2 border-polish/50 text-text-main'
+                    : 'bg-ink/40 border-parchment-2/80 text-text-muted hover:text-text-main hover:bg-parchment-2/30'
+                }`}
+              >
+                <MoreHorizontal className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline text-[11px]">Thêm</span>
+                <ChevronDown className={`w-3 h-3 transition-transform ${showMoreNavMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showMoreNavMenu && (
+                <div
+                  ref={moreMenuRef}
+                  role="menu"
+                  aria-label="Danh sách tất cả phân vùng làm việc"
+                  className="absolute right-0 top-full mt-1.5 w-64 bg-parchment border border-parchment-2 rounded-md shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150"
+                >
+                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted border-b border-parchment-2/60 mb-1">
+                    Chuyển nhanh phân vùng
+                  </div>
+                  {[
+                    {
+                      key: 'translate' as const,
+                      icon: BookOpenText,
+                      label: t('nav.translate'),
+                      shortcut: 'Alt+1',
+                      badge: null,
+                    },
+                    {
+                      key: 'auto-translate' as const,
+                      icon: Cpu,
+                      label: t('nav.autoTranslate'),
+                      shortcut: 'Alt+2',
+                      badge: null,
+                    },
+                    {
+                      key: 'glossary' as const,
+                      icon: Settings,
+                      label: t('nav.glossary'),
+                      shortcut: 'Alt+3',
+                      badge: activeProject && activeProject.glossary.length > 0 ? (
+                        <Badge tone="neutral" className="ml-0.5">
+                          {activeProject.glossary.length}
+                        </Badge>
+                      ) : null,
+                    },
+                    {
+                      key: 'history' as const,
+                      icon: History,
+                      label: t('nav.history'),
+                      shortcut: 'Alt+4',
+                      badge: activeProject && activeProject.chapters.length > 0 ? (
+                        <Badge tone="neutral" className="ml-0.5">
+                          {activeProject.chapters.length}
+                        </Badge>
+                      ) : null,
+                    },
+                    {
+                      key: 'projects' as const,
+                      icon: Folder,
+                      label: t('nav.projects'),
+                      shortcut: 'Alt+5',
+                      badge: (
+                        <Badge tone="neutral" className="ml-0.5">
+                          {projects.length}
+                        </Badge>
+                      ),
+                    },
+                    {
+                      key: 'hako-checker' as const,
+                      icon: ShieldCheck,
+                      label: t('nav.hakoChecker'),
+                      shortcut: 'Alt+6',
+                      badge: null,
+                    },
+                  ].map((tabItem) => {
+                    const ItemIcon = tabItem.icon;
+                    const isItemActive = activeTab === tabItem.key;
+                    return (
+                      <button
+                        key={tabItem.key}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          switchTab(tabItem.key);
+                          setShowMoreNavMenu(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
+                          isItemActive
+                            ? 'bg-parchment-2/60 text-text-main font-bold border-l-2 border-polish'
+                            : 'text-text-muted hover:text-text-main hover:bg-parchment-2/30'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <ItemIcon className={`w-3.5 h-3.5 shrink-0 ${isItemActive ? 'text-polish' : 'text-text-muted'}`} />
+                          <span className="truncate">{tabItem.label}</span>
+                          {tabItem.badge}
+                        </div>
+                        <Kbd className="text-[9px] shrink-0 ml-2">{tabItem.shortcut}</Kbd>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
