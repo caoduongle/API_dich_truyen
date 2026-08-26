@@ -20,6 +20,7 @@ import {
   FileCode,
   CheckCircle2,
   XCircle,
+  Copy,
 } from 'lucide-react';
 import {
   QualityIssue,
@@ -52,6 +53,27 @@ const CATEGORY_NAMES: Record<QualityIssueCategory, string> = {
 export function HakoIssueCard({ issue, onDecisionChange }: HakoIssueCardProps) {
   const [isEditingNote, setIsEditingNote] = useState(!!issue.moderatorNote);
   const [noteText, setNoteText] = useState(issue.moderatorNote || '');
+  const [isCopied, setIsCopied] = useState(false);
+
+  const handleCopyRaw = async () => {
+    if (!issue.rawSnippet) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(issue.rawSnippet);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = issue.rawSnippet;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy raw text:', err);
+    }
+  };
 
   const handleSaveNote = () => {
     onDecisionChange(issue.id, issue.decision, noteText);
@@ -174,7 +196,7 @@ export function HakoIssueCard({ issue, onDecisionChange }: HakoIssueCardProps) {
         <div className="text-[10px] uppercase font-bold text-text-muted tracking-wider mb-1">
           Trích đoạn bản dịch làm bằng chứng:
         </div>
-        <div className="bg-ink/70 border-l-2 border-polish/80 rounded-r-[2px] p-2.5 text-xs text-text-main leading-relaxed font-sans selection:bg-polish/30">
+        <div className="bg-ink/60 border-l-4 border-polish/80 border border-parchment-2 rounded-r-[2px] p-2.5 text-xs text-text-main leading-relaxed font-sans selection:bg-polish/30">
           "{issue.vietnameseSnippet}"
         </div>
       </div>
@@ -182,11 +204,31 @@ export function HakoIssueCard({ issue, onDecisionChange }: HakoIssueCardProps) {
       {/* Optional Raw Chinese Snippet */}
       {issue.rawSnippet && (
         <div className="mb-3">
-          <div className="text-[10px] uppercase font-bold text-text-muted tracking-wider mb-1 flex items-center gap-1">
-            <FileCode className="w-3 h-3 text-polish" />
-            <span>Đoạn gốc tiếng Trung đối ứng (Raw):</span>
+          <div className="flex items-center justify-between text-[10px] uppercase font-bold text-text-muted tracking-wider mb-1">
+            <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+              <FileCode className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+              <span>Đoạn gốc tiếng Trung đối ứng (Raw):</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyRaw}
+              title="Sao chép đoạn gốc tiếng Trung"
+              className="flex items-center gap-1 text-[10px] font-medium text-text-muted hover:text-text-main px-1.5 py-0.5 rounded-[2px] bg-ink/50 border border-parchment-2 hover:border-polish/40 transition-colors cursor-pointer"
+            >
+              {isCopied ? (
+                <>
+                  <Check className="w-2.5 h-2.5 text-emerald-400" />
+                  <span className="text-emerald-400 font-bold">Đã chép</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-2.5 h-2.5" />
+                  <span>Sao chép</span>
+                </>
+              )}
+            </button>
           </div>
-          <div className="bg-ink border border-parchment-2 rounded-[2px] p-2.5 text-xs text-amber-100/90 font-serif leading-relaxed">
+          <div className="bg-parchment/60 border-l-4 border-amber-600/80 border border-parchment-2 rounded-r-[2px] p-2.5 text-xs text-text-main font-medium leading-relaxed cjk-raw-snippet select-text">
             "{issue.rawSnippet}"
           </div>
         </div>

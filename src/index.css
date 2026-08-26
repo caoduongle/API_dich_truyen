@@ -149,3 +149,10 @@ html {
 .glow-polish {
   box-shadow: 0 0 20px -4px rgba(184, 64, 44, 0.18);
 }
+
+/* CJK RAW SNIPPET - Tối ưu font chữ và khoảng cách nét cho chữ Hán */
+.cjk-raw-snippet {
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "PingFang SC", "Microsoft YaHei", "SimSun", serif;
+  letter-spacing: 0.02em;
+  line-height: 1.65;
+}
