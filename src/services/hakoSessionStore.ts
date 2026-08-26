@@ -6,7 +6,7 @@
  * zero interference with translation database or StoryProject schemas.
  */
 
-import { QualityReviewSession } from '../types/hakoChecker';
+import { QualityReviewSession, ProjectReviewChapter } from '../types/hakoChecker';
 
 const DB_NAME = 'HakoQualityCheckerDB';
 const DB_VERSION = 2;
@@ -42,6 +42,33 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 /**
+ * Sanitize session data before saving or after retrieving from IndexedDB.
+ * Guarantees that heavy text strings (vietnameseContent) are pruned from session.chapters
+ * to avoid megabyte-scale structuredClone overhead and tab crashes.
+ */
+export function sanitizeSession(session: QualityReviewSession | null): QualityReviewSession | null {
+  if (!session) return null;
+
+  const sanitizedChapters: Record<string, ProjectReviewChapter> = {};
+  if (session.chapters) {
+    for (const [chapterId, ch] of Object.entries(session.chapters)) {
+      if (!ch) continue;
+      const { vietnameseContent: _vi, ...meta } = ch;
+      sanitizedChapters[chapterId] = {
+        ...meta,
+      };
+    }
+  }
+
+  return {
+    ...session,
+    chapters: sanitizedChapters,
+    selectedChapterIds: Array.isArray(session.selectedChapterIds) ? session.selectedChapterIds : [],
+    issues: Array.isArray(session.issues) ? session.issues : [],
+  };
+}
+
+/**
  * Lưu hoặc cập nhật phiên kiểm định chất lượng
  */
 export async function saveSession(session: QualityReviewSession): Promise<QualityReviewSession> {
@@ -49,8 +76,9 @@ export async function saveSession(session: QualityReviewSession): Promise<Qualit
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
+    const sanitized = sanitizeSession(session) || session;
     const updatedSession: QualityReviewSession = {
-      ...session,
+      ...sanitized,
       updatedAt: new Date().toISOString(),
     };
     const req = store.put(updatedSession);
@@ -70,7 +98,7 @@ export async function getSession(id: string): Promise<QualityReviewSession | nul
     const store = tx.objectStore(STORE_NAME);
     const req = store.get(id);
 
-    req.onsuccess = () => resolve(req.result || null);
+    req.onsuccess = () => resolve(sanitizeSession(req.result || null));
     req.onerror = () => reject(req.error || new Error('Lỗi khi đọc phiên kiểm định'));
   });
 }
@@ -92,7 +120,7 @@ export async function getLatestSession(): Promise<QualityReviewSession | null> {
         return;
       }
       items.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      resolve(items[0]);
+      resolve(sanitizeSession(items[0]));
     };
     req.onerror = () => reject(req.error || new Error('Lỗi khi lấy phiên gần nhất'));
   });
@@ -116,7 +144,7 @@ export async function getSessionByProjectId(projectId: string): Promise<QualityR
         return;
       }
       filtered.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      resolve(filtered[0]);
+      resolve(sanitizeSession(filtered[0]));
     };
     req.onerror = () => reject(req.error || new Error('Lỗi khi lấy phiên theo projectId'));
   });
@@ -135,7 +163,7 @@ export async function listSessions(): Promise<QualityReviewSession[]> {
     req.onsuccess = () => {
       const items: QualityReviewSession[] = req.result || [];
       items.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      resolve(items);
+      resolve(items.map((item) => sanitizeSession(item)!));
     };
     req.onerror = () => reject(req.error || new Error('Lỗi khi tải danh sách phiên'));
   });

@@ -26,8 +26,7 @@ export function sanitizePromptInput(text: string): string {
 }
 
 export const CHINESE_CHAR_REGEX = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g;
-export const CHAPTER_TITLE_REGEX = /^(?:Chương|Chapter|Hồi|Quyển|Tập|Thứ\s+\d+\s*chương|第\s*[\d零一二三四五六七八九十百千万]+\s*[章节回卷])\s*(?:\d+|[IVXLCDM]+|[a-zA-ZÀ-ỹ0-9零一二三四五六七八九十百千万]+)?(?:\s*[:.\-—\s].*)?$/iu;
-
+export const CHAPTER_TITLE_REGEX = /^(?:Chương|Chapter|Hồi|Quyển|Tập|Thứ\s+\d+\s*chương|第\s*[\d零一二三四五六七八九十百千万]+\s*[章节回卷])/iu;
 /**
  * Kiểm tra xem một dòng văn bản có phải là tiêu đề chương hợp lệ hay không
  */
@@ -141,7 +140,7 @@ export function getGenreStyleGuide(genre: string): string {
     return "Thể loại Ngôn Tình: uyển chuyển lắng đọng lãng mạn, chú trọng cảm xúc nội tâm, xưng hô chàng-nàng-anh-em tự nhiên.";
   if (g === "Đô Thị")
     return "Thể loại Đô Thị: tinh gọn thực tế hiện đại, từ ngữ đời thường dễ cảm, không dùng từ cổ phong.";
-  if (g === "Huyền Huyễn" )
+  if (g === "Huyền Huyễn")
     return "Thể loại Huyền Huyễn: kết hợp yếu tố cổ phong và kỳ ảo, linh hoạt xưng hô theo ngữ cảnh, giữ không khí huyền bí.";
   if (g === "Huyền Huyễn Phương Tây")
     return "Thể loại Huyền Huyễn Phương Tây: phong cách fantasy Âu Mỹ, tên nhân vật/địa danh giữ nguyên tiếng Anh hoặc phiên âm, xưng hô tôi-bạn-ngài tự nhiên, không dùng từ Hán Việt cổ phong.";
@@ -300,7 +299,7 @@ export function splitTextAdaptively(text: string, partsCount: number = 2): strin
   if (!text) return [];
   const trimmed = text.trim();
   if (!trimmed) return [];
-  
+
   const totalTokens = estimateTokenCount(trimmed);
   if (partsCount <= 1 || totalTokens < 60) return [trimmed];
 
@@ -324,7 +323,7 @@ function partitionItems(items: string[], targetParts: number, delimiter: string)
   const itemTokens = items.map(item => estimateTokenCount(item));
   const totalTokens = itemTokens.reduce((acc, count) => acc + count, 0);
   const targetTokensPerChunk = totalTokens / targetParts;
-  
+
   const result: string[] = [];
   let currentGroup: string[] = [];
   let currentTokens = 0;

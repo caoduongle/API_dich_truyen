@@ -264,11 +264,11 @@ export function HakoChapterSelector({
                       {/* Translation Status Badge */}
                       {ch.translationType === 'polished' ? (
                         <Badge tone="polish" className="text-[10px] px-1.5 py-0.5">
-                          Đã biên tập ({ch.wordCount} từ)
+                          {ch.wordCount > 0 ? `Đã biên tập (${ch.wordCount} từ)` : 'Đã biên tập'}
                         </Badge>
                       ) : ch.translationType === 'raw' ? (
                         <Badge tone="neutral" className="text-[10px] px-1.5 py-0.5 border-amber-500/30 text-amber-300">
-                          Đã dịch thô ({ch.wordCount} từ)
+                          {ch.wordCount > 0 ? `Đã dịch thô (${ch.wordCount} từ)` : 'Đã dịch thô'}
                         </Badge>
                       ) : (
                         <Badge tone="neutral" className="text-[10px] px-1.5 py-0.5 opacity-60">

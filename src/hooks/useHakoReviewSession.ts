@@ -11,7 +11,6 @@ import {
   QualityIssueDecision,
 } from '../types/hakoChecker';
 import { StoryProject } from '../types';
-import { getChapterFromDB } from '../services/db';
 import {
   saveSession,
   getLatestSession,
@@ -69,6 +68,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
 
   const sessionRef = useRef<QualityReviewSession | null>(null);
   sessionRef.current = session;
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Restore latest session on mount
   useEffect(() => {
@@ -98,23 +98,43 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
 
     return () => {
       isMounted = false;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     };
   }, []);
 
   /**
-   * Helper cập nhật state và persist vào IndexedDB
+   * Helper cập nhật state và persist vào IndexedDB (hỗ trợ debounce cho các thao tác tick nhanh)
    */
-  const persistSession = useCallback(async (updated: QualityReviewSession) => {
+  const persistSession = useCallback(async (updated: QualityReviewSession, debounceMs = 0) => {
     setSession(updated);
-    try {
-      await saveSession(updated);
-    } catch (err) {
-      console.error('[useHakoReviewSession] Error persisting session:', err);
+    sessionRef.current = updated;
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    if (debounceMs <= 0) {
+      try {
+        await saveSession(updated);
+      } catch (err) {
+        console.error('[useHakoReviewSession] Error persisting session:', err);
+      }
+    } else {
+      debounceTimerRef.current = setTimeout(async () => {
+        try {
+          await saveSession(updated);
+        } catch (err) {
+          console.error('[useHakoReviewSession] Error persisting debounced session:', err);
+        }
+      }, debounceMs);
     }
   }, []);
 
   /**
-   * Chọn dự án dịch từ ứng dụng và khởi tạo danh sách chương
+   * Chọn dự án dịch từ ứng dụng và khởi tạo danh sách chương (nhanh 0ms, không đọc full text)
    */
   const selectProject = useCallback(
     async (project: StoryProject) => {
@@ -122,35 +142,26 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
 
       const current = sessionRef.current || createEmptySession();
 
-      // Nạp chi tiết từng chapter từ IndexedDB CHAPTERS_STORE
-      const fullChapters = await Promise.all(
-        (project.chapters || []).map(async (meta, index) => {
-          const fullChap = await getChapterFromDB(meta.id);
-          const viContent = fullChap?.polishedTranslation || fullChap?.rawTranslation || '';
-          const translationType: 'polished' | 'raw' | 'none' = fullChap?.polishedTranslation
+      // Khởi tạo metadata siêu nhẹ trực tiếp từ project.chapters
+      const chaptersRecord: Record<string, ProjectReviewChapter> = {};
+      (project.chapters || []).forEach((meta, index) => {
+        const translationType: 'polished' | 'raw' | 'none' =
+          meta.status === 'completed'
             ? 'polished'
-            : fullChap?.rawTranslation
+            : meta.status === 'in_progress'
             ? 'raw'
             : 'none';
-          const words = viContent ? viContent.trim().split(/\s+/).filter(Boolean).length : 0;
-          const existingChapter = current.projectId === project.id ? current.chapters[meta.id] : null;
+        const existingChapter = current.projectId === project.id ? current.chapters[meta.id] : null;
 
-          return {
-            chapterId: meta.id,
-            title: meta.title || `Chương ${index + 1}`,
-            chapterNumber: index + 1,
-            vietnameseContent: viContent,
-            rawChineseContent: existingChapter?.rawChineseContent ?? (fullChap?.sourceText || undefined),
-            translationType,
-            wordCount: words,
-            status: 'pending' as const,
-          };
-        })
-      );
-
-      const chaptersRecord: Record<string, ProjectReviewChapter> = {};
-      fullChapters.forEach((ch) => {
-        chaptersRecord[ch.chapterId] = ch;
+        chaptersRecord[meta.id] = {
+          chapterId: meta.id,
+          title: meta.title || `Chương ${index + 1}`,
+          chapterNumber: index + 1,
+          translationType,
+          wordCount: 0,
+          status: 'pending',
+          rawChineseContent: existingChapter?.rawChineseContent,
+        };
       });
 
       const isSameProject = current.projectId === project.id;
@@ -166,13 +177,13 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
       };
 
       setError(null);
-      await persistSession(updated);
+      await persistSession(updated, 0);
     },
     [persistSession]
   );
 
   /**
-   * Bật/tắt chọn một chương (giới hạn 12 chương)
+   * Bật/tắt chọn một chương (giới hạn 12 chương, phản hồi UI tức thì và debounce ghi DB 300ms)
    */
   const toggleChapterSelection = useCallback(
     (chapterId: string) => {
@@ -210,7 +221,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
         selectedChapterIds: newSelectedIds,
       };
 
-      persistSession(updated);
+      persistSession(updated, 300);
     },
     [persistSession]
   );
@@ -243,7 +254,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
         selectedChapterIds: boundedIds,
       };
 
-      persistSession(updated);
+      persistSession(updated, 300);
     },
     [persistSession]
   );
@@ -261,7 +272,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
       selectedChapterIds: [],
     };
 
-    persistSession(updated);
+    persistSession(updated, 300);
   }, [persistSession]);
 
   /**
@@ -294,21 +305,28 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
   );
 
   /**
-   * Cập nhật toàn bộ chapters và issues sau khi phân tích xong
+   * Cập nhật toàn bộ chapters và issues sau khi phân tích xong (lưu metadata & issues, loại bỏ full text)
    */
   const updateSessionChaptersAndIssues = useCallback(
     async (chapters: Record<string, ProjectReviewChapter>, issues: QualityIssue[]) => {
       const current = sessionRef.current;
       if (!current) return;
 
+      const sanitizedChapters: Record<string, ProjectReviewChapter> = {};
+      for (const [id, ch] of Object.entries(chapters)) {
+        if (!ch) continue;
+        const { vietnameseContent: _vi, ...meta } = ch;
+        sanitizedChapters[id] = meta;
+      }
+
       const updated: QualityReviewSession = {
         ...current,
-        chapters,
+        chapters: sanitizedChapters,
         issues,
         status: 'completed',
       };
 
-      await persistSession(updated);
+      await persistSession(updated, 0);
     },
     [persistSession]
   );

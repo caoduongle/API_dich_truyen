@@ -193,4 +193,26 @@ describe('hakoQualityEngine Unit Tests', () => {
       expect(report.formattedMarkdown).toContain('CÁC ĐIỂM CẦN HỘI Ý THÊM VỚI DỊCH GIẢ');
     });
   });
+
+  describe('JIT Batch Scanning (up to 12 selected chapters)', () => {
+    it('executes heuristic scans accurately on 12 JIT loaded chapter payloads', () => {
+      const jitChapters = Array.from({ length: 12 }, (_, i) => ({
+        chapterId: `jit-chap-${i + 1}`,
+        title: `Chương ${i + 1}: Tiêu đề`,
+        vietnameseContent: i === 3 
+          ? 'Đoạn văn này có chứa 凝血草 và đoạn văn này có chứa 凝血草 lặp lại liên tiếp trong một câu.'
+          : `Nội dung bản dịch chương ${i + 1} hoàn chỉnh bằng tiếng Việt trong sáng không tì vết.`,
+      }));
+
+      const allIssues = [];
+      for (const ch of jitChapters) {
+        const issues = runHeuristicQualityScan(ch);
+        allIssues.push(...issues);
+      }
+
+      expect(jitChapters.length).toBe(12);
+      expect(allIssues.length).toBeGreaterThan(0);
+      expect(allIssues.some((issue) => issue.chapterId === 'jit-chap-4' && issue.category === 'raw_leak')).toBe(true);
+    });
+  });
 });

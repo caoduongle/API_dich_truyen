@@ -14,9 +14,11 @@ import {
 } from 'lucide-react';
 import {
   QualityIssue,
+  HakoChapterFull,
 } from '../../types/hakoChecker';
 import { useHakoReviewSession } from '../../hooks/useHakoReviewSession';
 import { useProjectContext } from '../../context/ProjectContext';
+import { getChapterFromDB } from '../../services/db';
 import {
   runHeuristicQualityScan,
   runAiQualityScan,
@@ -68,7 +70,7 @@ export function HakoCheckerWorkspace({
   );
 
   /**
-   * Kích hoạt quy trình phân tích chất lượng toàn diện (Heuristic + AI)
+   * Kích hoạt quy trình phân tích chất lượng toàn diện (Heuristic + AI) với cơ chế nạp text Just-In-Time (JIT)
    */
   const handleStartAnalysis = useCallback(async () => {
     if (!session || !session.projectId || session.selectedChapterIds.length === 0) {
@@ -80,20 +82,46 @@ export function HakoCheckerWorkspace({
     abortControllerRef.current = new AbortController();
 
     const selectedIds = session.selectedChapterIds;
-    const loadedChapters = { ...session.chapters };
     const allDetectedIssues: QualityIssue[] = [];
 
     try {
-      // BƯỚC 1: Chạy quét Heuristic tức thì cho các chương đã chọn
-      for (let i = 0; i < selectedIds.length; i++) {
-        const id = selectedIds[i];
-        const chData = loadedChapters[id];
+      setAnalysisProgress({
+        current: 0,
+        total: selectedIds.length,
+        message: `Đang nạp nội dung ${selectedIds.length} chương đã chọn từ cơ sở dữ liệu...`,
+      });
+
+      // BƯỚC 0: Nạp Just-In-Time (JIT) toàn bộ nội dung chỉ cho các chương đã chọn (tối đa 12 chương)
+      const jitChapters: HakoChapterFull[] = await Promise.all(
+        selectedIds.map(async (id) => {
+          const meta = session.chapters[id];
+          const fullChap = await getChapterFromDB(id);
+          const viContent = fullChap?.polishedTranslation || fullChap?.rawTranslation || '';
+          const rawChinese = meta?.rawChineseContent ?? (fullChap?.sourceText || undefined);
+          const words = viContent ? viContent.trim().split(/\s+/).filter(Boolean).length : 0;
+
+          return {
+            chapterId: id,
+            title: meta?.title || fullChap?.title || 'Chương không tên',
+            chapterNumber: meta?.chapterNumber || 1,
+            translationType: fullChap?.polishedTranslation ? 'polished' : fullChap?.rawTranslation ? 'raw' : 'none',
+            wordCount: words,
+            status: 'analyzing' as const,
+            vietnameseContent: viContent,
+            rawChineseContent: rawChinese,
+          };
+        })
+      );
+
+      // BƯỚC 1: Chạy quét Heuristic tức thì cho các chương đã nạp
+      for (let i = 0; i < jitChapters.length; i++) {
+        const chData = jitChapters[i];
 
         if (chData && chData.vietnameseContent) {
           setAnalysisProgress({
             current: i + 1,
-            total: selectedIds.length,
-            message: `Đang quét quy tắc nhanh (Heuristic) chương ${i + 1}/${selectedIds.length}: "${chData.title}"...`,
+            total: jitChapters.length,
+            message: `Đang quét quy tắc nhanh (Heuristic) chương ${i + 1}/${jitChapters.length}: "${chData.title}"...`,
           });
 
           const heuristicIssues = runHeuristicQualityScan({
@@ -106,8 +134,7 @@ export function HakoCheckerWorkspace({
       }
 
       // BƯỚC 2: Chạy quét AI Semantic sâu qua Gemini API
-      const validChaptersForAi = selectedIds
-        .map((id) => loadedChapters[id])
+      const validChaptersForAi = jitChapters
         .filter((ch) => ch && ch.vietnameseContent && ch.vietnameseContent.trim().length > 0)
         .map((ch) => ({
           chapterId: ch.chapterId,
@@ -137,8 +164,19 @@ export function HakoCheckerWorkspace({
         allDetectedIssues.push(...aiIssues);
       }
 
-      // Cập nhật session và lưu vào IndexedDB
-      await updateSessionChaptersAndIssues(loadedChapters, allDetectedIssues);
+      // Cập nhật session và lưu vào IndexedDB (chỉ lưu metadata + issues)
+      const updatedChaptersRecord = { ...session.chapters };
+      jitChapters.forEach((ch) => {
+        if (updatedChaptersRecord[ch.chapterId]) {
+          updatedChaptersRecord[ch.chapterId] = {
+            ...updatedChaptersRecord[ch.chapterId],
+            status: 'done',
+            wordCount: ch.wordCount,
+          };
+        }
+      });
+
+      await updateSessionChaptersAndIssues(updatedChaptersRecord, allDetectedIssues);
     } catch (err: any) {
       if (err.name === 'AbortError') {
         console.log('[HakoCheckerWorkspace] Phân tích đã bị hủy bởi người dùng.');

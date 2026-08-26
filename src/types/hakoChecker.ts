@@ -27,16 +27,24 @@ export type QualityIssueDecision =
   | 'review_needed'        // Moderator đánh dấu cần hội ý thêm
   | 'dismissed';           // Moderator bác bỏ / bỏ qua
 
-export interface ProjectReviewChapter {
+export interface HakoChapterMeta {
   chapterId: string;
   title: string;
   chapterNumber: number;
-  vietnameseContent: string;
-  rawChineseContent?: string;
   translationType: 'polished' | 'raw' | 'none';
   wordCount: number;
   status: 'pending' | 'loaded' | 'analyzing' | 'done' | 'error';
   errorMessage?: string;
+  rawChineseContent?: string;
+}
+
+export interface ProjectReviewChapter extends HakoChapterMeta {
+  vietnameseContent?: string;
+}
+
+export interface HakoChapterFull extends HakoChapterMeta {
+  vietnameseContent: string;
+  rawChineseContent?: string;
 }
 
 export interface QualityIssue {
