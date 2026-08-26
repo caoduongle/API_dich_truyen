@@ -49,6 +49,7 @@ export type TranslationSchema = {
     projects: string;
     aiConfig: string;
     currentBook: string;
+    hakoChecker: string;
   };
   workspace: {
     stage1Title: string;

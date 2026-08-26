@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useTransition } from 'react';
 import { 
-  BookOpenText, Settings, History, Folder, Cpu, Languages, Lock, Unlock 
+  BookOpenText, Settings, History, Folder, Cpu, Languages, Lock, Unlock, ShieldCheck 
 } from 'lucide-react';
 import { Chapter, StoryProject } from './types';
 import { NotificationProvider } from './components/NotificationSystem';
@@ -26,6 +26,7 @@ const GlossaryManager = React.lazy(() => import('./components/GlossaryManager'))
 const ProjectList = React.lazy(() => import('./components/ProjectList'));
 const ChapterHistoryPanel = React.lazy(() => import('./components/ChapterHistoryPanel'));
 const ApiSettings = React.lazy(() => import('./components/ApiSettings'));
+const HakoCheckerWorkspace = React.lazy(() => import('./components/hako-checker/HakoCheckerWorkspace'));
 import AuthModal from './components/AuthModal';
 import { GoogleUserButton } from './components/google-sync/GoogleUserButton';
 import { GoogleSyncModal } from './components/google-sync/GoogleSyncModal';
@@ -36,6 +37,7 @@ const MemoAutoTranslator = React.memo(AutoTranslator);
 const MemoGlossaryManager = React.memo(GlossaryManager);
 const MemoProjectList = React.memo(ProjectList);
 const MemoChapterHistoryPanel = React.memo(ChapterHistoryPanel);
+const MemoHakoCheckerWorkspace = React.memo(HakoCheckerWorkspace);
 
 const EMPTY_PENDING_GLOSSARY: never[] = [];
 
@@ -79,7 +81,7 @@ function AppContent() {
   } = useAIConfigContext();
   const { t } = useTranslation();
 
-  const [activeTab, setActiveTab] = useState<'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects'>('translate');
+  const [activeTab, setActiveTab] = useState<'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker'>('translate');
   const [, startTransition] = useTransition();
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['translate']));
 
@@ -111,7 +113,7 @@ function AppContent() {
     return () => window.removeEventListener('app:auth-required', handleAuthRequired);
   }, []);
 
-  const switchTab = useCallback((tab: 'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects') => {
+  const switchTab = useCallback((tab: 'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker') => {
     setVisitedTabs((prev) => {
       if (prev.has(tab)) return prev;
       const next = new Set(prev);
@@ -157,6 +159,7 @@ function AppContent() {
   useHotkeys('alt+3', () => switchTab('glossary'));
   useHotkeys('alt+4', () => switchTab('history'));
   useHotkeys('alt+5', () => switchTab('projects'));
+  useHotkeys('alt+6', () => switchTab('hako-checker'));
   useHotkeys('alt+,', () => setShowApiSettings((prev) => !prev));
   useHotkeys('escape', () => {
     if (showApiSettings) setShowApiSettings(false);
@@ -350,6 +353,24 @@ function AppContent() {
                   {projects.length}
                 </Badge>
               </button>
+
+              <button
+                id="tab-hako-checker"
+                role="tab"
+                aria-selected={activeTab === 'hako-checker'}
+                aria-controls="panel-hako-checker"
+                tabIndex={0}
+                onClick={() => switchTab('hako-checker')}
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                  activeTab === 'hako-checker'
+                    ? 'border-polish text-text-main bg-parchment-2/40'
+                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-polish" />
+                <span>{t('nav.hakoChecker')}</span>
+                <Kbd className="hidden md:inline-block text-[9px]">Alt+6</Kbd>
+              </button>
             </nav>
 
             {activeProject && (
@@ -487,7 +508,12 @@ function AppContent() {
             </>
           ) : (
             <ErrorBoundary fallbackTitle="Lỗi phân vùng: Quản Lý Truyện (Không có Dự Án)">
-              <div id="panel-projects" role="tabpanel" aria-labelledby="tab-projects">
+              <div
+                id="panel-projects"
+                role="tabpanel"
+                aria-labelledby="tab-projects"
+                className={activeTab !== 'projects' ? 'hidden' : ''}
+              >
                 <MemoProjectList
                   projects={projects}
                   activeProjectId={activeProjectId}
@@ -502,6 +528,22 @@ function AppContent() {
               </div>
             </ErrorBoundary>
           )}
+
+          <div
+            id="panel-hako-checker"
+            role="tabpanel"
+            aria-labelledby="tab-hako-checker"
+            className={activeTab !== 'hako-checker' ? 'hidden' : ''}
+          >
+            {visitedTabs.has('hako-checker') && (
+              <ErrorBoundary fallbackTitle="Lỗi phân vùng: Kiểm Định Hako">
+                <MemoHakoCheckerWorkspace
+                  apiKeys={apiKeys}
+                  selectedModel={selectedModel}
+                />
+              </ErrorBoundary>
+            )}
+          </div>
         </React.Suspense>
       </main>
 

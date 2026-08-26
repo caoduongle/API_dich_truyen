@@ -36,6 +36,7 @@ export const en: TranslationSchema = {
     projects: 'Novel Projects',
     aiConfig: 'AI Settings',
     currentBook: 'Current Novel',
+    hakoChecker: 'Hako Quality Checker',
   },
   workspace: {
     stage1Title: 'Source Chinese Text',

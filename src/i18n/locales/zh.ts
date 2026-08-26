@@ -36,6 +36,7 @@ export const zh: TranslationSchema = {
     projects: '小说作品管理',
     aiConfig: 'AI 模型配置',
     currentBook: '当前小说',
+    hakoChecker: 'Hako 质量检验',
   },
   workspace: {
     stage1Title: '中文原作',

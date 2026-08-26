@@ -36,6 +36,7 @@ export const vi: TranslationSchema = {
     projects: 'Quản Lý Truyện',
     aiConfig: 'Cấu hình AI',
     currentBook: 'Bộ đang dịch',
+    hakoChecker: 'Kiểm Định Hako',
   },
   workspace: {
     stage1Title: 'Nguyên Tác Chữ Hán',
