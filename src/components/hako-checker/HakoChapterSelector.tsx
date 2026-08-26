@@ -66,13 +66,15 @@ export function HakoChapterSelector({
   };
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
-  const chapterList = Object.values(chapters).sort((a, b) => a.chapterNumber - b.chapterNumber);
+  const chapterList = Object.values(chapters || {})
+    .filter(Boolean)
+    .sort((a, b) => (a?.chapterNumber ?? 0) - (b?.chapterNumber ?? 0));
 
-  const translatableChapters = chapterList.filter((c) => c.translationType !== 'none');
+  const translatableChapters = chapterList.filter((c) => c && c.translationType !== 'none');
   const isLimitReached = selectedChapterIds.length >= MAX_SELECTION_LIMIT;
 
   const handleSelectAllTranslatable = () => {
-    const idsToSelect = translatableChapters.slice(0, MAX_SELECTION_LIMIT).map((c) => c.chapterId);
+    const idsToSelect = translatableChapters.slice(0, MAX_SELECTION_LIMIT).map((c) => String(c.chapterId || (c as any).id));
     onSelectRange(idsToSelect);
   };
 
@@ -199,16 +201,22 @@ export function HakoChapterSelector({
 
           {/* Chapter Items List */}
           <div className="space-y-2 mb-5 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
-            {chapterList.map((ch) => {
-              const isSelected = selectedChapterIds.includes(ch.chapterId);
-              const isRawOpen = !!openRawDrawers[ch.chapterId];
+            {chapterList.map((ch, index) => {
+              if (!ch) return null;
+
+              const chapterIdStr = String(ch.chapterId || (ch as any).id || `chap-${index}`);
+              const isSelected = selectedChapterIds.some((id) => String(id) === chapterIdStr);
+              const isRawOpen = !!openRawDrawers[chapterIdStr];
               const rawText = ch.rawChineseContent || '';
               const hasRaw = !!rawText.trim();
               const isUntranslated = ch.translationType === 'none';
+              const chapterNumber = ch.chapterNumber ?? (index + 1);
+              const title = ch.title || 'Chương không có tiêu đề';
+              const wordCount = typeof ch.wordCount === 'number' ? ch.wordCount : 0;
 
               return (
                 <div
-                  key={ch.chapterId}
+                  key={ch.chapterId || `chap-row-${index}`}
                   className={cn(
                     'p-2.5 rounded-[3px] border transition-colors',
                     isSelected
@@ -234,7 +242,7 @@ export function HakoChapterSelector({
                         type="checkbox"
                         checked={isSelected}
                         disabled={isUntranslated || (isLimitReached && !isSelected)}
-                        onChange={() => onToggleChapter(ch.chapterId)}
+                        onChange={() => onToggleChapter(chapterIdStr)}
                         className="sr-only"
                       />
 
@@ -246,7 +254,7 @@ export function HakoChapterSelector({
 
                       <div className="flex items-center gap-2 truncate">
                         <span className="font-mono text-text-muted text-[11px] shrink-0">
-                          #{ch.chapterNumber}
+                          #{chapterNumber}
                         </span>
                         <span
                           className={cn(
@@ -254,7 +262,7 @@ export function HakoChapterSelector({
                             isSelected ? 'text-text-main font-semibold' : 'text-text-main/90'
                           )}
                         >
-                          {ch.title}
+                          {title}
                         </span>
                       </div>
                     </label>
@@ -264,11 +272,11 @@ export function HakoChapterSelector({
                       {/* Translation Status Badge */}
                       {ch.translationType === 'polished' ? (
                         <Badge tone="polish" className="text-[10px] px-1.5 py-0.5">
-                          {ch.wordCount > 0 ? `Đã biên tập (${ch.wordCount} từ)` : 'Đã biên tập'}
+                          {wordCount > 0 ? `Đã biên tập (${wordCount} từ)` : 'Đã biên tập'}
                         </Badge>
                       ) : ch.translationType === 'raw' ? (
                         <Badge tone="neutral" className="text-[10px] px-1.5 py-0.5 border-amber-500/30 text-amber-300">
-                          {ch.wordCount > 0 ? `Đã dịch thô (${ch.wordCount} từ)` : 'Đã dịch thô'}
+                          {wordCount > 0 ? `Đã dịch thô (${wordCount} từ)` : 'Đã dịch thô'}
                         </Badge>
                       ) : (
                         <Badge tone="neutral" className="text-[10px] px-1.5 py-0.5 opacity-60">
@@ -280,7 +288,7 @@ export function HakoChapterSelector({
                       {!isUntranslated && (
                         <button
                           type="button"
-                          onClick={() => toggleRawDrawer(ch.chapterId)}
+                          onClick={() => toggleRawDrawer(chapterIdStr)}
                           title={
                             hasRaw
                               ? 'Đã có văn bản raw tiếng Trung tự động hoặc dán đè'
@@ -317,7 +325,7 @@ export function HakoChapterSelector({
 
                       <textarea
                         value={rawText}
-                        onChange={(e) => onUpdateRawText(ch.chapterId, e.target.value)}
+                        onChange={(e) => onUpdateRawText(chapterIdStr, e.target.value)}
                         placeholder="Văn bản gốc tiếng Trung được tự động nạp từ sourceText. Bạn có thể chỉnh sửa hoặc dán raw dị bản vào đây mà không làm thay đổi dữ liệu gốc của dự án..."
                         rows={3}
                         className="w-full bg-ink border border-parchment-2 rounded-[2px] p-2 text-xs font-serif text-text-main placeholder:text-text-muted/50 focus:outline-none focus:border-polish transition-all custom-scrollbar"

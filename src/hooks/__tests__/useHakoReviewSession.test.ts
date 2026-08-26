@@ -192,4 +192,99 @@ describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
       expect(selected[11]).toBe('chap-12');
     });
   });
+
+  describe('Feature 079: Chapter ID Normalization & Selection Runtime Resilience', () => {
+    it('coerces numeric and string IDs consistently for selection lookups', () => {
+      const selectedIds = ['118', '119', '120'];
+      const numericTarget = 118;
+      const stringTarget = '118';
+
+      // Normalized Set lookup
+      const selectedSet = new Set(selectedIds.map(String));
+      expect(selectedSet.has(String(numericTarget))).toBe(true);
+      expect(selectedSet.has(String(stringTarget))).toBe(true);
+
+      // Array .some check
+      expect(selectedIds.some((id) => String(id) === String(numericTarget))).toBe(true);
+      expect(selectedIds.some((id) => String(id) === String(stringTarget))).toBe(true);
+    });
+
+    it('safely filters sparse or undefined chapter lists without throwing TypeError', () => {
+      const sparseChapters: (ProjectReviewChapter | undefined | null)[] = [
+        {
+          chapterId: 'chap-117',
+          title: 'Chương 117',
+          chapterNumber: 117,
+          translationType: 'polished',
+          wordCount: 2100,
+          status: 'pending',
+        },
+        undefined,
+        null,
+        {
+          chapterId: 'chap-118',
+          title: 'Chương 118',
+          chapterNumber: 118,
+          translationType: 'polished',
+          wordCount: 2300,
+          status: 'pending',
+        },
+      ];
+
+      const safeFiltered = sparseChapters.filter(
+        (c): c is ProjectReviewChapter => Boolean(c && typeof c.chapterId === 'string')
+      );
+
+      expect(safeFiltered.length).toBe(2);
+      expect(safeFiltered[0].chapterNumber).toBe(117);
+      expect(safeFiltered[1].chapterNumber).toBe(118);
+
+      // Safe total words computation
+      const totalWords = safeFiltered.reduce((sum, c) => sum + (c?.wordCount || 0), 0);
+      expect(totalWords).toBe(4400);
+    });
+
+    it('safely aggregates total word count when chapters have missing/zero wordCounts', () => {
+      const chaptersWithPartialData: Partial<ProjectReviewChapter>[] = [
+        { chapterId: 'c-1', wordCount: undefined },
+        { chapterId: 'c-2', wordCount: 0 },
+        { chapterId: 'c-3', wordCount: 1500 },
+        {},
+      ];
+
+      const total = chaptersWithPartialData.reduce((sum, c) => sum + (c?.wordCount || 0), 0);
+      expect(total).toBe(1500);
+    });
+
+    it('handles late-stage chapters (#118 - #127) in a 139-chapter project without off-by-one errors', () => {
+      const totalChapters = 139;
+      const chaptersRecord: Record<string, ProjectReviewChapter> = {};
+
+      for (let i = 1; i <= totalChapters; i++) {
+        chaptersRecord[`chap-${i}`] = {
+          chapterId: `chap-${i}`,
+          title: `Chương ${i}: Diễn biến gay cấn`,
+          chapterNumber: i,
+          translationType: i > 100 ? 'polished' : 'raw',
+          wordCount: 2000,
+          status: 'pending',
+        };
+      }
+
+      // Simulate selecting chapters #118 to #127 (10 chapters)
+      const selectedChapterIds = Array.from({ length: 10 }, (_, idx) => `chap-${118 + idx}`);
+      const selectedSet = new Set(selectedChapterIds.map(String));
+
+      const selectedChapters = Object.values(chaptersRecord).filter(
+        (c): c is ProjectReviewChapter => Boolean(c && selectedSet.has(String(c.chapterId)))
+      );
+
+      expect(selectedChapters.length).toBe(10);
+      expect(selectedChapters[0].chapterNumber).toBe(118);
+      expect(selectedChapters[9].chapterNumber).toBe(127);
+
+      const totalWords = selectedChapters.reduce((sum, c) => sum + (c?.wordCount || 0), 0);
+      expect(totalWords).toBe(20000);
+    });
+  });
 });

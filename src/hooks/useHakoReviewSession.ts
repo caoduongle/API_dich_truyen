@@ -27,10 +27,10 @@ export interface UseHakoReviewSessionReturn {
   setIsAnalyzing: (analyzing: boolean) => void;
   setAnalysisProgress: (progress: { current: number; total: number; message: string }) => void;
   selectProject: (project: StoryProject) => Promise<void>;
-  toggleChapterSelection: (chapterId: string) => void;
-  selectChapterRange: (chapterIds: string[]) => void;
+  toggleChapterSelection: (chapterId: string | number) => void;
+  selectChapterRange: (chapterIds: (string | number)[]) => void;
   clearChapterSelection: () => void;
-  updateChapterRawText: (chapterId: string, rawText: string) => void;
+  updateChapterRawText: (chapterId: string | number, rawText: string) => void;
   updateSessionChaptersAndIssues: (
     chapters: Record<string, ProjectReviewChapter>,
     issues: QualityIssue[]
@@ -145,18 +145,20 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
       // Khởi tạo metadata siêu nhẹ trực tiếp từ project.chapters
       const chaptersRecord: Record<string, ProjectReviewChapter> = {};
       (project.chapters || []).forEach((meta, index) => {
+        if (!meta) return;
+        const chapterIdStr = String(meta.id);
         const translationType: 'polished' | 'raw' | 'none' =
           meta.status === 'completed'
             ? 'polished'
             : meta.status === 'in_progress'
             ? 'raw'
             : 'none';
-        const existingChapter = current.projectId === project.id ? current.chapters[meta.id] : null;
+        const existingChapter = current.projectId === project.id ? current.chapters[chapterIdStr] : null;
 
-        chaptersRecord[meta.id] = {
-          chapterId: meta.id,
+        chaptersRecord[chapterIdStr] = {
+          chapterId: chapterIdStr,
           title: meta.title || `Chương ${index + 1}`,
-          chapterNumber: index + 1,
+          chapterNumber: (meta as any).chapterNumber ?? (index + 1),
           translationType,
           wordCount: 0,
           status: 'pending',
@@ -169,7 +171,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
         ...current,
         projectId: project.id,
         projectTitle: project.title,
-        selectedChapterIds: isSameProject ? current.selectedChapterIds : [],
+        selectedChapterIds: isSameProject ? current.selectedChapterIds.map(String) : [],
         chapters: chaptersRecord,
         issues: isSameProject ? current.issues : [],
         status: isSameProject ? current.status : 'idle',
@@ -186,11 +188,12 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
    * Bật/tắt chọn một chương (giới hạn 12 chương, phản hồi UI tức thì và debounce ghi DB 300ms)
    */
   const toggleChapterSelection = useCallback(
-    (chapterId: string) => {
+    (chapterId: string | number) => {
       const current = sessionRef.current;
       if (!current) return;
 
-      const chapter = current.chapters[chapterId];
+      const targetId = String(chapterId);
+      const chapter = current.chapters[targetId] || current.chapters[chapterId as string];
       if (chapter && chapter.translationType === 'none') {
         setError({
           code: 'CHAPTER_NOT_TRANSLATED',
@@ -199,20 +202,21 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
         return;
       }
 
-      const isSelected = current.selectedChapterIds.includes(chapterId);
+      const currentSelected = (current.selectedChapterIds || []).map(String);
+      const isSelected = currentSelected.includes(targetId);
       let newSelectedIds: string[];
 
       if (isSelected) {
-        newSelectedIds = current.selectedChapterIds.filter((id) => id !== chapterId);
+        newSelectedIds = currentSelected.filter((id) => id !== targetId);
       } else {
-        if (current.selectedChapterIds.length >= MAX_CHAPTERS_LIMIT) {
+        if (currentSelected.length >= MAX_CHAPTERS_LIMIT) {
           setError({
             code: 'CHAPTER_LIMIT_EXCEEDED',
             message: `Mỗi lượt rà soát chỉ được chọn tối đa ${MAX_CHAPTERS_LIMIT} chương để đảm bảo tốc độ và tránh quá tải.`,
           });
           return;
         }
-        newSelectedIds = [...current.selectedChapterIds, chapterId];
+        newSelectedIds = [...currentSelected, targetId];
       }
 
       setError(null);
@@ -230,11 +234,12 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
    * Chọn một danh sách chương (giới hạn 12)
    */
   const selectChapterRange = useCallback(
-    (chapterIds: string[]) => {
+    (chapterIds: (string | number)[]) => {
       const current = sessionRef.current;
       if (!current) return;
 
-      const translatableIds = chapterIds.filter((id) => {
+      const stringIds = (chapterIds || []).map(String);
+      const translatableIds = stringIds.filter((id) => {
         const ch = current.chapters[id];
         return ch && ch.translationType !== 'none';
       });
@@ -279,16 +284,17 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
    * Cập nhật văn bản raw tiếng Trung cho một chương (không sửa sourceText gốc của project)
    */
   const updateChapterRawText = useCallback(
-    (chapterId: string, rawText: string) => {
+    (chapterId: string | number, rawText: string) => {
       const current = sessionRef.current;
       if (!current) return;
 
-      const chapter = current.chapters[chapterId];
+      const targetId = String(chapterId);
+      const chapter = current.chapters[targetId] || current.chapters[chapterId as string];
       if (!chapter) return;
 
       const updatedChapters = {
         ...current.chapters,
-        [chapterId]: {
+        [targetId]: {
           ...chapter,
           rawChineseContent: rawText.trim() || undefined,
         },
