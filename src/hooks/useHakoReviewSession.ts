@@ -305,7 +305,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
         chapters: updatedChapters,
       };
 
-      persistSession(updated);
+      persistSession(updated, 300);
     },
     [persistSession]
   );

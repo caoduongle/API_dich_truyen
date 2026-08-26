@@ -54,8 +54,10 @@ export function sanitizeSession(session: QualityReviewSession | null): QualityRe
     for (const [chapterId, ch] of Object.entries(session.chapters)) {
       if (!ch) continue;
       const { vietnameseContent: _vi, ...meta } = ch;
-      sanitizedChapters[chapterId] = {
+      const stringId = String(ch.chapterId || chapterId);
+      sanitizedChapters[stringId] = {
         ...meta,
+        chapterId: stringId,
       };
     }
   }
@@ -63,7 +65,9 @@ export function sanitizeSession(session: QualityReviewSession | null): QualityRe
   return {
     ...session,
     chapters: sanitizedChapters,
-    selectedChapterIds: Array.isArray(session.selectedChapterIds) ? session.selectedChapterIds : [],
+    selectedChapterIds: Array.isArray(session.selectedChapterIds)
+      ? session.selectedChapterIds.filter(Boolean).map(String)
+      : [],
     issues: Array.isArray(session.issues) ? session.issues : [],
   };
 }

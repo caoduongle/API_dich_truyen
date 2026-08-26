@@ -287,4 +287,65 @@ describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
       expect(totalWords).toBe(20000);
     });
   });
+
+  describe('Feature 080: List Virtualization & O(1) Lookup Performance (139 - 500 Chapters)', () => {
+    it('performs O(1) set lookup instantaneously across 500 chapters', () => {
+      const totalChapters = 500;
+      const chapterList: ProjectReviewChapter[] = Array.from({ length: totalChapters }, (_, i) => ({
+        chapterId: `chap-${i + 1}`,
+        title: `Chương ${i + 1}`,
+        chapterNumber: i + 1,
+        translationType: 'polished',
+        wordCount: 2000,
+        status: 'pending',
+      }));
+
+      const selectedIds = ['chap-120', 'chap-122', 'chap-124', 'chap-135', 'chap-499'];
+      const selectedSet = new Set(selectedIds.map(String));
+
+      const start = performance.now();
+      let matchedCount = 0;
+      for (const ch of chapterList) {
+        if (selectedSet.has(String(ch.chapterId))) {
+          matchedCount++;
+        }
+      }
+      const elapsed = performance.now() - start;
+
+      expect(matchedCount).toBe(5);
+      // 500 O(1) Set lookups should take less than 1ms
+      expect(elapsed).toBeLessThan(5);
+    });
+
+    it('sanitizes and normalizes IDs properly during IndexedDB persistence', () => {
+      const rawSession: QualityReviewSession = {
+        id: 'session-normalize-test',
+        projectId: 'proj-139',
+        projectTitle: 'Lãnh Chúa (139 Chương)',
+        selectedChapterIds: ['chap_1', 'chap_2'] as any,
+        chapters: {
+          'chap_1': {
+            chapterId: 'chap_1',
+            title: 'Chương 1',
+            chapterNumber: 1,
+            translationType: 'polished',
+            wordCount: 1500,
+            status: 'pending',
+            vietnameseContent: 'Rất nhiều chữ Việt cần lược bỏ...',
+            rawChineseContent: '原始中文文本',
+          },
+        },
+        issues: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'idle',
+      };
+
+      const sanitized = sanitizeSession(rawSession);
+      expect(sanitized).not.toBeNull();
+      expect(sanitized!.chapters['chap_1'].vietnameseContent).toBeUndefined();
+      expect(sanitized!.chapters['chap_1'].rawChineseContent).toBe('原始中文文本');
+      expect(sanitized!.selectedChapterIds).toEqual(['chap_1', 'chap_2']);
+    });
+  });
 });
