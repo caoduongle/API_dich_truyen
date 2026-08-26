@@ -9,6 +9,7 @@ import { ProjectProvider, useProjectContext } from './context/ProjectContext';
 import { checkAuthStatus, logoutAuth } from './utils/apiClient';
 import { TabSkeleton } from './components/common/Skeleton';
 import { useHotkeys } from './hooks/useHotkeys';
+import { useScrollOverflow } from './hooks/useScrollOverflow';
 import { I18nProvider, useTranslation } from './i18n/I18nContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { LanguageSelector } from './components/common/LanguageSelector';
@@ -93,6 +94,18 @@ function AppContent() {
   const [authRequired, setAuthRequired] = useState(false);
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
   const [isAutoTranslating, setIsAutoTranslating] = useState(false);
+
+  const {
+    containerRef: tabNavContainerRef,
+    canScrollLeft,
+    canScrollRight,
+    scrollToElement,
+  } = useScrollOverflow<HTMLDivElement>();
+
+  // Tự động cuộn tab kích hoạt vào vùng nhìn thấy khi activeTab thay đổi (click hoặc phím tắt Alt+1..6)
+  useEffect(() => {
+    scrollToElement(`tab-${activeTab}`, 'smooth');
+  }, [activeTab, scrollToElement]);
 
 
   // Check auth requirement on mount
@@ -244,139 +257,168 @@ function AppContent() {
       {/* Tab Navigation — z-30 ladder rule */}
       <div className="bg-parchment border-b border-parchment-2 sticky top-14 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between overflow-x-auto scrollbar-none py-0.5">
-            <nav role="tablist" aria-label="Phân vùng làm việc chính" className="flex space-x-1 min-w-max">
-              <button
-                id="tab-translate"
-                role="tab"
-                aria-selected={activeTab === 'translate'}
-                aria-controls="panel-translate"
-                tabIndex={0}
-                onClick={() => switchTab('translate')}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'translate'
-                    ? 'border-polish text-text-main bg-parchment-2/40'
-                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
-                }`}
-              >
-                <BookOpenText className="w-3.5 h-3.5 shrink-0 text-polish" />
-                <span>{t('nav.translate')}</span>
-                <Kbd className="hidden md:inline-block text-[9px]">Alt+1</Kbd>
-              </button>
+          <div className="flex items-center justify-between gap-2 py-0.5">
+            {/* Scrollable Tab Navigation Area with Fade Overlays */}
+            <div className="relative flex-1 min-w-0 overflow-hidden">
+              {/* Left Fade Overlay */}
+              {canScrollLeft && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-parchment to-transparent z-10"
+                />
+              )}
 
-              <button
-                id="tab-auto-translate"
-                role="tab"
-                aria-selected={activeTab === 'auto-translate'}
-                aria-controls="panel-auto-translate"
-                tabIndex={0}
-                onClick={() => switchTab('auto-translate')}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'auto-translate'
-                    ? 'border-polish text-text-main bg-parchment-2/40'
-                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
-                }`}
+              {/* Scrollable Tabs Row */}
+              <div
+                ref={tabNavContainerRef}
+                className="overflow-x-auto scrollbar-none"
               >
-                <Cpu className={`w-3.5 h-3.5 shrink-0 ${isAutoTranslating ? 'text-polish animate-pulse' : 'text-text-muted'}`} />
-                <span>{t('nav.autoTranslate')}</span>
-                <Kbd className="hidden md:inline-block text-[9px]">Alt+2</Kbd>
-              </button>
+                <nav role="tablist" aria-label="Phân vùng làm việc chính" className="flex space-x-1 min-w-max">
+                  <button
+                    id="tab-translate"
+                    role="tab"
+                    aria-selected={activeTab === 'translate'}
+                    aria-controls="panel-translate"
+                    tabIndex={0}
+                    onClick={() => switchTab('translate')}
+                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                      activeTab === 'translate'
+                        ? 'border-polish text-text-main bg-parchment-2/40'
+                        : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
+                    }`}
+                  >
+                    <BookOpenText className="w-3.5 h-3.5 shrink-0 text-polish" />
+                    <span>{t('nav.translate')}</span>
+                    <Kbd className="hidden md:inline-block text-[9px]">Alt+1</Kbd>
+                  </button>
 
-              <button
-                id="tab-glossary"
-                role="tab"
-                aria-selected={activeTab === 'glossary'}
-                aria-controls="panel-glossary"
-                tabIndex={0}
-                onClick={() => switchTab('glossary')}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'glossary'
-                    ? 'border-polish text-text-main bg-parchment-2/40'
-                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
-                }`}
-              >
-                <Settings className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-                <span>{t('nav.glossary')}</span>
-                <Kbd className="hidden md:inline-block text-[9px]">Alt+3</Kbd>
-                {activeProject && activeProject.glossary.length > 0 && (
-                  <Badge tone="neutral" className="ml-0.5">
-                    {activeProject.glossary.length}
-                  </Badge>
-                )}
-                {activeProject && (activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY).length > 0 && (
-                  <Badge tone="warning" className="ml-0.5">
-                    {t('glossary.pendingCount', { count: (activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY).length })}
-                  </Badge>
-                )}
-              </button>
+                  <button
+                    id="tab-auto-translate"
+                    role="tab"
+                    aria-selected={activeTab === 'auto-translate'}
+                    aria-controls="panel-auto-translate"
+                    tabIndex={0}
+                    onClick={() => switchTab('auto-translate')}
+                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                      activeTab === 'auto-translate'
+                        ? 'border-polish text-text-main bg-parchment-2/40'
+                        : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
+                    }`}
+                  >
+                    <Cpu className={`w-3.5 h-3.5 shrink-0 ${isAutoTranslating ? 'text-polish animate-pulse' : 'text-text-muted'}`} />
+                    <span>{t('nav.autoTranslate')}</span>
+                    <Kbd className="hidden md:inline-block text-[9px]">Alt+2</Kbd>
+                  </button>
 
-              <button
-                id="tab-history"
-                role="tab"
-                aria-selected={activeTab === 'history'}
-                aria-controls="panel-history"
-                tabIndex={0}
-                onClick={() => switchTab('history')}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
-                  activeTab === 'history'
-                    ? 'border-polish text-text-main bg-parchment-2/40'
-                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
-                }`}
-              >
-                <History className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-                <span>{t('nav.history')}</span>
-                <Kbd className="hidden md:inline-block text-[9px]">Alt+4</Kbd>
-                {activeProject && activeProject.chapters.length > 0 && (
-                  <Badge tone="neutral" className="ml-0.5">
-                    {activeProject.chapters.length}
-                  </Badge>
-                )}
-              </button>
+                  <button
+                    id="tab-glossary"
+                    role="tab"
+                    aria-selected={activeTab === 'glossary'}
+                    aria-controls="panel-glossary"
+                    tabIndex={0}
+                    onClick={() => switchTab('glossary')}
+                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                      activeTab === 'glossary'
+                        ? 'border-polish text-text-main bg-parchment-2/40'
+                        : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
+                    }`}
+                  >
+                    <Settings className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+                    <span>{t('nav.glossary')}</span>
+                    <Kbd className="hidden md:inline-block text-[9px]">Alt+3</Kbd>
+                    {activeProject && activeProject.glossary.length > 0 && (
+                      <Badge tone="neutral" className="ml-0.5">
+                        {activeProject.glossary.length}
+                      </Badge>
+                    )}
+                    {activeProject && (activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY).length > 0 && (
+                      <Badge tone="warning" className="ml-0.5">
+                        {t('glossary.pendingCount', { count: (activeProject.pendingGlossary || EMPTY_PENDING_GLOSSARY).length })}
+                      </Badge>
+                    )}
+                  </button>
 
-              <button
-                id="tab-projects"
-                role="tab"
-                aria-selected={activeTab === 'projects'}
-                aria-controls="panel-projects"
-                tabIndex={0}
-                onClick={() => switchTab('projects')}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'projects'
-                    ? 'border-polish text-text-main bg-parchment-2/40'
-                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
-                }`}
-              >
-                <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-                <span>{t('nav.projects')}</span>
-                <Kbd className="hidden md:inline-block text-[9px]">Alt+5</Kbd>
-                <Badge tone="neutral" className="ml-0.5">
-                  {projects.length}
-                </Badge>
-              </button>
+                  <button
+                    id="tab-history"
+                    role="tab"
+                    aria-selected={activeTab === 'history'}
+                    aria-controls="panel-history"
+                    tabIndex={0}
+                    onClick={() => switchTab('history')}
+                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
+                      activeTab === 'history'
+                        ? 'border-polish text-text-main bg-parchment-2/40'
+                        : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
+                    }`}
+                  >
+                    <History className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+                    <span>{t('nav.history')}</span>
+                    <Kbd className="hidden md:inline-block text-[9px]">Alt+4</Kbd>
+                    {activeProject && activeProject.chapters.length > 0 && (
+                      <Badge tone="neutral" className="ml-0.5">
+                        {activeProject.chapters.length}
+                      </Badge>
+                    )}
+                  </button>
 
-              <button
-                id="tab-hako-checker"
-                role="tab"
-                aria-selected={activeTab === 'hako-checker'}
-                aria-controls="panel-hako-checker"
-                tabIndex={0}
-                onClick={() => switchTab('hako-checker')}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'hako-checker'
-                    ? 'border-polish text-text-main bg-parchment-2/40'
-                    : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-polish" />
-                <span>{t('nav.hakoChecker')}</span>
-                <Kbd className="hidden md:inline-block text-[9px]">Alt+6</Kbd>
-              </button>
-            </nav>
+                  <button
+                    id="tab-projects"
+                    role="tab"
+                    aria-selected={activeTab === 'projects'}
+                    aria-controls="panel-projects"
+                    tabIndex={0}
+                    onClick={() => switchTab('projects')}
+                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                      activeTab === 'projects'
+                        ? 'border-polish text-text-main bg-parchment-2/40'
+                        : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
+                    }`}
+                  >
+                    <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+                    <span>{t('nav.projects')}</span>
+                    <Kbd className="hidden md:inline-block text-[9px]">Alt+5</Kbd>
+                    <Badge tone="neutral" className="ml-0.5">
+                      {projects.length}
+                    </Badge>
+                  </button>
 
+                  <button
+                    id="tab-hako-checker"
+                    role="tab"
+                    aria-selected={activeTab === 'hako-checker'}
+                    aria-controls="panel-hako-checker"
+                    tabIndex={0}
+                    onClick={() => switchTab('hako-checker')}
+                    className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                      activeTab === 'hako-checker'
+                        ? 'border-polish text-text-main bg-parchment-2/40'
+                        : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-polish" />
+                    <span>{t('nav.hakoChecker')}</span>
+                    <Kbd className="hidden md:inline-block text-[9px]">Alt+6</Kbd>
+                  </button>
+                </nav>
+              </div>
+
+              {/* Right Fade Overlay */}
+              {canScrollRight && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-parchment to-transparent z-10"
+                />
+              )}
+            </div>
+
+            {/* Static Project Title Indicator */}
             {activeProject && (
-              <div className="hidden sm:flex items-center gap-1.5 text-xs text-text-muted shrink-0">
-                <span>{t('nav.currentBook')}: </span>
-                <strong className="text-text-main font-display bg-ink border border-parchment-2 px-2.5 py-0.5 rounded-[2px] font-bold">
+              <div
+                className="hidden sm:flex items-center gap-1.5 text-xs text-text-muted shrink-0 pl-3 border-l border-parchment-2/60 ml-1"
+                title={`${t('nav.currentBook')}: ${activeProject.title}`}
+              >
+                <span className="shrink-0">{t('nav.currentBook')}: </span>
+                <strong className="text-text-main font-display bg-ink border border-parchment-2 px-2.5 py-0.5 rounded-[2px] font-bold truncate max-w-[160px] md:max-w-[220px] lg:max-w-[300px]">
                   {activeProject.title}
                 </strong>
               </div>
