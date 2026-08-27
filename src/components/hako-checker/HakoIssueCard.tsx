@@ -184,7 +184,12 @@ export function HakoIssueCard({ issue, onDecisionChange }: HakoIssueCardProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-text-muted font-medium truncate max-w-[200px]" title={issue.chapterTitle}>
+          <span
+            className="text-[11px] text-text-muted font-medium truncate max-w-[220px]"
+            title={`#${issue.chapterNumber} · ${issue.chapterTitle}`}
+          >
+            <span className="font-mono font-bold text-polish">#{issue.chapterNumber}</span>
+            {' · '}
             {issue.chapterTitle}
           </span>
           {decisionBadge()}

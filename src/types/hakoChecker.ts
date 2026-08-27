@@ -51,6 +51,7 @@ export interface QualityIssue {
   id: string;                      // UUID định danh lỗi
   chapterId: string;
   chapterTitle: string;
+  chapterNumber: number;           // Số thứ tự chương
   category: QualityIssueCategory;
   severity: QualityIssueSeverity;
   vietnameseSnippet: string;       // Đoạn trích bản dịch tiếng Việt làm bằng chứng

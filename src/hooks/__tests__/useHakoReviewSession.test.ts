@@ -45,6 +45,7 @@ describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
             id: 'issue-1',
             chapterId: 'chap-1',
             chapterTitle: 'Chương 1',
+            chapterNumber: 1,
             category: 'raw_leak',
             severity: 'major',
             vietnameseSnippet: 'Lâm Động cầm lấy 龙涎草',

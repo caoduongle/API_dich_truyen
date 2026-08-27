@@ -11,6 +11,8 @@ import {
   ShieldCheck,
   RefreshCw,
   RotateCcw,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import {
   QualityIssue,
@@ -45,6 +47,7 @@ export function HakoCheckerWorkspace({
     isLoadingSession,
     isAnalyzing,
     analysisProgress,
+    error,
     setError,
     setIsAnalyzing,
     setAnalysisProgress,
@@ -143,6 +146,7 @@ export function HakoCheckerWorkspace({
           const heuristicIssues = runHeuristicQualityScan({
             chapterId: chData.chapterId,
             title: chData.title,
+            chapterNumber: chData.chapterNumber,
             vietnameseContent: chData.vietnameseContent,
           });
           allDetectedIssues.push(...heuristicIssues);
@@ -155,6 +159,7 @@ export function HakoCheckerWorkspace({
         .map((ch) => ({
           chapterId: ch.chapterId,
           title: ch.title,
+          chapterNumber: ch.chapterNumber,
           vietnameseContent: ch.vietnameseContent,
           rawChineseContent: ch.rawChineseContent,
         }));
@@ -316,6 +321,32 @@ export function HakoCheckerWorkspace({
                 />
               </div>
             )}
+          </div>
+        )}
+
+        {/* Error / Warning Alert Banner */}
+        {error && (
+          <div className="bg-amber-950/40 border border-amber-500/50 text-amber-200 rounded-md p-4 shadow-sm flex items-start justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-display font-bold text-amber-300">
+                  Thông báo kiểm định
+                </h4>
+                <p className="text-xs text-amber-200/90 mt-0.5 leading-relaxed">
+                  {error.message}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              title="Đóng thông báo"
+              className="text-amber-400 hover:text-amber-200 p-1 rounded hover:bg-amber-900/30 transition-colors cursor-pointer shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 

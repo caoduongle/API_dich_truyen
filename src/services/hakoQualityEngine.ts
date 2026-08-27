@@ -33,6 +33,7 @@ export function runHeuristicQualityScan(chapter: {
   chapterId?: string;
   url?: string;
   title: string;
+  chapterNumber: number;
   vietnameseContent: string;
 }): QualityIssue[] {
   const issues: QualityIssue[] = [];
@@ -55,6 +56,7 @@ export function runHeuristicQualityScan(chapter: {
         id: generateIssueId(),
         chapterId,
         chapterTitle: chapter.title,
+        chapterNumber: chapter.chapterNumber,
         category: 'raw_leak',
         severity,
         vietnameseSnippet: snippet,
@@ -77,6 +79,7 @@ export function runHeuristicQualityScan(chapter: {
         id: generateIssueId(),
         chapterId,
         chapterTitle: chapter.title,
+        chapterNumber: chapter.chapterNumber,
         category: 'repetition',
         severity: 'major',
         vietnameseSnippet: curr.length > 200 ? `${curr.substring(0, 200)}...` : curr,
@@ -98,6 +101,7 @@ export function runHeuristicQualityScan(chapter: {
         id: generateIssueId(),
         chapterId,
         chapterTitle: chapter.title,
+        chapterNumber: chapter.chapterNumber,
         category: 'other',
         severity: 'warning',
         vietnameseSnippet: p.length > 200 ? `${p.substring(0, 200)}...` : p,
@@ -121,6 +125,7 @@ export interface AiQualityScanInput {
     chapterId?: string;
     url?: string;
     title: string;
+    chapterNumber: number;
     vietnameseContent: string;
     rawChineseContent?: string;
   }>;
@@ -253,6 +258,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
           id: generateIssueId(),
           chapterId,
           chapterTitle: chapter.title,
+          chapterNumber: chapter.chapterNumber,
           category: (item.category as QualityIssueCategory) || 'other',
           severity: (item.severity as QualityIssueSeverity) || 'major',
           vietnameseSnippet: String(item.vietnameseSnippet).trim(),
@@ -271,6 +277,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
         id: generateIssueId(),
         chapterId,
         chapterTitle: chapter.title,
+        chapterNumber: chapter.chapterNumber,
         category: 'other',
         severity: 'warning',
         vietnameseSnippet: chapter.title,
@@ -348,21 +355,34 @@ export function generateQualityReport(session: QualityReviewSession): QualityRep
   if (confirmedIssues.length === 0) {
     md += `> ✅ **Kết quả**: Không có lỗi nào được xác nhận trong đợt kiểm định này. Bản dịch đạt chuẩn chất lượng xuất bản.\n\n`;
   } else {
-    // Nhóm lỗi theo từng chương
-    const chapterMap = new Map<string, QualityIssue[]>();
+    // Nhóm lỗi theo từng chương và sort theo chapterNumber tăng dần
+    interface ChapterGroup {
+      chapterNumber: number;
+      chapterTitle: string;
+      issues: QualityIssue[];
+    }
+    const chapterMap = new Map<string, ChapterGroup>();
     confirmedIssues.forEach((issue) => {
-      const list = chapterMap.get(issue.chapterTitle) || [];
-      list.push(issue);
-      chapterMap.set(issue.chapterTitle, list);
+      const key = `${issue.chapterNumber ?? 1}__${issue.chapterTitle}`;
+      const group = chapterMap.get(key) || {
+        chapterNumber: issue.chapterNumber ?? 1,
+        chapterTitle: issue.chapterTitle,
+        issues: [],
+      };
+      group.issues.push(issue);
+      chapterMap.set(key, group);
     });
+
+    const sortedGroups = Array.from(chapterMap.values()).sort(
+      (a, b) => a.chapterNumber - b.chapterNumber
+    );
 
     md += `## DANH SÁCH LỖI ĐÃ XÁC NHẬN THEO CHƯƠNG\n\n`;
 
-    let chapterIndex = 1;
-    chapterMap.forEach((issuesList, chapterTitle) => {
-      md += `### ${chapterIndex++}. ${chapterTitle}\n\n`;
+    sortedGroups.forEach((group) => {
+      md += `### Chương #${group.chapterNumber} — ${group.chapterTitle}\n\n`;
 
-      issuesList.forEach((issue, idx) => {
+      group.issues.forEach((issue, idx) => {
         const severityLabel =
           issue.severity === 'critical' ? '[NGHIÊM TRỌNG]' :
           issue.severity === 'major' ? '[LỚN]' :
@@ -396,9 +416,12 @@ export function generateQualityReport(session: QualityReviewSession): QualityRep
   }
 
   if (reviewNeededIssues.length > 0) {
-    md += `## CÁC ĐIỂM CẦN HỘI Ý THÊM VỚI DỊCH GIẢ (${reviewNeededIssues.length})\n\n`;
-    reviewNeededIssues.forEach((issue, idx) => {
-      md += `${idx + 1}. **[${issue.chapterTitle}]**: "${issue.vietnameseSnippet}"\n`;
+    const sortedReviewIssues = [...reviewNeededIssues].sort(
+      (a, b) => (a.chapterNumber ?? 1) - (b.chapterNumber ?? 1)
+    );
+    md += `## CÁC ĐIỂM CẦN HỘI Ý THÊM VỚI DỊCH GIẢ (${sortedReviewIssues.length})\n\n`;
+    sortedReviewIssues.forEach((issue, idx) => {
+      md += `${idx + 1}. **[Chương #${issue.chapterNumber ?? 1} · ${issue.chapterTitle}]**: "${issue.vietnameseSnippet}"\n`;
       md += `   - ${issue.explanation}\n`;
       if (issue.moderatorNote) {
         md += `   - **Ghi chú**: ${issue.moderatorNote}\n`;

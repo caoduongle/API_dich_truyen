@@ -7,7 +7,7 @@
  * và tra cứu Set O(1) để triệt tiêu độ trễ render, chống giật lag và ngăn ngừa sập trang trắng.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   CheckSquare,
   Square,
@@ -33,12 +33,12 @@ export interface HakoChapterSelectorProps {
   projects: StoryProject[];
   selectedProjectId: string | null;
   onSelectProject: (projectId: string) => void;
-  selectedChapterIds: string[];
+  selectedChapterIds: (string | number)[];
   chapters: Record<string, ProjectReviewChapter>;
-  onToggleChapter: (chapterId: string) => void;
-  onSelectRange: (chapterIds: string[]) => void;
+  onToggleChapter: (chapterId: string | number) => void;
+  onSelectRange: (chapterIds: (string | number)[]) => void;
   onClearSelection: () => void;
-  onUpdateRawText: (chapterId: string, raw: string) => void;
+  onUpdateRawText: (chapterId: string | number, raw: string) => void;
   onStartAnalysis: () => void;
   isAnalyzing: boolean;
 }
@@ -63,6 +63,23 @@ export function HakoChapterSelector({
 }: HakoChapterSelectorProps) {
   // Trạng thái modal chỉnh sửa raw tiếng Trung cho một chapterId
   const [editingRawChapterId, setEditingRawChapterId] = useState<string | null>(null);
+
+  // Trạng thái chọn theo khoảng chương (from ... to ...)
+  const [fromChapterInput, setFromChapterInput] = useState<string>('');
+  const [toChapterInput, setToChapterInput] = useState<string>('');
+
+  // Trạng thái nhập số thứ tự 1 chương để chọn nhanh
+  const [singleChapterInput, setSingleChapterInput] = useState<string>('');
+  const [singleChapterMessage, setSingleChapterMessage] = useState<string | null>(null);
+  const singleChapterTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (singleChapterTimerRef.current) {
+        clearTimeout(singleChapterTimerRef.current);
+      }
+    };
+  }, []);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
 
@@ -99,6 +116,60 @@ export function HakoChapterSelector({
       .slice(0, MAX_SELECTION_LIMIT)
       .map((c) => String(c.chapterId || (c as any).id));
     onSelectRange(idsToSelect);
+  };
+
+  const handleApplyRange = () => {
+    const fromNum = parseInt(fromChapterInput, 10);
+    const toNum = parseInt(toChapterInput, 10);
+    if (isNaN(fromNum) || isNaN(toNum)) return;
+
+    const minNum = Math.min(fromNum, toNum);
+    const maxNum = Math.max(fromNum, toNum);
+
+    const matched = chapterList.filter((ch, idx) => {
+      const num = ch.chapterNumber ?? (idx + 1);
+      return num >= minNum && num <= maxNum && ch.translationType !== 'none';
+    });
+
+    const idsToSelect = matched.map((ch, idx) =>
+      String(ch.chapterId || (ch as any).id || `chap-${idx}`)
+    );
+    onSelectRange(idsToSelect);
+  };
+
+  const handleSingleChapterSubmit = () => {
+    const targetNum = parseInt(singleChapterInput, 10);
+    if (isNaN(targetNum)) return;
+
+    if (singleChapterTimerRef.current) {
+      clearTimeout(singleChapterTimerRef.current);
+    }
+
+    const found = chapterList.find((ch, idx) => {
+      const num = ch.chapterNumber ?? (idx + 1);
+      return num === targetNum;
+    });
+
+    if (!found) {
+      setSingleChapterMessage(`Không tìm thấy chương #${targetNum}`);
+      singleChapterTimerRef.current = setTimeout(() => {
+        setSingleChapterMessage(null);
+      }, 2500);
+      return;
+    }
+
+    if (found.translationType === 'none') {
+      setSingleChapterMessage(`Chương #${targetNum} chưa có bản dịch`);
+      singleChapterTimerRef.current = setTimeout(() => {
+        setSingleChapterMessage(null);
+      }, 2500);
+      return;
+    }
+
+    const chapterIdStr = String(found.chapterId || (found as any).id);
+    onToggleChapter(chapterIdStr);
+    setSingleChapterInput('');
+    setSingleChapterMessage(null);
   };
 
   const editingChapter = editingRawChapterId ? chapters[editingRawChapterId] : null;
@@ -336,6 +407,94 @@ export function HakoChapterSelector({
                 >
                   Bỏ chọn tất cả
                 </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Selection Tools (Range & Single Jump) */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 mb-4 p-3 rounded-md bg-ink/20 border border-parchment-2/60">
+            {/* Range Selection */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-medium text-text-muted">Chọn theo khoảng:</span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  placeholder="Từ"
+                  value={fromChapterInput}
+                  onChange={(e) => setFromChapterInput(e.target.value)}
+                  disabled={isAnalyzing}
+                  className="w-16 bg-ink border border-parchment-2 rounded-md px-2 py-1 text-xs font-mono text-text-main focus:outline-none focus:border-polish transition-colors placeholder:text-text-muted/50"
+                />
+                <span className="text-xs text-text-muted">-</span>
+                <input
+                  type="number"
+                  placeholder="Đến"
+                  value={toChapterInput}
+                  onChange={(e) => setToChapterInput(e.target.value)}
+                  disabled={isAnalyzing}
+                  className="w-16 bg-ink border border-parchment-2 rounded-md px-2 py-1 text-xs font-mono text-text-main focus:outline-none focus:border-polish transition-colors placeholder:text-text-muted/50"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleApplyRange}
+                  disabled={
+                    !fromChapterInput.trim() ||
+                    !toChapterInput.trim() ||
+                    isNaN(parseInt(fromChapterInput, 10)) ||
+                    isNaN(parseInt(toChapterInput, 10)) ||
+                    isAnalyzing
+                  }
+                  className="text-xs h-7 px-2.5"
+                >
+                  Chọn khoảng
+                </Button>
+              </div>
+            </div>
+
+            <div className="hidden md:block h-5 w-px bg-parchment-2/60" />
+
+            {/* Single Chapter Jump */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-medium text-text-muted">Nhập số chương:</span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  placeholder="Số chương..."
+                  value={singleChapterInput}
+                  onChange={(e) => {
+                    setSingleChapterInput(e.target.value);
+                    if (singleChapterMessage) setSingleChapterMessage(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSingleChapterSubmit();
+                    }
+                  }}
+                  disabled={isAnalyzing}
+                  className="w-28 bg-ink border border-parchment-2 rounded-md px-2.5 py-1 text-xs font-mono text-text-main focus:outline-none focus:border-polish transition-colors placeholder:text-text-muted/50"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSingleChapterSubmit}
+                  disabled={
+                    !singleChapterInput.trim() ||
+                    isNaN(parseInt(singleChapterInput, 10)) ||
+                    isAnalyzing
+                  }
+                  className="text-xs h-7 px-2.5"
+                >
+                  Chọn
+                </Button>
+              </div>
+              {singleChapterMessage && (
+                <span className="text-[11px] text-amber-400 font-medium animate-in fade-in duration-200">
+                  {singleChapterMessage}
+                </span>
               )}
             </div>
           </div>
