@@ -415,5 +415,32 @@ describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  // Test 17: Pacing delay normalization clamps negative values and renders "Sẵn sàng"
+  it('Test 17 — pacing delay normalization clamps negative values and renders Sẵn sàng when <= 0', () => {
+    const formatPacing = (pacingDelayMs?: number, effectiveIntervalMs?: number) => {
+      const rawDelay = pacingDelayMs !== undefined
+        ? pacingDelayMs
+        : (effectiveIntervalMs ?? 4445);
+      const safeDelay = Math.max(0, rawDelay);
+      return safeDelay > 0 ? `~${safeDelay}ms/call` : 'Sẵn sàng';
+    };
+
+    // When ready / negative delay
+    expect(formatPacing(-4445)).toBe('Sẵn sàng');
+    expect(formatPacing(0)).toBe('Sẵn sàng');
+    expect(formatPacing(-100)).toBe('Sẵn sàng');
+
+    // When positive delay
+    expect(formatPacing(2223)).toBe('~2223ms/call');
+    expect(formatPacing(4445)).toBe('~4445ms/call');
+
+    // When pacingDelayMs is undefined, fallback to effectiveIntervalMs
+    expect(formatPacing(undefined, 3334)).toBe('~3334ms/call');
+    expect(formatPacing(undefined, 0)).toBe('Sẵn sàng');
+    expect(formatPacing(undefined, -500)).toBe('Sẵn sàng');
+  });
 });
+
+
 

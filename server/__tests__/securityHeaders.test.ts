@@ -20,6 +20,8 @@ function createTestApp(isProduction: boolean) {
                 "'self'",
                 "ws:",
                 "wss:",
+                "https://generativelanguage.googleapis.com",
+                "https://*.googleapis.com",
                 "https://www.googleapis.com",
                 "https://accounts.google.com",
                 "https://content.googleapis.com",
@@ -75,7 +77,7 @@ describe("Security Headers & CSP Configuration", () => {
       expect(csp).toContain("style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com");
       expect(csp).toContain("font-src 'self' https://fonts.gstatic.com data:");
       expect(csp).toContain("img-src 'self' data: blob: https: *.googleusercontent.com");
-      expect(csp).toContain("connect-src 'self' ws: wss: https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com");
+      expect(csp).toContain("connect-src 'self' ws: wss: https://generativelanguage.googleapis.com https://*.googleapis.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com");
       expect(csp).toContain("frame-src https://drive.google.com https://docs.google.com https://accounts.google.com https://content.googleapis.com");
       expect(csp).toContain("object-src 'none'");
       expect(csp).toContain("base-uri 'self'");

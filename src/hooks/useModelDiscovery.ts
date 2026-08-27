@@ -141,7 +141,16 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
 
         return updatedDiscovered;
       } catch (err: any) {
-        const errMsg = err?.message || 'Lỗi khi cập nhật danh sách mô hình';
+        let errMsg = err?.message || 'Lỗi khi cập nhật danh sách mô hình';
+        if (
+          err?.name === 'TypeError' ||
+          err?.name === 'SecurityError' ||
+          errMsg.includes('Failed to fetch') ||
+          errMsg.includes('NetworkError') ||
+          errMsg.includes('SecurityError')
+        ) {
+          errMsg = 'Không thể kết nối đến Gemini API (Vui lòng kiểm tra kết nối mạng hoặc chính sách CSP).';
+        }
         if (isMountedRef.current) {
           setError(errMsg);
           // Vẫn đồng bộ lại danh sách model hiện có từ storage

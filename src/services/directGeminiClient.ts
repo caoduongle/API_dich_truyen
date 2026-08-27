@@ -18,6 +18,20 @@ export interface DirectGeminiResponse {
   successKeyIndex: number;
 }
 
+export function formatGeminiNetworkError(err: any): Error {
+  const msg = err?.message || '';
+  if (
+    err?.name === 'TypeError' ||
+    err?.name === 'SecurityError' ||
+    msg.includes('Failed to fetch') ||
+    msg.includes('NetworkError') ||
+    msg.includes('SecurityError')
+  ) {
+    return new Error('Không thể kết nối đến Gemini API (Vui lòng kiểm tra kết nối mạng hoặc chính sách CSP).');
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 /**
  * Gọi trực tiếp REST API của Google Gemini từ trình duyệt người dùng với API key cá nhân
  */
@@ -127,14 +141,14 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
       if (err.name === 'AbortError') {
         throw err;
       }
-      lastError = err;
+      lastError = formatGeminiNetworkError(err);
       if (attempt === rawKeys.length - 1) {
         throw lastError;
       }
     }
   }
 
-  throw lastError || new Error('Không thể kết nối đến Gemini API.');
+  throw lastError || new Error('Không thể kết nối đến Gemini API (Vui lòng kiểm tra kết nối mạng hoặc chính sách CSP).');
 }
 
 /**
@@ -154,29 +168,33 @@ export async function listModelsDirect(apiKey: string): Promise<Array<{
   }
 
   const endpointUrl = `https://generativelanguage.googleapis.com/v1beta/models`;
-  const response = await fetch(endpointUrl, {
-    method: 'GET',
-    headers: {
-      'x-goog-api-key': cleanKey,
-    },
-  });
+  try {
+    const response = await fetch(endpointUrl, {
+      method: 'GET',
+      headers: {
+        'x-goog-api-key': cleanKey,
+      },
+    });
 
-  if (!response.ok) {
-    const errJson = await response.json().catch(() => ({}));
-    const errMsg = errJson?.error?.message || `HTTP ${response.status} ${response.statusText}`;
-    throw new Error(`Gemini API Error: ${errMsg}`);
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => ({}));
+      const errMsg = errJson?.error?.message || `HTTP ${response.status} ${response.statusText}`;
+      throw new Error(`Gemini API Error: ${errMsg}`);
+    }
+
+    const data = await response.json();
+    const models = Array.isArray(data?.models) ? data.models : [];
+    return models.map((m: any) => ({
+      name: m.name,
+      displayName: m.displayName || m.name,
+      description: m.description || '',
+      supportedGenerationMethods: m.supportedGenerationMethods || [],
+      inputTokenLimit: m.inputTokenLimit,
+      outputTokenLimit: m.outputTokenLimit,
+    }));
+  } catch (err: any) {
+    throw formatGeminiNetworkError(err);
   }
-
-  const data = await response.json();
-  const models = Array.isArray(data?.models) ? data.models : [];
-  return models.map((m: any) => ({
-    name: m.name,
-    displayName: m.displayName || m.name,
-    description: m.description || '',
-    supportedGenerationMethods: m.supportedGenerationMethods || [],
-    inputTokenLimit: m.inputTokenLimit,
-    outputTokenLimit: m.outputTokenLimit,
-  }));
 }
 
 /**
@@ -229,11 +247,13 @@ export async function verifyModelDirect(apiKey: string, modelId: string): Promis
       checkedAt: new Date().toISOString(),
     };
   } catch (err: any) {
+    const formatted = formatGeminiNetworkError(err);
+    const isNetworkOrCsp = formatted.message.includes('chính sách CSP');
     return {
       success: false,
       verified: false,
-      error: err.message || 'Lỗi xác minh mô hình qua Gemini API.',
-      errorCode: 'API_ERROR',
+      error: formatted.message || 'Lỗi xác minh mô hình qua Gemini API.',
+      errorCode: isNetworkOrCsp ? 'CSP_OR_NETWORK_ERROR' : 'API_ERROR',
       checkedAt: new Date().toISOString(),
     };
   }

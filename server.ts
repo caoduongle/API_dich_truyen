@@ -36,6 +36,8 @@ app.use(
               "'self'",
               "ws:",
               "wss:",
+              "https://generativelanguage.googleapis.com",
+              "https://*.googleapis.com",
               "https://www.googleapis.com",
               "https://accounts.google.com",
               "https://content.googleapis.com",

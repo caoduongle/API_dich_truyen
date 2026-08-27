@@ -236,8 +236,16 @@ export const KeyCardItem = React.memo(function KeyCardItem({
 
       {/* Inspect Models Result if triggered */}
       {inspectErr && (
-        <div className="bg-amber-950/20 border border-amber-800/40 rounded-[2px] p-2 text-xs text-amber-300">
-          {inspectErr}
+        <div className="bg-amber-950/30 border border-amber-800/60 rounded-[2px] p-2 text-xs text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+          <span className="flex-1 leading-relaxed">{inspectErr}</span>
+          <button
+            type="button"
+            onClick={() => onClearInspect(idx)}
+            className="text-[10px] text-amber-400 hover:text-amber-100 underline cursor-pointer shrink-0 ml-1"
+          >
+            Đóng
+          </button>
         </div>
       )}
 

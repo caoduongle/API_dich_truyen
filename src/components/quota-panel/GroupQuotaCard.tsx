@@ -20,6 +20,12 @@ export const GroupQuotaCard = React.memo(function GroupQuotaCard({ groups }: Gro
         const tpmMax = group.configuredLimits?.configuredTpm || group.providerQuota?.tpm || 1000000;
         const tpmPercent = Math.min(100, Math.round((tpmUsed / tpmMax) * 100));
 
+        const rawDelay = group.pacingDelayMs !== undefined
+          ? group.pacingDelayMs
+          : (group.schedulingHint?.effectiveIntervalMs ?? 4445);
+        const safeDelay = Math.max(0, rawDelay);
+        const pacingLabel = safeDelay > 0 ? `~${safeDelay}ms/call` : 'Sẵn sàng';
+
         return (
           <div key={group.id} className="bg-ink/80 border border-parchment-2/80 rounded-[2px] p-3 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -38,7 +44,7 @@ export const GroupQuotaCard = React.memo(function GroupQuotaCard({ groups }: Gro
               </div>
 
               <div className="text-[11px] text-text-muted flex items-center gap-2">
-                <span>Điều phối: <strong className="text-text-main">~{group.schedulingHint?.effectiveIntervalMs || 4445}ms</strong>/call</span>
+                <span>Điều phối: <strong className="text-text-main">{pacingLabel}</strong></span>
                 <span className={`text-[9px] px-1.5 py-0.5 rounded ${
                   group.schedulingHint?.source === 'configured'
                     ? 'bg-polish/20 text-polish font-medium'
