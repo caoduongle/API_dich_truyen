@@ -11,6 +11,102 @@ import { useChapterCRDT } from '../../hooks/useChapterCRDT';
 import { googleAuthService } from '../../services/googleAuthService';
 import { CHINESE_EXAMPLES } from '../../data/examples';
 
+export interface SaveChapterOptions {
+  currentChapterId: string | null;
+  activeProject: StoryProject;
+  sourceText: string;
+  chapterTitle: string;
+  rawTranslation: string;
+  polishedTranslation: string;
+}
+
+export interface SaveChapterResult {
+  updatedProject: StoryProject;
+  savedChapter: Chapter;
+  isUpdate: boolean;
+}
+
+export function saveOrUpdateChapter({
+  currentChapterId,
+  activeProject,
+  sourceText,
+  chapterTitle,
+  rawTranslation,
+  polishedTranslation,
+}: SaveChapterOptions): SaveChapterResult | null {
+  if (!sourceText.trim()) {
+    return null;
+  }
+
+  const finalTitle = chapterTitle.trim() || `Chương ${activeProject.chapters.length + 1}: Chưa đặt tên`;
+  const paragraphs = sourceText.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
+  const translatedLines = polishedTranslation
+    ? polishedTranslation.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0)
+    : rawTranslation.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
+
+  const status: Chapter['status'] = polishedTranslation.trim()
+    ? 'completed'
+    : rawTranslation.trim()
+    ? 'in_progress'
+    : 'not_started';
+
+  const existingChapter = currentChapterId
+    ? activeProject.chapters.find(c => c.id === currentChapterId)
+    : undefined;
+
+  if (existingChapter) {
+    const updatedChapter: Chapter = {
+      ...existingChapter,
+      title: finalTitle,
+      sourceText,
+      rawTranslation,
+      polishedTranslation,
+      paragraphs,
+      translatedLines,
+      status,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updatedProject: StoryProject = {
+      ...activeProject,
+      chapters: activeProject.chapters.map(c =>
+        c.id === currentChapterId ? updatedChapter : c
+      ),
+    };
+
+    return {
+      updatedProject,
+      savedChapter: updatedChapter,
+      isUpdate: true,
+    };
+  } else {
+    const newChapterId = 'chap_' + Date.now();
+    const newChapter: Chapter = {
+      id: newChapterId,
+      title: finalTitle,
+      sourceText,
+      rawTranslation,
+      polishedTranslation,
+      paragraphs,
+      translatedLines,
+      status,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updatedProject: StoryProject = {
+      ...activeProject,
+      chapters: [newChapter, ...activeProject.chapters],
+    };
+
+    return {
+      updatedProject,
+      savedChapter: newChapter,
+      isUpdate: false,
+    };
+  }
+}
+
 export interface UseWorkspaceStateProps {
   activeProject: StoryProject;
   onUpdateProject: (updated: StoryProject) => void;
@@ -130,6 +226,7 @@ export function useWorkspaceState({
 
   // Triggering alerts/sync on project id change
   useEffect(() => {
+    setCurrentChapterId(null);
     setSourceText('');
     setOriginalSourceText('');
     setIsGlossaryApplied(false);
@@ -302,6 +399,7 @@ export function useWorkspaceState({
 
   const handleLoadExample = useCallback((index: number) => {
     const ex = CHINESE_EXAMPLES[index];
+    setCurrentChapterId(null);
     setSourceText(ex.sourceText);
     setOriginalSourceText(ex.sourceText);
     setIsGlossaryApplied(false);
@@ -628,36 +726,34 @@ export function useWorkspaceState({
   };
 
   const handleSaveChapter = () => {
-    if (!sourceText.trim()) {
+    const result = saveOrUpdateChapter({
+      currentChapterId,
+      activeProject,
+      sourceText,
+      chapterTitle,
+      rawTranslation,
+      polishedTranslation,
+    });
+
+    if (!result) {
       showToast({ message: "Không có nội dung để lưu.", type: 'warning' });
       return;
     }
-    const finalTitle = chapterTitle.trim() || `Chương ${activeProject.chapters.length + 1}: Chưa đặt tên`;
-    const paragraphs = sourceText.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
-    const translatedLines = polishedTranslation
-      ? polishedTranslation.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0)
-      : rawTranslation.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
 
-    const newChapter: Chapter = {
-      id: 'chap_' + Date.now(),
-      title: finalTitle,
-      sourceText,
-      rawTranslation,
-      polishedTranslation,
-      paragraphs,
-      translatedLines,
-      status: polishedTranslation.trim() ? 'completed' : rawTranslation.trim() ? 'in_progress' : 'not_started',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const updated = {
-      ...activeProject,
-      chapters: [newChapter, ...activeProject.chapters],
-    };
-
-    onUpdateProject(updated);
-    showToast({ message: `Đã lưu trữ thành công chương: "${finalTitle}" vào bộ nhớ lưu trữ lịch sử dịch.`, type: 'success' });
+    if (result.isUpdate) {
+      onUpdateProject(result.updatedProject);
+      showToast({
+        message: `Đã cập nhật thành công chương: "${result.savedChapter.title}"`,
+        type: 'success',
+      });
+    } else {
+      setCurrentChapterId(result.savedChapter.id);
+      onUpdateProject(result.updatedProject);
+      showToast({
+        message: `Đã lưu trữ thành công chương: "${result.savedChapter.title}" vào bộ nhớ lưu trữ lịch sử dịch.`,
+        type: 'success',
+      });
+    }
   };
 
   const handleApplyGlossaryToSource = () => {
