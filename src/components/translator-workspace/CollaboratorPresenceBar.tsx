@@ -75,7 +75,7 @@ export const CollaboratorPresenceBar: React.FC<CollaboratorPresenceBarProps> = (
                   {user.picture ? (
                     <img
                       src={user.picture}
-                      alt={user.name}
+                      alt={user.name || user.email || 'Ảnh đại diện người cộng tác'}
                       className="w-5 h-5 rounded-full border border-parchment object-cover"
                       style={{ borderColor: user.color || '#B8402C' }}
                     />

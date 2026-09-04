@@ -11,6 +11,7 @@ export interface ValidatedEnvironment {
   TRUST_PROXY_HOPS: number;
   ALLOWED_ORIGINS: string[];
   WS_TICKET_SECRET: string;
+  APP_BASE_URL?: string;
 }
 
 export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): ValidatedEnvironment {
@@ -63,6 +64,11 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Valid
     ? env.WS_TICKET_SECRET.trim()
     : 'ai-dich-truyen-internal-ws-ticket-secret-2026';
 
+  let appBaseUrl: string | undefined;
+  if (typeof env.APP_BASE_URL === 'string' && env.APP_BASE_URL.trim().length > 0) {
+    appBaseUrl = env.APP_BASE_URL.trim().replace(/\/+$/, '');
+  }
+
   return {
     NODE_ENV: effectiveNodeEnv,
     PORT: port,
@@ -71,6 +77,7 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Valid
     TRUST_PROXY_HOPS: trustProxyHops,
     ALLOWED_ORIGINS: allowedOrigins,
     WS_TICKET_SECRET: wsTicketSecret,
+    APP_BASE_URL: appBaseUrl,
   };
 }
 

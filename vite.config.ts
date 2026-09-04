@@ -5,6 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    base: process.env.VITE_BASE_URL || '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
@@ -12,9 +13,13 @@ export default defineConfig(() => {
         '@shared': path.resolve(__dirname, './shared'),
       },
     },
+    esbuild: {
+      drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
+    },
     build: {
       outDir: 'dist/client',
       emptyOutDir: true,
+      sourcemap: false,
       /**
        * chunkSizeWarningLimit được cấu hình ở mức 1200 KB (thay vì mặc định 500 KB của Vite):
        * 

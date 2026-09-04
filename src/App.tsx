@@ -15,13 +15,12 @@ import { I18nProvider, useTranslation } from './i18n/I18nContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { LanguageSelector } from './components/common/LanguageSelector';
 import { ThemeSwitcher } from './components/common/ThemeSwitcher';
-import { CustomThemeModal } from './components/common/CustomThemeModal';
 import { Button } from './components/ui/Button';
 import { Badge } from './components/ui/Badge';
 import { Kbd } from './components/ui/Kbd';
 import { Seal } from './components/ui/Seal';
 
-// Code splitting các tab nặng qua React.lazy để tối ưu hóa initial bundle parse time
+// Code splitting các tab nặng & modals qua React.lazy để tối ưu hóa initial bundle parse time
 const TranslatorWorkspace = React.lazy(() => import('./components/TranslatorWorkspace'));
 const AutoTranslator = React.lazy(() => import('./components/AutoTranslator'));
 const GlossaryManager = React.lazy(() => import('./components/GlossaryManager'));
@@ -29,10 +28,14 @@ const ProjectList = React.lazy(() => import('./components/ProjectList'));
 const ChapterHistoryPanel = React.lazy(() => import('./components/ChapterHistoryPanel'));
 const ApiSettings = React.lazy(() => import('./components/ApiSettings'));
 const HakoCheckerWorkspace = React.lazy(() => import('./components/hako-checker/HakoCheckerWorkspace'));
-import AuthModal from './components/AuthModal';
+const AuthModal = React.lazy(() => import('./components/AuthModal'));
+const GoogleSyncModal = React.lazy(() => import('./components/google-sync/GoogleSyncModal').then(m => ({ default: m.GoogleSyncModal })));
+const CustomThemeModal = React.lazy(() => import('./components/common/CustomThemeModal').then(m => ({ default: m.CustomThemeModal })));
 import { GoogleUserButton } from './components/google-sync/GoogleUserButton';
-import { GoogleSyncModal } from './components/google-sync/GoogleSyncModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { NotFoundPage } from './components/common/NotFoundPage';
+import { Breadcrumbs } from './components/common/Breadcrumbs';
+import { useSeoMetadata } from './hooks/useSeoMetadata';
 
 const MemoTranslatorWorkspace = React.memo(TranslatorWorkspace);
 const MemoAutoTranslator = React.memo(AutoTranslator);
@@ -83,9 +86,34 @@ function AppContent() {
   } = useAIConfigContext();
   const { t } = useTranslation();
 
+  const VALID_TABS = React.useMemo(() => ['translate', 'auto-translate', 'glossary', 'history', 'projects', 'hako-checker'], []);
   const [activeTab, setActiveTab] = useState<'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker'>('translate');
+  const [isNotFound, setIsNotFound] = useState(false);
   const [, startTransition] = useTransition();
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['translate']));
+
+  // Đồng bộ pathname URL khi nạp ứng dụng và khi bấm Back/Forward trình duyệt
+  useEffect(() => {
+    const handleLocationChange = () => {
+      if (typeof window === 'undefined') return;
+      const rawPath = window.location.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+      if (!rawPath) {
+        setIsNotFound(false);
+        return;
+      }
+      if (VALID_TABS.includes(rawPath)) {
+        setIsNotFound(false);
+        setActiveTab(rawPath as any);
+        setVisitedTabs((prev) => new Set([...prev, rawPath]));
+      } else {
+        setIsNotFound(true);
+      }
+    };
+
+    handleLocationChange();
+    window.addEventListener('popstate', handleLocationChange);
+    return () => window.removeEventListener('popstate', handleLocationChange);
+  }, [VALID_TABS]);
 
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
@@ -131,20 +159,44 @@ function AppContent() {
     };
   }, [showMoreNavMenu]);
 
-  // Cập nhật tiêu đề trang động theo thời gian thực (Page Title per workspace & book)
-  useEffect(() => {
-    const tabNames: Record<string, string> = {
-      'translate': 'Bàn Dịch Thuật',
-      'auto-translate': 'Dịch Tự Động Toàn Bộ',
-      'glossary': 'Từ Điển Nhân Vật & Thuật Ngữ',
-      'history': 'Lịch Sử Chương Dịch',
-      'projects': 'Quản Lý Tiểu Thuyết',
-      'hako-checker': 'Kiểm Định Chất Lượng Hako',
-    };
-    const currentTabName = tabNames[activeTab] || 'Dịch Thuật';
-    const bookTitle = activeProject?.title ? `${activeProject.title} — ` : '';
-    document.title = `${bookTitle}${currentTabName} | Bàn Biên Tập Bản Thảo Chu Sa`;
-  }, [activeTab, activeProject?.title]);
+  // Cấu hình metadata On-Page SEO động theo thời gian thực (Page Title, Meta Description, Canonical URL)
+  const tabMetadata: Record<string, { title: string; desc: string }> = React.useMemo(() => ({
+    'translate': {
+      title: 'Bàn Dịch Thuật',
+      desc: 'Không gian dịch thuật song ngữ Trung - Việt gióng hàng thời gian thực, tích hợp tra cứu từ điển và đối chiếu ngữ cảnh AI.',
+    },
+    'auto-translate': {
+      title: 'Dịch Tự Động Toàn Bộ',
+      desc: 'Quy trình dịch thuật tự động 2 pha (dịch thô & mài giũa) xử lý hàng loạt chương tiểu thuyết với độ nhất quán cao.',
+    },
+    'glossary': {
+      title: 'Từ Điển Nhân Vật & Thuật Ngữ',
+      desc: 'Quản lý kho từ vựng, tên nhân vật, địa danh và thuật ngữ chuyên ngành tiếng Hán cho tác phẩm.',
+    },
+    'history': {
+      title: 'Lịch Sử Chương Dịch',
+      desc: 'Theo dõi tiến trình phiên bản, đối chiếu bản thảo trước sau và khôi phục các phân đoạn dịch.',
+    },
+    'projects': {
+      title: 'Quản Lý Tiểu Thuyết',
+      desc: 'Danh sách và thông tin các bộ truyện, thống kê tiến độ chương và thiết lập cấu hình riêng cho từng tác phẩm.',
+    },
+    'hako-checker': {
+      title: 'Kiểm Định Chất Lượng Hako',
+      desc: 'Công cụ rà soát lỗi chính tả, từ cấm, định dạng đoạn văn theo tiêu chuẩn biên tập tiểu thuyết mạng Hako.',
+    },
+  }), []);
+
+  const currentMeta = tabMetadata[activeTab] || tabMetadata['translate'];
+  const pageTitle = activeProject?.title ? `${activeProject.title} — ${currentMeta.title}` : currentMeta.title;
+
+  useSeoMetadata({
+    title: isNotFound ? 'Bản Thảo Thất Lạc (404)' : pageTitle,
+    description: isNotFound
+      ? 'Trang bản thảo hoặc phân vùng bạn tìm kiếm tựa như mây khói hư ảo, không còn lưu vết trong tàng kinh các.'
+      : currentMeta.desc,
+    canonicalPath: isNotFound ? '/404' : (activeTab === 'translate' ? '' : `/${activeTab}`),
+  });
 
   // Tự động cuộn tab kích hoạt vào vùng nhìn thấy khi activeTab thay đổi (click hoặc phím tắt Alt+1..6)
   useEffect(() => {
@@ -171,6 +223,7 @@ function AppContent() {
   }, []);
 
   const switchTab = useCallback((tab: 'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker') => {
+    setIsNotFound(false);
     setVisitedTabs((prev) => {
       if (prev.has(tab)) return prev;
       const next = new Set(prev);
@@ -180,6 +233,12 @@ function AppContent() {
     startTransition(() => {
       setActiveTab(tab);
     });
+    if (typeof window !== 'undefined' && window.history) {
+      const targetPath = tab === 'translate' ? '/' : `/${tab}`;
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, '', targetPath);
+      }
+    }
   }, []);
 
   const handleGoToTranslate = useCallback(
@@ -695,7 +754,24 @@ function AppContent() {
 
       {/* Main Workspace */}
       <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
-        <React.Suspense fallback={<TabSkeleton />}>
+        {isNotFound ? (
+          <NotFoundPage
+            onGoHome={() => {
+              setIsNotFound(false);
+              switchTab('translate');
+            }}
+          />
+        ) : (
+          <>
+            {/* Breadcrumbs điều hướng phân cấp ngữ nghĩa */}
+            <Breadcrumbs
+              items={[
+                ...(activeProject ? [{ label: activeProject.title, onClick: () => switchTab('projects') }] : []),
+                { label: currentMeta.title, current: true },
+              ]}
+              className="mb-3"
+            />
+            <React.Suspense fallback={<TabSkeleton />}>
           {activeProject ? (
             <>
               <div
@@ -853,6 +929,8 @@ function AppContent() {
             )}
           </div>
         </React.Suspense>
+          </>
+        )}
       </main>
 
       {/* Footer */}
@@ -1002,28 +1080,40 @@ function AppContent() {
       )}
 
       {/* Modal Mật Khẩu Truy Cập Máy Chủ */}
-      <AuthModal
-        isOpen={showAuthModal}
-        canDismiss={isAuthenticated}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={() => {
-          setIsAuthenticated(true);
-          setShowAuthModal(false);
-        }}
-      />
+      {showAuthModal && (
+        <React.Suspense fallback={null}>
+          <AuthModal
+            isOpen={showAuthModal}
+            canDismiss={isAuthenticated}
+            onClose={() => setShowAuthModal(false)}
+            onSuccess={() => {
+              setIsAuthenticated(true);
+              setShowAuthModal(false);
+            }}
+          />
+        </React.Suspense>
+      )}
 
       {/* Modal Đồng Bộ Google Drive */}
-      <GoogleSyncModal
-        isOpen={showGoogleSyncModal}
-        onClose={() => setShowGoogleSyncModal(false)}
-        onDataChanged={reloadProjects}
-      />
+      {showGoogleSyncModal && (
+        <React.Suspense fallback={null}>
+          <GoogleSyncModal
+            isOpen={showGoogleSyncModal}
+            onClose={() => setShowGoogleSyncModal(false)}
+            onDataChanged={reloadProjects}
+          />
+        </React.Suspense>
+      )}
 
       {/* Modal Tùy Chỉnh Bảng Màu Đọc */}
-      <CustomThemeModal
-        open={showCustomThemeModal}
-        onClose={() => setShowCustomThemeModal(false)}
-      />
+      {showCustomThemeModal && (
+        <React.Suspense fallback={null}>
+          <CustomThemeModal
+            open={showCustomThemeModal}
+            onClose={() => setShowCustomThemeModal(false)}
+          />
+        </React.Suspense>
+      )}
     </div>
   );
 }

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141210" />
+      <stop offset="50%" stop-color="#1C1815" />
+      <stop offset="100%" stop-color="#0F0D0C" />
+    </linearGradient>
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8B261D" stop-opacity="0.3" />
+      <stop offset="50%" stop-color="#D97706" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#8B261D" stop-opacity="0.3" />
+    </linearGradient>
+  </defs>
+
+  <!-- Nền tối phong cách Mực (Ink) -->
+  <rect width="1200" height="630" fill="url(#bgGrad)" />
+
+  <!-- Khung viền chỉ son Chu Sa tinh xảo -->
+  <rect x="24" y="24" width="1152" height="582" rx="16" fill="none" stroke="url(#borderGrad)" stroke-width="2" />
+  <rect x="36" y="36" width="1128" height="558" rx="12" fill="none" stroke="#FAF5ED" stroke-width="1" stroke-opacity="0.08" />
+
+  <!-- Ấn triện Chu Sa góc trên bên phải -->
+  <g transform="translate(980, 70)">
+    <rect width="140" height="140" rx="20" fill="#8B261D" stroke="#D97706" stroke-width="3" stroke-opacity="0.6" />
+    <rect x="10" y="10" width="120" height="120" rx="14" fill="none" stroke="#FAF5ED" stroke-width="1.5" stroke-opacity="0.3" />
+    <text x="70" y="98" font-family="'Noto Serif SC', 'Source Han Serif SC', serif, SimSun" font-size="80" font-weight="900" fill="#FAF5ED" text-anchor="middle">譯</text>
+  </g>
+
+  <!-- Con dấu triện phụ: Bản Thảo -->
+  <g transform="translate(100, 80)">
+    <rect width="40" height="96" rx="6" fill="#8B261D" stroke="#D97706" stroke-width="1.5" stroke-opacity="0.5" />
+    <text x="20" y="42" font-family="serif" font-size="22" font-weight="bold" fill="#FAF5ED" text-anchor="middle">朱</text>
+    <text x="20" y="78" font-family="serif" font-size="22" font-weight="bold" fill="#FAF5ED" text-anchor="middle">砂</text>
+  </g>
+
+  <!-- Tiêu đề thương hiệu chính -->
+  <text x="160" y="125" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="22" font-weight="600" fill="#D97706" letter-spacing="3">HỆ THỐNG BIÊN TẬP BẢN THẢO CHUYÊN SÂU</text>
+
+  <text x="100" y="240" font-family="'Cinzel', 'Noto Serif SC', 'Times New Roman', serif" font-size="64" font-weight="800" fill="#FAF5ED" letter-spacing="1">
+    AI Dịch Truyện Trung - Việt
+  </text>
+
+  <!-- Khẩu hiệu phụ -->
+  <text x="100" y="320" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="28" font-weight="400" fill="#D4C5B9">
+    Bàn Biên Tập Bản Thảo Chu Sa • Tối Ưu Kiếm Hiệp, Tiên Hiệp &amp; Huyền Huyễn
+  </text>
+
+  <!-- Thanh phân cách Chu Sa -->
+  <line x1="100" y1="365" x2="1100" y2="365" stroke="url(#borderGrad)" stroke-width="1.5" />
+
+  <!-- Huy hiệu tính năng (Feature badges) -->
+  <!-- Tag 1: Gemini AI -->
+  <g transform="translate(100, 420)">
+    <rect width="280" height="52" rx="10" fill="#241E1A" stroke="#423730" stroke-width="1.5" />
+    <text x="140" y="33" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="18" font-weight="600" fill="#FAF5ED" text-anchor="middle">Gemini 2.5 AI Engine</text>
+  </g>
+
+  <!-- Tag 2: CRDT Real-time -->
+  <g transform="translate(410, 420)">
+    <rect width="300" height="52" rx="10" fill="#241E1A" stroke="#423730" stroke-width="1.5" />
+    <text x="150" y="33" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="18" font-weight="600" fill="#FAF5ED" text-anchor="middle">Đồng Bộ CRDT Real-time</text>
+  </g>
+
+  <!-- Tag 3: Offline IndexedDB -->
+  <g transform="translate(740, 420)">
+    <rect width="320" height="52" rx="10" fill="#241E1A" stroke="#423730" stroke-width="1.5" />
+    <text x="160" y="33" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="18" font-weight="600" fill="#FAF5ED" text-anchor="middle">Bộ Nhớ Ngữ Cảnh &amp; Thuật Ngữ</text>
+  </g>
+
+  <!-- Footer domain note -->
+  <text x="100" y="550" font-family="'JetBrains Mono', monospace" font-size="18" font-weight="500" fill="#8C7A6B">
+    dichtruyen.app • Tiêu Chuẩn Xuất Bản Hako • Bảo Mật Cục Bộ
+  </text>
+</svg>

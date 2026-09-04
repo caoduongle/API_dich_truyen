@@ -34,7 +34,7 @@ export const GoogleUserButton: React.FC<GoogleUserButtonProps> = ({ onOpenSyncMo
         {authState.user.picture && !imgError ? (
           <img
             src={authState.user.picture}
-            alt={authState.user.name}
+            alt={authState.user.name || authState.user.email || 'Ảnh đại diện người dùng'}
             width={16}
             height={16}
             loading="lazy"

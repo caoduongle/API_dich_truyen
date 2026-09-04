@@ -414,7 +414,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
                         {c.photoLink && !failedImgIds.has(c.permissionId) ? (
                           <img
                             src={c.photoLink}
-                            alt={c.displayName || c.emailAddress || ''}
+                            alt={c.displayName || c.emailAddress || 'Ảnh đại diện người cộng tác'}
                             width={24}
                             height={24}
                             loading="lazy"

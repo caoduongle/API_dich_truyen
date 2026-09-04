@@ -1,0 +1,17 @@
+{
+  "name": "AI Dịch Truyện Trung - Việt | Bàn Biên Tập Bản Thảo Chu Sa",
+  "short_name": "Bản Thảo Chu Sa",
+  "description": "Ứng dụng dịch thuật tiểu thuyết Trung - Việt ứng dụng AI với bộ nhớ ngữ cảnh và quản lý thuật ngữ chuyên sâu.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F4EB",
+  "theme_color": "#141210",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

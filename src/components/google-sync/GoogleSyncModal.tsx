@@ -315,7 +315,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
                 {authState.user.picture && !avatarError ? (
                   <img
                     src={authState.user.picture}
-                    alt={authState.user.name}
+                    alt={authState.user.name || authState.user.email || 'Ảnh đại diện người dùng'}
                     width={40}
                     height={40}
                     loading="lazy"

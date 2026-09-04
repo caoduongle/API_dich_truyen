@@ -108,6 +108,22 @@ app.get("/health", (req, res, next) => { req.url = "/health"; apiRouter(req, res
 app.get("/live", (req, res, next) => { req.url = "/live"; apiRouter(req, res, next); });
 app.get("/ready", (req, res, next) => { req.url = "/ready"; apiRouter(req, res, next); });
 
+// Xử lý 404 JSON chuẩn hóa cho mọi API endpoint không tồn tại
+app.all("/api/*", (req, res) => {
+  res.status(404).json({
+    error: "Not Found",
+    message: `Đường dẫn API '${req.originalUrl}' không tồn tại trên hệ thống.`,
+    statusCode: 404,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Phục vụ tệp tĩnh trong thư mục public (robots.txt, sitemap.xml, llms.txt, favicon, v.v.)
+const publicDir = path.join(process.cwd(), "public");
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+}
+
 
 // Tích hợp Vite middleware phục vụ Single Page Application
 async function startServer() {
