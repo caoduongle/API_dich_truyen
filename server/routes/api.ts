@@ -38,6 +38,7 @@ import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models
 import { metricsService } from "../services/metricsService";
 import { modelInfoService } from "../services/modelInfoService";
 import { redisManager } from "../services/redisService";
+import { generateWsTicket } from "../services/wsTicketService";
 import { SERVER_CONFIG } from "@shared/constants";
 
 const router = Router();
@@ -60,6 +61,31 @@ router.use(authMiddleware);
 router.get("/auth/status", getAuthStatusHandler);
 router.post("/auth/login", authLoginRateLimiter, botProtection, loginHandler);
 router.post("/auth/logout", logoutHandler);
+
+// --- WebSocket Ticket Endpoint (Server-Signed Ticket chống BOLA/IDOR) ---
+router.post("/ws-ticket", (req: Request, res: Response) => {
+  const { projectId, chapterId, userEmail, role } = req.body || {};
+  if (!projectId || typeof projectId !== "string" || !chapterId || typeof chapterId !== "string") {
+    res.status(400).json({ error: "Yêu cầu cung cấp đầy đủ projectId và chapterId." });
+    return;
+  }
+  const email = typeof userEmail === "string" && userEmail.trim().length > 0
+    ? userEmail.trim()
+    : "user@local";
+
+  const ticket = generateWsTicket({
+    projectId: projectId.trim(),
+    chapterId: chapterId.trim(),
+    userEmail: email,
+    role: typeof role === "string" ? role : "editor",
+  });
+
+  res.status(200).json({
+    success: true,
+    ticket,
+    expiresInSeconds: 60,
+  });
+});
 
 export const MODEL_ID_REGEX = /^[a-zA-Z0-9_\-\.\/]{1,128}$/;
 

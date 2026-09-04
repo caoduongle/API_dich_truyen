@@ -18,7 +18,12 @@ export function httpsRedirect(req: Request, res: Response, next: NextFunction): 
     return;
   }
 
-  const forwardedProto = req.headers["x-forwarded-proto"];
+  const rawProto = req.headers["x-forwarded-proto"];
+  const forwardedProto = typeof rawProto === "string"
+    ? rawProto.split(",")[0].trim().toLowerCase()
+    : Array.isArray(rawProto)
+    ? (rawProto[0] || "").trim().toLowerCase()
+    : "";
   const isHttps = req.secure || forwardedProto === "https";
 
   if (!isHttps) {

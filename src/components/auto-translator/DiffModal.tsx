@@ -70,12 +70,13 @@ export const DiffModal = React.memo(function DiffModal({
     const sorted = [...glossary]
       .filter(i => i.vietnamese)
       .sort((a, b) => (b.vietnamese?.length || 0) - (a.vietnamese?.length || 0));
+    const nonce = Math.random().toString(36).substring(2, 10);
     const placeholder: Record<string, string> = {};
     sorted.forEach((item, idx) => {
       if (!item.vietnamese) return;
       const escapedVietnamese = escapeHtml(item.vietnamese);
       const regexEscaped = escapedVietnamese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const key = `««TERM_${idx}»»`;
+      const key = `⟦HL_${nonce}_${idx}⟧`;
       result = result.replace(new RegExp(regexEscaped, 'g'), key);
       placeholder[key] = `<mark class="bg-polish/20 text-polish border border-polish/40 rounded-[2px] px-1 font-bold">${escapedVietnamese}</mark>`;
     });

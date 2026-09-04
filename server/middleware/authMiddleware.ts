@@ -21,8 +21,22 @@ const PUBLIC_API_PATHS = new Set([
  * Nếu server có cấu hình, yêu cầu Header X-Auth-Token hoặc Authorization: Bearer <token>.
  */
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
-  // 1. Nếu hệ thống không yêu cầu mật khẩu, cho phép đi tiếp
+  // 1. Nếu hệ thống không yêu cầu mật khẩu
   if (!authStore.isAuthRequired()) {
+    // Trên môi trường production, thiếu ACCESS_PASSWORD là cấu hình không an toàn (Security Misconfiguration)
+    if (process.env.NODE_ENV === "production") {
+      const requestPath = req.path || req.originalUrl || "";
+      if (PUBLIC_API_PATHS.has(requestPath)) {
+        next();
+        return;
+      }
+      res.status(503).json({
+        error: "Máy chủ đang chạy ở chế độ Production nhưng chưa cấu hình ACCESS_PASSWORD. Truy cập API tạm thời bị khóa vì lý do an toàn.",
+        code: "AUTH_NOT_CONFIGURED",
+        authRequired: true,
+      });
+      return;
+    }
     next();
     return;
   }

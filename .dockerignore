@@ -1,0 +1,14 @@
+node_modules
+.git
+.github
+dist
+coverage
+*.log
+.env*
+!.env.example
+specs
+.specify
+.agents
+.idea
+*.tmp
+*.patch

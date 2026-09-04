@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
 import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem } from '../../types';
 import { parseTxtContent, parseEpubFile } from '../../utils/fileParser';
+import { validateUploadFile } from '../../utils/fileValidator';
 import { getChapterFromDB } from '../../services/db';
 import { useNotifications } from '../NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
@@ -298,6 +299,7 @@ export function useWorkspaceState({
     setIsParsingImportFile(true);
 
     try {
+      await validateUploadFile(file);
       if (file.name.endsWith('.txt')) {
         const fullText = await file.text();
         const chaps = parseTxtContent(fullText, importSplitMethod);

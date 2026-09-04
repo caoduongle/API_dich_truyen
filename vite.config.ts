@@ -13,6 +13,8 @@ export default defineConfig(() => {
       },
     },
     build: {
+      outDir: 'dist/client',
+      emptyOutDir: true,
       /**
        * chunkSizeWarningLimit được cấu hình ở mức 1200 KB (thay vì mặc định 500 KB của Vite):
        * 

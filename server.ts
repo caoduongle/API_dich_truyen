@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import helmet from "helmet";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
@@ -13,6 +14,8 @@ import { setupCrdtRedisPubSub, cleanupCrdtRedisPubSub } from "./server/services/
 import { authStore } from "./server/services/authStore";
 import { requestIdMiddleware } from "./server/middleware/tracingMiddleware";
 import { httpsRedirect } from "./server/middleware/httpsRedirect";
+import { globalErrorHandler } from "./server/middleware/errorHandler";
+import { csrfProtection } from "./server/middleware/csrfProtection";
 
 dotenv.config();
 
@@ -94,6 +97,9 @@ app.use(express.json({ limit: SERVER_CONFIG.BODY_SIZE_LIMIT }));
 // Rate-limit theo IP cho toàn bộ API endpoints (chống lạm dụng khi không có auth)
 app.use("/api", createRateLimiter({ endpointType: 'translation' }));
 
+// Chống tấn công CSRF cho các phương thức POST/PUT/DELETE
+app.use("/api", csrfProtection);
+
 // Gắn các API endpoints từ router
 app.use("/api", apiRouter);
 
@@ -112,12 +118,16 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distClientPath = path.join(process.cwd(), "dist", "client");
+    const distPath = fs.existsSync(distClientPath) ? distClientPath : path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // Global Error Handler bảo vệ máy chủ & triệt tiêu rò rỉ stack trace
+  app.use(globalErrorHandler);
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server fully started and listening on http://localhost:${PORT}`);

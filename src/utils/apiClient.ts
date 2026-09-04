@@ -100,6 +100,7 @@ export async function checkAuthStatus(): Promise<{ authRequired: boolean; authen
     const res = await fetch('/api/auth/status', {
       method: 'GET',
       headers,
+      credentials: 'same-origin',
     });
 
     if (!res.ok) {
@@ -127,6 +128,7 @@ export async function loginWithPassword(password: string): Promise<{ success: bo
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'same-origin',
       body: JSON.stringify({ password }),
     });
 
@@ -156,18 +158,20 @@ export async function loginWithPassword(password: string): Promise<{ success: bo
  * Đăng xuất và thu hồi Auth Token.
  */
 export async function logoutAuth(): Promise<void> {
-  if (currentAuthToken) {
-    try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Auth-Token': currentAuthToken,
-        },
-      });
-    } catch {
-      // Ignore network errors on logout
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (currentAuthToken) {
+      headers['X-Auth-Token'] = currentAuthToken;
     }
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers,
+      credentials: 'same-origin',
+    });
+  } catch {
+    // Ignore network errors on logout
   }
   setAuthToken(null);
 }
@@ -331,6 +335,7 @@ export async function apiFetch(
   }
 
   const newInit: RequestInit = {
+    credentials: 'same-origin',
     ...init,
     headers,
     body,

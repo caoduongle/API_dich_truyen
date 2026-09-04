@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { StoryProject, GlossaryItem, Chapter } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { parseTxtContent, parseEpubFile } from '../../utils/fileParser';
+import { validateUploadFile } from '../../utils/fileValidator';
 import { apiFetch } from '../../utils/apiClient';
 import {
   Plus, Edit3, Check, Upload, FileText, Sparkles, Loader2
@@ -74,6 +75,7 @@ export function ProjectFormModal({
     setIsParsingRaw(true);
 
     try {
+      await validateUploadFile(file);
       if (file.name.endsWith('.txt')) {
         const fullText = await file.text();
         const chaps = parseTxtContent(fullText, splitMethod);
