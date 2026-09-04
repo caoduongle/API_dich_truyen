@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS projects (
 
 -- Bật bắt buộc Row-Level Security cho projects
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE projects FORCE ROW LEVEL SECURITY;
 
 -- Chính sách: Chủ sở hữu có toàn quyền (SELECT, INSERT, UPDATE, DELETE)
 CREATE POLICY "Projects: Owner full control"
@@ -49,12 +50,20 @@ CREATE TABLE IF NOT EXISTS project_collaborators (
 );
 
 ALTER TABLE project_collaborators ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_collaborators FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY "Collaborators: Project owner can manage collaborators"
 ON project_collaborators
 FOR ALL
 TO authenticated
 USING (
+    EXISTS (
+        SELECT 1 FROM projects
+        WHERE projects.id = project_collaborators.project_id
+        AND projects.owner_id = auth.uid()
+    )
+)
+WITH CHECK (
     EXISTS (
         SELECT 1 FROM projects
         WHERE projects.id = project_collaborators.project_id
@@ -103,12 +112,20 @@ CREATE TABLE IF NOT EXISTS chapters (
 );
 
 ALTER TABLE chapters ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chapters FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY "Chapters: Owner full control"
 ON chapters
 FOR ALL
 TO authenticated
 USING (
+    EXISTS (
+        SELECT 1 FROM projects
+        WHERE projects.id = chapters.project_id
+        AND projects.owner_id = auth.uid()
+    )
+)
+WITH CHECK (
     EXISTS (
         SELECT 1 FROM projects
         WHERE projects.id = chapters.project_id
@@ -145,6 +162,17 @@ USING (
             project_collaborators.user_email = (auth.jwt() ->> 'email')
         )
     )
+)
+WITH CHECK (
+    EXISTS (
+        SELECT 1 FROM project_collaborators
+        WHERE project_collaborators.project_id = chapters.project_id
+        AND project_collaborators.role = 'editor'
+        AND (
+            project_collaborators.user_id = auth.uid() OR
+            project_collaborators.user_email = (auth.jwt() ->> 'email')
+        )
+    )
 );
 
 -- ------------------------------------------------------------------------------
@@ -162,12 +190,20 @@ CREATE TABLE IF NOT EXISTS glossary (
 );
 
 ALTER TABLE glossary ENABLE ROW LEVEL SECURITY;
+ALTER TABLE glossary FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY "Glossary: Owner full control"
 ON glossary
 FOR ALL
 TO authenticated
 USING (
+    EXISTS (
+        SELECT 1 FROM projects
+        WHERE projects.id = glossary.project_id
+        AND projects.owner_id = auth.uid()
+    )
+)
+WITH CHECK (
     EXISTS (
         SELECT 1 FROM projects
         WHERE projects.id = glossary.project_id
@@ -180,6 +216,16 @@ ON glossary
 FOR ALL
 TO authenticated
 USING (
+    EXISTS (
+        SELECT 1 FROM project_collaborators
+        WHERE project_collaborators.project_id = glossary.project_id
+        AND (
+            project_collaborators.user_id = auth.uid() OR
+            project_collaborators.user_email = (auth.jwt() ->> 'email')
+        )
+    )
+)
+WITH CHECK (
     EXISTS (
         SELECT 1 FROM project_collaborators
         WHERE project_collaborators.project_id = glossary.project_id

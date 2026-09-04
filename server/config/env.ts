@@ -69,6 +69,9 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Valid
     appBaseUrl = env.APP_BASE_URL.trim().replace(/\/+$/, '');
   }
 
+  // Kiểm định rò rỉ biến môi trường nhạy cảm sang tiền tố VITE_
+  assertNoLeakedSecretsInViteEnv(env);
+
   return {
     NODE_ENV: effectiveNodeEnv,
     PORT: port,
@@ -81,4 +84,27 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Valid
   };
 }
 
+/**
+ * Kiểm định ngăn chặn việc đặt tiền tố VITE_ cho các biến môi trường nhạy cảm phía máy chủ.
+ * Đảm bảo Vite bundle không đóng gói nhầm bí mật vào client code.
+ */
+export function assertNoLeakedSecretsInViteEnv(env: NodeJS.ProcessEnv = process.env): void {
+  const forbiddenViteKeys = [
+    'VITE_GEMINI_API_KEY',
+    'VITE_ACCESS_PASSWORD',
+    'VITE_REDIS_URL',
+    'VITE_WS_TICKET_SECRET',
+    'VITE_SUPABASE_SERVICE_ROLE_KEY',
+    'VITE_SERVICE_ROLE_KEY',
+    'VITE_SECRET',
+  ];
+
+  for (const key of forbiddenViteKeys) {
+    if (env[key] !== undefined && env[key] !== '') {
+      throw new Error(`[CRITICAL SECURITY ALERT] Biến môi trường bảo mật không được bắt đầu bằng 'VITE_': ${key}`);
+    }
+  }
+}
+
 export const ENV = validateEnvironment();
+

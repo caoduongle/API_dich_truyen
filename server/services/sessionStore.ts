@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import type Redis from "ioredis";
 import { redisManager } from "./redisService";
+import { isValidSessionToken } from "../utils/validation";
 
 export interface SessionData {
   keyHashes: string[];
@@ -154,7 +155,7 @@ class SessionStore {
    * Lấy danh sách keyHashes từ session token và gia hạn thời gian sống (sliding window).
    */
   async getSessionKeyHashes(sessionToken: string, slidingWindowMs: number = DEFAULT_SESSION_TTL_MS): Promise<string[] | null> {
-    if (!sessionToken || typeof sessionToken !== "string") {
+    if (!isValidSessionToken(sessionToken)) {
       return null;
     }
 
@@ -209,6 +210,10 @@ class SessionStore {
    * Kiểm tra thông tin trạng thái session token mà không lộ hashes.
    */
   async getSessionInfo(sessionToken: string): Promise<SessionInfo> {
+    if (!isValidSessionToken(sessionToken)) {
+      return { valid: false, keyCount: 0 };
+    }
+
     const hashes = await this.getSessionKeyHashes(sessionToken);
     if (!hashes) {
       return { valid: false, keyCount: 0 };
@@ -244,7 +249,7 @@ class SessionStore {
    * Xóa phiên làm việc khi người dùng đăng xuất hoặc gỡ keys.
    */
   async deleteSession(sessionToken: string): Promise<boolean> {
-    if (!sessionToken || typeof sessionToken !== "string") {
+    if (!isValidSessionToken(sessionToken)) {
       return false;
     }
 

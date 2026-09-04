@@ -39,6 +39,10 @@ import { metricsService } from "../services/metricsService";
 import { modelInfoService } from "../services/modelInfoService";
 import { redisManager } from "../services/redisService";
 import { generateWsTicket } from "../services/wsTicketService";
+import { requireVerifiedUser, AuthenticatedRequest } from "../middleware/authMiddleware";
+import { projectAuthService } from "../services/projectAuthService";
+import { isValidSafeIdentifier, isValidSafeRole } from "../utils/validation";
+import { ProjectRole } from "../types/appsec";
 import { SERVER_CONFIG } from "@shared/constants";
 
 const router = Router();
@@ -63,21 +67,47 @@ router.post("/auth/login", authLoginRateLimiter, botProtection, loginHandler);
 router.post("/auth/logout", logoutHandler);
 
 // --- WebSocket Ticket Endpoint (Server-Signed Ticket chống BOLA/IDOR) ---
-router.post("/ws-ticket", (req: Request, res: Response) => {
-  const { projectId, chapterId, userEmail, role } = req.body || {};
+router.post("/ws-ticket", requireVerifiedUser, async (req: AuthenticatedRequest, res: Response) => {
+  const { projectId, chapterId, role } = req.body || {};
   if (!projectId || typeof projectId !== "string" || !chapterId || typeof chapterId !== "string") {
-    res.status(400).json({ error: "Yêu cầu cung cấp đầy đủ projectId và chapterId." });
+    res.status(400).json({ error: "Yêu cầu cung cấp đầy đủ projectId và chapterId.", code: "MISSING_PARAMETERS" });
     return;
   }
-  const email = typeof userEmail === "string" && userEmail.trim().length > 0
-    ? userEmail.trim()
-    : "user@local";
+
+  const cleanProjectId = projectId.trim();
+  const cleanChapterId = chapterId.trim();
+
+  if (!isValidSafeIdentifier(cleanProjectId) || !isValidSafeIdentifier(cleanChapterId)) {
+    res.status(400).json({ error: "projectId hoặc chapterId chứa ký tự không hợp lệ.", code: "INVALID_IDENTIFIER" });
+    return;
+  }
+
+  const cleanRole = typeof role === "string" ? role.trim() : "editor";
+  if (!isValidSafeRole(cleanRole)) {
+    res.status(400).json({ error: "role không hợp lệ.", code: "INVALID_ROLE" });
+    return;
+  }
+
+  const userEmail = req.verifiedUser?.email;
+  if (!userEmail) {
+    res.status(401).json({ error: "Không tìm thấy thông tin người dùng đã xác minh.", code: "UNAUTHORIZED" });
+    return;
+  }
+
+  const accessResult = await projectAuthService.verifyProjectAccess(cleanProjectId, userEmail);
+  if (!accessResult.hasAccess) {
+    res.status(403).json({
+      error: "Bạn không có quyền truy cập dự án này.",
+      code: "FORBIDDEN_PROJECT_ACCESS",
+    });
+    return;
+  }
 
   const ticket = generateWsTicket({
-    projectId: projectId.trim(),
-    chapterId: chapterId.trim(),
-    userEmail: email,
-    role: typeof role === "string" ? role : "editor",
+    projectId: cleanProjectId,
+    chapterId: cleanChapterId,
+    userEmail,
+    role: cleanRole as ProjectRole,
   });
 
   res.status(200).json({

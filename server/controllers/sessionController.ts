@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { sessionStore } from "../services/sessionStore";
-import { validateSessionKeysBody } from "../utils/validation";
+import { validateSessionKeysBody, isValidSessionToken } from "../utils/validation";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("SessionController");
@@ -65,6 +65,15 @@ export async function getSessionStatusHandler(req: Request, res: Response): Prom
       return;
     }
 
+    // Nếu token chứa ký tự điều khiển nguy hiểm (CRLF, null byte, glob, SQL quotes) -> 400
+    if (/[\r\n\0\x00-\x1F]/.test(token) || token.includes('*') || token.includes('..') || token.includes("'")) {
+      res.status(400).json({
+        code: "INVALID_SESSION_TOKEN",
+        error: "Session token không đúng định dạng an toàn.",
+      });
+      return;
+    }
+
     const info = await sessionStore.getSessionInfo(token);
     res.status(200).json(info);
   } catch (error: any) {
@@ -97,6 +106,14 @@ export async function deleteSessionHandler(req: Request, res: Response): Promise
       res.status(401).json({
         code: "MISSING_SESSION_TOKEN",
         error: "Yêu cầu header X-Session-Token để thu hồi phiên làm việc.",
+      });
+      return;
+    }
+
+    if (!isValidSessionToken(token)) {
+      res.status(400).json({
+        code: "INVALID_SESSION_TOKEN",
+        error: "Session token không đúng định dạng an toàn.",
       });
       return;
     }

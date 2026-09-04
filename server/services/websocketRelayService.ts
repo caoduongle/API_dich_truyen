@@ -2,6 +2,7 @@ import { Server as HttpServer, IncomingMessage } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Duplex } from 'stream';
 import { verifyWsTicket } from './wsTicketService';
+import { isValidSafeIdentifier } from '../utils/validation';
 
 // Quản lý số kết nối trên từng IP để chống cạn kiệt socket file descriptors
 const ipConnectionCounts = new Map<string, number>();
@@ -132,66 +133,40 @@ export function setupWebSocketRelay(server: HttpServer): WebSocketServer {
 
       const projectId = url.searchParams.get('projectId');
       const chapterId = url.searchParams.get('chapterId');
-      const token = url.searchParams.get('token');
 
-      if (!projectId || !chapterId) {
+      if (
+        !projectId ||
+        !chapterId ||
+        !isValidSafeIdentifier(projectId) ||
+        !isValidSafeIdentifier(chapterId)
+      ) {
         socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      // 2. Xác thực quyền truy cập phòng CRDT: Ưu tiên Server-Signed Ticket (Tiêu chuẩn 6)
+      // 2. Xác thực quyền truy cập phòng CRDT: Bắt buộc Server-Signed Ticket hợp lệ (Chống BOLA/IDOR)
       const ticket = url.searchParams.get('ticket');
-      let userEmail = '';
-
-      if (ticket && ticket.trim().length > 0) {
-        const ticketResult = verifyWsTicket(ticket.trim());
-        if (!ticketResult.valid || !ticketResult.payload) {
-          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-          socket.destroy();
-          return;
-        }
-        if (ticketResult.payload.projectId !== projectId || ticketResult.payload.chapterId !== chapterId) {
-          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-          socket.destroy();
-          return;
-        }
-        userEmail = ticketResult.payload.userEmail;
-      } else {
-        // Chế độ tương thích ngược: Xác thực Google OAuth Token
-        if (!token || !token.trim()) {
-          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-          socket.destroy();
-          return;
-        }
-
-        const userInfo = await verifyGoogleAccessToken(token.trim());
-        if (!userInfo || !userInfo.email) {
-          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-          socket.destroy();
-          return;
-        }
-
-        userEmail = userInfo.email;
-
-        // Phòng chống IDOR: Thẩm định quyền cộng tác viên nếu có danh sách chỉ định
-        const collabsParam = url.searchParams.get('collaborators');
-        if (collabsParam) {
-          try {
-            const parsed = JSON.parse(collabsParam);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const hasAccess = verifyCollaboratorAccess(userEmail, parsed);
-              if (!hasAccess) {
-                socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-                socket.destroy();
-                return;
-              }
-            }
-          } catch {
-            // Bỏ qua lỗi cú pháp JSON không hợp lệ
-          }
-        }
+      if (!ticket || !ticket.trim()) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
       }
+
+      const ticketResult = verifyWsTicket(ticket.trim());
+      if (!ticketResult.valid || !ticketResult.payload) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      if (ticketResult.payload.projectId !== projectId || ticketResult.payload.chapterId !== chapterId) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      const userEmail = ticketResult.payload.userEmail;
 
       incrementIpConnection(clientIp);
 

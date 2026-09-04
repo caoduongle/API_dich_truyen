@@ -305,3 +305,37 @@ export function validateAlignmentBody(body: any): ValidationResult<CleanedAlignm
     },
   };
 }
+
+// =============================================================================
+// AppSec Security Validation Rules (Feature 088)
+// =============================================================================
+
+export const APPSEC_VALIDATION = {
+  UUID_REGEX: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  SAFE_IDENTIFIER_REGEX: /^[a-zA-Z0-9_\-]{1,64}$/,
+  SESSION_TOKEN_REGEX: /^session_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  HEX64_REGEX: /^[0-9a-f]{64}$/,
+  SAFE_ROLE_REGEX: /^(owner|editor|viewer)$/,
+  EMAIL_REGEX: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+};
+
+export function isValidSafeIdentifier(val: unknown): boolean {
+  return typeof val === "string" && APPSEC_VALIDATION.SAFE_IDENTIFIER_REGEX.test(val.trim());
+}
+
+export function isValidSessionToken(val: unknown): boolean {
+  return typeof val === "string" && APPSEC_VALIDATION.SESSION_TOKEN_REGEX.test(val.trim());
+}
+
+export function isValidSafeRole(val: unknown): boolean {
+  return typeof val === "string" && APPSEC_VALIDATION.SAFE_ROLE_REGEX.test(val.trim());
+}
+
+export function isValidUUID(val: unknown): boolean {
+  return typeof val === "string" && APPSEC_VALIDATION.UUID_REGEX.test(val.trim());
+}
+
+export function isValidEmail(val: unknown): boolean {
+  return typeof val === "string" && APPSEC_VALIDATION.EMAIL_REGEX.test(val.trim());
+}
+

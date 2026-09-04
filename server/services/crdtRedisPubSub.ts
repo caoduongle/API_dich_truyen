@@ -8,8 +8,23 @@ const INSTANCE_ID = `inst_${Math.random().toString(36).slice(2, 9)}_${Date.now()
 let subClient: Redis | null = null;
 let pubClient: Redis | null = null;
 
+export const SAFE_ROOM_ID_REGEX = /^[a-zA-Z0-9_\-:]{1,160}$/;
+
+export function isValidRoomId(roomId: unknown): boolean {
+  return (
+    typeof roomId === 'string' &&
+    SAFE_ROOM_ID_REGEX.test(roomId.trim()) &&
+    !roomId.includes('\r') &&
+    !roomId.includes('\n') &&
+    !roomId.includes('\0')
+  );
+}
+
 export function formatRedisChannel(roomId: string): string {
-  return `${CHANNEL_PREFIX}${roomId}`;
+  if (!isValidRoomId(roomId)) {
+    throw new Error(`Ký danh roomId không hợp lệ hoặc chứa ký tự nguy hiểm: ${roomId}`);
+  }
+  return `${CHANNEL_PREFIX}${roomId.trim()}`;
 }
 
 export function parseRedisChannel(channel: string): string {

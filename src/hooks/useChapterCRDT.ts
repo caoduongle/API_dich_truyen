@@ -9,6 +9,7 @@ import {
   applyTextDiff,
   readChapterFromYDoc,
   exportDocUpdate,
+  requestWsTicket,
 } from '../services/crdtDocManager';
 import { googleAuthService } from '../services/googleAuthService';
 import { saveChapterToDB, saveCrdtState } from '../services/db';
@@ -141,7 +142,9 @@ export function useChapterCRDT({
     };
     doc.on('update', handleDocUpdate);
 
-    // 4. Nếu dự án có chia sẻ cộng tác, kết nối WebSocket Relay
+    let isCancelled = false;
+
+    // 4. Nếu dự án có chia sẻ cộng tác, kết nối WebSocket Relay bằng Server-Signed Ticket
     if (isShared && typeof window !== 'undefined') {
       setStatus('connecting');
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -149,60 +152,70 @@ export function useChapterCRDT({
       const token = googleAuthService.getAccessToken() || '';
       const roomId = `project_${projectId}_chapter_${chapterId}`;
 
-      try {
-        const provider = new WebsocketProvider(
-          `${protocol}//${host}/ws/sync?projectId=${encodeURIComponent(projectId)}&chapterId=${encodeURIComponent(chapterId)}&token=${encodeURIComponent(token)}`,
-          roomId,
-          doc,
-          { connect: true }
-        );
+      requestWsTicket(projectId, chapterId, token).then((ticket) => {
+        if (isCancelled) return;
+        if (!ticket) {
+          console.warn('[useChapterCRDT] Không thể xin ticket kết nối relay, chuyển sang chế độ offline');
+          setStatus('offline');
+          return;
+        }
 
-        providerRef.current = provider;
+        try {
+          const provider = new WebsocketProvider(
+            `${protocol}//${host}/ws/sync?projectId=${encodeURIComponent(projectId)}&chapterId=${encodeURIComponent(chapterId)}&ticket=${encodeURIComponent(ticket)}`,
+            roomId,
+            doc,
+            { connect: true }
+          );
 
-        provider.on('status', ({ status: pStatus }: { status: string }) => {
-          if (pStatus === 'connected') {
-            setStatus('connected');
-          } else if (pStatus === 'connecting') {
-            setStatus('connecting');
-          } else {
-            setStatus('disconnected');
-          }
-        });
+          providerRef.current = provider;
 
-        // 5. Cấu hình Awareness (hiện diện trực tiếp)
-        const awareness = provider.awareness;
-        const userColor = generateColor(userEmail || userName);
-
-        awareness.setLocalStateField('user', {
-          name: userName,
-          email: userEmail,
-          picture: userPicture,
-          color: userColor,
-          activeField: 'idle',
-          lastActive: Date.now(),
-        });
-
-        const handleAwarenessChange = () => {
-          const states = awareness.getStates();
-          const activeUsers: UserPresence[] = [];
-          states.forEach((state: any, clientId: number) => {
-            if (clientId !== awareness.clientID && state.user) {
-              activeUsers.push(state.user as UserPresence);
+          provider.on('status', ({ status: pStatus }: { status: string }) => {
+            if (pStatus === 'connected') {
+              setStatus('connected');
+            } else if (pStatus === 'connecting') {
+              setStatus('connecting');
+            } else {
+              setStatus('disconnected');
             }
           });
-          setCollaborators(activeUsers);
-        };
 
-        awareness.on('change', handleAwarenessChange);
-      } catch (err) {
-        console.warn('[useChapterCRDT] Lỗi kết nối WebSocket relay:', err);
-        setStatus('offline');
-      }
+          // 5. Cấu hình Awareness (hiện diện trực tiếp)
+          const awareness = provider.awareness;
+          const userColor = generateColor(userEmail || userName);
+
+          awareness.setLocalStateField('user', {
+            name: userName,
+            email: userEmail,
+            picture: userPicture,
+            color: userColor,
+            activeField: 'idle',
+            lastActive: Date.now(),
+          });
+
+          const handleAwarenessChange = () => {
+            const states = awareness.getStates();
+            const activeUsers: UserPresence[] = [];
+            states.forEach((state: any, clientId: number) => {
+              if (clientId !== awareness.clientID && state.user) {
+                activeUsers.push(state.user as UserPresence);
+              }
+            });
+            setCollaborators(activeUsers);
+          };
+
+          awareness.on('change', handleAwarenessChange);
+        } catch (err) {
+          console.warn('[useChapterCRDT] Lỗi kết nối WebSocket relay:', err);
+          setStatus('offline');
+        }
+      });
     } else {
       setStatus('offline');
     }
 
     return () => {
+      isCancelled = true;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }

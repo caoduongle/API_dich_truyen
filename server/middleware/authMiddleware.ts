@@ -90,3 +90,61 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 
   next();
 }
+
+import { verifyGoogleAccessToken } from "../services/websocketRelayService";
+import { VerifiedUserContext } from "../types/appsec";
+
+export interface AuthenticatedRequest extends Request {
+  verifiedUser?: VerifiedUserContext;
+}
+
+/**
+ * Middleware bắt buộc phải có thông tin định danh người dùng đã xác minh (User Identity).
+ * Trích xuất từ Header Authorization: Bearer <google_access_token> hoặc X-Google-Token.
+ */
+export async function requireVerifiedUser(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const authHeader = req.headers["authorization"] || req.headers["x-google-token"];
+  if (typeof authHeader !== "string" || !authHeader.trim()) {
+    res.status(401).json({
+      error: "Yêu cầu đăng nhập và cung cấp Authorization Bearer Token.",
+      code: "UNAUTHORIZED",
+    });
+    return;
+  }
+
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.substring(7).trim()
+    : authHeader.trim();
+
+  if (!token) {
+    res.status(401).json({
+      error: "Token xác thực không được để trống.",
+      code: "INVALID_TOKEN",
+    });
+    return;
+  }
+
+  // Xác minh token qua Google OAuth userinfo endpoint (với cache RAM)
+  const userInfo = await verifyGoogleAccessToken(token);
+  if (!userInfo || !userInfo.email) {
+    res.status(401).json({
+      error: "Token xác thực người dùng không hợp lệ hoặc đã hết hạn.",
+      code: "INVALID_OR_EXPIRED_TOKEN",
+    });
+    return;
+  }
+
+  req.verifiedUser = {
+    email: userInfo.email.toLowerCase().trim(),
+    name: userInfo.name || userInfo.email,
+    picture: userInfo.picture,
+    expiresAt: Date.now() + 5 * 60 * 1000,
+  };
+
+  next();
+}
+
