@@ -17,7 +17,8 @@ export function sanitizeFilename(rawFilename: string): string {
   }
 
   // Lấy tên tệp cơ bản, loại bỏ thư mục cha
-  const baseName = path.basename(rawFilename).trim();
+  const normalizedPath = rawFilename.replace(/\\/g, "/");
+  const baseName = path.basename(normalizedPath).trim();
   // Loại bỏ các ký tự điều khiển hoặc ký tự nguy hiểm
   const sanitized = baseName.replace(/[^a-zA-Z0-9_\-\. \u00C0-\u024F\u1EA0-\u1EF9\u4E00-\u9FFF]/g, "_");
 
