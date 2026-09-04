@@ -40,6 +40,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
   const [revealClientId, setRevealClientId] = useState<boolean>(false);
   const [revealPickerKey, setRevealPickerKey] = useState<boolean>(false);
   const [revealAppId, setRevealAppId] = useState<boolean>(false);
+  const [avatarError, setAvatarError] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isOpeningPicker, setIsOpeningPicker] = useState<boolean>(false);
@@ -48,6 +49,7 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
   useEffect(() => {
     const unsubscribe = googleAuthService.onAuthStateChanged((newState) => {
       setAuthState(newState);
+      setAvatarError(false);
       setClientIdInput(googleAuthService.getCustomClientId());
     });
     return unsubscribe;
@@ -310,10 +312,15 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
             {/* User Profile Info */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                {authState.user.picture ? (
+                {authState.user.picture && !avatarError ? (
                   <img
                     src={authState.user.picture}
                     alt={authState.user.name}
+                    width={40}
+                    height={40}
+                    loading="lazy"
+                    decoding="async"
+                    onError={() => setAvatarError(true)}
                     className="w-10 h-10 rounded-full border border-parchment-2 object-cover"
                     referrerPolicy="no-referrer"
                   />
@@ -327,7 +334,13 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
                     <span className="text-xs font-bold text-text-main">{authState.user.name}</span>
                     <Badge tone="polish">Đã kết nối</Badge>
                   </div>
-                  <span className="text-[11px] text-text-muted">{authState.user.email}</span>
+                  <a
+                    href={`mailto:${authState.user.email}`}
+                    className="text-[11px] text-text-muted hover:text-polish transition-colors block"
+                    title="Gửi email"
+                  >
+                    {authState.user.email}
+                  </a>
                 </div>
               </div>
               <Button

@@ -10,10 +10,12 @@ interface GoogleUserButtonProps {
 
 export const GoogleUserButton: React.FC<GoogleUserButtonProps> = ({ onOpenSyncModal }) => {
   const [authState, setAuthState] = useState<GoogleAuthState>(googleAuthService.getAuthState());
+  const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     const unsubscribe = googleAuthService.onAuthStateChanged((newState) => {
       setAuthState(newState);
+      setImgError(false);
     });
     return unsubscribe;
   }, []);
@@ -29,10 +31,15 @@ export const GoogleUserButton: React.FC<GoogleUserButtonProps> = ({ onOpenSyncMo
         title={`Tài khoản Google: ${authState.user.email} (Bấm để mở Quản lý Đồng bộ Drive)`}
         className="flex items-center gap-1.5 py-1 px-2.5 max-w-[160px] truncate"
       >
-        {authState.user.picture ? (
+        {authState.user.picture && !imgError ? (
           <img
             src={authState.user.picture}
             alt={authState.user.name}
+            width={16}
+            height={16}
+            loading="lazy"
+            decoding="async"
+            onError={() => setImgError(true)}
             className="w-4 h-4 rounded-full border border-parchment-2 shrink-0 object-cover"
             referrerPolicy="no-referrer"
           />

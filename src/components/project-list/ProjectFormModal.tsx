@@ -6,6 +6,7 @@ import { apiFetch } from '../../utils/apiClient';
 import {
   Plus, Edit3, Check, Upload, FileText, Sparkles, Loader2
 } from 'lucide-react';
+import { cn } from '../../lib/cn';
 
 export interface ProjectFormModalProps {
   editingProject: StoryProject | null;
@@ -33,6 +34,7 @@ export function ProjectFormModal({
   const { showToast } = useNotifications();
 
   const [title, setTitle] = useState(editingProject?.title || '');
+  const [titleError, setTitleError] = useState<string | null>(null);
   const [author, setAuthor] = useState(editingProject?.author || '');
   const [genre, setGenre] = useState(editingProject?.genre || 'Tiên Hiệp');
   const [tone, setTone] = useState(editingProject?.tone || 'Dịch thuần Việt mượt mà');
@@ -170,6 +172,7 @@ export function ProjectFormModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
+      setTitleError('Vui lòng điền tên tiểu thuyết / bộ truyện dịch.');
       showToast({ message: 'Vui lòng điền tên tiểu thuyết.', type: 'warning' });
       return;
     }
@@ -196,7 +199,7 @@ export function ProjectFormModal({
 
     onSave({
       title: title.trim(),
-      author: author.trim() || 'Khuyết Danh',
+      author: author.trim() || 'Chưa rõ tác giả',
       genre,
       tone,
       description: description.trim(),
@@ -233,10 +236,20 @@ export function ProjectFormModal({
             type="text"
             placeholder="Ví dụ: Đấu Phá Thương Khung, Thần Điêu Đại Hiệp..."
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-xs bg-ink border border-parchment-2 rounded-[2px] px-3 py-2 text-text-main font-semibold focus:outline-none focus:border-polish"
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (titleError) setTitleError(null);
+            }}
+            className={cn(
+              "w-full text-xs bg-ink border rounded-[2px] px-3 py-2 text-text-main font-semibold focus:outline-none",
+              titleError ? "border-polish bg-polish/5" : "border-parchment-2 focus:border-polish"
+            )}
+            aria-invalid={!!titleError}
             required
           />
+          {titleError && (
+            <p className="text-[10px] text-polish font-medium mt-1">{titleError}</p>
+          )}
         </div>
 
         <div className="space-y-1">

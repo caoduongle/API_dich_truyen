@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useTransition } from 'react';
 import { 
   BookOpenText, Settings, History, Folder, Cpu, Languages, Lock, Unlock, ShieldCheck,
-  ChevronLeft, ChevronRight, MoreHorizontal, ChevronDown
+  ChevronLeft, ChevronRight, MoreHorizontal, ChevronDown, X, Phone, Mail
 } from 'lucide-react';
 import { Chapter, StoryProject } from './types';
 import { NotificationProvider } from './components/NotificationSystem';
@@ -91,6 +91,7 @@ function AppContent() {
   const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
   const [showCustomThemeModal, setShowCustomThemeModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
@@ -106,6 +107,7 @@ function AppContent() {
   } = useScrollOverflow<HTMLDivElement>({ threshold: 2, scrollStep: 220 });
 
   const [showMoreNavMenu, setShowMoreNavMenu] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const moreMenuRef = React.useRef<HTMLDivElement | null>(null);
 
   // Đóng More Menu khi click ra ngoài hoặc bấm Escape
@@ -128,6 +130,21 @@ function AppContent() {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [showMoreNavMenu]);
+
+  // Cập nhật tiêu đề trang động theo thời gian thực (Page Title per workspace & book)
+  useEffect(() => {
+    const tabNames: Record<string, string> = {
+      'translate': 'Bàn Dịch Thuật',
+      'auto-translate': 'Dịch Tự Động Toàn Bộ',
+      'glossary': 'Từ Điển Nhân Vật & Thuật Ngữ',
+      'history': 'Lịch Sử Chương Dịch',
+      'projects': 'Quản Lý Tiểu Thuyết',
+      'hako-checker': 'Kiểm Định Chất Lượng Hako',
+    };
+    const currentTabName = tabNames[activeTab] || 'Dịch Thuật';
+    const bookTitle = activeProject?.title ? `${activeProject.title} — ` : '';
+    document.title = `${bookTitle}${currentTabName} | Bàn Biên Tập Bản Thảo Chu Sa`;
+  }, [activeTab, activeProject?.title]);
 
   // Tự động cuộn tab kích hoạt vào vùng nhìn thấy khi activeTab thay đổi (click hoặc phím tắt Alt+1..6)
   useEffect(() => {
@@ -215,18 +232,36 @@ function AppContent() {
   }
 
   return (
-    <div id="ai-story-translator-app" className="min-h-screen bg-ink flex flex-col font-sans text-text-main selection:bg-polish/25 selection:text-text-main">
+    <div id="ai-story-translator-app" className="min-h-screen w-full max-w-full overflow-x-clip bg-ink flex flex-col font-sans text-text-main selection:bg-polish/25 selection:text-text-main">
 
       {/* Platform Header — z-30 ladder rule */}
       <header className="sticky top-0 z-30 h-14 bg-parchment/95 backdrop-blur-xs border-b border-parchment-2 flex items-center justify-between px-4 sm:px-6 shrink-0 shadow-xs">
-        <div className="flex items-center gap-3">
-          <Seal character="譯" className="text-[13px]" />
-          <div>
-            <h1 className="text-xs sm:text-sm font-display font-semibold tracking-wide text-text-main flex items-center gap-1.5 leading-none">
-              {t('common.appTitle')}
-              <span className="text-[9px] font-mono text-text-muted bg-parchment-2 px-1.5 py-0.5 rounded-[2px] border border-parchment-2">v2.4.0</span>
-            </h1>
-          </div>
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Nút Mobile Hamburger Menu */}
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+            aria-label={isMobileMenuOpen ? "Đóng menu điều hướng" : "Mở menu điều hướng"}
+            aria-expanded={isMobileMenuOpen}
+            className="md:hidden flex items-center justify-center w-8 h-8 rounded-[2px] bg-ink/60 border border-parchment-2 text-text-muted hover:text-text-main transition-colors cursor-pointer"
+          >
+            {isMobileMenuOpen ? <X className="w-4 h-4 text-polish" /> : <MoreHorizontal className="w-4 h-4" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => switchTab('translate')}
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group focus:outline-none text-left"
+            title="Quay lại Bàn Dịch chính"
+          >
+            <Seal character="譯" className="text-[13px] group-hover:scale-105 transition-transform" />
+            <div>
+              <h1 className="text-xs sm:text-sm font-display font-semibold tracking-wide text-text-main flex items-center gap-1.5 leading-none">
+                {t('common.appTitle')}
+                <span className="text-[9px] font-mono text-text-muted bg-parchment-2 px-1.5 py-0.5 rounded-[2px] border border-parchment-2">v2.4.0</span>
+              </h1>
+            </div>
+          </button>
         </div>
 
         <div className="flex items-center gap-2.5 sm:gap-3">
@@ -281,6 +316,56 @@ function AppContent() {
         </div>
       </header>
 
+      {/* Mobile Drawer Navigation Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 top-14 z-40 bg-ink/80 backdrop-blur-xs md:hidden animate-in fade-in duration-150"
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          <div
+            className="bg-parchment border-b border-parchment-2 shadow-xl p-4 space-y-1.5 animate-in slide-in-from-top-2 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted pb-2 border-b border-parchment-2 mb-2 flex items-center justify-between">
+              <span>Phân vùng làm việc</span>
+              <span className="text-[9px] text-polish font-mono">6 Phân Vùng</span>
+            </div>
+            {[
+              { key: 'translate', icon: BookOpenText, label: t('nav.translate'), shortcut: 'Alt+1' },
+              { key: 'auto-translate', icon: Cpu, label: t('nav.autoTranslate'), shortcut: 'Alt+2' },
+              { key: 'glossary', icon: Settings, label: t('nav.glossary'), shortcut: 'Alt+3' },
+              { key: 'history', icon: History, label: t('nav.history'), shortcut: 'Alt+4' },
+              { key: 'projects', icon: Folder, label: t('nav.projects'), shortcut: 'Alt+5' },
+              { key: 'hako-checker', icon: ShieldCheck, label: t('nav.hakoChecker'), shortcut: 'Alt+6' },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    switchTab(tab.key as any);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-[2px] text-xs font-semibold transition-colors cursor-pointer ${
+                    isActive
+                      ? 'bg-parchment-2 text-text-main border-l-2 border-polish font-bold'
+                      : 'text-text-muted hover:text-text-main hover:bg-parchment-2/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-polish' : 'text-text-muted'}`} />
+                    <span>{tab.label}</span>
+                  </div>
+                  <Kbd className="text-[9px]">{tab.shortcut}</Kbd>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Tab Navigation — z-30 ladder rule */}
       <div className="bg-parchment border-b border-parchment-2 sticky top-14 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -316,6 +401,7 @@ function AppContent() {
                 <nav role="tablist" aria-label="Phân vùng làm việc chính" className="flex space-x-1 min-w-max">
                   <button
                     id="tab-translate"
+                    type="button"
                     role="tab"
                     aria-selected={activeTab === 'translate'}
                     aria-controls="panel-translate"
@@ -335,6 +421,7 @@ function AppContent() {
 
                   <button
                     id="tab-auto-translate"
+                    type="button"
                     role="tab"
                     aria-selected={activeTab === 'auto-translate'}
                     aria-controls="panel-auto-translate"
@@ -354,6 +441,7 @@ function AppContent() {
 
                   <button
                     id="tab-glossary"
+                    type="button"
                     role="tab"
                     aria-selected={activeTab === 'glossary'}
                     aria-controls="panel-glossary"
@@ -383,6 +471,7 @@ function AppContent() {
 
                   <button
                     id="tab-history"
+                    type="button"
                     role="tab"
                     aria-selected={activeTab === 'history'}
                     aria-controls="panel-history"
@@ -407,6 +496,7 @@ function AppContent() {
 
                   <button
                     id="tab-projects"
+                    type="button"
                     role="tab"
                     aria-selected={activeTab === 'projects'}
                     aria-controls="panel-projects"
@@ -429,6 +519,7 @@ function AppContent() {
 
                   <button
                     id="tab-hako-checker"
+                    type="button"
                     role="tab"
                     aria-selected={activeTab === 'hako-checker'}
                     aria-controls="panel-hako-checker"
@@ -471,7 +562,7 @@ function AppContent() {
             </div>
 
             {/* More Tabs Popover Dropdown Menu */}
-            <div className="relative shrink-0 flex items-center">
+            <div className="relative shrink-0 hidden sm:flex xl:hidden items-center">
               <button
                 id="nav-more-menu-btn"
                 type="button"
@@ -766,20 +857,129 @@ function AppContent() {
 
       {/* Footer */}
       <footer className="bg-parchment border-t border-parchment-2 text-text-muted py-8 mt-12 text-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded-[2px] bg-ink flex items-center justify-center border border-parchment-2">
-              <Languages className="w-3 h-3 text-polish" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4 pb-4 border-b border-parchment-2/60">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-[2px] bg-ink flex items-center justify-center border border-parchment-2">
+                <Languages className="w-3.5 h-3.5 text-polish" />
+              </div>
+              <div>
+                <span className="font-display font-semibold text-text-main tracking-wider uppercase text-[11px] block">
+                  ZHONG-VIET AI TRANSLATOR
+                </span>
+                <span className="text-[10px] text-text-muted">
+                  Bàn Biên Tập Bản Thảo Chu Sa &bull; Tối ưu dịch thuật tiên hiệp, kiếm hiệp
+                </span>
+              </div>
             </div>
-            <span className="font-display font-semibold text-text-main tracking-wider uppercase text-[11px]">ZHONG-VIET AI TRANSLATOR</span>
+
+            {/* Links, Policy & Contact */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-text-muted font-medium justify-center md:justify-end">
+              <button
+                type="button"
+                onClick={() => setShowPrivacyModal(true)}
+                className="hover:text-polish transition-colors cursor-pointer"
+              >
+                Chính sách bảo mật
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPrivacyModal(true)}
+                className="hover:text-polish transition-colors cursor-pointer"
+              >
+                Điều khoản sử dụng
+              </button>
+              <a
+                href="https://github.com/caoduongle/API_dich_truyen"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-polish transition-colors inline-flex items-center gap-1"
+              >
+                Mã nguồn GitHub
+              </a>
+              <a
+                href="mailto:hotro@dichtruyen.ai"
+                className="hover:text-polish transition-colors inline-flex items-center gap-1"
+                title="Gửi email hỗ trợ kỹ thuật"
+              >
+                <Mail className="w-3.5 h-3.5 text-polish" />
+                <span>hotro@dichtruyen.ai</span>
+              </a>
+              <a
+                href="tel:+84988000111"
+                className="hover:text-polish transition-colors inline-flex items-center gap-1"
+                title="Gọi đường dây nóng hỗ trợ"
+              >
+                <Phone className="w-3.5 h-3.5 text-polish" />
+                <span>+84 988 000 111</span>
+              </a>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-x-6 gap-y-2 text-text-muted font-medium justify-center md:justify-end">
-            <span>Dịch Giản &amp; Phồn thể</span>
-            <span>Glossary Manager v2.4</span>
-            <span className="bg-ink px-2 py-0.5 rounded-[2px] text-[10px] text-text-main border border-parchment-2">IndexedDB Persistent Storage</span>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px]">
+            <p className="text-text-muted">
+              &copy; {new Date().getFullYear()} ZHONG-VIET AI TRANSLATOR. Giữ toàn quyền bảo lưu.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <span className="bg-ink px-2 py-0.5 rounded-[2px] text-[10px] text-text-main border border-parchment-2">
+                IndexedDB Persistent Storage
+              </span>
+              <span className="bg-ink px-2 py-0.5 rounded-[2px] text-[10px] text-text-main border border-parchment-2">
+                Gemini 2.5 Pro &amp; Flash Ready
+              </span>
+            </div>
           </div>
         </div>
       </footer>
+
+      {/* Modal Chính Sách Bảo Mật & Quyền Riêng Tư */}
+      {showPrivacyModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="privacy-modal-title"
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200"
+          onClick={() => setShowPrivacyModal(false)}
+        >
+          <div
+            className="bg-parchment border border-parchment-2 rounded-md max-w-lg w-full p-6 shadow-2xl relative text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-parchment-2 mb-4">
+              <div className="flex items-center gap-2">
+                <Seal character="隱" size="sm" tone="polish" />
+                <h3 id="privacy-modal-title" className="font-display font-bold text-text-main text-base">
+                  Chính Sách Bảo Mật &amp; Điều Khoản
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPrivacyModal(false)}
+                className="text-text-muted hover:text-text-main p-1 rounded-sm cursor-pointer"
+                aria-label="Đóng"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3 text-xs text-text-muted leading-relaxed">
+              <p>
+                <strong className="text-text-main">1. Lưu Trữ Cục Bộ (IndexedDB):</strong> Toàn bộ dữ liệu tác phẩm, các chương truyện dịch và từ điển thuật ngữ được lưu trữ 100% trong trình duyệt của bạn (IndexedDB client-side). Không có dữ liệu truyện nào bị gửi hay thu thập trái phép lên máy chủ từ xa.
+              </p>
+              <p>
+                <strong className="text-text-main">2. Bảo Mật Khóa API:</strong> Khóa Gemini API Key của bạn được lưu an toàn tại localStorage trình duyệt của bạn, chỉ được dùng để gửi yêu cầu dịch thuật trực tiếp đến Google AI.
+              </p>
+              <p>
+                <strong className="text-text-main">3. Quyền Sở Hữu Bản Quyền:</strong> Toàn bộ bản dịch thuộc quyền sở hữu của người dùng. Hệ thống cung cấp công cụ xuất file TXT/EPUB để bạn toàn quyền sao lưu và quản lý.
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <Button variant="primary" size="sm" onClick={() => setShowPrivacyModal(false)}>
+                Đã hiểu và đồng ý
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Cấu hình AI */}
       {showApiSettings && (

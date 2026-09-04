@@ -27,18 +27,19 @@ const VARIANT_STYLES: Record<ButtonVariant, string> = {
 };
 
 const SIZE_STYLES: Record<ButtonSize, string> = {
-  sm: 'text-xs px-3 py-1.5 gap-1.5',
-  md: 'text-sm px-4 py-2 gap-2',
-  icon: 'p-1.5',
+  sm: 'text-xs px-3 py-2 sm:py-1.5 min-h-[38px] sm:min-h-[32px] gap-1.5',
+  md: 'text-sm px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-[38px] gap-2',
+  icon: 'p-2.5 sm:p-1.5 min-w-[38px] min-h-[38px] sm:min-w-[32px] sm:min-h-[32px]',
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = 'secondary', size = 'sm', icon, className, children, disabled, ...props },
+  { variant = 'secondary', size = 'sm', type = 'button', icon, className, children, disabled, ...props },
   ref
 ) {
   return (
     <button
       ref={ref}
+      type={type}
       disabled={disabled}
       className={cn(
         'inline-flex items-center justify-center rounded-[2px] cursor-pointer transition-colors',

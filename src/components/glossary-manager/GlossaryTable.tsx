@@ -321,42 +321,44 @@ export const GlossaryTable = React.memo(function GlossaryTable({
           className="m-4"
         />
       ) : (
-        <div className="w-full text-left">
-          {/* Header Row */}
-          <div className="bg-ink border-b border-parchment-2 grid grid-cols-12 items-center font-bold uppercase tracking-wider text-text-muted text-[10px] py-2.5">
-            <div className="col-span-3 px-3">Chữ Trung (Gốc)</div>
-            <div className="col-span-2 px-3">Phiên âm</div>
-            <div className="col-span-3 px-3">Bản dịch Việt</div>
-            <div className="col-span-2 px-3">Phân loại</div>
-            <div className="col-span-1 px-3">Ngày thêm</div>
-            <div className="col-span-1 px-3 text-center">Thao tác</div>
-          </div>
+        <div className="w-full text-left overflow-x-auto">
+          <div className="min-w-[640px]">
+            {/* Header Row */}
+            <div className="bg-ink border-b border-parchment-2 grid grid-cols-12 items-center font-bold uppercase tracking-wider text-text-muted text-[10px] py-2.5">
+              <div className="col-span-3 px-3">Chữ Trung (Gốc)</div>
+              <div className="col-span-2 px-3">Phiên âm</div>
+              <div className="col-span-3 px-3">Bản dịch Việt</div>
+              <div className="col-span-2 px-3">Phân loại</div>
+              <div className="col-span-1 px-3">Ngày thêm</div>
+              <div className="col-span-1 px-3 text-center">Thao tác</div>
+            </div>
 
-          {/* Virtualized scroll body */}
-          <div 
-            className="overflow-y-auto" 
-            key={`${currentPage}-${pageSize}`}
-            style={{ height: `${activeContainerHeight}px` }}
-            onScroll={onScroll}
-          >
-            <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
-              {visibleItems.map(({ item, style }) => (
-                <GlossaryTableRow
-                  key={item.id}
-                  item={item}
-                  isSelected={selectedItem?.id === item.id}
-                  isEditing={editingId === item.id}
-                  onSelect={handleSelectItem}
-                  onEdit={startEdit}
-                  onDelete={onDeleteGlossaryItem}
-                  onSave={saveEdit}
-                  onCancelEdit={cancelEdit}
-                  getOriginBadge={getOriginBadge}
-                  getBadgeColor={getBadgeColor}
-                  getTypeName={getTypeName}
-                  style={style}
-                />
-              ))}
+            {/* Virtualized scroll body */}
+            <div 
+              className="overflow-y-auto" 
+              key={`${currentPage}-${pageSize}`}
+              style={{ height: `${activeContainerHeight}px` }}
+              onScroll={onScroll}
+            >
+              <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
+                {visibleItems.map(({ item, style }) => (
+                  <GlossaryTableRow
+                    key={item.id}
+                    item={item}
+                    isSelected={selectedItem?.id === item.id}
+                    isEditing={editingId === item.id}
+                    onSelect={handleSelectItem}
+                    onEdit={startEdit}
+                    onDelete={onDeleteGlossaryItem}
+                    onSave={saveEdit}
+                    onCancelEdit={cancelEdit}
+                    getOriginBadge={getOriginBadge}
+                    getBadgeColor={getBadgeColor}
+                    getTypeName={getTypeName}
+                    style={style}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 

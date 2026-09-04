@@ -3,6 +3,7 @@ import { GlossaryType, GlossaryItem } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
 import { Button } from '../ui/Button';
+import { cn } from '../../lib/cn';
 
 interface AddGlossaryFormProps {
   glossary: GlossaryItem[];
@@ -24,6 +25,7 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
   const [type, setType] = useState<GlossaryType>('character');
   const [note, setNote] = useState('');
   const [warningItem, setWarningItem] = useState<GlossaryItem | null>(null);
+  const [errors, setErrors] = useState<{ chinese?: string; vietnamese?: string }>({});
 
   useEffect(() => {
     const trimmed = chinese.trim();
@@ -55,10 +57,16 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chinese.trim() || !vietnamese.trim()) {
-      showToast({ message: "Vui lòng nhập từ gốc tiếng Trung và bản dịch tiếng Việt.", type: 'warning' });
+    const newErrors: { chinese?: string; vietnamese?: string } = {};
+    if (!chinese.trim()) newErrors.chinese = 'Vui lòng nhập từ gốc tiếng Trung.';
+    if (!vietnamese.trim()) newErrors.vietnamese = 'Vui lòng nhập bản dịch tiếng Việt.';
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      showToast({ message: "Vui lòng nhập đầy đủ các trường bắt buộc.", type: 'warning' });
       return;
     }
+
     if (warningItem) {
       showToast({ message: "Thuật ngữ trùng lặp phát hiện. Vui lòng chọn 'Vẫn tạo mới' hoặc 'Dùng entry đó'.", type: 'warning' });
       return;
@@ -73,8 +81,13 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
   };
 
   const handleForceCreate = () => {
-    if (!chinese.trim() || !vietnamese.trim()) {
-      showToast({ message: "Vui lòng nhập từ gốc tiếng Trung và bản dịch tiếng Việt.", type: 'warning' });
+    const newErrors: { chinese?: string; vietnamese?: string } = {};
+    if (!chinese.trim()) newErrors.chinese = 'Vui lòng nhập từ gốc tiếng Trung.';
+    if (!vietnamese.trim()) newErrors.vietnamese = 'Vui lòng nhập bản dịch tiếng Việt.';
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      showToast({ message: "Vui lòng nhập đầy đủ các trường bắt buộc.", type: 'warning' });
       return;
     }
     onSave({ chinese, pinyin, vietnamese, type, note }, true);
@@ -100,10 +113,20 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
             type="text"
             placeholder="Ví dụ: 萧炎"
             value={chinese}
-            onChange={(e) => setChinese(e.target.value)}
-            className="w-full text-xs bg-ink border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-text-main font-serif focus:outline-none focus:border-polish"
+            onChange={(e) => {
+              setChinese(e.target.value);
+              if (errors.chinese) setErrors((prev) => ({ ...prev, chinese: undefined }));
+            }}
+            className={cn(
+              "w-full text-xs bg-ink border rounded-[2px] px-2.5 py-1.5 text-text-main font-serif focus:outline-none",
+              errors.chinese ? "border-polish bg-polish/5" : "border-parchment-2 focus:border-polish"
+            )}
+            aria-invalid={!!errors.chinese}
             required
           />
+          {errors.chinese && (
+            <p className="text-[10px] text-polish font-medium mt-1">{errors.chinese}</p>
+          )}
         </div>
         <div>
           <label className="block text-[10px] uppercase font-bold text-text-muted mb-1">
@@ -127,10 +150,20 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
             type="text"
             placeholder="Ví dụ: Tiêu Viêm"
             value={vietnamese}
-            onChange={(e) => setVietnamese(e.target.value)}
-            className="w-full text-xs bg-ink border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-text-main focus:outline-none focus:border-polish font-semibold"
+            onChange={(e) => {
+              setVietnamese(e.target.value);
+              if (errors.vietnamese) setErrors((prev) => ({ ...prev, vietnamese: undefined }));
+            }}
+            className={cn(
+              "w-full text-xs bg-ink border rounded-[2px] px-2.5 py-1.5 text-text-main focus:outline-none font-semibold",
+              errors.vietnamese ? "border-polish bg-polish/5" : "border-parchment-2 focus:border-polish"
+            )}
+            aria-invalid={!!errors.vietnamese}
             required
           />
+          {errors.vietnamese && (
+            <p className="text-[10px] text-polish font-medium mt-1">{errors.vietnamese}</p>
+          )}
         </div>
         <div>
           <label className="block text-[10px] uppercase font-bold text-text-muted mb-1">

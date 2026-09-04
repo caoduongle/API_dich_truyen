@@ -61,6 +61,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
   const [isSharing, setIsSharing] = useState<boolean>(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [migrationProgress, setMigrationProgress] = useState<SyncProgress | null>(null);
+  const [failedImgIds, setFailedImgIds] = useState<Set<string>>(new Set());
 
   const { showToast } = useNotifications();
 
@@ -410,11 +411,16 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
                   {collaborators.map((c) => (
                     <div key={c.permissionId} className="flex items-center justify-between p-2.5 text-xs">
                       <div className="flex items-center gap-2.5">
-                        {c.photoLink ? (
+                        {c.photoLink && !failedImgIds.has(c.permissionId) ? (
                           <img
                             src={c.photoLink}
-                            alt=""
-                            className="w-6 h-6 rounded-full border border-parchment-2"
+                            alt={c.displayName || c.emailAddress || ''}
+                            width={24}
+                            height={24}
+                            loading="lazy"
+                            decoding="async"
+                            onError={() => setFailedImgIds((prev) => new Set(prev).add(c.permissionId))}
+                            className="w-6 h-6 rounded-full border border-parchment-2 object-cover"
                             referrerPolicy="no-referrer"
                           />
                         ) : (
@@ -424,10 +430,26 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
                         )}
                         <div>
                           <p className="font-medium text-text-main leading-tight">
-                            {c.displayName || c.emailAddress}
+                            {c.displayName || (
+                              c.emailAddress ? (
+                                <a
+                                  href={`mailto:${c.emailAddress}`}
+                                  className="hover:text-polish transition-colors"
+                                  title="Gửi email cho cộng tác viên"
+                                >
+                                  {c.emailAddress}
+                                </a>
+                              ) : 'Người dùng'
+                            )}
                           </p>
-                          {c.displayName && (
-                            <p className="text-[10px] text-text-muted">{c.emailAddress}</p>
+                          {c.displayName && c.emailAddress && (
+                            <a
+                              href={`mailto:${c.emailAddress}`}
+                              className="text-[10px] text-text-muted hover:text-polish transition-colors block"
+                              title="Gửi email cho cộng tác viên"
+                            >
+                              {c.emailAddress}
+                            </a>
                           )}
                         </div>
                       </div>

@@ -6,6 +6,7 @@ import {
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { QuotaPanel } from './QuotaPanel';
+import { useNotifications } from './NotificationSystem';
 import { cn } from '../lib/cn';
 import { useModelObservability } from '../hooks/useModelObservability';
 import { useModelDiscovery } from '../hooks/useModelDiscovery';
@@ -55,6 +56,7 @@ export default function ApiSettings({
   setEnableSegmentTranslation,
 }: ApiSettingsProps) {
   const [activeTab, setActiveTab] = useState<'config' | 'quota'>('config');
+  const { showToast } = useNotifications();
 
   // Lấy danh sách dynamic models từ AIConfigContext
   const {
@@ -165,7 +167,17 @@ export default function ApiSettings({
         )
       }
       footer={
-        <Button variant="primary" size="md" onClick={onClose}>
+        <Button
+          variant="primary"
+          size="md"
+          onClick={() => {
+            showToast({
+              message: 'Đã lưu và áp dụng cấu hình AI thành công!',
+              type: 'success',
+            });
+            onClose();
+          }}
+        >
           Lưu & Đóng
         </Button>
       }
