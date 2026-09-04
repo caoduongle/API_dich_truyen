@@ -12,6 +12,7 @@ import { setupWebSocketRelay } from "./server/services/websocketRelayService";
 import { setupCrdtRedisPubSub, cleanupCrdtRedisPubSub } from "./server/services/crdtRedisPubSub";
 import { authStore } from "./server/services/authStore";
 import { requestIdMiddleware } from "./server/middleware/tracingMiddleware";
+import { httpsRedirect } from "./server/middleware/httpsRedirect";
 
 dotenv.config();
 
@@ -21,9 +22,22 @@ const isProduction = process.env.NODE_ENV === "production";
 // Gắn Request ID đầu tiên cho toàn bộ chuỗi middleware
 app.use(requestIdMiddleware);
 
+// Bắt buộc chuyển hướng HTTPS khi chạy production
+app.use(httpsRedirect);
+
 app.use(
   helmet({
     crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    strictTransportSecurity: isProduction
+      ? {
+          maxAge: 31536000,
+          includeSubDomains: true,
+          preload: true,
+        }
+      : false,
+    xContentTypeOptions: true,
+    frameguard: { action: "deny" },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     contentSecurityPolicy: isProduction
       ? {
           directives: {
@@ -59,6 +73,13 @@ app.use(
       : false, // Tắt CSP ở môi trường dev để Vite HMR (ws://) và React Fast Refresh preamble hoạt động bình thường
   })
 );
+
+// Khóa quyền truy cập phần cứng nhạy cảm bằng Permissions-Policy
+app.use((_req, res, next) => {
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
+
 // Tin tưởng proxy phía trước (Cloud Run / load balancer) để req.ip lấy đúng IP client thật từ X-Forwarded-For.
 app.set('trust proxy', process.env.TRUST_PROXY_HOPS ? Number(process.env.TRUST_PROXY_HOPS) : 1);
 

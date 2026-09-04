@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { authStore } from "../services/authStore";
+import { parseCookies } from "../utils/cookies";
 
 const PUBLIC_API_PATHS = new Set([
   "/auth/login",
@@ -45,6 +46,14 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       token = authHeader.substring(7).trim();
     } else {
       token = authHeader.trim();
+    }
+  }
+
+  // 4. Nếu không có trong header, kiểm tra Cookie HttpOnly
+  if (!token) {
+    const cookies = parseCookies(req);
+    if (cookies["auth_token"]) {
+      token = cookies["auth_token"].trim();
     }
   }
 

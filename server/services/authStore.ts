@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import type Redis from "ioredis";
 import { redisManager } from "./redisService";
+import { verifyPassword } from "../utils/password";
 
 export const DEFAULT_AUTH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 ngày
 const AUTH_TOKEN_PREFIX = "auth_token:";
@@ -77,20 +78,7 @@ class AuthStore {
       return true; // Không yêu cầu mật khẩu
     }
 
-    if (!inputPassword || typeof inputPassword !== "string") {
-      return false;
-    }
-
-    const trimmedInput = inputPassword.trim();
-    if (trimmedInput.length === 0) {
-      return false;
-    }
-
-    // Dùng SHA-256 hash trước để đảm bảo độ dài 32 bytes cố định cho timingSafeEqual
-    const hashInput = crypto.createHash("sha256").update(trimmedInput).digest();
-    const hashServer = crypto.createHash("sha256").update(serverPassword).digest();
-
-    return crypto.timingSafeEqual(hashInput, hashServer);
+    return verifyPassword(inputPassword, serverPassword);
   }
 
   /**

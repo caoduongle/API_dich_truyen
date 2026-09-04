@@ -31,6 +31,7 @@ import {
 } from "../controllers/quotaController";
 import { authMiddleware } from "../middleware/authMiddleware";
 import { createRateLimiter } from "../middleware/rateLimiter";
+import { botProtection } from "../middleware/botProtection";
 import { idempotencyMiddleware } from "../middleware/idempotencyMiddleware";
 import { sessionStore } from "../services/sessionStore";
 import { ALLOWED_MODEL_IDS, MAX_API_KEYS_PER_REQUEST } from "../constants/models";
@@ -57,7 +58,7 @@ router.use(authMiddleware);
 
 // --- Auth Endpoints ---
 router.get("/auth/status", getAuthStatusHandler);
-router.post("/auth/login", authLoginRateLimiter, loginHandler);
+router.post("/auth/login", authLoginRateLimiter, botProtection, loginHandler);
 router.post("/auth/logout", logoutHandler);
 
 export const MODEL_ID_REGEX = /^[a-zA-Z0-9_\-\.\/]{1,128}$/;

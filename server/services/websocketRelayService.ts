@@ -155,6 +155,24 @@ export function setupWebSocketRelay(server: HttpServer): WebSocketServer {
 
       const userEmail = userInfo.email;
 
+      // 3. Phòng chống IDOR: Kiểm tra phân quyền truy cập dự án (Tiêu chuẩn 7)
+      const collabsParam = url.searchParams.get('collaborators');
+      if (collabsParam) {
+        try {
+          const parsed = JSON.parse(collabsParam);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const hasAccess = verifyCollaboratorAccess(userEmail, parsed);
+            if (!hasAccess) {
+              socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+              socket.destroy();
+              return;
+            }
+          }
+        } catch {
+          // Bỏ qua lỗi cú pháp JSON không hợp lệ
+        }
+      }
+
       incrementIpConnection(clientIp);
 
       wss.handleUpgrade(request, socket, head, (ws) => {

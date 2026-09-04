@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
-import { authStore } from "../services/authStore";
+import { authStore, DEFAULT_AUTH_TTL_MS } from "../services/authStore";
 import { validateLoginBody } from "../utils/validation";
 import { Logger } from "../utils/logger";
+import { parseCookies } from "../utils/cookies";
 
 const logger = new Logger("AuthController");
 
@@ -32,6 +33,13 @@ export async function getAuthStatusHandler(req: Request, res: Response): Promise
         token = authHeader.substring(7).trim();
       } else {
         token = authHeader.trim();
+      }
+    }
+
+    if (!token) {
+      const cookies = parseCookies(req);
+      if (cookies["auth_token"]) {
+        token = cookies["auth_token"].trim();
       }
     }
 
@@ -83,6 +91,19 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
     }
 
     const result = await authStore.createAuthToken();
+
+    // Thiết lập HttpOnly Cookie bảo mật chống đánh cắp token qua XSS (Tiêu chuẩn 9)
+    if (typeof res.cookie === "function") {
+      const isProduction = process.env.NODE_ENV === "production";
+      res.cookie("auth_token", result.authToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: "strict",
+        path: "/",
+        maxAge: DEFAULT_AUTH_TTL_MS,
+      });
+    }
+
     res.status(200).json({
       success: true,
       authToken: result.authToken,
@@ -117,8 +138,20 @@ export async function logoutHandler(req: Request, res: Response): Promise<void> 
       }
     }
 
+    if (!token) {
+      const cookies = parseCookies(req);
+      if (cookies["auth_token"]) {
+        token = cookies["auth_token"].trim();
+      }
+    }
+
     if (token) {
       await authStore.revokeAuthToken(token);
+    }
+
+    // Xóa cookie phiên khi đăng xuất
+    if (typeof res.clearCookie === "function") {
+      res.clearCookie("auth_token", { path: "/" });
     }
 
     res.status(200).json({

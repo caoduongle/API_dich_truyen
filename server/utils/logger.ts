@@ -46,6 +46,18 @@ export function sanitizeSecretString(str: string): string {
     '$1[REDACTED]'
   );
 
+  // 4. Che giấu database connection URLs: postgres://user:password@host
+  sanitized = sanitized.replace(
+    /(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/gi,
+    '$1***[REDACTED]$3'
+  );
+
+  // 5. Che giấu cookie auth_token
+  sanitized = sanitized.replace(
+    /(auth_token=)[^;,\s]+/gi,
+    '$1***[REDACTED]'
+  );
+
   return sanitized;
 }
 
@@ -56,6 +68,14 @@ export function sanitizeValue(val: any): any {
   }
   if (Array.isArray(val)) {
     return val.map(sanitizeValue);
+  }
+  if (val instanceof Error) {
+    const isProduction = process.env.NODE_ENV === 'production';
+    return {
+      message: sanitizeSecretString(val.message),
+      name: val.name,
+      ...(isProduction ? {} : { stack: sanitizeSecretString(val.stack || '') }),
+    };
   }
   if (typeof val === 'object') {
     const clean: Record<string, any> = {};

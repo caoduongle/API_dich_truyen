@@ -182,3 +182,14 @@ export class RedisManager {
 
 export const redisManager = new RedisManager();
 export const getRedisClient = (): Redis | null => redisManager.getClient();
+
+/**
+ * Chuẩn hóa và làm sạch chuỗi cấu thành khóa Redis (Tiêu chuẩn 13: Redis Command Injection Prevention)
+ * Loại bỏ ký tự xuống dòng (\r, \n), khoảng trắng và ký tự điều khiển để ngăn chặn Command Injection trong Redis.
+ */
+export function sanitizeRedisKey(rawKey: string): string {
+  if (!rawKey || typeof rawKey !== "string") {
+    return "";
+  }
+  return rawKey.replace(/[\r\n\x00-\x1F\x7F\s]+/g, "_");
+}
