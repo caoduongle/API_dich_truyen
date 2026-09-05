@@ -5,7 +5,7 @@ import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../components/NotificationSystem';
-import { apiFetch } from '../utils/apiClient';
+import { alignChapterDirect } from '../services/directGlossaryEngine';
 import { buildExportFileContent } from '../utils/exportFormatter';
 
 export interface UseExportFilesProps {
@@ -176,23 +176,13 @@ export function useExportFiles({
 
         const translatedText = (chap.polishedTranslation || chap.rawTranslation || "").trim();
         try {
-          // TODO(zero-knowledge-session): port sang client-direct, xem specs/060-zero-knowledge-session-sync
-          const res = await apiFetch('/api/align-chapter', {
-            method: 'POST',
-            allowApiKeysInBody: true,
-            body: JSON.stringify({
-              sourceText: chap.sourceText,
-              translatedText: translatedText,
-              apiKeys,
-              model: selectedModel
-            })
+          const data = await alignChapterDirect({
+            sourceText: chap.sourceText,
+            translatedText: translatedText,
+            apiKeys,
+            model: selectedModel
           });
 
-          if (!res.ok) {
-            throw new Error("Lỗi phản hồi từ máy chủ gióng hàng.");
-          }
-
-          const data = await res.json();
           const jsonlLines = data.jsonlLines || [];
           if (jsonlLines.length === 0) continue;
 

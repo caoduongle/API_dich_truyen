@@ -3,7 +3,7 @@ import { GlossaryItem, GlossaryType, PendingGlossaryItem, ChapterMetadata, Story
 import { useNotifications } from '../NotificationSystem';
 import { triggerDownload } from '../../utils/download';
 import { isHanEquivalent } from '@shared/sinoNormalize';
-import { apiFetch } from '../../utils/apiClient';
+import { analyzeGuidelinesDirect } from '../../services/directGlossaryEngine';
 import { useGlossaryDuplicates } from '../../hooks/useGlossaryDuplicates';
 import { useGlossaryContextSearch } from '../../hooks/useGlossaryContextSearch';
 
@@ -206,17 +206,10 @@ export function useGlossaryState({
 
     try {
       const mdText = await file.text();
-      const response = await apiFetch('/api/analyze-guidelines', {
-        method: 'POST',
-        allowApiKeysInBody: true,
-        body: JSON.stringify({ text: mdText, apiKeys: apiKeys, model: selectedModel })
-      });
-      if (!response.ok) throw new Error("Lỗi phản hồi phân tích cẩm nang từ server.");
-
-      const data = await response.json();
+      const data = await analyzeGuidelinesDirect({ text: mdText, apiKeys: apiKeys, model: selectedModel });
       if (data.truncated) {
         showToast({
-          message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
+          message: `Lưu ý: Chỉ ${data.analyzedLength!.toLocaleString()} / ${data.originalLength!.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
           type: 'warning'
         });
       }

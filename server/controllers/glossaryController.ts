@@ -3,7 +3,7 @@ import { Type } from "@google/genai";
 import { generateWithRotation, sleep, isOverloadError, isSafetyOrEmptyError, SafetyFilterError } from "../services/geminiService";
 import { normalizeUpstreamError } from "../utils/errorClassifier";
 import { AIErrorCode } from "../constants/errors";
-import { safeParseJson, findSplitPoint, splitTextAdaptively, estimateTokenCount, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../utils/text";
+import { safeParseJson, findSplitPoint, splitTextAdaptively, splitTextIntoChunks, estimateTokenCount, LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from "../utils/text";
 import { translationChunkCache } from "../utils/chunkCache";
 import { parseGlossaryFromMd } from "../utils/parser";
 import { validateAndSnapBackEntities, isHanEquivalent } from "@shared/sinoNormalize";
@@ -88,54 +88,6 @@ Hãy rà soát kỹ văn bản trên, xem còn tên riêng, thuật ngữ nào b
 }
 
 const MAX_CHUNKS_TO_ANALYZE = 5; // Tối đa 5 phân đoạn (~40,000 ký tự) để tránh quá tải API
-
-/**
- * Phân tách đoạn văn bản dài thành các phần nhỏ hơn có độ dài tối đa maxChunkSize.
- * Ưu tiên ngắt tại ký tự xuống dòng (\n) để không cắt đôi từ/câu.
- */
-function splitTextIntoChunks(text: string, maxChunkSize: number): string[] {
-  if (text.length <= maxChunkSize) {
-    return [text];
-  }
-
-  const chunks: string[] = [];
-  const lines = text.split('\n');
-  let currentChunk = "";
-
-  for (const line of lines) {
-    // Nếu thêm dòng này vào chunk hiện tại vượt quá maxChunkSize
-    if (currentChunk.length + (currentChunk ? 1 : 0) + line.length > maxChunkSize) {
-      if (currentChunk) {
-        chunks.push(currentChunk);
-        currentChunk = "";
-      }
-
-      // Nếu bản thân một dòng dài hơn maxChunkSize, phải cắt cứng theo ký tự
-      if (line.length > maxChunkSize) {
-        let remainingLine = line;
-        while (remainingLine.length > maxChunkSize) {
-          chunks.push(remainingLine.slice(0, maxChunkSize));
-          remainingLine = remainingLine.slice(maxChunkSize);
-        }
-        currentChunk = remainingLine;
-      } else {
-        currentChunk = line;
-      }
-    } else {
-      if (currentChunk) {
-        currentChunk += "\n" + line;
-      } else {
-        currentChunk = line;
-      }
-    }
-  }
-
-  if (currentChunk) {
-    chunks.push(currentChunk);
-  }
-
-  return chunks;
-}
 
 async function callGlossaryAnalysisDirect(
     text: string,

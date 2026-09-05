@@ -4,7 +4,7 @@ import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../components/NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
-import { apiFetch } from '../utils/apiClient';
+import { analyzeGlossaryDirect } from '../services/directGlossaryEngine';
 
 export interface UseGlossaryScanProps {
   activeProject: StoryProject;
@@ -128,26 +128,18 @@ export function useGlossaryScan({
           addLog(`[Vòng ${loop}] Quét lọc Chương ${i + 1}/${scopedChaps.length}: ${chap.title}`, 'gemini');
 
           try {
-            // TODO(zero-knowledge-session): port sang client-direct, xem specs/060-zero-knowledge-session-sync
-            const response = await apiFetch('/api/analyze-glossary', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              allowApiKeysInBody: true,
+            const data = await analyzeGlossaryDirect({
+              text: `${chap.title}\n\n${chap.sourceText}`,
+              apiKeys,
+              model: selectedModel,
+              startKeyIndex: currentApiKeyIndexRef.current,
+              sourceChapterId: chap.id,
               signal: abortControllerRef.current?.signal,
-              body: JSON.stringify({
-                text: `${chap.title}\n\n${chap.sourceText}`,
-                apiKeys,
-                model: selectedModel,
-                startKeyIndex: currentApiKeyIndexRef.current,
-                sourceChapterId: chap.id
-              }),
             });
 
-            if (!response.ok) throw new Error("Gặp lỗi phản hồi trích xuất từ AI.");
-            const data = await response.json();
             if (data.truncated && isMountedRef.current) {
-              showToast({
-                message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của Chương ${i + 1} được phân tích để tối ưu hiệu suất.`,
+               showToast({
+                message: `Lưu ý: Chỉ ${data.analyzedLength!.toLocaleString()} / ${data.originalLength!.toLocaleString()} ký tự đầu tiên của Chương ${i + 1} được phân tích để tối ưu hiệu suất.`,
                 type: 'warning'
               });
             }

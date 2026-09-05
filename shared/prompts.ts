@@ -5,6 +5,7 @@ import {
   escapeRegex,
 } from './text';
 import { findCanonicalSubstring } from './sinoNormalize';
+import { buildEntityExtractionInstruction, buildEntitySchema } from './glossaryPrompts';
 
 export interface GlossaryEntry {
   chinese: string;
@@ -379,3 +380,169 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
 
   return { systemInstruction, prompt, schema };
 }
+
+export interface BuildAnalyzeGlossaryPromptParams {
+  text: string;
+}
+
+/**
+ * Xây dựng payload cho tác vụ: Phân tích trích xuất gợi ý thuật ngữ từ văn bản thô (analyze-glossary)
+ */
+export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptParams) {
+  const text = sanitizePromptInput(params.text);
+
+  const systemInstruction =
+    LITERARY_TRANSLATION_FRAMING +
+    "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
+    "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung, trích xuất tất cả các tên nhân vật (characters), địa danh quan trọng (locations), bí kíp/vũ khí/thuật ngữ chuyên môn (terms) xuất hiện. " +
+    buildEntityExtractionInstruction('analyze');
+
+  const schema = {
+    type: "OBJECT",
+    properties: {
+      suggestions: {
+        type: "ARRAY",
+        description: "Danh sách thuật ngữ trích xuất được",
+        items: buildEntitySchema('analyze'),
+      },
+    },
+    required: ["suggestions"],
+  };
+
+  return { systemInstruction, prompt: text, schema };
+}
+
+export interface BuildAnalyzeGuidelinesPromptParams {
+  guidelinesSection: string;
+}
+
+/**
+ * Xây dựng payload cho tác vụ: Phân tích cẩm nang hướng dẫn dịch thuật (analyze-guidelines).
+ * Chỉ suy đoán genre/tone/description — bảng thuật ngữ được trích xuất riêng bằng regex parser (xem parseGlossaryFromMd).
+ */
+export function buildAnalyzeGuidelinesPayload(params: BuildAnalyzeGuidelinesPromptParams) {
+  const systemInstruction =
+    LITERARY_TRANSLATION_FRAMING +
+    "Bạn là trợ lý dịch thuật AI lão luyện chuyên phân tích cẩm nang dịch thuật.\n" +
+    "Nhiệm vụ: Đọc phần hướng dẫn phong cách dịch và xác định:\n" +
+    "1. Thể loại truyện (genre)\n" +
+    "2. Tông giọng biên dịch (tone)\n" +
+    "3. Tóm tắt chi tiết quy tắc xưng hô và phong cách dịch (description)\n" +
+    "KHÔNG cần trích xuất bảng thuật ngữ — đã được xử lý riêng bằng parser.";
+  const prompt = `Phân tích phần hướng dẫn phong cách dịch thuật sau:\n\n${params.guidelinesSection}`;
+  const schema = {
+    type: "OBJECT",
+    properties: {
+      genre: {
+        type: "STRING",
+        description: "Thể loại truyện suy đoán từ cẩm nang dịch thuật",
+        enum: ["Tiên Hiệp", "Võ Hiệp", "Ngôn Tình", "Đô Thị", "Huyền Huyễn", "Huyền Huyễn Phương Tây", "Vô Hạn Lưu", "Lịch Sử / Quân Sự", "Khoa Huyễn / Võng Du", "Linh Dị / Thần Quái", "Hệ Thống / Điền Văn", "Khác"],
+      },
+      tone: {
+        type: "STRING",
+        description: "Tông giọng biên dịch phù hợp nhất",
+        enum: ["Dịch thuần Việt mượt mà", "Trang nghiêm cổ phong", "Bình dị dân dã", "Hùng tráng dồn dập", "Trầm hùng dã sử", "Hiện đại công nghệ", "Kịch tính ly kỳ", "Nhẹ nhàng điền văn"],
+      },
+      description: {
+        type: "STRING",
+        description: "Tóm tắt chi tiết nguyên tắc xưng hô và phong cách dịch từ cẩm nang.",
+      },
+    },
+    required: ["genre", "tone", "description"],
+  };
+
+  return { systemInstruction, prompt, schema };
+}
+
+export interface BuildExtractGlossaryPromptParams {
+  text: string;
+}
+
+/**
+ * Xây dựng payload cho tác vụ: Trích xuất nhanh thuật ngữ (extract-glossary)
+ */
+export function buildExtractGlossaryPayload(params: BuildExtractGlossaryPromptParams) {
+  const text = sanitizePromptInput(params.text);
+
+  const systemInstruction =
+    LITERARY_TRANSLATION_FRAMING +
+    "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
+    "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung và trích xuất tất cả tên nhân vật, địa danh, bí kíp/vũ khí/thuật ngữ chuyên môn. " +
+    buildEntityExtractionInstruction('extract');
+
+  const schema = {
+    type: "ARRAY",
+    items: buildEntitySchema('extract'),
+  };
+
+  const prompt = `Phân tích đoạn truyện chữ sau và trích xuất thuật ngữ:\n\n${text}`;
+
+  return { systemInstruction, prompt, schema };
+}
+
+export interface BuildAlignChapterPromptParams {
+  sourceText: string;
+  translatedText: string;
+}
+
+/**
+ * Xây dựng payload cho tác vụ: Gióng hàng song ngữ xuất bản học liệu JSONL (align-chapter)
+ */
+export function buildAlignChapterPayload(params: BuildAlignChapterPromptParams) {
+  const sourceText = sanitizePromptInput(params.sourceText);
+  const translatedText = sanitizePromptInput(params.translatedText);
+
+  const systemInstruction =
+    LITERARY_TRANSLATION_FRAMING +
+    "Bạn là một chuyên gia đối dịch Trung - Việt nâng cao, chuyên gióng hàng (align) văn bản gốc tiếng Trung and bản dịch tiếng Việt của truyện/tiểu thuyết mạng sao cho ý nghĩa các cặp câu/đoạn khớp nhau hoàn toàn 100%.\n" +
+    "Nhiệm vụ:\n" +
+    "1. Phân tích văn bản gốc tiếng Trung và bản dịch tiếng Việt của chương truyện.\n" +
+    "2. Tiến hành gióng hàng (align) từng câu hoặc nhóm câu/đoạn văn sao cho phần tiếng Trung (input) and phần tiếng Việt dịch tương ứng (output) khớp nhau hoàn hảo về nghĩa.\n" +
+    "3. Nếu một câu tiếng Trung được dịch thoát ý thành nhiều câu tiếng Việt (hoặc ngược lại), hãy tự động gộp phần tiếng Trung và tiếng Việt tương ứng lại làm một để các cặp câu khớp nghĩa hoàn toàn.\n" +
+    "4. Hãy phủ kín, không được bỏ sót bất kì dòng hay nội dung nào của chương truyện trong quá trình gióng hàng.\n" +
+    "5. Chỉ trả về dữ liệu cấu trúc Array theo schema được yêu cầu, không kèm bất kỳ lời giải thích hay markdown code blocks hứa hẹn nào.";
+
+  const prompt = `--- VĂN BẢN TRUNG GỐC ---
+${sourceText}
+
+--- VĂN BẢN VIỆT DỊCH THAM KHẢO ---
+${translatedText}
+
+Hãy thực hiện gióng hàng tỷ mỷ từ đầu đến cuối chương truyện.`;
+
+  const schema = {
+    type: "OBJECT",
+    properties: {
+      alignments: {
+        type: "ARRAY",
+        description: "Mảng danh sách các câu/đoạn đã gióng hàng hoàn chỉnh khớp nhau.",
+        items: {
+          type: "OBJECT",
+          properties: {
+            chinese: { type: "STRING", description: "Câu/đoạn văn tiếng Trung đã gióng hàng" },
+            vietnamese: { type: "STRING", description: "Câu/đoạn văn tiếng Việt tương ứng đã gióng hàng" },
+          },
+          required: ["chinese", "vietnamese"],
+        },
+      },
+    },
+    required: ["alignments"],
+  };
+
+  return { systemInstruction, prompt, schema };
+}
+
+/**
+ * Chuyển danh sách cặp câu đã gióng hàng thành các dòng JSONL để xuất bản học liệu fine-tuning.
+ */
+export function buildAlignmentJsonlLines(alignments: Array<{ chinese?: string; vietnamese?: string }>): string[] {
+  const instructionText = "你是一位专业的中文转越南文翻译专家，专注于网络小说翻译。规则：1. 完整翻译所有内容，不得遗漏。2. 保持段落结构，不要合并段落。3. 直接输出翻译结果，放在 <result>...</result> 标签内。";
+  return alignments.map((item) =>
+    JSON.stringify({
+      instruction: instructionText,
+      input: (item.chinese || "").trim(),
+      output: (item.vietnamese || "").trim(),
+    })
+  );
+}
+

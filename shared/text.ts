@@ -293,6 +293,52 @@ export function estimateTokenCount(text: string): number {
 }
 
 /**
+ * Phân tách đoạn văn bản dài thành các phần nhỏ hơn có độ dài tối đa maxChunkSize.
+ * Ưu tiên ngắt tại ký tự xuống dòng (\n) để không cắt đôi từ/câu.
+ */
+export function splitTextIntoChunks(text: string, maxChunkSize: number): string[] {
+  if (text.length <= maxChunkSize) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  const lines = text.split('\n');
+  let currentChunk = "";
+
+  for (const line of lines) {
+    if (currentChunk.length + (currentChunk ? 1 : 0) + line.length > maxChunkSize) {
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = "";
+      }
+
+      if (line.length > maxChunkSize) {
+        let remainingLine = line;
+        while (remainingLine.length > maxChunkSize) {
+          chunks.push(remainingLine.slice(0, maxChunkSize));
+          remainingLine = remainingLine.slice(maxChunkSize);
+        }
+        currentChunk = remainingLine;
+      } else {
+        currentChunk = line;
+      }
+    } else {
+      if (currentChunk) {
+        currentChunk += "\n" + line;
+      } else {
+        currentChunk = line;
+      }
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
+/**
  * Phân chia văn bản thích ứng (Token-aware Adaptive Split)
  */
 export function splitTextAdaptively(text: string, partsCount: number = 2): string[] {

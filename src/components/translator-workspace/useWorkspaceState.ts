@@ -5,8 +5,8 @@ import { validateUploadFile } from '../../utils/fileValidator';
 import { getChapterFromDB } from '../../services/db';
 import { useNotifications } from '../NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
-import { apiFetch } from '../../utils/apiClient';
-import { translateRawDirect, polishTranslationDirect } from '../../services/directTranslationEngine';
+import { translateRawDirect, polishTranslationDirect, qaCritiqueDirect } from '../../services/directTranslationEngine';
+import { analyzeGlossaryDirect } from '../../services/directGlossaryEngine';
 import { GLOSSARY_LIMITS } from '@shared/constants';
 import { useChapterCRDT } from '../../hooks/useChapterCRDT';
 import { googleAuthService } from '../../services/googleAuthService';
@@ -430,23 +430,13 @@ export function useWorkspaceState({
     setSelectedSuggestions({});
 
     try {
-      const response = await apiFetch('/api/analyze-glossary', {
-        method: 'POST',
-        allowApiKeysInBody: true,
-        body: JSON.stringify({
-          text: sourceText,
-          apiKeys,
-          model: selectedModel,
-          sourceChapterId: currentChapterId || undefined
-        }),
+      const data = await analyzeGlossaryDirect({
+        text: sourceText,
+        apiKeys,
+        model: selectedModel,
+        sourceChapterId: currentChapterId || undefined
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Gặp lỗi khi phân tích chữ Trung.");
-      }
-
-      const data = await response.json();
       if (data.suggestions && Array.isArray(data.suggestions)) {
         setSuggestions(data.suggestions);
         const checks: Record<number, boolean> = {};
@@ -456,7 +446,7 @@ export function useWorkspaceState({
         setSelectedSuggestions(checks);
         if (data.truncated) {
           showToast({
-            message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu được phân tích (giới hạn tiết kiệm token).`,
+            message: `Lưu ý: Chỉ ${data.analyzedLength!.toLocaleString()} / ${data.originalLength!.toLocaleString()} ký tự đầu được phân tích (giới hạn tiết kiệm token).`,
             type: 'warning'
           });
         }
@@ -694,24 +684,18 @@ export function useWorkspaceState({
         setIsCheckingQa(true);
         setQaIssues([]);
         try {
-          const qaResponse = await apiFetch('/api/qa-critique', {
-            method: 'POST',
-            body: JSON.stringify({
-              sourceText: sourceText,
-              translatedText: polishedResult,
-              apiKeys,
-              model: selectedModel,
-              startKeyIndex: data.successKeyIndex ?? 0
-            })
+          const qaData = await qaCritiqueDirect({
+            sourceText: sourceText,
+            translatedText: polishedResult,
+            apiKeys,
+            model: selectedModel,
+            startKeyIndex: data.successKeyIndex ?? 0
           });
-          if (qaResponse.ok) {
-            const qaData = await qaResponse.json();
-            setQaIssues(qaData.issues || []);
-            if (!qaData.isValid && qaData.issues?.length > 0) {
-              showToast({ message: `Phát hiện ${qaData.issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`, type: 'warning' });
-            } else {
-              showToast({ message: "Kiểm duyệt AI hoàn tất: Bản dịch đạt chuẩn, không phát hiện lỗi bỏ sót/thêm thắt/lặp lại.", type: 'success' });
-            }
+          setQaIssues(qaData.issues || []);
+          if (!qaData.isValid && qaData.issues?.length > 0) {
+            showToast({ message: `Phát hiện ${qaData.issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`, type: 'warning' });
+          } else {
+            showToast({ message: "Kiểm duyệt AI hoàn tất: Bản dịch đạt chuẩn, không phát hiện lỗi bỏ sót/thêm thắt/lặp lại.", type: 'success' });
           }
         } catch (qaErr) {
           console.error("Lỗi gọi API QA Critique:", qaErr);

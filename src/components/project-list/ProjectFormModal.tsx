@@ -3,7 +3,7 @@ import { StoryProject, GlossaryItem, Chapter } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { parseTxtContent, parseEpubFile } from '../../utils/fileParser';
 import { validateUploadFile } from '../../utils/fileValidator';
-import { apiFetch } from '../../utils/apiClient';
+import { analyzeGuidelinesDirect } from '../../services/directGlossaryEngine';
 import {
   Plus, Edit3, Check, Upload, FileText, Sparkles, Loader2
 } from 'lucide-react';
@@ -123,25 +123,15 @@ export function ProjectFormModal({
 
     try {
       const mdText = await file.text();
-      // TODO(zero-knowledge-session): port sang client-direct, xem specs/060-zero-knowledge-session-sync
-      const response = await apiFetch('/api/analyze-guidelines', {
-        method: 'POST',
-        allowApiKeysInBody: true,
-        body: JSON.stringify({
-          text: mdText,
-          apiKeys,
-          model: selectedModel,
-        }),
+      const data = await analyzeGuidelinesDirect({
+        text: mdText,
+        apiKeys,
+        model: selectedModel,
       });
 
-      if (!response.ok) {
-        throw new Error('Lỗi mạng phản hồi không hợp lệ.');
-      }
-
-      const data = await response.json();
       if (data.truncated) {
         showToast({
-          message: `Lưu ý: Chỉ ${data.analyzedLength.toLocaleString()} / ${data.originalLength.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
+          message: `Lưu ý: Chỉ ${data.analyzedLength!.toLocaleString()} / ${data.originalLength!.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
           type: 'warning',
         });
       }
