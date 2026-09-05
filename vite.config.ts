@@ -17,7 +17,7 @@ export default defineConfig(() => {
       drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
     },
     build: {
-      outDir: 'dist/client',
+      outDir: 'dist',
       emptyOutDir: true,
       sourcemap: false,
       /**

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Chapter } from '../types';
 import { CRDTSyncStatus, UserPresence } from '../types/crdt';
@@ -9,9 +8,7 @@ import {
   applyTextDiff,
   readChapterFromYDoc,
   exportDocUpdate,
-  requestWsTicket,
 } from '../services/crdtDocManager';
-import { googleAuthService } from '../services/googleAuthService';
 import { saveChapterToDB, saveCrdtState } from '../services/db';
 
 export interface UseChapterCRDTOptions {
@@ -25,41 +22,19 @@ export interface UseChapterCRDTOptions {
   onRemoteChange?: (updated: Partial<Chapter>) => void;
 }
 
-const COLOR_PALETTE = [
-  '#B8402C', // Chu sa
-  '#2C5EB8', // Lam cổ
-  '#3D7E5A', // Trúc diệp
-  '#9B5B2E', // Hổ phách
-  '#6D3D8A', // Tử đằng
-  '#B8860B', // Hoàng kim
-];
-
-function generateColor(key: string): string {
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    hash = key.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return COLOR_PALETTE[Math.abs(hash) % COLOR_PALETTE.length];
-}
-
 export function useChapterCRDT({
   projectId,
   chapterId,
   initialChapter,
-  isShared = false,
-  userEmail = '',
-  userName = 'Người dịch',
-  userPicture,
   onRemoteChange,
 }: UseChapterCRDTOptions) {
-  const [status, setStatus] = useState<CRDTSyncStatus>('offline');
-  const [collaborators, setCollaborators] = useState<UserPresence[]>([]);
+  const [status] = useState<CRDTSyncStatus>('offline');
+  const [collaborators] = useState<UserPresence[]>([]);
 
   const docRef = useRef<Y.Doc | null>(null);
   const rawTextRef = useRef<Y.Text | null>(null);
   const polishedTextRef = useRef<Y.Text | null>(null);
   const metadataMapRef = useRef<Y.Map<any> | null>(null);
-  const providerRef = useRef<WebsocketProvider | null>(null);
   const persistenceRef = useRef<IndexeddbPersistence | null>(null);
   const saveTimeoutRef = useRef<any>(null);
 
@@ -109,8 +84,6 @@ export function useChapterCRDT({
 
   useEffect(() => {
     if (!chapterId || !projectId) {
-      setStatus('offline');
-      setCollaborators([]);
       return;
     }
 
@@ -132,7 +105,7 @@ export function useChapterCRDT({
       }
     }
 
-    // 3. Lắng nghe cập nhật Y.Doc từ remote để đồng bộ giao diện & db.ts
+    // 3. Lắng nghe cập nhật Y.Doc để đồng bộ giao diện & db.ts
     const handleDocUpdate = (_update: Uint8Array, origin: any) => {
       if (origin !== 'local-keystroke') {
         const updated = readChapterFromYDoc(doc, chapterId);
@@ -142,88 +115,11 @@ export function useChapterCRDT({
     };
     doc.on('update', handleDocUpdate);
 
-    let isCancelled = false;
-
-    // 4. Nếu dự án có chia sẻ cộng tác, kết nối WebSocket Relay bằng Server-Signed Ticket
-    if (isShared && typeof window !== 'undefined') {
-      setStatus('connecting');
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const token = googleAuthService.getAccessToken() || '';
-      const roomId = `project_${projectId}_chapter_${chapterId}`;
-
-      requestWsTicket(projectId, chapterId, token).then((ticket) => {
-        if (isCancelled) return;
-        if (!ticket) {
-          console.warn('[useChapterCRDT] Không thể xin ticket kết nối relay, chuyển sang chế độ offline');
-          setStatus('offline');
-          return;
-        }
-
-        try {
-          const provider = new WebsocketProvider(
-            `${protocol}//${host}/ws/sync?projectId=${encodeURIComponent(projectId)}&chapterId=${encodeURIComponent(chapterId)}&ticket=${encodeURIComponent(ticket)}`,
-            roomId,
-            doc,
-            { connect: true }
-          );
-
-          providerRef.current = provider;
-
-          provider.on('status', ({ status: pStatus }: { status: string }) => {
-            if (pStatus === 'connected') {
-              setStatus('connected');
-            } else if (pStatus === 'connecting') {
-              setStatus('connecting');
-            } else {
-              setStatus('disconnected');
-            }
-          });
-
-          // 5. Cấu hình Awareness (hiện diện trực tiếp)
-          const awareness = provider.awareness;
-          const userColor = generateColor(userEmail || userName);
-
-          awareness.setLocalStateField('user', {
-            name: userName,
-            email: userEmail,
-            picture: userPicture,
-            color: userColor,
-            activeField: 'idle',
-            lastActive: Date.now(),
-          });
-
-          const handleAwarenessChange = () => {
-            const states = awareness.getStates();
-            const activeUsers: UserPresence[] = [];
-            states.forEach((state: any, clientId: number) => {
-              if (clientId !== awareness.clientID && state.user) {
-                activeUsers.push(state.user as UserPresence);
-              }
-            });
-            setCollaborators(activeUsers);
-          };
-
-          awareness.on('change', handleAwarenessChange);
-        } catch (err) {
-          console.warn('[useChapterCRDT] Lỗi kết nối WebSocket relay:', err);
-          setStatus('offline');
-        }
-      });
-    } else {
-      setStatus('offline');
-    }
-
     return () => {
-      isCancelled = true;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
       doc.off('update', handleDocUpdate);
-      if (providerRef.current) {
-        providerRef.current.destroy();
-        providerRef.current = null;
-      }
       if (persistenceRef.current) {
         persistenceRef.current.destroy();
         persistenceRef.current = null;
@@ -231,7 +127,7 @@ export function useChapterCRDT({
       doc.destroy();
       docRef.current = null;
     };
-  }, [projectId, chapterId, isShared, userEmail, userName, userPicture, debouncedSaveToDb]);
+  }, [projectId, chapterId, debouncedSaveToDb]);
 
   const updateRawTranslation = useCallback((newText: string) => {
     if (rawTextRef.current && docRef.current) {
@@ -262,16 +158,8 @@ export function useChapterCRDT({
     }
   }, []);
 
-  const setActiveField = useCallback((field: 'raw' | 'polished' | 'idle') => {
-    if (providerRef.current) {
-      const awareness = providerRef.current.awareness;
-      const current = awareness.getLocalState()?.user || {};
-      awareness.setLocalStateField('user', {
-        ...current,
-        activeField: field,
-        lastActive: Date.now(),
-      });
-    }
+  const setActiveField = useCallback((_field: 'raw' | 'polished' | 'idle') => {
+    // No-op in client-only mode without WebSocket relay
   }, []);
 
   return {

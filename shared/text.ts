@@ -477,3 +477,76 @@ export function redactApiKey(message: string, keys: string[] = []): string {
   result = result.replace(/session_[a-f0-9-]{36}/gi, 'session_***REDACTED***');
   return result;
 }
+
+/**
+ * Làm sạch chuỗi tự do (URL, query string, message, error stack),
+ * che giấu tất cả các token, API key, password, secret, Bearer auth.
+ */
+export function sanitizeSecretString(str: string): string {
+  if (!str || typeof str !== 'string') return str;
+
+  let sanitized = str;
+
+  // 1. Che giấu Google Gemini API keys: AIzaSy...
+  sanitized = sanitized.replace(/AIza[0-9A-Za-z-_]{20,50}/g, 'AIza***[REDACTED]');
+
+  // 1b. Che giấu OpenAI & Anthropic keys: sk-..., sk-ant-...
+  sanitized = sanitized.replace(/sk-ant-[0-9A-Za-z-_]{20,80}/g, 'sk-ant-***[REDACTED]');
+  sanitized = sanitized.replace(/sk-[0-9A-Za-z-_]{20,80}/g, 'sk-***[REDACTED]');
+
+  // 2. Che giấu token / key / password trong query strings hoặc gán key-value:
+  sanitized = sanitized.replace(
+    /((?:[?&]|\b)(?:token|apikey|api_key|password|secret|key|access_token)=)([^&\s"'`]+)/gi,
+    '$1[REDACTED]'
+  );
+
+  // 3. Che giấu Bearer tokens trong header Authorization hoặc log message
+  sanitized = sanitized.replace(
+    /(Bearer\s+)[A-Za-z0-9\-._~+/]+=*/gi,
+    '$1[REDACTED]'
+  );
+
+  // 4. Che giấu database connection URLs: postgres://user:password@host
+  sanitized = sanitized.replace(
+    /(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/gi,
+    '$1***[REDACTED]$3'
+  );
+
+  // 5. Che giấu cookie auth_token
+  sanitized = sanitized.replace(
+    /(auth_token=)[^;,\s]+/gi,
+    '$1***[REDACTED]'
+  );
+
+  return sanitized;
+}
+
+export function sanitizeValue(val: any): any {
+  if (!val) return val;
+  if (typeof val === 'string') {
+    return sanitizeSecretString(val);
+  }
+  if (Array.isArray(val)) {
+    return val.map(sanitizeValue);
+  }
+  if (val instanceof Error) {
+    return {
+      message: sanitizeSecretString(val.message),
+      name: val.name,
+      ...(typeof process !== 'undefined' && process.env?.NODE_ENV === 'production' ? {} : { stack: sanitizeSecretString(val.stack || '') }),
+    };
+  }
+  if (typeof val === 'object') {
+    const clean: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (/(?:password|secret|apikey|api_key|token|authorization|^key$|[_-]key$)/i.test(k) && typeof v === 'string') {
+        clean[k] = v.length > 8 ? `${v.slice(0, 4)}...[REDACTED]` : '***';
+      } else {
+        clean[k] = sanitizeValue(v);
+      }
+    }
+    return clean;
+  }
+  return val;
+}
+

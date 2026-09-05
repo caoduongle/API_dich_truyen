@@ -3,7 +3,6 @@ import {
   RotateCw, 
   AlertTriangle, 
   CheckCircle2, 
-  Layers, 
   Cpu, 
   Settings2,
   Clock,
@@ -313,19 +312,6 @@ export function QuotaPanel({
         />
       )}
 
-      {/* Quota Group / Project Hierarchy Section */}
-      {groups && groups.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-text-main flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-polish" />
-              Nhóm Hạn Mức / Quota Groups ({groups.length} nhóm dự án):
-            </span>
-          </div>
-
-          <GroupQuotaCard groups={groups} />
-        </div>
-      )}
 
       {/* List of Keys Quota Cards */}
       <div className="space-y-3">

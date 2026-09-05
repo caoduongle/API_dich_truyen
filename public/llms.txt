@@ -3,10 +3,11 @@
 > Hệ thống hỗ trợ dịch thuật tiểu thuyết Trung - Việt ứng dụng mô hình AI Gemini thế hệ mới, tối ưu hóa ngữ cảnh kiếm hiệp, tiên hiệp, huyền huyễn với bộ nhớ thực thể và kiểm định văn phong Hako.
 
 ## Tổng Quan Kiến Trúc
+- **Mô hình Kiến trúc**: Pure Client-Side Single Page Application (Zero Backend).
 - **Frontend**: React 19, TypeScript, Tailwind CSS v4, Motion, Lucide Icons.
-- **Backend**: Express, ioredis, Gemini API SDK.
 - **Client Storage**: IndexedDB cục bộ (an toàn dữ liệu người dùng, offline-first).
-- **Đồng bộ Real-time**: CRDT (Yjs) qua WebSocket relay (`/ws/sync`).
+- **AI Integration**: Trực tiếp từ trình duyệt tới Google Gemini REST API (`@google/genai`).
+- **Đồng bộ Dữ liệu**: Đồng bộ hai chiều Google Drive qua OAuth 2.0 PKCE.
 
 ## Các Phân Vùng Chức Năng Chính
 - **Bàn Dịch Thuật (`/workspace`)**: Giao diện song ngữ nguyên tác - bản dịch, hỗ trợ AI dịch phân đoạn, giữ định dạng chương và tra cứu thực thể tức thời.
@@ -17,6 +18,5 @@
 - **Cấu Hình (`/settings`)**: Quản lý API Key cá nhân, mô hình Gemini (Gemini 2.5 Flash / Pro), nhiệt độ sinh từ và giao diện Mực & Chu Sa.
 
 ## Hướng Dẫn Dành Cho Tác Tử AI (AI Crawlers / Agents)
-- Không crawl các endpoint API riêng tư tại `/api/*` và WebSocket tại `/ws/*`.
-- Trang web là Single Page Application (SPA) hỗ trợ Client-side Routing.
+- Trang web là Pure Single Page Application (SPA) hỗ trợ Client-side Routing.
 - Tài liệu và thông tin cập nhật liên tục tại giao diện người dùng.

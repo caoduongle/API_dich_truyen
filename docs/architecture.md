@@ -1,117 +1,105 @@
-# System Architecture Blueprint
+# System Architecture Blueprint — Pure Client-Side SPA (Zero Backend)
 
 ## 1. Overview & High-Level Design
 
-Hệ thống Dịch Truyện Trung - Việt AI là ứng dụng dịch thuật toàn diện được thiết kế với kiến trúc phân tầng chịu lỗi cao (**Resilient Tiered Architecture**), phân tách rõ ràng giữa:
-- **Tầng Giao diện & Lưu trữ Cục bộ (Client Layer)**: React 19, Tailwind CSS v4, Motion, Lucide Icons, và IndexedDB.
-- **Tầng Cổng vào & Bảo vệ Máy chủ (HTTP Ingress & Abuse Protection)**: Express middleware với Sliding Window Counter Rate Limiter.
-- **Tầng Điều phối & Quản lý Hạn mức AI (Gemini Scheduler & Quota Authority)**: Quota tracking theo múi giờ PST, Dynamic Pacing, Key Rotation, và Circuit Breaker.
-- **Tầng Tích hợp AI Provider (AI Provider Layer)**: Google Gemini API Client với Exponential Backoff & Jitter, Persistent Request Tracing.
+Hệ thống Dịch Truyện Trung - Việt AI là ứng dụng dịch thuật toàn diện vận hành theo kiến trúc **100% Thuần Client-Side (Pure Client-Side SPA / Zero Backend)**:
+- **Biên dịch & Đóng gói**: Sử dụng duy nhất `vite build`, tạo ra thư mục `dist/` chứa static assets.
+- **Triển khai Không Máy Chủ**: Deploy trực tiếp lên bất kỳ nền tảng Static Hosting nào (Cloudflare Pages, Netlify, Vercel, GitHub Pages, S3/CDN, Nginx) mà không cần tiến trình Node.js lúc runtime.
+- **Không Lưu Khóa trên Máy Chủ Trung Gian**: Mọi API Key của Google Gemini do người dùng tự quản lý và lưu tạm thời trong `sessionStorage` của trình duyệt hoặc mã hóa trong IndexedDB.
+- **Giao Tiếp Đám Mây Trực Tiếp**: Toàn bộ thao tác dịch thuật, gọi AI, phân tích thuật ngữ và đồng bộ Google Drive đều được thực thi trực tiếp từ trình duyệt người dùng đến Google REST APIs.
 
 ---
 
-## 2. Logical Architecture Flow
+## 2. Kiến trúc Luồng Dữ liệu (Logical Architecture Flow)
 
 ```mermaid
 flowchart TD
-    subgraph ClientLayer ["Client Layer (Browser)"]
-        UI["React 19 Frontend (Tailwind v4)"]
-        IDB[("IndexedDB: Projects, Chapters, Glossaries")]
-        LocalCache[("LocalStorage: UI Prefs & SWR Model Cache")]
-        SessionClient[("SessionStorage: Ephemeral Key Backup")]
+    subgraph BrowserEnvironment ["Trình duyệt Khách (Browser Environment)"]
+        subgraph UI_Layer ["Tầng Giao Diện Người Dùng (React 19)"]
+            AppUI["React 19 Components (Translator, Glossary, Settings)"]
+            ObservabilityUI["Observability & Quota Dashboard"]
+        end
+
+        subgraph Storage_Layer ["Tầng Lưu Trữ Cục Bộ (Client-Owned Storage)"]
+            IDB[("IndexedDB (db.ts)\nSingle Source of Truth cho Dự án & Bản thảo")]
+            LocalPrefs[("localStorage\nUI Preferences & SWR Model Cache")]
+            SessionKeys[("sessionStorage\nEphemeral Gemini API Keys")]
+        end
+
+        subgraph Client_Services ["Tầng Dịch Vụ AI & Hạn Mức Client-Side"]
+            DirectGeminiClient["Direct Gemini Client (@google/genai)\nGọi trực tiếp Google REST API"]
+            LocalQuotaTracker["Local Quota Tracker (localQuotaTracker.ts)\n- PST Midnight RPD Reset\n- 60s Sliding Window RPM/TPM\n- Circuit Breaker & Key Health State Machine"]
+            TranslationEngines["Direct Translation & Glossary Engines"]
+            DriveSync["Google Drive Sync Service (OAuth 2.0 PKCE)"]
+            CRDT["CRDT Document Manager (Local Yjs + IndexedDB)"]
+        end
     end
 
-    subgraph NetworkBoundary ["Ingress & Abuse Protection (Per Client IP)"]
-        HTTP_RL["HTTP Rate Limiter (Sliding Window Counter)\n60 RPM/IP • 2x Burst Protection • Retry-After Header"]
+    subgraph Google_Cloud ["Google Cloud & AI Services"]
+        GeminiAPI["Google Gemini REST API\n(/v1beta/models)"]
+        GoogleDriveAPI["Google Drive REST API\n(/drive/v3/files)"]
+        GoogleOAuth["Google Identity & OAuth 2.0\n(accounts.google.com)"]
     end
 
-    subgraph ServerCore ["Server Core (Express Backend)"]
-        AuthMiddleware["Auth & Session Middleware"]
-        SessionStore[("Server SessionStore (24h TTL)")]
-        ModelRegistry["Model Registry (Presets + SWR Discovery + Lifecycle)"]
-        Admission["Admission Control (Validation & Idempotency)"]
-        ChunkCache[("LRU Chunk Cache (2h Sliding Window)")]
-    end
-
-    subgraph SchedulerLayer ["Gemini Scheduler & Quota Authority (Per API Key)"]
-        QuotaScheduler["Quota Scheduler (PST Midnight Reset Clock)"]
-        RatePacer["Dynamic Pacing Engine (RPM / TPM Sliding Window)"]
-        KeyHealth["Key Health & Dynamic Cooldown (3s - 60s)"]
-        KeyRotation["Multi-Key Rotation Engine"]
-    end
-
-    subgraph ProviderLayer ["AI Provider (Google Gemini)"]
-        RetryEngine["Retry Engine (Exponential Backoff + Jitter)"]
-        Telemetry["Telemetry Tracing (Unified Persistent requestId)"]
-        GeminiAPI["Google Gemini API (/v1beta/models)"]
-    end
-
-    UI <--> IDB
-    UI <--> LocalCache
-    UI -->|HTTP Request with x-session-token / requestId| HTTP_RL
-    HTTP_RL --> AuthMiddleware
-    AuthMiddleware <--> SessionStore
-    AuthMiddleware --> ModelRegistry
-    ModelRegistry --> Admission
-    Admission <--> ChunkCache
-    Admission --> QuotaScheduler
-    QuotaScheduler --> RatePacer
-    RatePacer --> KeyHealth
-    KeyHealth --> KeyRotation
-    KeyRotation --> RetryEngine
-    RetryEngine --> Telemetry
-    Telemetry --> GeminiAPI
+    AppUI <--> IDB
+    AppUI <--> LocalPrefs
+    AppUI <--> SessionKeys
+    ObservabilityUI <--> LocalQuotaTracker
+    AppUI --> TranslationEngines
+    TranslationEngines --> DirectGeminiClient
+    DirectGeminiClient <--> LocalQuotaTracker
+    DirectGeminiClient -->|Direct HTTPS Request| GeminiAPI
+    DriveSync -->|OAuth 2.0 PKCE| GoogleOAuth
+    DriveSync -->|Backup / Pull / Sync| GoogleDriveAPI
+    CRDT <--> IDB
 ```
 
 ---
 
-## 3. Ranh giới Phân định Cốt lõi (Architectural Boundaries)
+## 3. Ranh giới Phân định & Trách nhiệm Bộ phận
 
-> [!IMPORTANT]
-> **Ranh giới quan trọng**: Hệ thống phân định rạch ròi 2 lớp kiểm soát tốc độ hoàn toàn độc lập:
-> 1. **HTTP Abuse Rate Limiter**: Giới hạn số lượng HTTP request gửi đến server theo từng IP máy khách (`req.ip`) để chống spam DoS.
-> 2. **Gemini Quota Scheduler**: Quản lý hạn mức tiêu thụ token/request của từng Google API key (`keyHash`) để tối ưu hóa quota và ngăn chặn lỗi 429 từ Google.
-
-```mermaid
-graph LR
-    subgraph HTTP_Limiter ["HTTP Abuse Rate Limiter"]
-        A[Client IP] --> B[Sliding Window 60 RPM]
-        B -->|Exceeded| C[HTTP 429 + Retry-After]
-    end
-
-    subgraph Gemini_Scheduler ["Gemini Quota Scheduler"]
-        D[API Key Hash] --> E[PST Midnight RPD Reset]
-        E --> F[Sliding RPM / TPM Tracking]
-        F --> G[Dynamic Pacing Delay]
-        G --> H[Key Rotation & Health Cooldown]
-    end
+```
+┌────────────────────────────────────────────────────────┐
+│ Local Quota Tracker (Client-Side Capacity Management)  │
+│ • Định danh: SHA-256 API Key Hash (idempotent)         │
+│ • Thuật toán: PST Midnight Reset + Sliding RPM/TPM     │
+│ • Mục đích: Chống lỗi 429 từ Google, bảo vệ quota       │
+│ • Cơ chế: Circuit Breaker, Cooldown & Dynamic Rotation │
+└────────────────────────────────────────────────────────┘
+                           vs
+┌────────────────────────────────────────────────────────┐
+│ Static Web Hosting & Edge Security Headers             │
+│ • Nền tảng: Cloudflare Pages / Vercel / Netlify        │
+│ • Cấu hình: public/_headers và vercel.json             │
+│ • Mục đích: CSP chặt chẽ, COOP same-origin-allow-popups│
+│ • Tối ưu: Cache static assets dài hạn, SPA routing     │
+└────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 4. Bảng Phân định Quyền Sở hữu Dữ liệu (Storage Source of Truth)
 
-| Phân vùng dữ liệu (Data Domain) | Nguồn sự thật duy nhất (Single Source of Truth) | Tầng bộ nhớ đệm (Cache Layer) | Vòng đời / TTL | Cơ chế dọn dẹp / Di chuyển |
+| Phân vùng dữ liệu (Data Domain) | Nguồn sự thật duy nhất (Single Source of Truth) | Tầng bộ nhớ đệm (Cache Layer) | Vòng đời / TTL | Cơ chế bảo vệ & dọn dẹp |
 |:---|:---|:---|:---|:---|
-| **Dự án, Chương truyện, Bản thảo** | **IndexedDB** (`db.ts`) | React Memory | Vĩnh viễn (Client-owned) | IndexedDB Version Migration, Manual Wipe |
-| **API Keys & Credentials** | **Server SessionStore** | `sessionStorage` (fallback) | 24 giờ | Auto-expire Fixed TTL, Không lưu plaintext ở `localStorage` |
-| **Model Selection** | **`localStorage`** | React Memory | Vĩnh viễn | Default Fallback on Deprecation |
-| **Discovered Models Cache** | **Server Model Registry** | `localStorage` (SWR) | 1 giờ TTL | SWR Stale Cache Preservation, Zero-wipe on 429 |
-| **Quota & Token Usage** | **Server QuotaService** | React Memory | Hằng ngày | Reset lúc 00:00:00 America/Los_Angeles (PST/PDT) |
-| **Key Health & Cooldown** | **Server QuotaService** | React Memory | Động (3s - 60s) | Tự động phục hồi khi hết Cooldown hoặc khi gọi thành công |
-| **Translation Chunk Cache** | **Server Memory Cache** | Server LRU Map | 2 giờ | LRU Eviction & Periodic Pruning |
+| **Dự án, Chương truyện, Bản thảo** | **IndexedDB** (`db.ts`) | React Memory | Vĩnh viễn (Client-owned) | IndexedDB Version Migration, Storage Audit |
+| **Báo cáo Kiểm định Hako** | **IndexedDB** (`HakoQualityCheckerDB`) | React Memory | Vĩnh viễn (Client-owned) | Xóa theo dự án hoặc dọn thủ công |
+| **API Keys & Credentials** | **`sessionStorage`** | Bộ nhớ tiến trình React | Session trình duyệt | Tự xóa khi đóng tab, không lưu plaintext trong `localStorage` |
+| **Giao diện & Cài đặt UI** | **`localStorage`** | React Memory | Vĩnh viễn | Tự đồng bộ qua ThemeContext |
+| **Mô hình AI Khám phá (SWR)** | **`localStorage`** | React State | 24 giờ SWR | Stale Cache Preservation, tự khôi phục khi offline |
+| **Thống kê Quota & Token Usage** | **`localQuotaTracker` (In-memory)** | React Memory | Chu kỳ ngày PST | Reset lúc 00:00:00 PST (`America/Los_Angeles`) |
+| **Trạng thái Sức khỏe Khóa (Key Health)** | **`localQuotaTracker` (In-memory)** | React Memory | Phiên làm việc | Circuit Breaker chuyển đổi tự động (Closed / Open / HalfOpen) |
 
 ---
 
-## 5. Cơ chế Suy biến Mượt mà (Graceful Degradation)
+## 5. Cơ chế Chịu lỗi & Tự phục hồi (Resilience & Self-Healing)
 
-Hệ thống được thiết kế để hoạt động ổn định trong mọi điều kiện lỗi hạ tầng:
-1. **Redis Mất kết nối**:
-   - HTTP Rate Limiter tự động chuyển sang In-memory Sliding Window (tối đa 10.000 entries) với độ trễ chuyển đổi < 5ms.
-   - Chunk Cache tự động lưu trữ trên bộ nhớ RAM của tiến trình Express.
-2. **Google API Quota 429 hoặc Lỗi 503**:
-   - Key hiện tại được đưa vào trạng thái Cooldown.
-   - Request tự động chuyển sang Key tiếp theo trong Key Ring với cùng `requestId`.
-3. **Model Discovery Quá hạn hoặc Lỗi Mạng**:
-   - Giao diện UI tải ngay lập tức danh sách model từ stale cache.
-   - Background revalidation ngầm mà không block thao tác của người dùng.
+1. **Google API Quota 429 hoặc Lỗi 503**:
+   - `localQuotaTracker` tự động chuyển key gặp sự cố sang trạng thái `Cooldown` hoặc `QuotaExhausted`.
+   - `directGeminiClient` ngay lập tức xoay vòng sang key khả dụng kế tiếp trong Key Ring để hoàn thành tác vụ mà người dùng không bị gián đoạn.
+2. **Model Discovery Quá hạn hoặc Lỗi Mạng**:
+   - Giao diện UI tải tức thì danh sách mô hình từ stale cache lưu ở `localStorage`.
+   - Quá trình revalidation ngầm thực hiện trực tiếp với Google API mà không block thao tác người dùng.
+3. **Mất Kết Nối Mạng (Offline-First)**:
+   - Toàn bộ bản thảo, từ điển và lịch sử phiên dịch vẫn truy cập và chỉnh sửa bình thường trong IndexedDB.
+   - Khi có kết nối trở lại, người dùng có thể thực hiện đồng bộ lên Google Drive.

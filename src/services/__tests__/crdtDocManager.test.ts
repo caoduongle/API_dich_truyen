@@ -115,31 +115,5 @@ describe('crdtDocManager (Yjs Document Core)', () => {
     expect(remoteCallbackCount).toBe(1);
     expect(lastReceivedTitle).toBe('Chương 2: Tiến Triển');
   });
-
-  it('requests ws-ticket with Authorization header and parses response', async () => {
-    const { requestWsTicket } = await import('../crdtDocManager');
-
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, ticket: 'signed_test_ticket_123' }),
-    });
-    vi.stubGlobal('fetch', mockFetch);
-
-    const ticket = await requestWsTicket('proj_1', 'chap_1', 'my_auth_token');
-    expect(ticket).toBe('signed_test_ticket_123');
-    expect(mockFetch).toHaveBeenCalledWith(
-      '/api/ws-ticket',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          'Authorization': 'Bearer my_auth_token',
-        }),
-      })
-    );
-
-    // Test error handling
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 403 });
-    const failedTicket = await requestWsTicket('proj_1', 'chap_1', 'bad_token');
-    expect(failedTicket).toBeNull();
-  });
 });
+

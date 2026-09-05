@@ -26,14 +26,18 @@ describe('Custom Domain Assets Integrity Suite', () => {
     const content = fs.readFileSync(viteConfigPath, 'utf-8');
 
     expect(content).toContain('base: process.env.VITE_BASE_URL || \'/\'');
-    expect(content).toContain("outDir: 'dist/client'");
+    expect(content).toContain("outDir: 'dist'");
   });
 
-  it('should verify server.ts serves static files from dist/client', () => {
-    const serverPath = path.join(process.cwd(), 'server.ts');
-    const content = fs.readFileSync(serverPath, 'utf-8');
-
-    expect(content).toContain('distClientPath = path.join(process.cwd(), "dist", "client")');
+  it('should verify static security headers config in public/_headers and vercel.json', () => {
+    const headersPath = path.join(process.cwd(), 'public', '_headers');
+    const vercelPath = path.join(process.cwd(), 'vercel.json');
+    expect(fs.existsSync(headersPath)).toBe(true);
+    expect(fs.existsSync(vercelPath)).toBe(true);
+    const headersContent = fs.readFileSync(headersPath, 'utf-8');
+    expect(headersContent).toContain('Cross-Origin-Opener-Policy: same-origin-allow-popups');
+    const vercelContent = fs.readFileSync(vercelPath, 'utf-8');
+    expect(vercelContent).toContain('"Cross-Origin-Opener-Policy"');
   });
 });
 

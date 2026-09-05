@@ -1,41 +1,37 @@
 # ==============================================================================
-# Dockerfile chuẩn hóa Production (Multi-Stage Build & Non-Root Hardening)
+# Dockerfile cho ứng dụng Pure Client-Side SPA (Nginx Alpine)
 # ==============================================================================
 
-# Stage 1: Build & Bundle
+# Stage 1: Build static assets
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Cài đặt dependencies đầy đủ để build
 COPY package*.json ./
 RUN npm ci
 
-# Copy mã nguồn và thực thi build client + server
 COPY . .
 RUN npm run build
 
-# Stage 2: Runtime Runner (Tối giản kích thước và bảo mật tối đa)
-FROM node:20-alpine AS runner
-WORKDIR /app
+# Stage 2: Serve static files with Nginx
+FROM nginx:alpine AS runner
 
-ENV NODE_ENV=production
-ENV PORT=3000
+# Tùy biến Nginx cấu hình SPA routing fallback về index.html
+RUN echo 'server { \
+    listen 80; \
+    server_name localhost; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    location / { \
+        try_files $uri $uri/ /index.html; \
+    } \
+    location = /favicon.svg { \
+        access_log off; \
+        log_not_found off; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
 
-# Chạy với user non-root 'node' (UID 1000) chống leo thang đặc quyền container
-USER node
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Cài đặt dependencies production-only
-COPY --chown=node:node package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+EXPOSE 80
 
-# Copy artifacts đã biên dịch từ builder stage
-COPY --chown=node:node --from=builder /app/dist ./dist
-
-EXPOSE 3000
-
-# Container Healthcheck probe kiểm tra liveness định kỳ
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/live || exit 1
-
-# Khởi chạy server biên dịch tách biệt
-CMD ["node", "dist/server/server.cjs"]
+CMD ["nginx", "-g", "daemon off;"]

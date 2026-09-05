@@ -45,9 +45,9 @@ export const CollaboratorPresenceBar: React.FC<CollaboratorPresenceBarProps> = (
         )}
 
         {status === 'offline' && isShared && (
-          <span className="flex items-center gap-1 text-[11px] text-text-muted font-medium" title="Chế độ offline cá nhân">
-            <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />
-            <span className="hidden sm:inline">Cục bộ</span>
+          <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium" title="Dữ liệu lưu cục bộ và đồng bộ qua Google Drive">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="hidden sm:inline">Cục bộ / Google Drive</span>
           </span>
         )}
       </div>

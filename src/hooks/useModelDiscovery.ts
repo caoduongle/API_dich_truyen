@@ -7,14 +7,15 @@ import {
   isDiscoveryStale,
   fetchAndCacheDiscoveredModels,
 } from '../utils/modelRegistry';
-import { apiFetch, getSessionToken, ModelInfoItem } from '../utils/apiClient';
+import { ModelInfoItem } from '../utils/apiClient';
+import { listModelsDirect } from '../services/directGeminiClient';
 
 export interface UseModelDiscoveryOptions {
   /** Tự động làm mới chạy ngầm khi cache stale hoặc chưa có cache (mặc định: true) */
   autoBackgroundRefresh?: boolean;
   /** Session token tùy chọn */
   sessionToken?: string | null;
-  /** Danh sách API keys tạm thời (dùng khi chưa đồng bộ session) */
+  /** Danh sách API keys tạm thời */
   apiKeys?: string[];
 }
 
@@ -45,7 +46,7 @@ export interface UseModelDiscoveryResult {
  * 4. Khả năng phục hồi cao: Lỗi mạng/429 không bao giờ xóa cache cũ (Zero Registry Wipe).
  */
 export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseModelDiscoveryResult {
-  const { autoBackgroundRefresh = true, sessionToken, apiKeys } = options;
+  const { autoBackgroundRefresh = true, apiKeys } = options;
 
   const [models, setModels] = useState<RegisteredModelDef[]>(() => getRegisteredModels());
   const [discoveredModels, setDiscoveredModels] = useState<RegisteredModelDef[]>(() => getDiscoveredModels());
@@ -92,8 +93,7 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
 
   const refresh = useCallback(
     async (force: boolean = false): Promise<RegisteredModelDef[]> => {
-      const currentToken = sessionToken || getSessionToken();
-      const hasKeys = (apiKeys && apiKeys.length > 0) || Boolean(currentToken);
+      const hasKeys = apiKeys && apiKeys.length > 0;
 
       if (!hasKeys) {
         setIsLoading(false);
@@ -108,27 +108,21 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
 
       try {
         const fetchFn = async (): Promise<ModelInfoItem[]> => {
-          const bodyPayload: any = {};
-          if (apiKeys && apiKeys.length > 0) {
-            bodyPayload.apiKeys = apiKeys;
+          const validKeys = (apiKeys || []).filter((k) => typeof k === 'string' && k.trim().length > 0);
+          if (validKeys.length === 0) return [];
+          let lastErr: any = null;
+          for (const key of validKeys) {
+            try {
+              const res = await listModelsDirect(key);
+              if (Array.isArray(res) && res.length > 0) {
+                return res;
+              }
+            } catch (err) {
+              lastErr = err;
+            }
           }
-          if (force) {
-            bodyPayload.forceRefresh = true;
-          }
-
-          const res = await apiFetch('/api/list-models', {
-            method: 'POST',
-            body: JSON.stringify(bodyPayload),
-          });
-
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            const msg = errData?.error || `HTTP ${res.status}: Không thể lấy danh sách mô hình`;
-            throw new Error(msg);
-          }
-
-          const data = await res.json();
-          return Array.isArray(data.models) ? data.models : [];
+          if (lastErr) throw lastErr;
+          return [];
         };
 
         const updatedDiscovered = await fetchAndCacheDiscoveredModels(fetchFn, { force });
@@ -164,13 +158,12 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
         }
       }
     },
-    [sessionToken, apiKeys, syncStateFromStorage]
+    [apiKeys, syncStateFromStorage]
   );
 
-  // Background revalidation khi mount hoặc khi session token sẵn sàng
+  // Background revalidation khi mount hoặc khi có API keys
   useEffect(() => {
-    const currentToken = sessionToken || getSessionToken();
-    const hasCredentials = Boolean(currentToken) || (apiKeys && apiKeys.length > 0);
+    const hasCredentials = apiKeys && apiKeys.length > 0;
 
     if (!autoBackgroundRefresh || !hasCredentials) {
       setIsLoading(false);
@@ -187,7 +180,7 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
     } else {
       setIsLoading(false);
     }
-  }, [autoBackgroundRefresh, sessionToken, apiKeys, refresh]);
+  }, [autoBackgroundRefresh, apiKeys, refresh]);
 
   return {
     models,

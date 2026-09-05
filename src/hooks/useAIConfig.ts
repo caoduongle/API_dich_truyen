@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useNotifications } from '../components/NotificationSystem';
 import { DEFAULT_MODEL_ID } from '../constants/models';
-import { syncSessionKeysToServer, registerSessionSyncCallback, ModelInfoItem } from '../utils/apiClient';
+import { ModelInfoItem } from '../utils/apiClient';
 import { 
   getDiscoveredModels, 
   getCustomModels, 
@@ -115,18 +115,7 @@ export function useAIConfig() {
         return stored === 'true';
     });
 
-    const apiKeysRef = useRef(apiKeys);
-    apiKeysRef.current = apiKeys;
-
-    // Đăng ký callback phục hồi session cho apiClient
-    useEffect(() => {
-        registerSessionSyncCallback(async () => {
-            const currentKeys = apiKeysRef.current;
-            return await syncSessionKeysToServer(currentKeys);
-        });
-    }, []);
-
-    // Sync apiKeys to sessionStorage & Server Session whenever they change (NEVER write to localStorage)
+    // Sync apiKeys to sessionStorage whenever they change (NEVER write to localStorage)
     useEffect(() => {
         try {
             if (typeof sessionStorage !== 'undefined') {
@@ -137,7 +126,6 @@ export function useAIConfig() {
                 }
             }
         } catch (_) {}
-        syncSessionKeysToServer(apiKeys);
     }, [apiKeys]);
 
     useEffect(() => {

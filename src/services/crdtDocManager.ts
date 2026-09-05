@@ -64,7 +64,7 @@ export function createChapterYDoc(
     rawText,
     polishedText,
     metadataMap,
-    status: 'disconnected',
+    status: 'offline',
     collaborators: [],
   };
 }
@@ -340,38 +340,3 @@ export function mergeChapterCrdt({
   };
 }
 
-/**
- * Yêu cầu máy chủ cấp Server-Signed Ticket cho kết nối WebSocket CRDT.
- * Tự động gửi Authorization Bearer token để xác minh danh tính chống IDOR/BOLA.
- */
-export async function requestWsTicket(
-  projectId: string,
-  chapterId: string,
-  authToken?: string
-): Promise<string | null> {
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (authToken && authToken.trim()) {
-      headers['Authorization'] = `Bearer ${authToken.trim()}`;
-    }
-
-    const res = await fetch('/api/ws-ticket', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ projectId, chapterId }),
-    });
-
-    if (!res.ok) {
-      console.warn(`[crdtDocManager] requestWsTicket thất bại: HTTP ${res.status}`);
-      return null;
-    }
-
-    const data = await res.json();
-    return typeof data.ticket === 'string' ? data.ticket : null;
-  } catch (err) {
-    console.warn('[crdtDocManager] Lỗi khi yêu cầu ws-ticket:', err);
-    return null;
-  }
-}

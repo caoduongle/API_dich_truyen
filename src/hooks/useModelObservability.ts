@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  fetchQuotaStatus, 
   fetchModelsForKey, 
   KeyQuotaFullSnapshot, 
   QuotaGroupDisplayItem,
@@ -9,6 +8,7 @@ import {
   LogicalSummaryStats
 } from '../utils/apiClient';
 import { saveDiscoveredModels } from '../utils/modelRegistry';
+import { localQuotaTracker } from '../services/localQuotaTracker';
 
 export interface ModelObservabilityState {
   snapshotKeys: KeyQuotaFullSnapshot[];
@@ -66,7 +66,7 @@ export function useModelObservability(
   const onDiscoveredRef = useRef(onModelsDiscovered);
   onDiscoveredRef.current = onModelsDiscovered;
 
-  const loadQuotaStatus = useCallback(async (forceRefresh: boolean = false) => {
+  const loadQuotaStatus = useCallback(async (_forceRefresh: boolean = false) => {
     const currentClean = cleanKeysRef.current;
     if (currentClean.length === 0) {
       setSnapshotKeys([]);
@@ -75,38 +75,16 @@ export function useModelObservability(
       return;
     }
 
-    const currentKeysKey = currentClean.join(',');
-    const now = Date.now();
-
-    if (!forceRefresh && globalQuotaCache && globalQuotaCache.keysKey === currentKeysKey) {
-      const isFresh = (now - globalQuotaCache.timestamp) < QUOTA_CACHE_TTL_MS;
-      if (isFresh) {
-        const cached = globalQuotaCache.data;
-        setSnapshotKeys(cached.keys || []);
-        setGroups(cached.groups || []);
-        setSummary(cached.summary || null);
-        setTimezone(cached.timezone || 'America/Los_Angeles');
-        setCurrentDayPST(cached.currentDayPST || '');
-        setLastUpdated(new Date(globalQuotaCache.timestamp));
-        return;
-      }
-    }
-
     setLoadingQuota(true);
     setQuotaError(null);
     try {
-      const data = await fetchQuotaStatus(currentClean);
-      globalQuotaCache = {
-        data,
-        timestamp: now,
-        keysKey: currentKeysKey,
-      };
+      const data = localQuotaTracker.getQuotaStatus(currentClean);
       setSnapshotKeys(data.keys || []);
       setGroups(data.groups || []);
       setSummary(data.summary || null);
       setTimezone(data.timezone || 'America/Los_Angeles');
       setCurrentDayPST(data.currentDayPST || '');
-      setLastUpdated(new Date(now));
+      setLastUpdated(new Date());
     } catch (err: any) {
       console.error('[useModelObservability] Error loading quota:', err);
       setQuotaError(err.message || 'Không thể tải thông tin hạn ngạch.');

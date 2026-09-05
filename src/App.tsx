@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback, useTransition } from 'react';
 import { 
-  BookOpenText, Settings, History, Folder, Cpu, Languages, Lock, Unlock, ShieldCheck,
+  BookOpenText, Settings, History, Folder, Cpu, Languages, ShieldCheck,
   ChevronLeft, ChevronRight, MoreHorizontal, ChevronDown, X, Phone, Mail
 } from 'lucide-react';
 import { Chapter, StoryProject } from './types';
 import { NotificationProvider } from './components/NotificationSystem';
 import { AIConfigProvider, useAIConfigContext } from './context/AIConfigContext';
 import { ProjectProvider, useProjectContext } from './context/ProjectContext';
-import { checkAuthStatus, logoutAuth } from './utils/apiClient';
 import { TabSkeleton } from './components/common/Skeleton';
 import { useHotkeys } from './hooks/useHotkeys';
 import { useScrollOverflow } from './hooks/useScrollOverflow';
@@ -28,7 +27,6 @@ const ProjectList = React.lazy(() => import('./components/ProjectList'));
 const ChapterHistoryPanel = React.lazy(() => import('./components/ChapterHistoryPanel'));
 const ApiSettings = React.lazy(() => import('./components/ApiSettings'));
 const HakoCheckerWorkspace = React.lazy(() => import('./components/hako-checker/HakoCheckerWorkspace'));
-const AuthModal = React.lazy(() => import('./components/AuthModal'));
 const GoogleSyncModal = React.lazy(() => import('./components/google-sync/GoogleSyncModal').then(m => ({ default: m.GoogleSyncModal })));
 const CustomThemeModal = React.lazy(() => import('./components/common/CustomThemeModal').then(m => ({ default: m.CustomThemeModal })));
 import { GoogleUserButton } from './components/google-sync/GoogleUserButton';
@@ -118,11 +116,8 @@ function AppContent() {
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
   const [showCustomThemeModal, setShowCustomThemeModal] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
-  const [authRequired, setAuthRequired] = useState(false);
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
   const [isAutoTranslating, setIsAutoTranslating] = useState(false);
 
@@ -205,23 +200,7 @@ function AppContent() {
   }, [activeTab, scrollToElement]);
 
 
-  // Check auth requirement on mount
-  useEffect(() => {
-    checkAuthStatus().then((status) => {
-      setAuthRequired(status.authRequired);
-      setIsAuthenticated(status.authenticated);
-      if (status.authRequired && !status.authenticated) {
-        setShowAuthModal(true);
-      }
-    });
 
-    const handleAuthRequired = () => {
-      setIsAuthenticated(false);
-      setShowAuthModal(true);
-    };
-    window.addEventListener('app:auth-required', handleAuthRequired);
-    return () => window.removeEventListener('app:auth-required', handleAuthRequired);
-  }, []);
 
   const switchTab = useCallback((tab: 'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker') => {
     setIsNotFound(false);
@@ -341,29 +320,7 @@ function AppContent() {
           {/* Google Account & Drive Sync */}
           <GoogleUserButton onOpenSyncModal={() => setShowGoogleSyncModal(true)} />
 
-          {authRequired && (
-            <Button
-              variant={isAuthenticated ? 'secondary' : 'primary'}
-              size="sm"
-              onClick={() => {
-                if (isAuthenticated) {
-                  if (window.confirm("Bạn có chắc chắn muốn đăng xuất khỏi máy chủ?")) {
-                    logoutAuth().then(() => {
-                      setIsAuthenticated(false);
-                      setShowAuthModal(true);
-                    });
-                  }
-                } else {
-                  setShowAuthModal(true);
-                }
-              }}
-              icon={isAuthenticated ? <Unlock className="w-3.5 h-3.5 text-text-muted" /> : <Lock className="w-3.5 h-3.5 text-white" />}
-              className={!isAuthenticated ? 'animate-pulse' : ''}
-              title={isAuthenticated ? "Máy chủ đã xác thực. Bấm để đăng xuất" : "Yêu cầu đăng nhập máy chủ"}
-            >
-              <span className="hidden sm:inline">{isAuthenticated ? 'Đã khóa máy chủ' : 'Chưa đăng nhập'}</span>
-            </Button>
-          )}
+
 
           <Button
             variant="primary"
@@ -1132,20 +1089,7 @@ function AppContent() {
         />
       )}
 
-      {/* Modal Mật Khẩu Truy Cập Máy Chủ */}
-      {showAuthModal && (
-        <React.Suspense fallback={null}>
-          <AuthModal
-            isOpen={showAuthModal}
-            canDismiss={isAuthenticated}
-            onClose={() => setShowAuthModal(false)}
-            onSuccess={() => {
-              setIsAuthenticated(true);
-              setShowAuthModal(false);
-            }}
-          />
-        </React.Suspense>
-      )}
+
 
       {/* Modal Đồng Bộ Google Drive */}
       {showGoogleSyncModal && (

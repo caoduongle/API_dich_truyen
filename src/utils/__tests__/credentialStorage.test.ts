@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { migrateAndLoadApiKeys } from '../../hooks/useAIConfig';
-import { apiFetch, setSessionToken, registerSessionSyncCallback, syncSessionKeysToServer } from '../apiClient';
-import { sanitizeSecretString, sanitizeValue } from '../../../server/utils/logger';
-import { redactApiKey } from '../../../server/utils/text';
-import { maskApiKey, hashApiKey } from '../../../server/services/quotaService';
+import { apiFetch } from '../apiClient';
+import { sanitizeSecretString, sanitizeValue, redactApiKey } from '@shared/text';
+import { maskApiKey, hashApiKey } from '../../services/localQuotaTracker';
 import { verifyStorageIntegrity } from '../storageAudit';
 
 describe('Credential Storage & Lifecycle Security', () => {
@@ -31,7 +30,6 @@ describe('Credential Storage & Lifecycle Security', () => {
 
     (global as any).localStorage = localStorageMock;
     (global as any).sessionStorage = sessionStorageMock;
-    setSessionToken(null);
     vi.restoreAllMocks();
   });
 
@@ -100,9 +98,7 @@ describe('Credential Storage & Lifecycle Security', () => {
   });
 
   describe('Payload Sanitization (apiFetch)', () => {
-    it('should strip apiKeys from outgoing JSON request body and attach session header', async () => {
-      setSessionToken('valid-session-uuid-123');
-
+    it('should strip apiKeys from outgoing JSON request body', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -121,71 +117,11 @@ describe('Credential Storage & Lifecycle Security', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const callArgs = fetchMock.mock.calls[0];
-      const headers = callArgs[1].headers;
       const parsedBody = JSON.parse(callArgs[1].body);
 
-      expect(headers.get('X-Session-Token')).toBe('valid-session-uuid-123');
       expect(parsedBody.apiKeys).toBeUndefined();
       expect(parsedBody.text).toBe('天地玄黄');
       expect(parsedBody.model).toBe('gemini-2.5-flash');
-    });
-
-    it('syncSessionKeysToServer should compute SHA-256 hashes and send keyHashes to /api/session-keys', async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ sessionToken: 'session_test_token_123' }),
-      });
-      global.fetch = fetchMock;
-
-      const token = await syncSessionKeysToServer(['AIzaSyTestKey123']);
-      expect(token).toBe('session_test_token_123');
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-
-      const [url, options] = fetchMock.mock.calls[0];
-      expect(url).toBe('/api/session-keys');
-      const body = JSON.parse(options.body);
-
-      expect(body.apiKeys).toBeUndefined();
-      expect(Array.isArray(body.keyHashes)).toBe(true);
-      expect(body.keyHashes[0]).toMatch(/^[0-9a-f]{64}$/);
-      expect(body.keyHashes[0]).not.toContain('AIzaSy');
-    });
-
-    it('should handle 401 sessionExpired by triggering registered callback and transparently retrying', async () => {
-      setSessionToken('expired-session-id');
-
-      const mockSync = vi.fn().mockResolvedValue('new-session-id-456');
-      registerSessionSyncCallback(mockSync);
-
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 401,
-          clone: () => ({
-            json: () => Promise.resolve({ sessionExpired: true, error: 'Session expired' }),
-          }),
-          json: () => Promise.resolve({ sessionExpired: true, error: 'Session expired' }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({ success: true, translatedText: 'Vũ trụ hồng hoang' }),
-        });
-      global.fetch = fetchMock;
-
-      const response = await apiFetch('/api/translate-raw', {
-        method: 'POST',
-        body: JSON.stringify({ text: '宇宙洪荒' }),
-      });
-
-      expect(mockSync).toHaveBeenCalledTimes(1);
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(response.status).toBe(200);
-
-      const retryHeaders = fetchMock.mock.calls[1][1].headers;
-      expect(retryHeaders.get('X-Session-Token')).toBe('new-session-id-456');
     });
   });
 

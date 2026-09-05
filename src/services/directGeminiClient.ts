@@ -1,6 +1,7 @@
 import { DEFAULT_MODEL_ID } from '@shared/models';
 import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '@shared/text';
 import { GlossaryType } from '../types';
+import { localQuotaTracker } from './localQuotaTracker';
 
 export interface DirectGeminiRequestOptions {
   apiKeys: string[];
@@ -77,9 +78,14 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
   const startIdx = options.startKeyIndex && options.startKeyIndex >= 0 ? options.startKeyIndex % rawKeys.length : 0;
   let lastError: any = null;
 
+  localQuotaTracker.recordLogicalStart();
+
   for (let attempt = 0; attempt < rawKeys.length; attempt++) {
     const currentKeyIdx = (startIdx + attempt) % rawKeys.length;
     const currentKey = rawKeys[currentKeyIdx];
+    const callStartTime = Date.now();
+
+    localQuotaTracker.recordProviderAttempt(currentKey, modelName, callStartTime);
 
     try {
       const response = await fetch(endpointUrl, {
@@ -96,6 +102,15 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
         const errJson = await response.json().catch(() => ({}));
         const errMsg = errJson?.error?.message || `HTTP ${response.status} ${response.statusText}`;
         const errStatus = errJson?.error?.status || '';
+
+        // Ghi nhận lỗi vào local quota tracker
+        localQuotaTracker.recordFailure(currentKey, modelName, {
+          status: response.status,
+          message: errMsg,
+          isRateLimit: response.status === 429 || errStatus === 'RESOURCE_EXHAUSTED',
+          isAuthError: response.status === 401 || response.status === 403,
+          isOverload: response.status === 503 || response.status === 500,
+        });
 
         // Phân loại lỗi rate limit / overload để thử key kế tiếp
         const isRateLimitOrOverload =
@@ -133,6 +148,21 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
         throw new Error('AI trả về phản hồi rỗng.');
       }
 
+      const latencyMs = Date.now() - callStartTime;
+      const promptTokens = data?.usageMetadata?.promptTokenCount || Math.ceil(options.prompt.length / 4);
+      const outputTokens = data?.usageMetadata?.candidatesTokenCount || Math.ceil(text.length / 4);
+
+      localQuotaTracker.recordSuccess(
+        currentKey,
+        modelName,
+        {
+          promptTokens,
+          outputTokens,
+          totalTokens: data?.usageMetadata?.totalTokenCount || promptTokens + outputTokens,
+        },
+        latencyMs
+      );
+
       return {
         text,
         successKeyIndex: currentKeyIdx,
@@ -141,6 +171,9 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
       if (err.name === 'AbortError') {
         throw err;
       }
+      localQuotaTracker.recordFailure(currentKey, modelName, {
+        message: err?.message,
+      });
       lastError = formatGeminiNetworkError(err);
       if (attempt === rawKeys.length - 1) {
         throw lastError;
