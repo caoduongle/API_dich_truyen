@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import * as directGeminiClient from '../directGeminiClient';
 import {
   runHeuristicQualityScan,
+  runAiQualityScan,
   generateQualityReport,
   generateIssueId,
 } from '../hakoQualityEngine';
@@ -259,6 +261,116 @@ describe('hakoQualityEngine Unit Tests', () => {
       expect(jitChapters.length).toBe(12);
       expect(allIssues.length).toBeGreaterThan(0);
       expect(allIssues.some((issue) => issue.chapterId === 'jit-chap-4' && issue.category === 'raw_leak' && issue.chapterNumber === 4)).toBe(true);
+    });
+  });
+
+  describe('runAiQualityScan - All Keys Exhausted Fast-Break', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('emits exactly 1 summary warning issue and stops immediately without calling callGeminiDirect for remaining chapters', async () => {
+      const chapters = [
+        { chapterId: 'c1', title: 'Chương 1', chapterNumber: 1, vietnameseContent: 'Nội dung chương 1' },
+        { chapterId: 'c2', title: 'Chương 2', chapterNumber: 2, vietnameseContent: 'Nội dung chương 2' },
+        { chapterId: 'c3', title: 'Chương 3', chapterNumber: 3, vietnameseContent: 'Nội dung chương 3' },
+      ];
+
+      const exhaustedError = new Error('Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: Quota exceeded');
+      (exhaustedError as any).code = 'ALL_KEYS_EXHAUSTED';
+
+      const spy = vi.spyOn(directGeminiClient, 'callGeminiDirect').mockRejectedValue(exhaustedError);
+
+      const issues = await runAiQualityScan({
+        apiKeys: ['KEY_1', 'KEY_2'],
+        projectTitle: 'Dự án Test Quota',
+        chapters,
+      });
+
+      // (a) Chỉ có đúng 1 issue cảnh báo tổng quát được tạo ra (không phải 3)
+      expect(issues.length).toBe(1);
+      expect(issues[0].chapterId).toBe('c1');
+      expect(issues[0].category).toBe('other');
+      expect(issues[0].severity).toBe('warning');
+      expect(issues[0].explanation).toContain('Toàn bộ API Key đã hết hạn mức');
+
+      // (b) callGeminiDirect KHÔNG bị gọi lại cho chương 2 và 3
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves prior chapter results and breaks when ALL_KEYS_EXHAUSTED occurs on a subsequent chapter', async () => {
+      const chapters = [
+        { chapterId: 'c1', title: 'Chương 1', chapterNumber: 1, vietnameseContent: 'Nội dung chương 1' },
+        { chapterId: 'c2', title: 'Chương 2', chapterNumber: 2, vietnameseContent: 'Nội dung chương 2' },
+        { chapterId: 'c3', title: 'Chương 3', chapterNumber: 3, vietnameseContent: 'Nội dung chương 3' },
+      ];
+
+      const exhaustedError = new Error('Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED).');
+      (exhaustedError as any).code = 'ALL_KEYS_EXHAUSTED';
+
+      const spy = vi.spyOn(directGeminiClient, 'callGeminiDirect')
+        // Chapter 1 succeeds and finds 1 issue
+        .mockResolvedValueOnce({
+          text: JSON.stringify({
+            issues: [
+              {
+                category: 'inconsistent_name',
+                severity: 'critical',
+                vietnameseSnippet: 'Tên nhân vật',
+                explanation: 'Nhầm tên nhân vật',
+              },
+            ],
+          }),
+          successKeyIndex: 0,
+        })
+        // Chapter 2 fails with ALL_KEYS_EXHAUSTED
+        .mockRejectedValueOnce(exhaustedError);
+
+      const issues = await runAiQualityScan({
+        apiKeys: ['KEY_1'],
+        projectTitle: 'Dự án Test',
+        chapters,
+      });
+
+      // Chapter 1 issue is preserved + Chapter 2 quota warning issue
+      expect(issues.length).toBe(2);
+      expect(issues[0].chapterId).toBe('c1');
+      expect(issues[0].category).toBe('inconsistent_name');
+      expect(issues[1].chapterId).toBe('c2');
+      expect(issues[1].explanation).toContain('Toàn bộ API Key đã hết hạn mức');
+
+      // callGeminiDirect called twice (chapter 1 and chapter 2), chapter 3 skipped
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+
+    it('continues processing subsequent chapters when error is NOT ALL_KEYS_EXHAUSTED', async () => {
+      const chapters = [
+        { chapterId: 'c1', title: 'Chương 1', chapterNumber: 1, vietnameseContent: 'Nội dung chương 1' },
+        { chapterId: 'c2', title: 'Chương 2', chapterNumber: 2, vietnameseContent: 'Nội dung chương 2' },
+      ];
+
+      const genericError = new Error('Nội dung văn bản bị bộ lọc an toàn của AI từ chối.');
+
+      const spy = vi.spyOn(directGeminiClient, 'callGeminiDirect')
+        .mockRejectedValueOnce(genericError)
+        .mockResolvedValueOnce({
+          text: JSON.stringify({ issues: [] }),
+          successKeyIndex: 0,
+        });
+
+      const issues = await runAiQualityScan({
+        apiKeys: ['KEY_1'],
+        projectTitle: 'Dự án Test',
+        chapters,
+      });
+
+      // Chapter 1 gets localized warning, Chapter 2 succeeds
+      expect(issues.length).toBe(1);
+      expect(issues[0].chapterId).toBe('c1');
+      expect(issues[0].explanation).toContain('Nội dung văn bản bị bộ lọc');
+
+      // Both chapters were called
+      expect(spy).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -273,6 +273,24 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
     } catch (err: any) {
       if (err.name === 'AbortError') throw err;
       console.warn(`[hakoQualityEngine] AI scan failed for chapter "${chapter.title}":`, err);
+
+      if (err?.code === 'ALL_KEYS_EXHAUSTED') {
+        allAiIssues.push({
+          id: generateIssueId(),
+          chapterId,
+          chapterTitle: chapter.title,
+          chapterNumber: chapter.chapterNumber,
+          category: 'other',
+          severity: 'warning',
+          vietnameseSnippet: chapter.title,
+          explanation: `Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Dừng phân tích AI cho các chương còn lại.`,
+          decision: 'pending',
+          detectedBy: 'ai',
+          createdAt: new Date().toISOString(),
+        });
+        break;
+      }
+
       allAiIssues.push({
         id: generateIssueId(),
         chapterId,

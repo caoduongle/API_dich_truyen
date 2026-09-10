@@ -129,7 +129,9 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
 
         if (attempt === rawKeys.length - 1) {
           if (response.status === 429 || errStatus === 'RESOURCE_EXHAUSTED') {
-            throw new Error(`Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${errMsg}`);
+            const quotaErr = new Error(`Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${errMsg}`);
+            (quotaErr as any).code = 'ALL_KEYS_EXHAUSTED';
+            throw quotaErr;
           }
           throw lastError;
         }
@@ -168,7 +170,7 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
         successKeyIndex: currentKeyIdx,
       };
     } catch (err: any) {
-      if (err.name === 'AbortError') {
+      if (err.name === 'AbortError' || err.code === 'ALL_KEYS_EXHAUSTED') {
         throw err;
       }
       localQuotaTracker.recordFailure(currentKey, modelName, {
