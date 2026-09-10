@@ -41,6 +41,10 @@ export interface UseHakoReviewSessionReturn {
     decision: QualityIssueDecision,
     moderatorNote?: string
   ) => Promise<void>;
+  updateMultipleIssueDecisions: (
+    issueIds: string[],
+    decision: QualityIssueDecision
+  ) => Promise<void>;
   resetCurrentSession: () => Promise<void>;
 }
 
@@ -373,6 +377,36 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
   );
 
   /**
+   * Cập nhật quyết định của moderator cho hàng loạt lỗi cùng lúc và lưu IndexedDB đúng 1 lần duy nhất
+   */
+  const updateMultipleIssueDecisions = useCallback(
+    async (issueIds: string[], decision: QualityIssueDecision) => {
+      const current = sessionRef.current;
+      if (!current || !Array.isArray(issueIds) || issueIds.length === 0) return;
+
+      const idSet = new Set(issueIds.map(String));
+
+      const updatedIssues = current.issues.map((issue) => {
+        if (idSet.has(String(issue.id))) {
+          return {
+            ...issue,
+            decision,
+          };
+        }
+        return issue;
+      });
+
+      const updated: QualityReviewSession = {
+        ...current,
+        issues: updatedIssues,
+      };
+
+      await persistSession(updated, 0);
+    },
+    [persistSession]
+  );
+
+  /**
    * Đặt lại phiên làm việc hiện tại
    */
   const resetCurrentSession = useCallback(async () => {
@@ -401,6 +435,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
     updateChapterRawText,
     updateSessionChaptersAndIssues,
     updateIssueDecision,
+    updateMultipleIssueDecisions,
     resetCurrentSession,
   };
 }

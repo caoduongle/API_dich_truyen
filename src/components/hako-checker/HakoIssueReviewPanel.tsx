@@ -36,6 +36,7 @@ export interface HakoIssueReviewPanelProps {
   issues: QualityIssue[];
   chapters: Record<string, ProjectReviewChapter>;
   onDecisionChange: (issueId: string, decision: QualityIssueDecision, note?: string) => void;
+  onBatchDecisionChange?: (issueIds: string[], decision: QualityIssueDecision) => void;
   onOpenExportModal: () => void;
   onReanalyze: () => void;
   isAnalyzing: boolean;
@@ -45,6 +46,7 @@ export function HakoIssueReviewPanel({
   issues,
   chapters,
   onDecisionChange,
+  onBatchDecisionChange,
   onOpenExportModal,
   onReanalyze,
   isAnalyzing,
@@ -100,19 +102,35 @@ export function HakoIssueReviewPanel({
 
   // Batch action: Confirm all / Dismiss all filtered issues
   const handleBatchConfirm = () => {
-    filteredIssues.forEach((issue) => {
-      if (issue.decision === 'pending') {
-        onDecisionChange(issue.id, 'confirmed');
-      }
-    });
+    const pendingIds = filteredIssues
+      .filter((issue) => issue.decision === 'pending')
+      .map((issue) => issue.id);
+
+    if (pendingIds.length === 0) return;
+
+    if (onBatchDecisionChange) {
+      onBatchDecisionChange(pendingIds, 'confirmed');
+    } else {
+      pendingIds.forEach((id) => {
+        onDecisionChange(id, 'confirmed');
+      });
+    }
   };
 
   const handleBatchDismiss = () => {
-    filteredIssues.forEach((issue) => {
-      if (issue.decision === 'pending') {
-        onDecisionChange(issue.id, 'dismissed');
-      }
-    });
+    const pendingIds = filteredIssues
+      .filter((issue) => issue.decision === 'pending')
+      .map((issue) => issue.id);
+
+    if (pendingIds.length === 0) return;
+
+    if (onBatchDecisionChange) {
+      onBatchDecisionChange(pendingIds, 'dismissed');
+    } else {
+      pendingIds.forEach((id) => {
+        onDecisionChange(id, 'dismissed');
+      });
+    }
   };
 
   return (

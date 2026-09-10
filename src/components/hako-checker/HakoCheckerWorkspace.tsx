@@ -58,6 +58,7 @@ export function HakoCheckerWorkspace({
     updateChapterRawText,
     updateSessionChaptersAndIssues,
     updateIssueDecision,
+    updateMultipleIssueDecisions,
     resetCurrentSession,
   } = useHakoReviewSession();
 
@@ -424,6 +425,7 @@ export function HakoCheckerWorkspace({
             issues={session.issues}
             chapters={session.chapters}
             onDecisionChange={updateIssueDecision}
+            onBatchDecisionChange={updateMultipleIssueDecisions}
             onOpenExportModal={() => setIsExportModalOpen(true)}
             onReanalyze={handleStartAnalysis}
             isAnalyzing={isAnalyzing}

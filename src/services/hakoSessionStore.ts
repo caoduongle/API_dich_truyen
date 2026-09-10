@@ -12,9 +12,21 @@ const DB_NAME = 'HakoQualityCheckerDB';
 const DB_VERSION = 2;
 const STORE_NAME = 'hako_quality_sessions';
 
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+/**
+ * Đặt lại cache connection (dùng cho tests hoặc khi cần tái kết nối thủ công)
+ */
+export function _resetHakoDbInstanceForTests(): void {
+  dbPromise = null;
+}
+
 function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
+      dbPromise = null;
       reject(new Error('IndexedDB không khả dụng trong môi trường này.'));
       return;
     }
@@ -36,9 +48,27 @@ function openDatabase(): Promise<IDBDatabase> {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error('Không thể mở IndexedDB HakoQualityCheckerDB'));
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onclose = () => {
+        dbPromise = null;
+      };
+      db.onversionchange = () => {
+        try {
+          db.close();
+        } catch (_) {}
+        dbPromise = null;
+      };
+      resolve(db);
+    };
+
+    request.onerror = () => {
+      dbPromise = null;
+      reject(request.error || new Error('Không thể mở IndexedDB HakoQualityCheckerDB'));
+    };
   });
+
+  return dbPromise;
 }
 
 /**

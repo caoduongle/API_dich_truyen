@@ -1,7 +1,37 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { sanitizeSession } from '../../services/hakoSessionStore';
+import * as hakoSessionStore from '../../services/hakoSessionStore';
+import { sanitizeSession, _resetHakoDbInstanceForTests } from '../../services/hakoSessionStore';
 import { QualityReviewSession, ProjectReviewChapter, QualityIssue } from '../../types/hakoChecker';
 import { StoryProject } from '../../types';
+
+let stateSlots: any[] = [];
+let stateIndex = 0;
+let refSlots: any[] = [];
+let refIndex = 0;
+
+vi.mock('react', () => ({
+  useState: (initial: any) => {
+    const idx = stateIndex++;
+    if (stateSlots.length <= idx) {
+      stateSlots[idx] = initial;
+    }
+    const setState = (val: any) => {
+      stateSlots[idx] = typeof val === 'function' ? val(stateSlots[idx]) : val;
+    };
+    return [stateSlots[idx], setState];
+  },
+  useRef: (initial: any) => {
+    const idx = refIndex++;
+    if (refSlots.length <= idx) {
+      refSlots[idx] = { current: initial };
+    }
+    return refSlots[idx];
+  },
+  useCallback: (fn: any) => fn,
+  useEffect: vi.fn(),
+}));
+
+import { useHakoReviewSession } from '../useHakoReviewSession';
 
 describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
   afterEach(() => {
@@ -622,6 +652,221 @@ describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
       // Call with explicit 'partial'
       await updateFunction(mockSession.chapters, mockSession.issues, 'partial');
       expect(savedStatus).toBe('partial');
+    });
+  });
+
+  describe('Feature 095: Batch Issue Decisions & Shared Connection Caching', () => {
+    beforeEach(() => {
+      stateSlots = [];
+      stateIndex = 0;
+      refSlots = [];
+      refIndex = 0;
+      _resetHakoDbInstanceForTests();
+      vi.clearAllMocks();
+    });
+
+    it('updates 20 pending issues in a single call and calls saveSession exactly 1 time', async () => {
+      // 1. Chuẩn bị session với 20 issues ở trạng thái 'pending'
+      const twentyIssues: QualityIssue[] = Array.from({ length: 20 }, (_, i) => ({
+        id: `issue-batch-${i + 1}`,
+        chapterId: `c-${Math.floor(i / 5) + 1}`,
+        chapterTitle: `Chương ${Math.floor(i / 5) + 1}`,
+        chapterNumber: Math.floor(i / 5) + 1,
+        category: 'other',
+        severity: 'warning',
+        vietnameseSnippet: `Đoạn văn có lỗi số ${i + 1}`,
+        explanation: `Mô tả lỗi ${i + 1}`,
+        decision: 'pending',
+        detectedBy: 'heuristic',
+        createdAt: new Date().toISOString(),
+      }));
+
+      const initialSession: QualityReviewSession = {
+        id: 'session-batch-test',
+        projectId: 'proj-batch',
+        projectTitle: 'Kiểm Định Hàng Loạt 20 Issues',
+        selectedChapterIds: ['c-1', 'c-2', 'c-3', 'c-4'],
+        chapters: {},
+        issues: twentyIssues,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'completed',
+      };
+
+      // Cài đặt initial state cho session
+      stateSlots[0] = initialSession;
+      stateIndex = 0;
+      refIndex = 0;
+
+      const saveSessionSpy = vi.spyOn(hakoSessionStore, 'saveSession').mockImplementation(async (s) => s);
+
+      const hook = useHakoReviewSession();
+
+      // Danh sách 20 ID cần cập nhật sang 'confirmed'
+      const all20Ids = twentyIssues.map((i) => i.id);
+
+      // 2. Gọi hàm updateMultipleIssueDecisions đúng 1 lần
+      await hook.updateMultipleIssueDecisions(all20Ids, 'confirmed');
+
+      // 3. Xác nhận hàm ghi DB (saveSession) chỉ được gọi ĐÚNG 1 LẦN
+      expect(saveSessionSpy).toHaveBeenCalledTimes(1);
+
+      // 4. Xác nhận kết quả tất cả 20 issues đều đổi decision thành 'confirmed'
+      const savedSession = saveSessionSpy.mock.calls[0][0];
+      expect(savedSession.issues.length).toBe(20);
+      expect(savedSession.issues.every((i) => i.decision === 'confirmed')).toBe(true);
+
+      // 5. Xác nhận state trong hook cũng được cập nhật đồng bộ
+      expect(stateSlots[0].issues.every((i: QualityIssue) => i.decision === 'confirmed')).toBe(true);
+    });
+
+    it('updates only targeted subset of issues and calls saveSession exactly 1 time', async () => {
+      const twentyIssues: QualityIssue[] = Array.from({ length: 20 }, (_, i) => ({
+        id: `issue-subset-${i + 1}`,
+        chapterId: 'c-1',
+        chapterTitle: 'Chương 1',
+        chapterNumber: 1,
+        category: 'other',
+        severity: 'warning',
+        vietnameseSnippet: `Snippet ${i + 1}`,
+        explanation: `Explanation ${i + 1}`,
+        decision: 'pending',
+        detectedBy: 'heuristic',
+        createdAt: new Date().toISOString(),
+      }));
+
+      const initialSession: QualityReviewSession = {
+        id: 'session-subset-test',
+        projectId: 'proj-subset',
+        projectTitle: 'Kiểm Định Subset 10/20 Issues',
+        selectedChapterIds: ['c-1'],
+        chapters: {},
+        issues: twentyIssues,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'completed',
+      };
+
+      stateSlots[0] = initialSession;
+      stateIndex = 0;
+      refIndex = 0;
+
+      const saveSessionSpy = vi.spyOn(hakoSessionStore, 'saveSession').mockImplementation(async (s) => s);
+
+      const hook = useHakoReviewSession();
+
+      // Chỉ cập nhật 10 issues đầu tiên sang 'dismissed'
+      const first10Ids = twentyIssues.slice(0, 10).map((i) => i.id);
+
+      await hook.updateMultipleIssueDecisions(first10Ids, 'dismissed');
+
+      expect(saveSessionSpy).toHaveBeenCalledTimes(1);
+
+      const savedSession = saveSessionSpy.mock.calls[0][0];
+      const dismissedCount = savedSession.issues.filter((i) => i.decision === 'dismissed').length;
+      const pendingCount = savedSession.issues.filter((i) => i.decision === 'pending').length;
+
+      expect(dismissedCount).toBe(10);
+      expect(pendingCount).toBe(10);
+    });
+
+    it('does not call saveSession when issueIds is empty', async () => {
+      const initialSession: QualityReviewSession = {
+        id: 'session-empty-test',
+        projectId: 'proj-empty',
+        projectTitle: 'Empty Test',
+        selectedChapterIds: [],
+        chapters: {},
+        issues: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'idle',
+      };
+
+      stateSlots[0] = initialSession;
+      stateIndex = 0;
+      refIndex = 0;
+
+      const saveSessionSpy = vi.spyOn(hakoSessionStore, 'saveSession').mockImplementation(async (s) => s);
+
+      const hook = useHakoReviewSession();
+
+      await hook.updateMultipleIssueDecisions([], 'confirmed');
+
+      expect(saveSessionSpy).not.toHaveBeenCalled();
+    });
+
+    it('caches database connection promise and reuses it across multiple operations', async () => {
+      let openCallCount = 0;
+      let closeHandler: (() => void) | null = null;
+
+      const mockDb = {
+        transaction: vi.fn(() => ({
+          objectStore: vi.fn(() => ({
+            put: vi.fn(() => {
+              const req: any = {};
+              setTimeout(() => req.onsuccess?.(), 0);
+              return req;
+            }),
+            get: vi.fn(() => {
+              const req: any = { result: null };
+              setTimeout(() => req.onsuccess?.(), 0);
+              return req;
+            }),
+          })),
+        })),
+        close: vi.fn(),
+        set onclose(fn: any) {
+          closeHandler = fn;
+        },
+        set onversionchange(fn: any) {
+          // no-op
+        },
+      };
+
+      const originalIndexedDB = global.indexedDB;
+      (global as any).indexedDB = {
+        open: vi.fn(() => {
+          openCallCount++;
+          const req: any = { result: mockDb };
+          setTimeout(() => req.onsuccess?.(), 0);
+          return req;
+        }),
+      };
+
+      try {
+        _resetHakoDbInstanceForTests();
+
+        const testSession: QualityReviewSession = {
+          id: 's-cache-1',
+          projectId: 'p-1',
+          projectTitle: 'Cache Test',
+          selectedChapterIds: [],
+          chapters: {},
+          issues: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          status: 'idle',
+        };
+
+        // Call 1: Opens DB
+        await hakoSessionStore.saveSession(testSession);
+        expect(openCallCount).toBe(1);
+
+        // Call 2: Reuses cached connection promise
+        await hakoSessionStore.getSession('s-cache-1');
+        expect(openCallCount).toBe(1);
+
+        // Trigger onclose: Cache is invalidated
+        if (closeHandler) (closeHandler as any)();
+
+        // Call 3: Opens new connection
+        await hakoSessionStore.getSession('s-cache-1');
+        expect(openCallCount).toBe(2);
+      } finally {
+        (global as any).indexedDB = originalIndexedDB;
+        _resetHakoDbInstanceForTests();
+      }
     });
   });
 });
