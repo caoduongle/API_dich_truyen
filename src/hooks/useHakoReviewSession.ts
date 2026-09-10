@@ -33,7 +33,8 @@ export interface UseHakoReviewSessionReturn {
   updateChapterRawText: (chapterId: string | number, rawText: string) => void;
   updateSessionChaptersAndIssues: (
     chapters: Record<string, ProjectReviewChapter>,
-    issues: QualityIssue[]
+    issues: QualityIssue[],
+    status?: 'completed' | 'partial' | 'analyzing'
   ) => Promise<void>;
   updateIssueDecision: (
     issueId: string,
@@ -314,7 +315,11 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
    * Cập nhật toàn bộ chapters và issues sau khi phân tích xong (lưu metadata & issues, loại bỏ full text)
    */
   const updateSessionChaptersAndIssues = useCallback(
-    async (chapters: Record<string, ProjectReviewChapter>, issues: QualityIssue[]) => {
+    async (
+      chapters: Record<string, ProjectReviewChapter>,
+      issues: QualityIssue[],
+      status: 'completed' | 'partial' | 'analyzing' = 'completed'
+    ) => {
       const current = sessionRef.current;
       if (!current) return;
 
@@ -329,7 +334,8 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
         ...current,
         chapters: sanitizedChapters,
         issues,
-        status: 'completed',
+        status,
+        updatedAt: new Date().toISOString(),
       };
 
       await persistSession(updated, 0);

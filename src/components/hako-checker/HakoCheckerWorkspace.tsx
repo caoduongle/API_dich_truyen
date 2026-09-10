@@ -78,6 +78,15 @@ export function HakoCheckerWorkspace({
     return selectedChapters.reduce((sum, c) => sum + (c?.wordCount || 0), 0);
   }, [selectedChapters]);
 
+  const completedChaptersCount = useMemo(() => {
+    if (!session?.chapters || !session?.selectedChapterIds) return 0;
+    const selectedSet = new Set(session.selectedChapterIds.map(String));
+    return Object.values(session.chapters).filter(
+      (c) => c && selectedSet.has(String(c.chapterId)) && c.status === 'done'
+    ).length;
+  }, [session?.chapters, session?.selectedChapterIds]);
+  const totalSelectedChapters = session?.selectedChapterIds?.length || 0;
+
   const handleSelectProject = useCallback(
     async (projectId: string) => {
       const proj = projects.find((p) => p.id === projectId);
@@ -102,6 +111,7 @@ export function HakoCheckerWorkspace({
 
     const selectedIds = (session.selectedChapterIds || []).map(String);
     const allDetectedIssues: QualityIssue[] = [];
+    const updatedChaptersRecord = { ...session.chapters };
 
     try {
       setAnalysisProgress({
@@ -125,18 +135,33 @@ export function HakoCheckerWorkspace({
             chapterNumber: meta?.chapterNumber ?? 1,
             translationType: fullChap?.polishedTranslation ? 'polished' : fullChap?.rawTranslation ? 'raw' : (meta?.translationType || 'none'),
             wordCount: words,
-            status: 'analyzing' as const,
+            status: 'pending' as const,
             vietnameseContent: viContent,
             rawChineseContent: rawChinese,
           };
         })
       );
 
-      // BƯỚC 1: Chạy quét Heuristic tức thì cho các chương đã nạp
+      // BƯỚC 1 & 2: Quét tuần tự từng chương (Heuristic + AI) và lưu tăng dần ngay sau mỗi chương
       for (let i = 0; i < jitChapters.length; i++) {
-        const chData = jitChapters[i];
+        if (abortControllerRef.current?.signal.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
 
-        if (chData && chData.vietnameseContent) {
+        const chData = jitChapters[i];
+        if (!chData) continue;
+
+        // Cập nhật trạng thái chương đang xử lý
+        if (updatedChaptersRecord[chData.chapterId]) {
+          updatedChaptersRecord[chData.chapterId] = {
+            ...updatedChaptersRecord[chData.chapterId],
+            status: 'analyzing',
+            wordCount: chData.wordCount,
+          };
+        }
+
+        // BƯỚC 1: Quét Heuristic quy tắc nhanh cho chương này
+        if (chData.vietnameseContent) {
           setAnalysisProgress({
             current: i + 1,
             total: jitChapters.length,
@@ -151,55 +176,61 @@ export function HakoCheckerWorkspace({
           });
           allDetectedIssues.push(...heuristicIssues);
         }
-      }
 
-      // BƯỚC 2: Chạy quét AI Semantic sâu qua Gemini API
-      const validChaptersForAi = jitChapters
-        .filter((ch) => ch && ch.vietnameseContent && ch.vietnameseContent.trim().length > 0)
-        .map((ch) => ({
-          chapterId: ch.chapterId,
-          title: ch.title,
-          chapterNumber: ch.chapterNumber,
-          vietnameseContent: ch.vietnameseContent,
-          rawChineseContent: ch.rawChineseContent,
-        }));
+        if (abortControllerRef.current?.signal.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
 
-      if (validChaptersForAi.length > 0) {
-        setAnalysisProgress({
-          current: 1,
-          total: validChaptersForAi.length,
-          message: 'Bắt đầu phân tích ngữ nghĩa và tính nhất quán qua mô hình AI...',
-        });
+        // BƯỚC 2: Quét AI Semantic sâu qua Gemini API cho chương này
+        if (chData.vietnameseContent && chData.vietnameseContent.trim().length > 0) {
+          setAnalysisProgress({
+            current: i + 1,
+            total: jitChapters.length,
+            message: `Đang kiểm định AI chương ${i + 1}/${jitChapters.length}: "${chData.title}"...`,
+          });
 
-        const aiIssues = await runAiQualityScan({
-          apiKeys,
-          model: selectedModel,
-          projectTitle: session.projectTitle,
-          chapters: validChaptersForAi,
-          onProgress: (curr, total, msg) => {
-            setAnalysisProgress({ current: curr, total, message: msg });
-          },
-          signal: abortControllerRef.current.signal,
-        });
+          const aiIssues = await runAiQualityScan({
+            apiKeys,
+            model: selectedModel,
+            projectTitle: session.projectTitle,
+            chapters: [
+              {
+                chapterId: chData.chapterId,
+                title: chData.title,
+                chapterNumber: chData.chapterNumber,
+                vietnameseContent: chData.vietnameseContent,
+                rawChineseContent: chData.rawChineseContent,
+              },
+            ],
+            onProgress: (_curr, _total, msg) => {
+              setAnalysisProgress({ current: i + 1, total: jitChapters.length, message: msg });
+            },
+            signal: abortControllerRef.current?.signal,
+          });
 
-        allDetectedIssues.push(...aiIssues);
-      }
+          allDetectedIssues.push(...aiIssues);
+        }
 
-      // Cập nhật session và lưu vào IndexedDB (chỉ lưu metadata + issues)
-      const updatedChaptersRecord = { ...session.chapters };
-      jitChapters.forEach((ch) => {
-        if (updatedChaptersRecord[ch.chapterId]) {
-          updatedChaptersRecord[ch.chapterId] = {
-            ...updatedChaptersRecord[ch.chapterId],
+        // Đánh dấu chương này đã hoàn tất
+        if (updatedChaptersRecord[chData.chapterId]) {
+          updatedChaptersRecord[chData.chapterId] = {
+            ...updatedChaptersRecord[chData.chapterId],
             status: 'done',
-            wordCount: ch.wordCount,
+            wordCount: chData.wordCount,
           };
         }
-      });
 
-      await updateSessionChaptersAndIssues(updatedChaptersRecord, allDetectedIssues);
+        // BƯỚC 3: Lưu tăng dần vào IndexedDB ngay sau khi xong chương này
+        const isLastChapter = i === jitChapters.length - 1;
+        await updateSessionChaptersAndIssues(
+          updatedChaptersRecord,
+          allDetectedIssues,
+          isLastChapter ? 'completed' : 'analyzing'
+        );
+      }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
+      const isAborted = err.name === 'AbortError' || abortControllerRef.current?.signal.aborted;
+      if (isAborted) {
         console.log('[HakoCheckerWorkspace] Phân tích đã bị hủy bởi người dùng.');
       } else {
         console.error('[HakoCheckerWorkspace] Lỗi khi phân tích chất lượng:', err);
@@ -207,6 +238,13 @@ export function HakoCheckerWorkspace({
           code: err.code || 'ANALYSIS_ERROR',
           message: err.message || 'Đã xảy ra lỗi trong quá trình phân tích chất lượng chương.',
         });
+      }
+
+      // Đảm bảo không mất kết quả: luôn lưu lại toàn bộ issues đã tích lũy với trạng thái 'partial'
+      try {
+        await updateSessionChaptersAndIssues(updatedChaptersRecord, allDetectedIssues, 'partial');
+      } catch (persistErr) {
+        console.error('[HakoCheckerWorkspace] Lỗi khi lưu kết quả một phần vào session:', persistErr);
       }
     } finally {
       setIsAnalyzing(false);
@@ -365,8 +403,23 @@ export function HakoCheckerWorkspace({
           isAnalyzing={isAnalyzing}
         />
 
-        {/* Issue Review Panel (when issues exist or analysis completed) */}
-        {hasProjectSelected && session.status === 'completed' && (
+        {/* Partial Review Notification Banner */}
+        {hasProjectSelected && session.status === 'partial' && (
+          <div className="bg-amber-950/30 border border-amber-500/40 text-amber-200 rounded-md p-4 shadow-xs flex items-start gap-3 animate-in fade-in duration-200">
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-xs font-display font-bold text-amber-300">
+                Kết quả kiểm định chưa đầy đủ (Đã dừng giữa chừng)
+              </h4>
+              <p className="text-xs text-amber-200/90 mt-0.5 leading-relaxed">
+                Quá trình phân tích đã dừng lại (đã hoàn thành {completedChaptersCount}/{totalSelectedChapters} chương). Toàn bộ lỗi phát hiện được cho tới thời điểm dừng đã được bảo toàn bên dưới để bạn rà soát.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Issue Review Panel (when issues exist or analysis completed or partial) */}
+        {hasProjectSelected && (session.status === 'completed' || session.status === 'partial') && (
           <HakoIssueReviewPanel
             issues={session.issues}
             chapters={session.chapters}

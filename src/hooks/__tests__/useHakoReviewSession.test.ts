@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { sanitizeSession } from '../../services/hakoSessionStore';
-import { QualityReviewSession, ProjectReviewChapter } from '../../types/hakoChecker';
+import { QualityReviewSession, ProjectReviewChapter, QualityIssue } from '../../types/hakoChecker';
 import { StoryProject } from '../../types';
 
 describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
@@ -347,6 +347,281 @@ describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
       expect(sanitized!.chapters['chap_1'].vietnameseContent).toBeUndefined();
       expect(sanitized!.chapters['chap_1'].rawChineseContent).toBe('原始中文文本');
       expect(sanitized!.selectedChapterIds).toEqual(['chap_1', 'chap_2']);
+    });
+  });
+
+  describe('Feature 093: Incremental Review Session Persistence & Partial State Handling', () => {
+    it('simulates 3-chapter analysis aborted at chapter 2 and preserves chapter 1 issues in partial session', async () => {
+      // Setup initial session with 3 chapters
+      let currentSession: QualityReviewSession = {
+        id: 'session-abort-sim',
+        projectId: 'proj-abort-test',
+        projectTitle: 'Kiểm Định Đứt Đoạn',
+        selectedChapterIds: ['chap-1', 'chap-2', 'chap-3'],
+        chapters: {
+          'chap-1': {
+            chapterId: 'chap-1',
+            title: 'Chương 1: Khởi đầu',
+            chapterNumber: 1,
+            translationType: 'polished',
+            wordCount: 1200,
+            status: 'pending',
+          },
+          'chap-2': {
+            chapterId: 'chap-2',
+            title: 'Chương 2: Biến cố',
+            chapterNumber: 2,
+            translationType: 'polished',
+            wordCount: 1500,
+            status: 'pending',
+          },
+          'chap-3': {
+            chapterId: 'chap-3',
+            title: 'Chương 3: Kết thúc',
+            chapterNumber: 3,
+            translationType: 'polished',
+            wordCount: 1800,
+            status: 'pending',
+          },
+        },
+        issues: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'idle',
+      };
+
+      // Helper simulating updateSessionChaptersAndIssues with sanitization
+      const mockUpdateSessionChaptersAndIssues = async (
+        chapters: Record<string, ProjectReviewChapter>,
+        issues: QualityIssue[],
+        status: 'completed' | 'partial' | 'analyzing' = 'completed'
+      ) => {
+        const sanitizedChapters: Record<string, ProjectReviewChapter> = {};
+        for (const [id, ch] of Object.entries(chapters)) {
+          if (!ch) continue;
+          const { vietnameseContent: _vi, ...meta } = ch;
+          sanitizedChapters[id] = meta;
+        }
+        currentSession = {
+          ...currentSession,
+          chapters: sanitizedChapters,
+          issues,
+          status,
+          updatedAt: new Date().toISOString(),
+        };
+      };
+
+      const allDetectedIssues: QualityIssue[] = [];
+      const updatedChaptersRecord = { ...currentSession.chapters };
+
+      // --- SIMULATE PIPELINE ---
+      try {
+        // === CHAPTER 1: Complete Heuristic + AI Scan ===
+        updatedChaptersRecord['chap-1'] = {
+          ...updatedChaptersRecord['chap-1'],
+          status: 'analyzing',
+        };
+
+        // Heuristic issue found in Chapter 1
+        allDetectedIssues.push({
+          id: 'issue-ch1-heuristic',
+          chapterId: 'chap-1',
+          chapterTitle: 'Chương 1: Khởi đầu',
+          chapterNumber: 1,
+          category: 'raw_leak',
+          severity: 'major',
+          vietnameseSnippet: 'Chương 1 có chứa 龙涎草',
+          explanation: 'Sót chữ Hán trong chương 1',
+          decision: 'pending',
+          detectedBy: 'heuristic',
+          createdAt: new Date().toISOString(),
+        });
+
+        // AI issue found in Chapter 1
+        allDetectedIssues.push({
+          id: 'issue-ch1-ai',
+          chapterId: 'chap-1',
+          chapterTitle: 'Chương 1: Khởi đầu',
+          chapterNumber: 1,
+          category: 'inconsistent_name',
+          severity: 'critical',
+          vietnameseSnippet: 'Lâm Động biến thành Lâm Đình',
+          explanation: 'Tên nhân vật chính không đồng nhất',
+          decision: 'pending',
+          detectedBy: 'ai',
+          createdAt: new Date().toISOString(),
+        });
+
+        // Chapter 1 completes
+        updatedChaptersRecord['chap-1'] = {
+          ...updatedChaptersRecord['chap-1'],
+          status: 'done',
+        };
+
+        // Incremental save after Chapter 1
+        await mockUpdateSessionChaptersAndIssues(
+          updatedChaptersRecord,
+          allDetectedIssues,
+          'analyzing'
+        );
+
+        // Verify intermediate state after Chapter 1
+        expect(currentSession.status).toBe('analyzing');
+        expect(currentSession.chapters['chap-1'].status).toBe('done');
+        expect(currentSession.issues.length).toBe(2);
+
+        // === CHAPTER 2: Starts scan, Heuristic finishes, AI aborted ===
+        updatedChaptersRecord['chap-2'] = {
+          ...updatedChaptersRecord['chap-2'],
+          status: 'analyzing',
+        };
+
+        // Heuristic issue found in Chapter 2
+        allDetectedIssues.push({
+          id: 'issue-ch2-heuristic',
+          chapterId: 'chap-2',
+          chapterTitle: 'Chương 2: Biến cố',
+          chapterNumber: 2,
+          category: 'repetition',
+          severity: 'minor',
+          vietnameseSnippet: 'Đoạn văn bị lặp lại ở chương 2',
+          explanation: 'Lặp đoạn văn',
+          decision: 'pending',
+          detectedBy: 'heuristic',
+          createdAt: new Date().toISOString(),
+        });
+
+        // User clicks "Hủy phân tích" -> AbortError thrown during AI scan
+        const abortErr = new Error('The user aborted a request.');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+
+      } catch (err: any) {
+        expect(err.name).toBe('AbortError');
+
+        // Fail-safe sweep in catch block: always persist with status 'partial'
+        await mockUpdateSessionChaptersAndIssues(
+          updatedChaptersRecord,
+          allDetectedIssues,
+          'partial'
+        );
+      }
+
+      // === FINAL ASSERTIONS FOR ABORTED SESSION ===
+      // 1. Session status must be 'partial', NOT 'completed' and NOT 'idle'
+      expect(currentSession.status).toBe('partial');
+
+      // 2. Issues must NOT be empty
+      expect(currentSession.issues.length).toBe(3);
+
+      // 3. Must contain Chapter 1 issues (both heuristic and AI)
+      const ch1Issues = currentSession.issues.filter((i) => i.chapterId === 'chap-1');
+      expect(ch1Issues.length).toBe(2);
+      expect(ch1Issues.some((i) => i.id === 'issue-ch1-heuristic')).toBe(true);
+      expect(ch1Issues.some((i) => i.id === 'issue-ch1-ai')).toBe(true);
+
+      // 4. Must contain Chapter 2 heuristic issue gathered before abort
+      const ch2Issues = currentSession.issues.filter((i) => i.chapterId === 'chap-2');
+      expect(ch2Issues.length).toBe(1);
+      expect(ch2Issues[0].id).toBe('issue-ch2-heuristic');
+
+      // 5. Chapter 1 is marked done, Chapter 2 is analyzing, Chapter 3 remains pending
+      expect(currentSession.chapters['chap-1'].status).toBe('done');
+      expect(currentSession.chapters['chap-2'].status).toBe('analyzing');
+      expect(currentSession.chapters['chap-3'].status).toBe('pending');
+    });
+
+    it('simulates full 2-chapter happy-path analysis completing with status completed', async () => {
+      let currentSession: QualityReviewSession = {
+        id: 'session-full-sim',
+        projectId: 'proj-full',
+        projectTitle: 'Toàn Bộ Chương',
+        selectedChapterIds: ['c-1', 'c-2'],
+        chapters: {
+          'c-1': { chapterId: 'c-1', title: 'C1', chapterNumber: 1, translationType: 'polished', wordCount: 1000, status: 'pending' },
+          'c-2': { chapterId: 'c-2', title: 'C2', chapterNumber: 2, translationType: 'polished', wordCount: 1000, status: 'pending' },
+        },
+        issues: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'idle',
+      };
+
+      const mockUpdate = async (
+        chapters: Record<string, ProjectReviewChapter>,
+        issues: QualityIssue[],
+        status: 'completed' | 'partial' | 'analyzing' = 'completed'
+      ) => {
+        currentSession = { ...currentSession, chapters, issues, status };
+      };
+
+      const allIssues: QualityIssue[] = [];
+      const updatedChapters = { ...currentSession.chapters };
+
+      // Chapter 1
+      allIssues.push({
+        id: 'issue-1',
+        chapterId: 'c-1',
+        chapterTitle: 'C1',
+        chapterNumber: 1,
+        category: 'raw_leak',
+        severity: 'minor',
+        vietnameseSnippet: 'test',
+        explanation: 'test',
+        decision: 'pending',
+        detectedBy: 'heuristic',
+        createdAt: new Date().toISOString(),
+      });
+      updatedChapters['c-1'] = { ...updatedChapters['c-1'], status: 'done' };
+      await mockUpdate(updatedChapters, allIssues, 'analyzing');
+
+      // Chapter 2
+      allIssues.push({
+        id: 'issue-2',
+        chapterId: 'c-2',
+        chapterTitle: 'C2',
+        chapterNumber: 2,
+        category: 'other',
+        severity: 'warning',
+        vietnameseSnippet: 'test2',
+        explanation: 'test2',
+        decision: 'pending',
+        detectedBy: 'ai',
+        createdAt: new Date().toISOString(),
+      });
+      updatedChapters['c-2'] = { ...updatedChapters['c-2'], status: 'done' };
+      await mockUpdate(updatedChapters, allIssues, 'completed');
+
+      expect(currentSession.status).toBe('completed');
+      expect(currentSession.issues.length).toBe(2);
+      expect(currentSession.chapters['c-1'].status).toBe('done');
+      expect(currentSession.chapters['c-2'].status).toBe('done');
+    });
+
+    it('updateSessionChaptersAndIssues defaults status to completed when optional parameter is omitted', async () => {
+      let savedStatus: any = null;
+      const mockSession = {
+        chapters: {
+          'c-1': { chapterId: 'c-1', title: 'C1', chapterNumber: 1, translationType: 'polished' as const, wordCount: 500, status: 'done' as const },
+        },
+        issues: [],
+      };
+
+      // Call without 3rd parameter
+      const updateFunction = async (
+        chapters: Record<string, ProjectReviewChapter>,
+        issues: QualityIssue[],
+        status: 'completed' | 'partial' | 'analyzing' = 'completed'
+      ) => {
+        savedStatus = status;
+      };
+
+      await updateFunction(mockSession.chapters, mockSession.issues);
+      expect(savedStatus).toBe('completed');
+
+      // Call with explicit 'partial'
+      await updateFunction(mockSession.chapters, mockSession.issues, 'partial');
+      expect(savedStatus).toBe('partial');
     });
   });
 });

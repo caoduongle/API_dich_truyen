@@ -73,7 +73,7 @@ export interface QualityReviewSession {
   issues: QualityIssue[];
   createdAt: string;
   updatedAt: string;
-  status: 'idle' | 'analyzing' | 'completed' | 'error';
+  status: 'idle' | 'analyzing' | 'completed' | 'partial' | 'error';
   error?: {
     code: string;
     message: string;
