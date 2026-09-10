@@ -333,6 +333,9 @@ export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
     "1. Bỏ sót / cắt xén (Omissions): Những câu, đoạn hoặc chi tiết quan trọng trong bản gốc tiếng Trung bị thiếu trong bản dịch.\n" +
     "2. Thêm thắt / ảo giác (Additions/Hallucinations): Thông tin tự vẽ ra, không hề có trong bản gốc tiếng Trung.\n" +
     "3. Lặp lại nội dung (Repetitions): Câu chữ bị lặp đi lặp lại nhiều lần vô nghĩa trong bản dịch.\n\n" +
+    "Yêu cầu về trích dẫn lỗi (targetText):\n" +
+    "- Với mỗi lỗi phát hiện, bạn BẮT BUỘC phải trích dẫn NGUYÊN VĂN (copy chính xác từng ký tự, không diễn giải, không sửa từ, không thêm dấu ngoặc kép) câu hoặc đoạn văn bản tiếng Việt trong bản dịch trực tiếp liên quan đến lỗi vào trường 'targetText'.\n" +
+    "- Trường hợp ĐẶC BIỆT: Nếu lỗi là BỎ SÓT (omission) mà câu/đoạn hoàn toàn không xuất hiện trong bản dịch tiếng Việt để trích dẫn, bạn ĐƯỢC PHÉP để 'targetText' là chuỗi rỗng (\"\").\n\n" +
     "Bạn PHẢI trả về kết quả dưới định dạng JSON theo schema được yêu cầu, chứa danh sách các lỗi phát hiện được (hoặc mảng trống nếu không có lỗi). Hãy phản hồi cực kỳ nghiêm ngặt và chính xác.";
 
   const prompt = `--- VĂN BẢN TRUNG GỐC ---
@@ -366,12 +369,16 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
               enum: ["critical", "warning", "info"],
               description: "Mức độ nghiêm trọng của lỗi."
             },
+            targetText: {
+              type: "STRING",
+              description: "Đoạn trích NGUYÊN VĂN câu/đoạn tiếng Việt bị lỗi trong bản dịch để định vị. Nếu là lỗi bỏ sót (omission) hoàn toàn không có trong bản dịch thì để chuỗi rỗng (\"\")."
+            },
             description: {
               type: "STRING",
               description: "Mô tả chi tiết lỗi phát hiện được, ghi rõ nội dung tiếng Trung bị ảnh hưởng và lỗi tiếng Việt tương ứng."
             }
           },
-          required: ["type", "severity", "description"]
+          required: ["type", "severity", "targetText", "description"]
         }
       }
     },

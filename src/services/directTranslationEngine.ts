@@ -65,9 +65,16 @@ export interface DirectQaCritiqueParams {
   signal?: AbortSignal;
 }
 
+export interface DirectQaCritiqueIssue {
+  type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'other';
+  severity: 'critical' | 'warning' | 'info';
+  targetText: string;
+  description: string;
+}
+
 export interface DirectQaCritiqueResult {
   isValid: boolean;
-  issues: any[];
+  issues: DirectQaCritiqueIssue[];
   successKeyIndex: number;
 }
 

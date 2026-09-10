@@ -115,8 +115,13 @@ describe('shared/prompts.ts generators', () => {
     });
 
     expect(systemInstruction).toContain('chuyên gia kiểm định chất lượng (QA)');
+    expect(systemInstruction).toContain('targetText');
+    expect(systemInstruction).toContain('NGUYÊN VĂN');
     expect(prompt).toContain('--- VĂN BẢN TRUNG GỐC ---');
     expect(schema.properties).toHaveProperty('isValid');
     expect(schema.properties).toHaveProperty('issues');
+    expect(schema.properties.issues.items.properties).toHaveProperty('targetText');
+    expect(schema.properties.issues.items.properties.targetText.type).toBe('STRING');
+    expect(schema.properties.issues.items.required).toContain('targetText');
   });
 });

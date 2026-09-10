@@ -76,6 +76,7 @@ describe('src/services/directTranslationEngine.ts', () => {
           {
             type: 'omission',
             severity: 'critical',
+            targetText: '',
             description: 'Thiếu đoạn văn kết chương',
           },
         ],
@@ -94,5 +95,6 @@ describe('src/services/directTranslationEngine.ts', () => {
     expect(res.isValid).toBe(false);
     expect(res.issues).toHaveLength(1);
     expect(res.issues[0].type).toBe('omission');
+    expect(res.issues[0].targetText).toBe('');
   });
 });

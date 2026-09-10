@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import type { DirectQaCritiqueIssue } from '../../services/directTranslationEngine';
 
 export interface QaCritiquePanelProps {
   isMismatch: boolean;
@@ -7,7 +8,7 @@ export interface QaCritiquePanelProps {
   translationParaCount: number;
   isCheckingQa: boolean;
   enableAiQaCritique: boolean;
-  qaIssues: any[];
+  qaIssues: DirectQaCritiqueIssue[];
 }
 
 export function QaCritiquePanel({
