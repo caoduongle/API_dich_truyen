@@ -14,6 +14,7 @@ import {
   Languages,
   Check,
   AlertCircle,
+  AlertTriangle,
   FileCode,
   Sparkles,
   BookOpen,
@@ -28,6 +29,8 @@ import { Seal } from '../ui/Seal';
 import { EmptyState } from '../ui/EmptyState';
 import { cn } from '../../lib/cn';
 import { useVirtualList } from '../../hooks/useVirtualList';
+import { localQuotaTracker } from '../../services/localQuotaTracker';
+import { migrateAndLoadApiKeys } from '../../hooks/useAIConfig';
 
 export interface HakoChapterSelectorProps {
   projects: StoryProject[];
@@ -41,6 +44,7 @@ export interface HakoChapterSelectorProps {
   onUpdateRawText: (chapterId: string | number, raw: string) => void;
   onStartAnalysis: () => void;
   isAnalyzing: boolean;
+  apiKeys?: string[];
 }
 
 const MAX_SELECTION_LIMIT = 12;
@@ -60,7 +64,94 @@ export function HakoChapterSelector({
   onUpdateRawText,
   onStartAnalysis,
   isAnalyzing,
+  apiKeys,
 }: HakoChapterSelectorProps) {
+  // Trạng thái API keys và kiểm tra hạn ngạch quota khả dụng
+  const effectiveApiKeys = useMemo(() => {
+    if (apiKeys && apiKeys.length > 0) return apiKeys;
+    return migrateAndLoadApiKeys();
+  }, [apiKeys]);
+
+  const quotaAdvisory = useMemo(() => {
+    const selectedCount = selectedChapterIds.length;
+    if (selectedCount === 0) {
+      return {
+        hasQuotaRisk: false,
+        warningMessage: null,
+      };
+    }
+
+    const quotaStatus = localQuotaTracker.getQuotaStatus(effectiveApiKeys);
+    const keySnapshots = quotaStatus.keys || [];
+
+    // 1. Không có API key nào được thiết lập
+    if (keySnapshots.length === 0) {
+      return {
+        hasQuotaRisk: true,
+        warningMessage: `Quota khả dụng có thể không đủ cho toàn bộ ${selectedCount} chương đã chọn`,
+      };
+    }
+
+    // 2. Có key ở trạng thái QuotaExhausted
+    const hasExhaustedKey = keySnapshots.some(
+      (k) => k.healthState === 'QuotaExhausted'
+    );
+
+    // 3. Lọc các key đang khả dụng (không bị blacklist, không QuotaExhausted hoặc AuthFailed)
+    const availableKeys = keySnapshots.filter(
+      (k) =>
+        !k.runtime?.isBlacklisted &&
+        k.healthState !== 'QuotaExhausted' &&
+        k.healthState !== 'AuthFailed'
+    );
+
+    // Không còn key khả dụng nào
+    if (availableKeys.length === 0) {
+      return {
+        hasQuotaRisk: true,
+        warningMessage: `Quota khả dụng có thể không đủ cho toàn bộ ${selectedCount} chương đã chọn`,
+      };
+    }
+
+    // Có ít nhất 1 key đã cạn hạn ngạch
+    if (hasExhaustedKey) {
+      return {
+        hasQuotaRisk: true,
+        warningMessage: `Quota khả dụng có thể không đủ cho toàn bộ ${selectedCount} chương đã chọn`,
+      };
+    }
+
+    // 4. Ước tính tổng dung lượng còn lại trong ngày theo RPD limit
+    let estimatedRemainingCalls = 0;
+    try {
+      const customLimitsRaw =
+        typeof localStorage !== 'undefined'
+          ? localStorage.getItem('gemini_quota_custom_limits')
+          : null;
+      const customLimits = customLimitsRaw ? JSON.parse(customLimitsRaw) : {};
+      for (const k of availableKeys) {
+        const limit = customLimits[k.keyHash];
+        const maxRpd =
+          limit?.maxRpd && typeof limit.maxRpd === 'number' ? limit.maxRpd : 1500;
+        const remaining = Math.max(0, maxRpd - (k.requestsToday || 0));
+        estimatedRemainingCalls += remaining;
+      }
+    } catch {
+      estimatedRemainingCalls = availableKeys.length * 1500;
+    }
+
+    if (estimatedRemainingCalls < selectedCount) {
+      return {
+        hasQuotaRisk: true,
+        warningMessage: `Quota khả dụng có thể không đủ cho toàn bộ ${selectedCount} chương đã chọn`,
+      };
+    }
+
+    return {
+      hasQuotaRisk: false,
+      warningMessage: null,
+    };
+  }, [selectedChapterIds.length, effectiveApiKeys]);
   // Trạng thái modal chỉnh sửa raw tiếng Trung cho một chapterId
   const [editingRawChapterId, setEditingRawChapterId] = useState<string | null>(null);
 
@@ -532,32 +623,55 @@ export function HakoChapterSelector({
           )}
 
           {/* Start Analysis CTA Button */}
-          <div className="flex items-center justify-between pt-3 border-t border-parchment-2">
-            <div className="text-xs text-text-muted">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-parchment-2">
+            <div className="flex flex-col gap-1.5 text-xs text-text-muted">
               {selectedChapterIds.length === 0 ? (
                 <span className="flex items-center gap-1 text-text-muted">
                   <AlertCircle className="w-3.5 h-3.5" />
                   <span>Vui lòng chọn ít nhất 1 chương để bắt đầu kiểm định.</span>
                 </span>
               ) : (
-                <span className="flex items-center gap-1 text-polish font-medium">
+                <span className="flex items-center gap-1.5 text-polish font-medium">
                   <Check className="w-3.5 h-3.5" />
                   <span>Đã sẵn sàng rà soát {selectedChapterIds.length} chương.</span>
                 </span>
               )}
+
+              {/* Advisory Quota Warning (Non-blocking) */}
+              {quotaAdvisory.hasQuotaRisk && selectedChapterIds.length > 0 && (
+                <div
+                  data-testid="quota-advisory-warning"
+                  className="flex items-center gap-1.5 text-[11px] text-amber-300 bg-amber-950/30 border border-amber-800/50 rounded-[3px] px-2.5 py-1 max-w-fit animate-in fade-in duration-150"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>{quotaAdvisory.warningMessage}</span>
+                </div>
+              )}
             </div>
 
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              onClick={onStartAnalysis}
-              disabled={isAnalyzing || selectedChapterIds.length === 0}
-              icon={<Sparkles className="w-4 h-4" />}
-              className="font-bold px-5"
-            >
-              {isAnalyzing ? 'Đang phân tích...' : `Bắt đầu kiểm định (${selectedChapterIds.length} chương)`}
-            </Button>
+            <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+              {selectedChapterIds.length > 0 && (
+                <span
+                  data-testid="ai-call-estimate"
+                  className="text-[11px] font-mono text-text-muted bg-parchment-2/40 px-2 py-1 rounded-[2px] border border-parchment-2/60 select-none"
+                >
+                  {`~${selectedChapterIds.length} lượt gọi AI`}
+                </span>
+              )}
+
+              <Button
+                type="button"
+                data-testid="start-analysis-btn"
+                variant="primary"
+                size="md"
+                onClick={onStartAnalysis}
+                disabled={isAnalyzing || selectedChapterIds.length === 0}
+                icon={<Sparkles className="w-4 h-4" />}
+                className="font-bold px-5"
+              >
+                {isAnalyzing ? 'Đang phân tích...' : `Bắt đầu kiểm định (${selectedChapterIds.length} chương)`}
+              </Button>
+            </div>
           </div>
         </>
       )}
