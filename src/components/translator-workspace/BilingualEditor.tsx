@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   RefreshCw, Play, Sparkles, BookOpen, FileText, Copy, Check, Save, 
   ChevronRight, Edit3, Eraser
@@ -6,7 +6,10 @@ import {
 import { ChapterMetadata, GlossaryItem, StoryProject } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { cleanChineseText } from '../../utils/textCleaner';
-import { QaCritiquePanel } from './QaCritiquePanel';
+import { UnifiedAuditPanel } from './UnifiedAuditPanel';
+import type { QualityIssue } from '../../types/hakoChecker';
+import type { DirectQaCritiqueIssue } from '../../services/directTranslationEngine';
+import type { UnifiedAuditIssue } from '../../types/audit';
 import { QuickAddTermModal } from './QuickAddTermModal';
 import { ChapterSelectorToolbar } from './ChapterSelectorToolbar';
 import { useHotkeys } from '../../hooks/useHotkeys';
@@ -60,8 +63,12 @@ export interface BilingualEditorProps {
   warningParagraphMismatch: boolean;
   enableAiQaCritique: boolean;
   enableSegmentTranslation: boolean;
-  qaIssues: any[];
+  qaIssues: DirectQaCritiqueIssue[];
+  hakoIssues: QualityIssue[];
   isCheckingQa: boolean;
+  onRunAiQaCritique: () => void;
+  onIssueClick?: (issue: UnifiedAuditIssue) => void;
+  qaError?: string | null;
   crdtStatus?: CRDTSyncStatus;
   collaborators?: UserPresence[];
   onFieldFocus?: (field: 'raw' | 'polished' | 'idle') => void;
@@ -111,12 +118,19 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   warningParagraphMismatch,
   enableAiQaCritique,
   qaIssues,
+  hakoIssues,
   isCheckingQa,
+  onRunAiQaCritique,
+  onIssueClick,
+  qaError,
   crdtStatus,
   collaborators,
   onFieldFocus,
 }: BilingualEditorProps) {
   const { showToast } = useNotifications();
+  const rawTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const polishedTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const activeTextareaRef = activeStage === 'polished' ? polishedTextareaRef : rawTextareaRef;
   const [selectedTerm, setSelectedTerm] = useState('');
   const [selectedContext, setSelectedContext] = useState('');
 
@@ -384,13 +398,17 @@ export const BilingualEditor = React.memo(function BilingualEditor({
 
           {/* Display panel */}
           <div className="space-y-3">
-            <QaCritiquePanel
+            <UnifiedAuditPanel
+              hakoIssues={hakoIssues}
+              qaIssues={qaIssues}
+              isCheckingQa={isCheckingQa}
+              onRunAiQaCritique={onRunAiQaCritique}
+              onIssueClick={onIssueClick}
               isMismatch={isMismatch}
               sourceParaCount={sourceParaCount}
               translationParaCount={translationParaCount}
-              isCheckingQa={isCheckingQa}
-              enableAiQaCritique={enableAiQaCritique}
-              qaIssues={qaIssues}
+              qaError={qaError}
+              activeTextareaRef={activeTextareaRef}
             />
 
             {activeStage === 'raw' ? (
@@ -411,6 +429,7 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                 </div>
 
                 <textarea
+                  ref={rawTextareaRef}
                   id="textarea-raw-translation"
                   rows={11}
                   placeholder="Bản dịch thô sẽ hiển thị tại đây sau khi chạy Giai đoạn 1..."
@@ -484,6 +503,7 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                 </div>
 
                 <textarea
+                  ref={polishedTextareaRef}
                   id="textarea-polished-translation"
                   rows={11}
                   placeholder="Bản dịch sau khi chuốt văn phong thuần Việt sẽ hiển thị tại đây..."

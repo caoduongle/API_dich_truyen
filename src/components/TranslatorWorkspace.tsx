@@ -51,6 +51,7 @@ export default function TranslatorWorkspace({
     chapterTitle,
     setChapterTitle,
     qaIssues,
+    hakoIssues,
     isCheckingQa,
     glossarySearch,
     setGlossarySearch,
@@ -101,6 +102,7 @@ export default function TranslatorWorkspace({
     handleImportSuggestions,
     handleTranslateRaw,
     handlePolishTranslation,
+    handleRunAiQaCritique,
     handleSaveChapter,
     handleApplyGlossaryToSource,
     handleCopyText,
@@ -227,7 +229,9 @@ export default function TranslatorWorkspace({
         enableAiQaCritique={enableAiQaCritique}
         enableSegmentTranslation={enableSegmentTranslation}
         qaIssues={qaIssues}
+        hakoIssues={hakoIssues}
         isCheckingQa={isCheckingQa}
+        onRunAiQaCritique={handleRunAiQaCritique}
       />
 
       <SuggestionsDrawer
