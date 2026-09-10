@@ -5,7 +5,14 @@ import { validateUploadFile } from '../../utils/fileValidator';
 import { getChapterFromDB } from '../../services/db';
 import { useNotifications } from '../NotificationSystem';
 import { isHanEquivalent } from '@shared/sinoNormalize';
-import { translateRawDirect, polishTranslationDirect, qaCritiqueDirect } from '../../services/directTranslationEngine';
+import {
+  translateRawDirect,
+  polishTranslationDirect,
+  qaCritiqueDirect,
+  type DirectQaCritiqueIssue,
+} from '../../services/directTranslationEngine';
+import { runHeuristicQualityScan } from '../../services/hakoQualityEngine';
+import type { QualityIssue } from '../../types/hakoChecker';
 import { analyzeGlossaryDirect } from '../../services/directGlossaryEngine';
 import { GLOSSARY_LIMITS } from '@shared/constants';
 import { useChapterCRDT } from '../../hooks/useChapterCRDT';
@@ -141,7 +148,8 @@ export function useWorkspaceState({
   const [polishedTranslation, setPolishedTranslation] = useState('');
   const [additionalInstructions, setAdditionalInstructions] = useState('');
   const [chapterTitle, setChapterTitle] = useState('');
-  const [qaIssues, setQaIssues] = useState<any[]>([]);
+  const [qaIssues, setQaIssues] = useState<DirectQaCritiqueIssue[]>([]);
+  const [hakoIssues, setHakoIssues] = useState<QualityIssue[]>([]);
   const [isCheckingQa, setIsCheckingQa] = useState<boolean>(false);
 
   // Local states for optimized glossary helper filtering
@@ -678,31 +686,6 @@ export function useWorkspaceState({
           });
         }
       }
-
-      // Gọi QA Critique nếu được bật
-      if (enableAiQaCritique) {
-        setIsCheckingQa(true);
-        setQaIssues([]);
-        try {
-          const qaData = await qaCritiqueDirect({
-            sourceText: sourceText,
-            translatedText: polishedResult,
-            apiKeys,
-            model: selectedModel,
-            startKeyIndex: data.successKeyIndex ?? 0
-          });
-          setQaIssues(qaData.issues || []);
-          if (!qaData.isValid && qaData.issues?.length > 0) {
-            showToast({ message: `Phát hiện ${qaData.issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`, type: 'warning' });
-          } else {
-            showToast({ message: "Kiểm duyệt AI hoàn tất: Bản dịch đạt chuẩn, không phát hiện lỗi bỏ sót/thêm thắt/lặp lại.", type: 'success' });
-          }
-        } catch (qaErr) {
-          console.error("Lỗi gọi API QA Critique:", qaErr);
-        } finally {
-          setIsCheckingQa(false);
-        }
-      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message || "Lỗi kết nối máy chủ biên tập.");
@@ -710,6 +693,85 @@ export function useWorkspaceState({
       setIsPolishing(false);
     }
   };
+
+  /**
+   * Kích hoạt kiểm định chất lượng AI QA Critique thủ công theo yêu cầu người dùng
+   */
+  const handleRunAiQaCritique = async () => {
+    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    if (!hasValidKeys) {
+      setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để kiểm duyệt.");
+      showToast({ message: "Vui lòng cấu hình API Key để thực hiện kiểm duyệt AI.", type: 'warning' });
+      return;
+    }
+    if (!polishedTranslation.trim()) {
+      showToast({ message: "Chưa có bản dịch hoàn thiện để kiểm định chất lượng.", type: 'warning' });
+      return;
+    }
+
+    setIsCheckingQa(true);
+    setQaIssues([]);
+    try {
+      const qaData = await qaCritiqueDirect({
+        sourceText,
+        translatedText: polishedTranslation,
+        apiKeys,
+        model: selectedModel,
+        startKeyIndex: 0,
+      });
+      setQaIssues(qaData.issues || []);
+      if (!qaData.isValid && qaData.issues?.length > 0) {
+        showToast({
+          message: `Phát hiện ${qaData.issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`,
+          type: 'warning',
+        });
+      } else {
+        showToast({
+          message: "Kiểm duyệt AI hoàn tất: Bản dịch đạt chuẩn, không phát hiện lỗi bỏ sót/thêm thắt/lặp lại.",
+          type: 'success',
+        });
+      }
+    } catch (qaErr: any) {
+      console.error("Lỗi gọi API QA Critique:", qaErr);
+      showToast({
+        message: qaErr?.message || "Lỗi khi thực hiện kiểm định QA Critique.",
+        type: 'error',
+      });
+    } finally {
+      setIsCheckingQa(false);
+    }
+  };
+
+  /**
+   * Quét quy tắc lỗi nhanh (Heuristic Quality Scan) không tốn API
+   */
+  const handleRunHakoScan = useCallback(() => {
+    if (!polishedTranslation.trim()) {
+      setHakoIssues([]);
+      return;
+    }
+    const currentChapter = activeProject.chapters.find((c) => c.id === currentChapterId);
+    const issues = runHeuristicQualityScan({
+      chapterId: currentChapterId || undefined,
+      title: chapterTitle || currentChapter?.title || 'Chương hiện tại',
+      chapterNumber: (currentChapter as any)?.chapterNumber || 1,
+      vietnameseContent: polishedTranslation,
+    });
+    setHakoIssues(issues);
+  }, [polishedTranslation, currentChapterId, chapterTitle, activeProject.chapters]);
+
+  // Debounced auto-run heuristic scan when polishedTranslation changes
+  useEffect(() => {
+    if (!polishedTranslation.trim()) {
+      setHakoIssues([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      handleRunHakoScan();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [polishedTranslation, handleRunHakoScan]);
 
   const handleSaveChapter = () => {
     const result = saveOrUpdateChapter({
@@ -885,6 +947,7 @@ export function useWorkspaceState({
     chapterTitle,
     setChapterTitle,
     qaIssues,
+    hakoIssues,
     isCheckingQa,
     glossarySearch,
     setGlossarySearch,
@@ -935,6 +998,8 @@ export function useWorkspaceState({
     handleImportSuggestions,
     handleTranslateRaw,
     handlePolishTranslation,
+    handleRunAiQaCritique,
+    handleRunHakoScan,
     handleSaveChapter,
     handleApplyGlossaryToSource,
     handleCopyText,

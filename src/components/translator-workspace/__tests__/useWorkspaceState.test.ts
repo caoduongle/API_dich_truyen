@@ -1,6 +1,128 @@
-import { describe, it, expect } from 'vitest';
-import { saveOrUpdateChapter } from '../useWorkspaceState';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { saveOrUpdateChapter, useWorkspaceState, UseWorkspaceStateProps } from '../useWorkspaceState';
 import { StoryProject, Chapter } from '../../../types';
+import { polishTranslationDirect, qaCritiqueDirect } from '../../../services/directTranslationEngine';
+import { runHeuristicQualityScan } from '../../../services/hakoQualityEngine';
+
+// Notification mock
+const mockShowToast = vi.fn();
+const mockShowConfirm = vi.fn();
+vi.mock('../../NotificationSystem', () => ({
+  useNotifications: () => ({
+    showToast: mockShowToast,
+    showConfirm: mockShowConfirm,
+  }),
+}));
+
+// CRDT mock
+vi.mock('../../../hooks/useChapterCRDT', () => ({
+  useChapterCRDT: () => ({
+    status: 'offline',
+    collaborators: [],
+    updateRawTranslation: vi.fn(),
+    updatePolishedTranslation: vi.fn(),
+    applyRemoteDiff: vi.fn(),
+  }),
+}));
+
+// Direct translation engine mock
+vi.mock('../../../services/directTranslationEngine', () => ({
+  translateRawDirect: vi.fn(),
+  polishTranslationDirect: vi.fn(),
+  qaCritiqueDirect: vi.fn(),
+}));
+
+// Hako quality engine mock
+vi.mock('../../../services/hakoQualityEngine', () => ({
+  runHeuristicQualityScan: vi.fn(),
+}));
+
+// React hooks mock state
+let stateSlots: any[] = [];
+let stateIndex = 0;
+let refSlots: any[] = [];
+let refIndex = 0;
+let registeredEffects: Array<() => void | (() => void)> = [];
+let effectCleanups: Array<() => void> = [];
+const prevDepsMap = new Map<number, any[] | undefined>();
+let effectIdx = 0;
+const callbackDepsMap = new Map<number, { fn: any; deps: any[] }>();
+let callbackIdx = 0;
+const memoDepsMap = new Map<number, { value: any; deps: any[] }>();
+let memoIdx = 0;
+
+vi.mock('react', () => ({
+  useState: (initial: any) => {
+    const idx = stateIndex++;
+    if (stateSlots.length <= idx) {
+      stateSlots[idx] = typeof initial === 'function' ? initial() : initial;
+    }
+    const setState = (val: any) => {
+      stateSlots[idx] = typeof val === 'function' ? val(stateSlots[idx]) : val;
+    };
+    return [stateSlots[idx], setState];
+  },
+  useRef: (initial: any) => {
+    const idx = refIndex++;
+    if (refSlots.length <= idx) {
+      refSlots[idx] = { current: initial };
+    }
+    return refSlots[idx];
+  },
+  useCallback: (fn: any, deps?: any[]) => {
+    const currentIdx = callbackIdx++;
+    const prev = callbackDepsMap.get(currentIdx);
+    const hasChanged = !prev || !deps || deps.some((dep, i) => dep !== prev.deps[i]);
+    if (hasChanged) {
+      callbackDepsMap.set(currentIdx, { fn, deps: deps ? [...deps] : [] });
+      return fn;
+    }
+    return prev.fn;
+  },
+  useMemo: (factory: any, deps?: any[]) => {
+    const currentIdx = memoIdx++;
+    const prev = memoDepsMap.get(currentIdx);
+    const hasChanged = !prev || !deps || deps.some((dep, i) => dep !== prev.deps[i]);
+    if (hasChanged) {
+      const value = factory();
+      memoDepsMap.set(currentIdx, { value, deps: deps ? [...deps] : [] });
+      return value;
+    }
+    return prev.value;
+  },
+  useDeferredValue: (val: any) => val,
+  useEffect: (effect: any, deps?: any[]) => {
+    const currentIdx = effectIdx++;
+    const prevDeps = prevDepsMap.get(currentIdx);
+    const hasChanged = !prevDeps || !deps || deps.some((dep, i) => dep !== prevDeps[i]);
+    if (hasChanged) {
+      prevDepsMap.set(currentIdx, deps ? [...deps] : undefined);
+      registeredEffects.push(effect);
+    }
+  },
+}));
+
+function flushEffects() {
+  const effectsToRun = [...registeredEffects];
+  registeredEffects = [];
+  for (const eff of effectsToRun) {
+    const cleanup = eff();
+    if (typeof cleanup === 'function') {
+      effectCleanups.push(cleanup);
+    }
+  }
+}
+
+function cleanupEffects() {
+  for (const cleanup of effectCleanups) {
+    try {
+      cleanup();
+    } catch {
+      // ignore
+    }
+  }
+  effectCleanups = [];
+}
 
 describe('Translator Workspace Upsert Logic (saveOrUpdateChapter)', () => {
   const createMockProject = (chapters: Chapter[] = []): StoryProject => ({
@@ -276,6 +398,326 @@ describe('Translator Workspace Upsert Logic (saveOrUpdateChapter)', () => {
       });
 
       expect(result!.savedChapter.title).toBe('Chương 1: Chưa đặt tên');
+    });
+  });
+});
+
+describe('useWorkspaceState Hook - Decoupled Audit Scanners & Manual Handlers', () => {
+  const createDefaultProps = (overrides: Partial<UseWorkspaceStateProps> = {}): UseWorkspaceStateProps => ({
+    activeProject: {
+      id: 'proj_test_workspace',
+      title: 'Đấu Phá Thương Khung',
+      author: 'Thiên Tàm Thổ Đậu',
+      genre: 'Tiên Hiệp',
+      tone: 'Hùng tráng',
+      description: 'Mô tả truyện',
+      glossary: [],
+      pendingGlossary: [],
+      chapters: [
+        {
+          id: 'chap-1',
+          title: 'Chương 1: Thiên Chi Kiêu Tử',
+          status: 'completed',
+          createdAt: '2026-08-20T00:00:00.000Z',
+          updatedAt: '2026-08-20T00:00:00.000Z',
+        },
+      ],
+      createdAt: '2026-08-20T00:00:00.000Z',
+    },
+    onUpdateProject: vi.fn(),
+    apiKeys: ['test-api-key-123'],
+    selectedModel: 'gemini-2.5-flash',
+    warningParagraphMismatch: false,
+    enableAiQaCritique: true,
+    enableSegmentTranslation: false,
+    ...overrides,
+  });
+
+  const renderWorkspaceHook = (props: UseWorkspaceStateProps) => {
+    stateIndex = 0;
+    refIndex = 0;
+    effectIdx = 0;
+    callbackIdx = 0;
+    memoIdx = 0;
+    const result = useWorkspaceState(props);
+    flushEffects();
+    return result;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cleanupEffects();
+    stateSlots = [];
+    stateIndex = 0;
+    refSlots = [];
+    refIndex = 0;
+    prevDepsMap.clear();
+    effectIdx = 0;
+    callbackDepsMap.clear();
+    callbackIdx = 0;
+    memoDepsMap.clear();
+    memoIdx = 0;
+    registeredEffects = [];
+  });
+
+  afterEach(() => {
+    cleanupEffects();
+  });
+
+  describe('US1: Decouple Auto QA Critique from Polish Translation', () => {
+    it('executes handlePolishTranslation without invoking qaCritiqueDirect even when enableAiQaCritique is true', async () => {
+      const mockPolish = vi.mocked(polishTranslationDirect);
+      const mockQa = vi.mocked(qaCritiqueDirect);
+      mockPolish.mockResolvedValueOnce({
+        polishedTranslation: 'La Phong ngước nhìn bầu trời đêm thăm thẳm.',
+      } as any);
+
+      const props = createDefaultProps({ enableAiQaCritique: true });
+      let hook = renderWorkspaceHook(props);
+      hook.setSourceText('罗峰看着夜空。');
+      hook.setRawTranslation('La Phong nhìn đêm không.');
+      hook = renderWorkspaceHook(props);
+
+      await hook.handlePolishTranslation();
+
+      expect(mockPolish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceText: '罗峰看着夜空。',
+          rawTranslation: 'La Phong nhìn đêm không.',
+          apiKeys: ['test-api-key-123'],
+          model: 'gemini-2.5-flash',
+        })
+      );
+      // Crucial verification: qaCritiqueDirect is NOT called automatically
+      expect(mockQa).not.toHaveBeenCalled();
+
+      // Polished translation state updated
+      hook = renderWorkspaceHook(props);
+      expect(hook.polishedTranslation).toBe('La Phong ngước nhìn bầu trời đêm thăm thẳm.');
+    });
+  });
+
+  describe('US2: Explicit Manual AI QA Critique Action (handleRunAiQaCritique)', () => {
+    it('aborts and shows warning toast if apiKeys is empty', async () => {
+      const mockQa = vi.mocked(qaCritiqueDirect);
+      const props = createDefaultProps({ apiKeys: [] });
+      let hook = renderWorkspaceHook(props);
+      hook.setPolishedTranslation('Bản dịch tiếng Việt đã xong.');
+      hook = renderWorkspaceHook(props);
+
+      await hook.handleRunAiQaCritique();
+
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Vui lòng cấu hình API Key để thực hiện kiểm duyệt AI.',
+          type: 'warning',
+        })
+      );
+      expect(mockQa).not.toHaveBeenCalled();
+    });
+
+    it('aborts and shows warning toast if polishedTranslation is empty', async () => {
+      const mockQa = vi.mocked(qaCritiqueDirect);
+      const props = createDefaultProps({ apiKeys: ['valid-key'] });
+      const hook = renderWorkspaceHook(props);
+
+      await hook.handleRunAiQaCritique();
+
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Chưa có bản dịch hoàn thiện để kiểm định chất lượng.',
+          type: 'warning',
+        })
+      );
+      expect(mockQa).not.toHaveBeenCalled();
+    });
+
+    it('invokes qaCritiqueDirect and populates qaIssues when AI flags quality issues', async () => {
+      const mockQa = vi.mocked(qaCritiqueDirect);
+      mockQa.mockResolvedValueOnce({
+        isValid: false,
+        issues: [
+          {
+            type: 'omission',
+            severity: 'critical',
+            description: 'Sót vế câu so với nguyên tác',
+            targetText: 'bầu trời đêm thăm thẳm',
+          },
+        ],
+        successKeyIndex: 0,
+      });
+
+      const props = createDefaultProps({ apiKeys: ['key-abc'], selectedModel: 'gemini-2.5-flash' });
+      let hook = renderWorkspaceHook(props);
+      hook.setSourceText('罗峰看着浩瀚的星空。');
+      hook.setPolishedTranslation('La Phong nhìn bầu trời đêm.');
+      hook = renderWorkspaceHook(props);
+
+      await hook.handleRunAiQaCritique();
+
+      expect(mockQa).toHaveBeenCalledWith({
+        sourceText: '罗峰看着浩瀚的星空。',
+        translatedText: 'La Phong nhìn bầu trời đêm.',
+        apiKeys: ['key-abc'],
+        model: 'gemini-2.5-flash',
+        startKeyIndex: 0,
+      });
+
+      hook = renderWorkspaceHook(props);
+      expect(hook.qaIssues.length).toBe(1);
+      expect(hook.qaIssues[0].type).toBe('omission');
+      expect(hook.qaIssues[0].targetText).toBe('bầu trời đêm thăm thẳm');
+      expect(hook.isCheckingQa).toBe(false);
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Phát hiện 1 vấn đề'),
+          type: 'warning',
+        })
+      );
+    });
+
+    it('shows success toast when AI critique finishes with zero issues', async () => {
+      const mockQa = vi.mocked(qaCritiqueDirect);
+      mockQa.mockResolvedValueOnce({
+        isValid: true,
+        issues: [],
+        successKeyIndex: 0,
+      });
+
+      const props = createDefaultProps({ apiKeys: ['key-abc'] });
+      let hook = renderWorkspaceHook(props);
+      hook.setSourceText('罗峰看着浩瀚的星空。');
+      hook.setPolishedTranslation('La Phong ngước nhìn tinh không bao la.');
+      hook = renderWorkspaceHook(props);
+
+      await hook.handleRunAiQaCritique();
+
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Kiểm duyệt AI hoàn tất: Bản dịch đạt chuẩn'),
+          type: 'success',
+        })
+      );
+      hook = renderWorkspaceHook(props);
+      expect(hook.qaIssues).toEqual([]);
+      expect(hook.isCheckingQa).toBe(false);
+    });
+
+    it('catches critique API errors, displays toast error, and resets isCheckingQa', async () => {
+      const mockQa = vi.mocked(qaCritiqueDirect);
+      mockQa.mockRejectedValueOnce(new Error('Rate limit exceeded (429)'));
+
+      const props = createDefaultProps({ apiKeys: ['key-abc'] });
+      let hook = renderWorkspaceHook(props);
+      hook.setSourceText('罗峰看着浩瀚的星空。');
+      hook.setPolishedTranslation('La Phong ngước nhìn tinh không bao la.');
+      hook = renderWorkspaceHook(props);
+
+      await hook.handleRunAiQaCritique();
+
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Rate limit exceeded (429)',
+          type: 'error',
+        })
+      );
+      hook = renderWorkspaceHook(props);
+      expect(hook.isCheckingQa).toBe(false);
+    });
+  });
+
+  describe('US3: Debounced Real-Time Heuristic Quality Scan (handleRunHakoScan)', () => {
+    it('clears hakoIssues when polishedTranslation is empty without calling runHeuristicQualityScan', () => {
+      const mockScan = vi.mocked(runHeuristicQualityScan);
+      const props = createDefaultProps();
+      const hook = renderWorkspaceHook(props);
+
+      hook.handleRunHakoScan();
+
+      expect(mockScan).not.toHaveBeenCalled();
+      expect(hook.hakoIssues).toEqual([]);
+    });
+
+    it('executes runHeuristicQualityScan synchronously and populates hakoIssues', () => {
+      const mockScan = vi.mocked(runHeuristicQualityScan);
+      const mockHakoIssues = [
+        {
+          id: 'hako_issue_1',
+          chapterId: 'chap-1',
+          chapterTitle: 'Chương 1: Thiên Chi Kiêu Tử',
+          chapterNumber: 1,
+          category: 'raw_leak' as const,
+          severity: 'major' as const,
+          vietnameseSnippet: 'La Phong nhìn thấy 龙涎草',
+          explanation: 'Chứa ký tự Hán tự',
+          decision: 'pending' as const,
+          detectedBy: 'heuristic' as const,
+          createdAt: '2026-09-10T12:00:00Z',
+        },
+      ];
+      mockScan.mockReturnValueOnce(mockHakoIssues);
+
+      const mockChapter: Chapter = {
+        id: 'chap-1',
+        title: 'Chương 1: Thiên Chi Kiêu Tử',
+        sourceText: '罗峰看着天空。',
+        rawTranslation: 'La Phong nhìn bầu trời.',
+        polishedTranslation: 'La Phong nhìn thấy 龙涎草',
+        paragraphs: ['罗峰看着天空。'],
+        translatedLines: ['La Phong nhìn thấy 龙涎草'],
+        status: 'completed',
+        createdAt: '2026-08-20T00:00:00.000Z',
+        updatedAt: '2026-08-20T00:00:00.000Z',
+      };
+      const props = createDefaultProps({ loadedChapter: mockChapter });
+      let hook = renderWorkspaceHook(props);
+      // Re-render after loadedChapter effect has populated state slots
+      hook = renderWorkspaceHook(props);
+
+      hook.handleRunHakoScan();
+
+      expect(mockScan).toHaveBeenCalledWith({
+        chapterId: 'chap-1',
+        title: 'Chương 1: Thiên Chi Kiêu Tử',
+        chapterNumber: 1,
+        vietnameseContent: 'La Phong nhìn thấy 龙涎草',
+      });
+
+      hook = renderWorkspaceHook(props);
+      expect(hook.hakoIssues).toEqual(mockHakoIssues);
+    });
+
+    it('automatically triggers handleRunHakoScan after 500ms debounce on polishedTranslation change', () => {
+      vi.useFakeTimers();
+      const mockScan = vi.mocked(runHeuristicQualityScan);
+      mockScan.mockReturnValue([]);
+
+      const props = createDefaultProps();
+      let hook = renderWorkspaceHook(props);
+
+      // Typing new polished content
+      hook.setPolishedTranslation('Nội dung vừa gõ xong...');
+      hook = renderWorkspaceHook(props);
+
+      // Immediately after typing, debounce timer is pending; scan should not have fired yet
+      expect(mockScan).not.toHaveBeenCalled();
+
+      // Fast-forward 500ms
+      vi.advanceTimersByTime(500);
+
+      expect(mockScan).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+  });
+
+  describe('Hook Export Contract', () => {
+    it('exports hakoIssues array, handleRunAiQaCritique async handler, and handleRunHakoScan callback', () => {
+      const hook = renderWorkspaceHook(createDefaultProps());
+      expect(Array.isArray(hook.hakoIssues)).toBe(true);
+      expect(typeof hook.handleRunAiQaCritique).toBe('function');
+      expect(typeof hook.handleRunHakoScan).toBe('function');
+      expect(Array.isArray(hook.qaIssues)).toBe(true);
+      expect(typeof hook.isCheckingQa).toBe('boolean');
     });
   });
 });
