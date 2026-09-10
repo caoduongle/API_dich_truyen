@@ -6,7 +6,7 @@
  * hiển thị thống kê tổng quan và kích hoạt xuất báo cáo kiểm định.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Filter,
   CheckCircle,
@@ -17,6 +17,8 @@ import {
   RotateCcw,
   Sparkles,
   CheckCheck,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   QualityIssue,
@@ -55,6 +57,9 @@ export function HakoIssueReviewPanel({
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterDecision, setFilterDecision] = useState<string>('all');
   const [filterChapterId, setFilterChapterId] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  const PAGE_SIZE = 20;
 
   // Stats calculation
   const stats = useMemo(() => {
@@ -92,6 +97,31 @@ export function HakoIssueReviewPanel({
       return true;
     });
   }, [issues, filterSeverity, filterCategory, filterDecision, filterChapterId]);
+
+  // Pagination calculations (PAGE_SIZE = 20)
+  const totalPages = Math.max(1, Math.ceil(filteredIssues.length / PAGE_SIZE));
+  const effectivePage = Math.min(Math.max(1, currentPage), totalPages);
+
+  // Reset to page 1 whenever any filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterSeverity, filterCategory, filterDecision, filterChapterId]);
+
+  // Clamp page if totalPages shrinks below currentPage (e.g. issues reviewed/deleted)
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(Math.max(1, totalPages));
+    }
+  }, [totalPages, currentPage]);
+
+  // Sliced sub-array for the visible page
+  const displayedIssues = useMemo(() => {
+    if (filteredIssues.length <= PAGE_SIZE) {
+      return filteredIssues;
+    }
+    const startIndex = (effectivePage - 1) * PAGE_SIZE;
+    return filteredIssues.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredIssues, effectivePage]);
 
   // Unique chapters in the issue list for filter dropdown
   const chapterOptions = useMemo(() => {
@@ -362,17 +392,62 @@ export function HakoIssueReviewPanel({
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-text-muted px-1">
             <span>
-              Hiển thị <strong>{filteredIssues.length}</strong> / {issues.length} lỗi
+              {filteredIssues.length > PAGE_SIZE ? (
+                <>
+                  Hiển thị{' '}
+                  <strong>
+                    {(effectivePage - 1) * PAGE_SIZE + 1}–
+                    {(effectivePage - 1) * PAGE_SIZE + displayedIssues.length}
+                  </strong>{' '}
+                  / {filteredIssues.length} lỗi
+                </>
+              ) : (
+                <>
+                  Hiển thị <strong>{filteredIssues.length}</strong> / {issues.length} lỗi
+                </>
+              )}
             </span>
           </div>
 
-          {filteredIssues.map((issue) => (
+          {displayedIssues.map((issue) => (
             <HakoIssueCard
               key={issue.id}
               issue={issue}
               onDecisionChange={onDecisionChange}
             />
           ))}
+
+          {/* Pagination Controls Bar */}
+          {filteredIssues.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between border-t border-parchment-2 pt-3 text-xs text-text-muted">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={effectivePage <= 1}
+                icon={<ChevronLeft className="w-3.5 h-3.5" />}
+              >
+                Trang trước
+              </Button>
+
+              <span className="font-mono text-text-main font-semibold">
+                Trang {effectivePage} / {totalPages}
+              </span>
+
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={effectivePage >= totalPages}
+                className="flex-row-reverse"
+                icon={<ChevronRight className="w-3.5 h-3.5" />}
+              >
+                Trang sau
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
