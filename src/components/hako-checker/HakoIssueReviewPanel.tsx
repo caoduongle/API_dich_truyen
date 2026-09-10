@@ -32,6 +32,8 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { EmptyState } from '../ui/EmptyState';
 import { Seal } from '../ui/Seal';
+import { Modal } from '../ui/Modal';
+import { useNotifications } from '../NotificationSystem';
 import { cn } from '../../lib/cn';
 
 export interface HakoIssueReviewPanelProps {
@@ -44,6 +46,14 @@ export interface HakoIssueReviewPanelProps {
   isAnalyzing: boolean;
 }
 
+export interface BatchConfirmState {
+  action: 'confirmed' | 'dismissed';
+  ids: string[];
+  count: number;
+}
+
+export const BATCH_CONFIRM_THRESHOLD = 5;
+
 export function HakoIssueReviewPanel({
   issues,
   chapters,
@@ -53,11 +63,19 @@ export function HakoIssueReviewPanel({
   onReanalyze,
   isAnalyzing,
 }: HakoIssueReviewPanelProps) {
+  let notifications: ReturnType<typeof useNotifications> | null = null;
+  try {
+    notifications = useNotifications();
+  } catch {
+    notifications = null;
+  }
+
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterDecision, setFilterDecision] = useState<string>('all');
   const [filterChapterId, setFilterChapterId] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [confirmBatch, setConfirmBatch] = useState<BatchConfirmState | null>(null);
 
   const PAGE_SIZE = 20;
 
@@ -130,6 +148,36 @@ export function HakoIssueReviewPanel({
     return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
   }, [issues]);
 
+  // Batch action execution helper with undo toast notification
+  const executeBatchMutation = (action: 'confirmed' | 'dismissed', ids: string[]) => {
+    if (ids.length === 0) return;
+
+    if (onBatchDecisionChange) {
+      onBatchDecisionChange(ids, action);
+    } else {
+      ids.forEach((id) => {
+        onDecisionChange(id, action);
+      });
+    }
+
+    const actionText = action === 'confirmed' ? 'duyệt' : 'bỏ qua';
+    notifications?.showToast({
+      message: `Đã ${actionText} ${ids.length} lỗi.`,
+      type: 'success',
+      duration: 7000,
+      undoLabel: 'Hoàn tác',
+      onUndo: () => {
+        if (onBatchDecisionChange) {
+          onBatchDecisionChange(ids, 'pending');
+        } else {
+          ids.forEach((id) => {
+            onDecisionChange(id, 'pending');
+          });
+        }
+      },
+    });
+  };
+
   // Batch action: Confirm all / Dismiss all filtered issues
   const handleBatchConfirm = () => {
     const pendingIds = filteredIssues
@@ -138,12 +186,14 @@ export function HakoIssueReviewPanel({
 
     if (pendingIds.length === 0) return;
 
-    if (onBatchDecisionChange) {
-      onBatchDecisionChange(pendingIds, 'confirmed');
-    } else {
-      pendingIds.forEach((id) => {
-        onDecisionChange(id, 'confirmed');
+    if (pendingIds.length > BATCH_CONFIRM_THRESHOLD) {
+      setConfirmBatch({
+        action: 'confirmed',
+        ids: pendingIds,
+        count: pendingIds.length,
       });
+    } else {
+      executeBatchMutation('confirmed', pendingIds);
     }
   };
 
@@ -154,12 +204,14 @@ export function HakoIssueReviewPanel({
 
     if (pendingIds.length === 0) return;
 
-    if (onBatchDecisionChange) {
-      onBatchDecisionChange(pendingIds, 'dismissed');
-    } else {
-      pendingIds.forEach((id) => {
-        onDecisionChange(id, 'dismissed');
+    if (pendingIds.length > BATCH_CONFIRM_THRESHOLD) {
+      setConfirmBatch({
+        action: 'dismissed',
+        ids: pendingIds,
+        count: pendingIds.length,
       });
+    } else {
+      executeBatchMutation('dismissed', pendingIds);
     }
   };
 
@@ -450,6 +502,43 @@ export function HakoIssueReviewPanel({
           )}
         </div>
       )}
+
+      {/* Confirmation Modal for Large Batch Actions */}
+      <Modal
+        open={confirmBatch !== null}
+        onClose={() => setConfirmBatch(null)}
+        title="Xác nhận thao tác hàng loạt"
+        size="sm"
+        footer={
+          <div className="flex items-center justify-end gap-2.5">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setConfirmBatch(null)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                if (confirmBatch) {
+                  executeBatchMutation(confirmBatch.action, confirmBatch.ids);
+                  setConfirmBatch(null);
+                }
+              }}
+            >
+              Xác nhận
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-xs text-text-muted leading-relaxed">
+          Bạn sắp {confirmBatch?.action === 'confirmed' ? 'duyệt' : 'bỏ qua'} {confirmBatch?.count} lỗi. Tiếp tục?
+        </p>
+      </Modal>
     </div>
   );
 }
