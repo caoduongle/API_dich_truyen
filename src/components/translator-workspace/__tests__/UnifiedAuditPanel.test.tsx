@@ -421,4 +421,107 @@ describe('UnifiedAuditPanel Component Suite', () => {
       });
     });
   });
+
+  describe('Feature 104: Auto-Fix and Targeted AI Sentence Rewriting UI', () => {
+    it('renders "Sửa ngay" button when issue is autoFixable, has suggestion, and onApplyFix is provided', () => {
+      const fixableHakoIssue: QualityIssue = {
+        id: 'hako-fixable-1',
+        chapterId: 'chap-1',
+        chapterTitle: 'Chương 1',
+        chapterNumber: 1,
+        category: 'raw_leak',
+        severity: 'major',
+        vietnameseSnippet: 'Kiếm khí 纵横 chấn động',
+        suggestedFix: 'tung hoành',
+        explanation: 'Sót chữ Hán chưa dịch',
+        decision: 'pending',
+        detectedBy: 'heuristic',
+        createdAt: '2026-09-10T12:00:00Z',
+      };
+
+      const onApplyFix = vi.fn();
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={[fixableHakoIssue]}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+          onApplyFix={onApplyFix}
+        />
+      );
+
+      expect(html).toContain('Sửa ngay');
+      expect(html).toContain('Có thể sửa nhanh');
+    });
+
+    it('does not render "Sửa ngay" button when onApplyFix is not provided or issue has no suggestion', () => {
+      const fixableWithoutFix: QualityIssue = {
+        id: 'hako-nofix',
+        chapterId: 'chap-1',
+        chapterTitle: 'Chương 1',
+        chapterNumber: 1,
+        category: 'raw_leak',
+        severity: 'major',
+        vietnameseSnippet: 'Kiếm khí 纵横',
+        // no suggestedFix
+        explanation: 'Sót chữ Hán',
+        decision: 'pending',
+        detectedBy: 'heuristic',
+        createdAt: '2026-09-10T12:00:00Z',
+      };
+
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={[fixableWithoutFix]}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      expect(html).not.toContain('Sửa ngay');
+    });
+
+    it('renders "Nhờ AI viết lại câu này" button on AI critique issues with targetText when API keys are available', () => {
+      const qaIssueWithTarget: DirectQaCritiqueIssue = {
+        type: 'terminology',
+        severity: 'warning',
+        description: 'Câu văn bị gượng gạo',
+        targetText: 'Hắn cất bước đi về phía trước.',
+      };
+
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={[]}
+          qaIssues={[qaIssueWithTarget]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+          apiKeys={['TEST_KEY']}
+        />
+      );
+
+      expect(html).toContain('Nhờ AI viết lại câu này');
+    });
+
+    it('does not render "Nhờ AI viết lại câu này" button when targetText is missing or empty', () => {
+      const qaIssueWithoutTarget: DirectQaCritiqueIssue = {
+        type: 'omission',
+        severity: 'critical',
+        description: 'Thiếu đoạn văn cuối chương',
+        targetText: '',
+      };
+
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={[]}
+          qaIssues={[qaIssueWithoutTarget]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+          apiKeys={['TEST_KEY']}
+        />
+      );
+
+      expect(html).not.toContain('Nhờ AI viết lại câu này');
+    });
+  });
 });

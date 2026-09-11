@@ -13,6 +13,7 @@ import {
 } from '../../services/directTranslationEngine';
 import { runHeuristicQualityScan } from '../../services/hakoQualityEngine';
 import type { QualityIssue } from '../../types/hakoChecker';
+import type { UnifiedAuditIssue } from '../../types/audit';
 import { analyzeGlossaryDirect } from '../../services/directGlossaryEngine';
 import { GLOSSARY_LIMITS } from '@shared/constants';
 import { useChapterCRDT } from '../../hooks/useChapterCRDT';
@@ -773,6 +774,66 @@ export function useWorkspaceState({
     return () => clearTimeout(timer);
   }, [polishedTranslation, handleRunHakoScan]);
 
+  // ─── Feature 104: Centralized Audit Fix Handler ─────────────────────────────
+  /**
+   * Áp dụng sửa lỗi kiểm định tập trung — tất cả text replacement đều đi qua đây.
+   * Sử dụng CRDT-aware setters (handleRawTranslationChange / handlePolishedTranslationChange)
+   * để đồng bộ realtime qua Yjs.
+   *
+   * @returns true nếu áp dụng thành công, false nếu targetText không tìm thấy
+   */
+  const handleApplyAuditFix = useCallback(
+    (issue: UnifiedAuditIssue): boolean => {
+      if (!issue.autoFixable && !issue.suggestion) return false;
+
+      const suggestion = issue.suggestion || '';
+      if (!suggestion.trim()) return false;
+
+      const targetText = issue.targetText || '';
+      if (!targetText) return false;
+
+      // Xác định text target dựa trên activeStage:
+      // - polished stage → sửa polishedTranslation
+      // - raw stage → sửa rawTranslation
+      const isPolishedStage = activeStage === 'polished';
+      const currentText = isPolishedStage ? polishedTranslation : rawTranslation;
+
+      // Kiểm tra targetText có tồn tại trong nội dung hiện tại
+      if (currentText.indexOf(targetText) === -1) {
+        showToast({
+          message: 'Nội dung đã thay đổi, không thể áp dụng sửa nhanh, vui lòng chạy lại kiểm định.',
+          type: 'warning',
+        });
+        return false;
+      }
+
+      // Thay thế lần xuất hiện đầu tiên
+      const newText = currentText.replace(targetText, suggestion);
+
+      // Gọi ĐÚNG CRDT-aware setter đã export
+      if (isPolishedStage) {
+        handlePolishedTranslationChange(newText);
+      } else {
+        handleRawTranslationChange(newText);
+      }
+
+      showToast({
+        message: 'Đã áp dụng sửa lỗi thành công.',
+        type: 'success',
+      });
+
+      return true;
+    },
+    [
+      activeStage,
+      polishedTranslation,
+      rawTranslation,
+      handlePolishedTranslationChange,
+      handleRawTranslationChange,
+      showToast,
+    ]
+  );
+
   const handleSaveChapter = () => {
     const result = saveOrUpdateChapter({
       currentChapterId,
@@ -1005,5 +1066,6 @@ export function useWorkspaceState({
     handleCopyText,
     toggleCheck,
     handleLoadChapterById,
+    handleApplyAuditFix,
   };
 }

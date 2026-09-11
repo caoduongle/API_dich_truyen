@@ -718,6 +718,119 @@ describe('useWorkspaceState Hook - Decoupled Audit Scanners & Manual Handlers', 
       expect(typeof hook.handleRunHakoScan).toBe('function');
       expect(Array.isArray(hook.qaIssues)).toBe(true);
       expect(typeof hook.isCheckingQa).toBe('boolean');
+      expect(typeof hook.handleApplyAuditFix).toBe('function');
+    });
+  });
+
+  describe('Feature 104: handleApplyAuditFix (Centralized Auto-Fix Handler)', () => {
+    it('applies fix successfully when targetText matches polishedTranslation and calls exported setter', () => {
+      const props = createDefaultProps();
+      let hook = renderWorkspaceHook(props);
+      hook.setActiveStage('polished');
+      hook.setPolishedTranslation('Kiếm khí 纵横 chấn động toàn trường.');
+      hook = renderWorkspaceHook(props);
+
+      const issue = {
+        id: 'issue-1',
+        source: 'hako_rule' as const,
+        severity: 'error' as const,
+        title: 'Sót chữ Hán',
+        message: 'Có chữ Hán chưa dịch',
+        targetText: '纵横',
+        suggestion: 'tung hoành',
+        autoFixable: true,
+        status: 'pending' as const,
+      };
+
+      const result = hook.handleApplyAuditFix(issue);
+
+      expect(result).toBe(true);
+      hook = renderWorkspaceHook(props);
+      expect(hook.polishedTranslation).toBe('Kiếm khí tung hoành chấn động toàn trường.');
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Đã áp dụng sửa lỗi thành công.',
+          type: 'success',
+        })
+      );
+    });
+
+    it('returns false and shows warning toast when targetText is not found (text drift)', () => {
+      const props = createDefaultProps();
+      let hook = renderWorkspaceHook(props);
+      hook.setActiveStage('polished');
+      hook.setPolishedTranslation('Bản dịch đã được biên tập lại hoàn toàn khác.');
+      hook = renderWorkspaceHook(props);
+
+      const issue = {
+        id: 'issue-drift',
+        source: 'hako_rule' as const,
+        severity: 'warning' as const,
+        title: 'Lỗi cũ',
+        message: 'Lỗi trên văn bản cũ',
+        targetText: 'Đoạn văn này không còn tồn tại',
+        suggestion: 'Đoạn văn mới',
+        autoFixable: true,
+        status: 'pending' as const,
+      };
+
+      const result = hook.handleApplyAuditFix(issue);
+
+      expect(result).toBe(false);
+      // Text remains unchanged
+      hook = renderWorkspaceHook(props);
+      expect(hook.polishedTranslation).toBe('Bản dịch đã được biên tập lại hoàn toàn khác.');
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Nội dung đã thay đổi, không thể áp dụng sửa nhanh, vui lòng chạy lại kiểm định.',
+          type: 'warning',
+        })
+      );
+    });
+
+    it('applies fix to rawTranslation when activeStage is raw', () => {
+      const props = createDefaultProps();
+      let hook = renderWorkspaceHook(props);
+      hook.setActiveStage('raw');
+      hook.setRawTranslation('Bản dịch thô có lỗi chính tả.');
+      hook = renderWorkspaceHook(props);
+
+      const issue = {
+        id: 'issue-raw',
+        source: 'hako_rule' as const,
+        severity: 'warning' as const,
+        title: 'Chính tả',
+        message: 'Sửa chính tả',
+        targetText: 'chính tả',
+        suggestion: 'chuẩn xác',
+        autoFixable: true,
+        status: 'pending' as const,
+      };
+
+      const result = hook.handleApplyAuditFix(issue);
+
+      expect(result).toBe(true);
+      hook = renderWorkspaceHook(props);
+      expect(hook.rawTranslation).toBe('Bản dịch thô có lỗi chuẩn xác.');
+    });
+
+    it('returns false if issue is not autoFixable and has no suggestion', () => {
+      const props = createDefaultProps();
+      const hook = renderWorkspaceHook(props);
+
+      const issue = {
+        id: 'issue-nonfixable',
+        source: 'ai_critique' as const,
+        severity: 'info' as const,
+        title: 'Góp ý chung',
+        message: 'Nên dùng từ ngữ bay bổng hơn',
+        targetText: 'bay bổng',
+        autoFixable: false,
+        status: 'pending' as const,
+      };
+
+      const result = hook.handleApplyAuditFix(issue);
+      expect(result).toBe(false);
     });
   });
 });

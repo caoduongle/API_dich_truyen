@@ -4,6 +4,7 @@ import {
   translateRawDirect,
   polishTranslationDirect,
   qaCritiqueDirect,
+  rewriteSentenceDirect,
 } from '../directTranslationEngine';
 
 describe('src/services/directTranslationEngine.ts', () => {
@@ -96,5 +97,59 @@ describe('src/services/directTranslationEngine.ts', () => {
     expect(res.issues).toHaveLength(1);
     expect(res.issues[0].type).toBe('omission');
     expect(res.issues[0].targetText).toBe('');
+  });
+
+  it('executes rewriteSentenceDirect and sends targeted prompt with only targetText and context', async () => {
+    let capturedCallArgs: any = null;
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      capturedCallArgs = args;
+      return {
+        text: JSON.stringify({
+          rewrittenSentence: 'Hắn cất bước đi về phía trước một cách thong thả.',
+        }),
+        successKeyIndex: 1,
+      };
+    });
+
+    const target = 'Hắn đi về phía trước.';
+    const context = 'Mặt trời lặn sau rặng núi.';
+    const issueMessage = 'Câu văn hơi cứng, cần mềm mại hơn.';
+
+    const res = await rewriteSentenceDirect({
+      targetText: target,
+      context,
+      issueMessage,
+      apiKeys: ['KEY_1', 'KEY_2'],
+      model: 'gemini-2.5-flash',
+      startKeyIndex: 1,
+    });
+
+    expect(res.rewrittenSentence).toBe('Hắn cất bước đi về phía trước một cách thong thả.');
+    expect(res.successKeyIndex).toBe(1);
+
+    // Verify targeted prompt payload: contains targetText, context, issueMessage
+    expect(capturedCallArgs).not.toBeNull();
+    expect(capturedCallArgs.prompt).toContain(target);
+    expect(capturedCallArgs.prompt).toContain(context);
+    expect(capturedCallArgs.prompt).toContain(issueMessage);
+    // Does NOT contain whole chapter content or unrelated prompt builders
+    expect(capturedCallArgs.prompt).not.toContain('Chương 1');
+    expect(capturedCallArgs.prompt).not.toContain('Bản dịch thô');
+    expect(capturedCallArgs.temperature).toBe(0.4);
+    expect(capturedCallArgs.startKeyIndex).toBe(1);
+  });
+
+  it('throws an error when rewriteSentenceDirect receives an empty response', async () => {
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
+      text: JSON.stringify({ rewrittenSentence: '   ' }),
+      successKeyIndex: 0,
+    });
+
+    await expect(
+      rewriteSentenceDirect({
+        targetText: 'Một câu ngắn.',
+        apiKeys: ['KEY_1'],
+      })
+    ).rejects.toThrow('AI không trả về câu viết lại hợp lệ.');
   });
 });

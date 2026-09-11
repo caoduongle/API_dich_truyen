@@ -1,18 +1,23 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   AlertCircle,
   Loader2,
   Sparkles,
   RotateCcw,
   CheckCircle2,
+  Wand2,
+  Zap,
+  X,
+  Check,
 } from 'lucide-react';
 import type { QualityIssue } from '../../types/hakoChecker';
-import type { DirectQaCritiqueIssue } from '../../services/directTranslationEngine';
+import type { DirectQaCritiqueIssue, DirectRewriteSentenceParams } from '../../services/directTranslationEngine';
 import type { UnifiedAuditIssue, UnifiedSeverity } from '../../types/audit';
 import {
   mapHakoIssueToUnified,
   mapQaIssueToUnified,
 } from '../../services/auditBridgeService';
+import { rewriteSentenceDirect } from '../../services/directTranslationEngine';
 import { scrollAndSelectInTextarea } from '../../utils/textareaHighlight';
 import { useNotifications } from '../NotificationSystem';
 import { Button } from '../ui/Button';
@@ -43,6 +48,14 @@ export interface UnifiedAuditPanelProps {
   qaError?: string | null;
   /** Tham chiếu tới textarea đang hoạt động trong trình soạn thảo để bôi chọn lỗi */
   activeTextareaRef?: React.RefObject<HTMLTextAreaElement | null>;
+  /** Callback áp dụng sửa lỗi tập trung từ workspace (Feature 104) */
+  onApplyFix?: (issue: UnifiedAuditIssue) => boolean | Promise<boolean>;
+  /** API Keys để thực hiện viết lại câu qua AI (Feature 104) */
+  apiKeys?: string[];
+  /** Model AI đang chọn (Feature 104) */
+  selectedModel?: string;
+  /** Callback tùy chọn thay thế việc gọi trực tiếp rewriteSentenceDirect (Feature 104, testability) */
+  onRewriteSentence?: (params: DirectRewriteSentenceParams) => Promise<string>;
 }
 
 export type AuditFilterTab = 'all' | 'hako_rule' | 'ai_critique' | 'pending';
@@ -88,8 +101,17 @@ export function UnifiedAuditPanel({
   translationParaCount = 0,
   qaError = null,
   activeTextareaRef,
+  onApplyFix,
+  apiKeys,
+  selectedModel,
+  onRewriteSentence,
 }: UnifiedAuditPanelProps) {
   const [activeTab, setActiveTab] = useState<AuditFilterTab>('all');
+
+  // Feature 104: Local state for resolved tracking, rewriting, and previews
+  const [resolvedIssueIds, setResolvedIssueIds] = useState<Set<string>>(new Set());
+  const [rewritingIssueId, setRewritingIssueId] = useState<string | null>(null);
+  const [pendingPreviews, setPendingPreviews] = useState<Record<string, string>>({});
 
   let notifications: ReturnType<typeof useNotifications> | null = null;
   try {
@@ -112,8 +134,12 @@ export function UnifiedAuditPanel({
   const unifiedIssues = useMemo<UnifiedAuditIssue[]>(() => {
     const hakoMapped = (hakoIssues || []).map(mapHakoIssueToUnified);
     const qaMapped = (qaIssues || []).map((issue) => mapQaIssueToUnified(issue));
-    return [...hakoMapped, ...qaMapped];
-  }, [hakoIssues, qaIssues]);
+    // Override status for resolved issues
+    return [...hakoMapped, ...qaMapped].map((issue) => ({
+      ...issue,
+      status: resolvedIssueIds.has(issue.id) ? 'resolved' as const : issue.status,
+    }));
+  }, [hakoIssues, qaIssues, resolvedIssueIds]);
 
   // Thống kê số lượng theo danh mục lọc
   const stats = useMemo(() => {
@@ -150,6 +176,124 @@ export function UnifiedAuditPanel({
         return { tone: 'neutral' as const, label: 'Góp ý' };
     }
   };
+
+  // Feature 104: Handle "Sửa ngay" click
+  const handleQuickFix = useCallback(
+    async (e: React.MouseEvent, issue: UnifiedAuditIssue) => {
+      e.stopPropagation();
+      if (!onApplyFix) return;
+      try {
+        const result = await onApplyFix(issue);
+        if (result) {
+          setResolvedIssueIds((prev) => new Set(prev).add(issue.id));
+        }
+      } catch (err: any) {
+        showToast?.({
+          message: err?.message || 'Lỗi khi áp dụng sửa nhanh.',
+          type: 'error',
+        });
+      }
+    },
+    [onApplyFix, showToast]
+  );
+
+  // Feature 104: Handle "Nhờ AI viết lại câu này" click
+  const handleRequestRewrite = useCallback(
+    async (e: React.MouseEvent, issue: UnifiedAuditIssue) => {
+      e.stopPropagation();
+      if (rewritingIssueId) return; // prevent concurrent rewrites on same card
+
+      setRewritingIssueId(issue.id);
+      try {
+        let rewrittenText: string;
+
+        if (onRewriteSentence) {
+          // Use injected callback (for testing)
+          rewrittenText = await onRewriteSentence({
+            targetText: issue.targetText || '',
+            context: issue.message,
+            issueMessage: issue.message,
+            apiKeys: apiKeys || [],
+            model: selectedModel,
+          });
+        } else {
+          // Call service directly
+          const result = await rewriteSentenceDirect({
+            targetText: issue.targetText || '',
+            context: issue.message,
+            issueMessage: issue.message,
+            apiKeys: apiKeys || [],
+            model: selectedModel,
+          });
+          rewrittenText = result.rewrittenSentence;
+        }
+
+        // Show preview
+        setPendingPreviews((prev) => ({
+          ...prev,
+          [issue.id]: rewrittenText,
+        }));
+      } catch (err: any) {
+        showToast?.({
+          message: err?.message || 'Lỗi khi yêu cầu AI viết lại câu.',
+          type: 'error',
+        });
+      } finally {
+        setRewritingIssueId(null);
+      }
+    },
+    [rewritingIssueId, onRewriteSentence, apiKeys, selectedModel, showToast]
+  );
+
+  // Feature 104: Handle preview "Áp dụng" click
+  const handleApplyPreview = useCallback(
+    async (e: React.MouseEvent, issue: UnifiedAuditIssue) => {
+      e.stopPropagation();
+      if (!onApplyFix) return;
+
+      const previewText = pendingPreviews[issue.id];
+      if (!previewText) return;
+
+      // Create a modified issue with the AI suggestion
+      const modifiedIssue: UnifiedAuditIssue = {
+        ...issue,
+        suggestion: previewText,
+        autoFixable: true,
+      };
+
+      try {
+        const result = await onApplyFix(modifiedIssue);
+        if (result) {
+          setResolvedIssueIds((prev) => new Set(prev).add(issue.id));
+          // Remove preview
+          setPendingPreviews((prev) => {
+            const next = { ...prev };
+            delete next[issue.id];
+            return next;
+          });
+        }
+      } catch (err: any) {
+        showToast?.({
+          message: err?.message || 'Lỗi khi áp dụng gợi ý AI.',
+          type: 'error',
+        });
+      }
+    },
+    [onApplyFix, pendingPreviews, showToast]
+  );
+
+  // Feature 104: Handle preview "Hủy" click
+  const handleDismissPreview = useCallback(
+    (e: React.MouseEvent, issueId: string) => {
+      e.stopPropagation();
+      setPendingPreviews((prev) => {
+        const next = { ...prev };
+        delete next[issueId];
+        return next;
+      });
+    },
+    []
+  );
 
   return (
     <div className="space-y-3">
@@ -322,11 +466,25 @@ export function UnifiedAuditPanel({
           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
             {filteredIssues.map((issue) => {
               const badge = getSeverityBadge(issue.severity);
+              const isResolved = issue.status === 'resolved';
+              const isRewriting = rewritingIssueId === issue.id;
+              const hasPreview = issue.id in pendingPreviews;
+              const showQuickFix = issue.autoFixable && issue.suggestion && !isResolved && onApplyFix;
+              const showRewriteBtn =
+                issue.source === 'ai_critique' &&
+                issue.targetText &&
+                !isResolved &&
+                !hasPreview &&
+                (apiKeys?.length || onRewriteSentence);
+
               return (
                 <div
                   key={issue.id}
                   onClick={() => handleIssueCardClick(issue)}
-                  className="group bg-parchment/60 hover:bg-parchment border border-parchment-2 hover:border-polish/40 rounded-[2px] p-2.5 space-y-1.5 transition-all cursor-pointer shadow-xs"
+                  className={cn(
+                    "group bg-parchment/60 hover:bg-parchment border border-parchment-2 hover:border-polish/40 rounded-[2px] p-2.5 space-y-1.5 transition-all cursor-pointer shadow-xs",
+                    isResolved && "opacity-60"
+                  )}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -337,11 +495,15 @@ export function UnifiedAuditPanel({
                         {issue.source === 'hako_rule' ? 'Quy chuẩn Hako' : 'Góp ý AI'}
                       </span>
                     </div>
-                    {issue.autoFixable && (
+                    {isResolved ? (
+                      <Badge tone="neutral" className="text-[10px] font-bold px-1.5 py-0.2 text-emerald-400 border-emerald-800/50 bg-emerald-950/40">
+                        Đã sửa
+                      </Badge>
+                    ) : issue.autoFixable ? (
                       <span className="text-[10px] text-polish font-medium bg-polish/10 px-1 rounded-[2px]">
                         Có thể sửa nhanh
                       </span>
-                    )}
+                    ) : null}
                   </div>
 
                   <p className="text-xs font-bold text-text-main group-hover:text-polish transition-colors leading-snug">
@@ -356,6 +518,77 @@ export function UnifiedAuditPanel({
                     <div className="bg-ink/80 border border-parchment-2 rounded-[2px] px-2 py-1 text-[11px] font-mono text-text-muted line-clamp-2">
                       <span className="text-text-muted/60 mr-1 select-none">Trích đoạn:</span>
                       <span className="text-text-main">{issue.targetText}</span>
+                    </div>
+                  )}
+
+                  {/* Feature 104: AI Rewrite Preview */}
+                  {hasPreview && (
+                    <div className="bg-emerald-950/20 border border-emerald-800/40 rounded-[2px] p-2 space-y-1.5 mt-1">
+                      <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                        Gợi ý viết lại từ AI
+                      </p>
+                      <div className="text-[11px] text-text-main leading-relaxed bg-ink/60 rounded-[2px] px-2 py-1.5 font-mono">
+                        {pendingPreviews[issue.id]}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={(e) => handleApplyPreview(e, issue)}
+                          icon={<Check className="w-3 h-3" />}
+                          className="text-[10px] cursor-pointer"
+                        >
+                          Áp dụng
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={(e) => handleDismissPreview(e, issue.id)}
+                          icon={<X className="w-3 h-3" />}
+                          className="text-[10px] cursor-pointer"
+                        >
+                          Hủy
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Feature 104: Action buttons */}
+                  {!isResolved && !hasPreview && (showQuickFix || showRewriteBtn) && (
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      {showQuickFix && (
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={(e) => handleQuickFix(e, issue)}
+                          icon={<Zap className="w-3 h-3" />}
+                          className="text-[10px] cursor-pointer"
+                        >
+                          Sửa ngay
+                        </Button>
+                      )}
+                      {showRewriteBtn && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={(e) => handleRequestRewrite(e, issue)}
+                          disabled={isRewriting}
+                          icon={
+                            isRewriting ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Wand2 className="w-3 h-3" />
+                            )
+                          }
+                          className="text-[10px] cursor-pointer"
+                        >
+                          {isRewriting ? 'Đang viết lại...' : 'Nhờ AI viết lại câu này'}
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
