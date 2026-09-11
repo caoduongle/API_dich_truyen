@@ -16,7 +16,7 @@ import { GlossaryTable } from './glossary-manager/GlossaryTable';
 import { GlossaryDetailSidebar } from './glossary-manager/GlossaryDetailSidebar';
 import { MergeHanPanel } from './glossary-manager/MergeHanPanel';
 import { Badge } from './ui/Badge';
-import { useGlossaryState } from './glossary-manager/useGlossaryState';
+import { useGlossaryState } from '../hooks/useGlossaryState';
 
 interface GlossaryManagerProps {
   projectId: string;

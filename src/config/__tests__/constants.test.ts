@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  SERVER_CONFIG,
   AI_SERVICE_CONFIG,
   GLOSSARY_LIMITS,
   UI_CONFIG,
@@ -8,14 +7,6 @@ import {
 } from '../constants';
 
 describe('Shared Constants System', () => {
-  it('defines valid server configuration constants', () => {
-    expect(SERVER_CONFIG.BODY_SIZE_LIMIT).toBe('15mb');
-    expect(SERVER_CONFIG.DEFAULT_PORT).toBe(3000);
-    expect(SERVER_CONFIG.RATE_LIMIT_WINDOW_MS).toBe(60000);
-    expect(SERVER_CONFIG.RATE_LIMIT_MAX_REQUESTS).toBe(60);
-    expect(SERVER_CONFIG.AUTH_RATE_LIMIT_WINDOW_MS).toBe(15 * 60 * 1000);
-    expect(SERVER_CONFIG.AUTH_RATE_LIMIT_MAX_REQUESTS).toBe(10);
-  });
 
   it('defines valid AI service configurations', () => {
     expect(AI_SERVICE_CONFIG.MIN_REQUEST_INTERVAL_PER_KEY_MS).toBeGreaterThan(0);

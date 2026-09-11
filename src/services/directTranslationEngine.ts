@@ -3,7 +3,7 @@ import {
   buildRawTranslationPayload,
   buildPolishTranslationPayload,
   buildQaCritiquePayload,
-} from '@shared/prompts';
+} from './ai/prompts';
 import {
   safeParseJson,
   separateChapterTitleAndBody,
@@ -11,8 +11,8 @@ import {
   validateTranslationOutput,
   splitTextAdaptively,
   estimateTokenCount,
-} from '@shared/text';
-import { validateAndSnapBackEntities } from '@shared/sinoNormalize';
+} from '../lib/text';
+import { validateAndSnapBackEntities } from '../lib/sinoNormalize';
 import { GlossaryItem } from '../types';
 
 export interface DirectRawTranslationParams {

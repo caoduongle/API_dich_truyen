@@ -3,8 +3,8 @@ import { StoryProject, Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryIt
 import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
-import { useNotifications } from '../components/NotificationSystem';
-import { isHanEquivalent } from '@shared/sinoNormalize';
+import { useNotifications } from '../context/NotificationContext';
+import { isHanEquivalent } from '../lib/sinoNormalize';
 import { executeSingleChapterTranslation, SingleChapterResult } from '../services/chapterTranslationService';
 import { getDynamicPacingInterval, isTpmNearLimit } from '../utils/modelRegistry';
 

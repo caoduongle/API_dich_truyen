@@ -3,7 +3,7 @@
  * Theo dõi hạn mức RPM/TPM, hạn mức ngày RPD (chu kỳ PST), Circuit Breaker và xoay vòng API key an toàn trực tiếp trên trình duyệt.
  */
 
-import {
+import type {
   KeyQuotaFullSnapshot,
   LogicalSummaryStats,
   ModelUsageStats,
@@ -11,7 +11,7 @@ import {
   KeyHealthState,
   KeyRuntimeStatus,
   CustomLimit,
-} from '../utils/apiClient';
+} from '../types/quota';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 
 export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';

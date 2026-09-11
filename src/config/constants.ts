@@ -3,21 +3,6 @@
  * Quản lý tập trung mọi ngưỡng, kích thước buffer, thời gian chờ và giới hạn của hệ thống.
  */
 
-// --- CẤU HÌNH MÁY CHỦ (SERVER CONFIG) ---
-export const SERVER_CONFIG = {
-  /** Giới hạn kích thước payload JSON body (15MB để nạp các chương truyện dài) */
-  BODY_SIZE_LIMIT: '15mb',
-  /** Cổng mặc định khi chạy server */
-  DEFAULT_PORT: 3000,
-  /** Cửa sổ thời gian tính rate limit (1 phút) */
-  RATE_LIMIT_WINDOW_MS: 60 * 1000,
-  /** Số request tối đa cho phép trong mỗi cửa sổ rate limit trên một IP */
-  RATE_LIMIT_MAX_REQUESTS: 60,
-  /** Cửa sổ thời gian tính rate limit riêng cho đăng nhập (15 phút) */
-  AUTH_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
-  /** Số lần thử đăng nhập tối đa cho phép trong mỗi cửa sổ trên một IP (10 lần / 15 phút) */
-  AUTH_RATE_LIMIT_MAX_REQUESTS: 10,
-} as const;
 
 // --- CẤU HÌNH DỊCH THUẬT & TRÍ TUỆ NHÂN TẠO (AI SERVICE CONFIG) ---
 export const AI_SERVICE_CONFIG = {

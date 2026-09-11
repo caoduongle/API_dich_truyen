@@ -1,24 +1,24 @@
 import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
-import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem } from '../../types';
-import { parseTxtContent, parseEpubFile } from '../../utils/fileParser';
-import { validateUploadFile } from '../../utils/fileValidator';
-import { getChapterFromDB } from '../../services/db';
-import { useNotifications } from '../NotificationSystem';
-import { isHanEquivalent } from '@shared/sinoNormalize';
+import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem } from '../types';
+import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
+import { validateUploadFile } from '../utils/fileValidator';
+import { getChapterFromDB } from '../services/db';
+import { useNotifications } from '../context/NotificationContext';
+import { isHanEquivalent } from '../lib/sinoNormalize';
 import {
   translateRawDirect,
   polishTranslationDirect,
   qaCritiqueDirect,
   type DirectQaCritiqueIssue,
-} from '../../services/directTranslationEngine';
-import { runHeuristicQualityScan } from '../../services/hakoQualityEngine';
-import type { QualityIssue } from '../../types/hakoChecker';
-import type { UnifiedAuditIssue } from '../../types/audit';
-import { analyzeGlossaryDirect } from '../../services/directGlossaryEngine';
-import { GLOSSARY_LIMITS } from '@shared/constants';
-import { useChapterCRDT } from '../../hooks/useChapterCRDT';
-import { googleAuthService } from '../../services/googleAuthService';
-import { CHINESE_EXAMPLES } from '../../data/examples';
+} from '../services/directTranslationEngine';
+import { runHeuristicQualityScan } from '../services/hakoQualityEngine';
+import type { QualityIssue } from '../types/hakoChecker';
+import type { UnifiedAuditIssue } from '../types/audit';
+import { analyzeGlossaryDirect } from '../services/directGlossaryEngine';
+import { GLOSSARY_LIMITS } from '../config/constants';
+import { useChapterCRDT } from './useChapterCRDT';
+import { googleAuthService } from '../services/googleAuthService';
+import { CHINESE_EXAMPLES } from '../data/examples';
 
 export interface SaveChapterOptions {
   currentChapterId: string | null;

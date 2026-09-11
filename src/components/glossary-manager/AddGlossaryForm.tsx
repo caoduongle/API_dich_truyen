@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GlossaryType, GlossaryItem } from '../../types';
 import { useNotifications } from '../NotificationSystem';
-import { isHanEquivalent } from '@shared/sinoNormalize';
+import { isHanEquivalent } from '../../lib/sinoNormalize';
 import { Button } from '../ui/Button';
 import { cn } from '../../lib/cn';
 

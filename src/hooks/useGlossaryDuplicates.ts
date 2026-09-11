@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, useCallback, startTransition } from 'react';
 import { GlossaryItem, StoryProject } from '../types';
-import { DuplicateGroupEdit } from '../components/glossary-manager/DuplicatePanel';
-import { MergeHanGroup } from '../components/glossary-manager/MergeHanPanel';
-import { canonicalizeHan } from '@shared/sinoNormalize';
-import { useNotifications } from '../components/NotificationSystem';
+import { DuplicateGroupEdit, MergeHanGroup } from '../types/glossary';
+import { canonicalizeHan } from '../lib/sinoNormalize';
+import { useNotifications } from '../context/NotificationContext';
 
 export function computeDuplicateGroups(
   glossary: GlossaryItem[], 

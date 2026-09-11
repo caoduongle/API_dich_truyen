@@ -3,7 +3,7 @@ import { AlertTriangle, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { getChapterFromDB } from '../../services/db';
-import { findFuzzyCandidates, FuzzyCandidate } from '@shared/sinoNormalize';
+import { findFuzzyCandidates, FuzzyCandidate } from '../../lib/sinoNormalize';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 

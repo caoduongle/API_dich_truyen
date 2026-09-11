@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { KeyQuotaFullSnapshot, KeyHealthState } from '../../utils/apiClient';
+import type { KeyQuotaFullSnapshot, KeyHealthState } from '../../types/quota';
 
 describe('QuotaPanel Health Badges & Key Health State Verification', () => {
   const createMockSnapshot = (

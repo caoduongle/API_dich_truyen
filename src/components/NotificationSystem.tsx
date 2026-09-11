@@ -1,45 +1,23 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X, RotateCcw } from 'lucide-react';
 import { Button } from './ui/Button';
+import {
+  NotificationContext,
+  useNotifications,
+  type ToastType,
+  type ToastOptions,
+  type ConfirmOptions,
+  type NotificationContextProps,
+} from '../context/NotificationContext';
 
-export type ToastType = 'info' | 'success' | 'warning' | 'error';
-
-export interface ToastOptions {
-  message: string;
-  type?: ToastType;
-  duration?: number; // ms
-  onUndo?: () => void | Promise<void>;
-  undoLabel?: string;
-}
-
-export interface ConfirmOptions {
-  title: string;
-  message: string;
-  confirmText?: string;
-  cancelText?: string;
-  type?: 'danger' | 'warning' | 'info';
-}
+export { useNotifications };
+export type { ToastType, ToastOptions, ConfirmOptions, NotificationContextProps };
 
 interface ToastItem extends ToastOptions {
   id: string;
   progress: number;
 }
-
-interface NotificationContextProps {
-  showToast: (options: ToastOptions | string) => void;
-  showConfirm: (options: ConfirmOptions) => Promise<boolean>;
-}
-
-const NotificationContext = createContext<NotificationContextProps | undefined>(undefined);
-
-export const useNotifications = () => {
-  const context = useContext(NotificationContext);
-  if (!context) {
-    throw new Error('useNotifications must be used within a NotificationProvider');
-  }
-  return context;
-};
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);

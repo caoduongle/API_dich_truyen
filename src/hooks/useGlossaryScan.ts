@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StoryProject, GlossaryItem, PendingGlossaryItem, ChapterMetadata } from '../types';
 import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
-import { useNotifications } from '../components/NotificationSystem';
-import { isHanEquivalent } from '@shared/sinoNormalize';
+import { useNotifications } from '../context/NotificationContext';
+import { isHanEquivalent } from '../lib/sinoNormalize';
 import { analyzeGlossaryDirect } from '../services/directGlossaryEngine';
 
 export interface UseGlossaryScanProps {

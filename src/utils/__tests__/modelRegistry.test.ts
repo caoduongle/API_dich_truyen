@@ -23,8 +23,8 @@ import {
   getVerifiedModels,
   updateCustomModelVerification,
 } from '../modelRegistry';
-import { DEFAULT_MODEL_ID } from '../../constants/models';
-import { KeyQuotaFullSnapshot, ModelInfoItem } from '../apiClient';
+import { DEFAULT_MODEL_ID } from '../../config/models';
+import type { KeyQuotaFullSnapshot, ModelInfoItem } from '../../types/quota';
 
 
 describe('modelRegistry utils', () => {

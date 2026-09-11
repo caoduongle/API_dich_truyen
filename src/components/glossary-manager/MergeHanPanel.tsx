@@ -4,11 +4,8 @@ import { GlossaryItem } from '../../types';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 
-export interface MergeHanGroup {
-  groupId: string;
-  canonical: string;
-  items: GlossaryItem[];
-}
+import { MergeHanGroup } from '../../types/glossary';
+export type { MergeHanGroup };
 
 interface MergeHanPanelProps {
   show: boolean;

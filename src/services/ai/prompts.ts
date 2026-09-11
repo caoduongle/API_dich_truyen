@@ -3,8 +3,8 @@ import {
   getGenreStyleGuide,
   sanitizePromptInput,
   escapeRegex,
-} from './text';
-import { findCanonicalSubstring } from './sinoNormalize';
+} from '../../lib/text';
+import { findCanonicalSubstring } from '../../lib/sinoNormalize';
 import { buildEntityExtractionInstruction, buildEntitySchema } from './glossaryPrompts';
 
 export interface GlossaryEntry {

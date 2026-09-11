@@ -1,6 +1,6 @@
 import React from 'react';
 import { Settings2 } from 'lucide-react';
-import { KeyQuotaFullSnapshot } from '../../utils/apiClient';
+import type { KeyQuotaFullSnapshot } from '../../types/quota';
 import { formatPacingSummary } from '../../utils/modelRegistry';
 
 import type { CustomLimit } from '../../utils/customLimitsStorage';

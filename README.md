@@ -193,33 +193,41 @@ npm run build
 ## 📂 Cấu trúc Thư mục Dự án
 
 ```text
-├── src/                                # Frontend Source (React 19 + TypeScript)
-│   ├── components/                     # UI Components (Translator, Glossary, Settings...)
+├── src/                                # Mã nguồn Client SPA (React 19 + TypeScript)
+│   ├── components/                     # Tầng View: UI Components
+│   │   ├── common/                     # Breadcrumbs, NotFoundPage, ThemeSwitcher...
 │   │   ├── google-sync/                # Google Drive Sync & Collaboration UI
-│   │   ├── translator-workspace/       # Workspace song ngữ & thanh công cụ
-│   │   └── ui/                         # Atomic Primitives (Button, Badge, Seal...)
-│   ├── context/                        # React Contexts (ThemeContext, etc.)
-│   ├── hooks/                          # Custom Hooks (useAIConfig, useChapterCRDT...)
-│   ├── lib/                            # Helper Utilities (cn.ts)
-│   ├── services/                       # Dịch vụ cốt lõi:
+│   │   ├── hako-checker/               # Hako Quality Checker Panel & Reviewers
+│   │   ├── layout/                     # AppHeader, AppTabBar, TabContent, AppFooter, Modals
+│   │   ├── translator-workspace/       # Bàn dịch thuật song ngữ, Editor & thanh công cụ
+│   │   └── ui/                         # Atomic Primitives (Button, Badge, Seal, Kbd...)
+│   ├── config/                         # Tầng Configuration: Hằng số & Danh mục mô hình
+│   │   ├── constants.ts                # Hằng số toàn cục (hạn mức, timeout, buffer)
+│   │   ├── models.ts                   # Định nghĩa & registry mô hình AI
+│   │   └── tabMetadata.ts              # Danh mục tab & SEO metadata
+│   ├── context/                        # React Contexts (ThemeContext, ProjectContext, AIConfigContext)
+│   ├── hooks/                          # Tầng Controller: Custom Hooks & State Management
+│   ├── lib/                            # Thư viện thuật toán thuần (Pure Utilities)
+│   │   ├── cn.ts                       # Class merging utility
+│   │   ├── parser.ts                   # Phân tích cú pháp văn bản & chương truyện
+│   │   ├── sinoNormalize.ts            # Chuẩn hóa Hán-Việt & Phồn-Giản
+│   │   └── text.ts                     # Xử lý chuỗi, chunking & redaction bảo mật
+│   ├── services/                       # Tầng Model: Business Logic & Data Access
+│   │   ├── ai/                         # System prompts & prompt templates
 │   │   ├── db.ts                       # IndexedDB Service (Single Source of Truth)
-│   │   ├── directGeminiClient.ts       # Direct Gemini REST Client
-│   │   ├── directTranslationEngine.ts  # Translation Engine Client-side
+│   │   ├── directGeminiClient.ts       # Direct Gemini REST Client (@google/genai)
+│   │   ├── directTranslationEngine.ts  # 3-Phase Translation Engine Client-side
 │   │   ├── directGlossaryEngine.ts     # Glossary Engine Client-side
 │   │   ├── localQuotaTracker.ts        # Quota Tracker, Key Health & Circuit Breaker
 │   │   └── googleDriveSyncService.ts   # Google Drive Backup & Sync
-│   ├── utils/                          # Tiện ích bổ trợ (textCleaner, storageAudit, etc.)
+│   ├── utils/                          # Tiện ích bổ trợ (textCleaner, storageAudit...)
 │   └── types.ts                        # Type Definitions
-├── shared/                             # Các tiện ích và hằng số dùng chung
-│   ├── constants.ts                    # Hằng số cấu hình hệ thống
-│   ├── sinoNormalize.ts                # Chuẩn hóa Hán-Việt & từ điển Phồn-Giản
-│   └── text.ts                         # Xử lý chuỗi & Redaction bảo mật
-├── public/                             # Tài nguyên tĩnh & Header hosting (_headers, favicon, etc.)
+├── public/                             # Tài nguyên tĩnh & Header hosting (_headers, favicon...)
 ├── docs/                               # Tài liệu kỹ thuật chi tiết
 │   ├── architecture.md                 # Kiến trúc tổng thể Zero Backend
 │   ├── model-system.md                 # Quản lý mô hình AI
 │   └── quota-and-scheduling.md         # Bộ theo dõi quota & xoay vòng key
-├── vercel.json                         # Cấu hình hosting Vercel
+├── vercel.json                         # Cấu hình hosting Vercel & CSP
 ├── vite.config.ts                      # Cấu hình Vite & Rollup Chunking
 └── package.json                        # Scripts & Dependencies
 ```

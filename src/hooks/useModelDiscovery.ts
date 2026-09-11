@@ -7,7 +7,7 @@ import {
   isDiscoveryStale,
   fetchAndCacheDiscoveredModels,
 } from '../utils/modelRegistry';
-import { ModelInfoItem } from '../utils/apiClient';
+import type { ModelInfoItem } from '../types/quota';
 import { listModelsDirect } from '../services/directGeminiClient';
 
 export interface UseModelDiscoveryOptions {

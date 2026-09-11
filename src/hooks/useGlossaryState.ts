@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue } from 'react';
-import { GlossaryItem, GlossaryType, PendingGlossaryItem, ChapterMetadata, StoryProject } from '../../types';
-import { useNotifications } from '../NotificationSystem';
-import { triggerDownload } from '../../utils/download';
-import { isHanEquivalent } from '@shared/sinoNormalize';
-import { analyzeGuidelinesDirect } from '../../services/directGlossaryEngine';
-import { useGlossaryDuplicates } from '../../hooks/useGlossaryDuplicates';
-import { useGlossaryContextSearch } from '../../hooks/useGlossaryContextSearch';
+import { GlossaryItem, GlossaryType, PendingGlossaryItem, ChapterMetadata, StoryProject } from '../types';
+import { useNotifications } from '../context/NotificationContext';
+import { triggerDownload } from '../utils/download';
+import { isHanEquivalent } from '../lib/sinoNormalize';
+import { analyzeGuidelinesDirect } from '../services/directGlossaryEngine';
+import { useGlossaryDuplicates } from './useGlossaryDuplicates';
+import { useGlossaryContextSearch } from './useGlossaryContextSearch';
 
 export interface UseGlossaryStateProps {
   projectId: string;

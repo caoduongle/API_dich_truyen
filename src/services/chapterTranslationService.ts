@@ -1,6 +1,6 @@
 import { Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryItem } from '../types';
 import { getChapterFromDB, saveChapterToDB } from './db';
-import { isHanEquivalent } from '@shared/sinoNormalize';
+import { isHanEquivalent } from '../lib/sinoNormalize';
 import { separateChapterTitleAndBody } from '../utils/textCleaner';
 import {
   translateRawDirect,

@@ -1,4 +1,4 @@
-import { ANTI_INJECTION_DEFENSE_DIRECTIVE } from "./text";
+import { ANTI_INJECTION_DEFENSE_DIRECTIVE } from "../../lib/text";
 
 /**
  * Trả về phần system instruction chung chứa các quy tắc xử lý tên phiên âm,

@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { StoryProject, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
 import { triggerDownload } from '../utils/download';
-import { useNotifications } from '../components/NotificationSystem';
+import { useNotifications } from '../context/NotificationContext';
 
 export function useEpubExport() {
   const { showToast } = useNotifications();

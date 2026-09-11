@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { useNotifications } from '../components/NotificationSystem';
-import { DEFAULT_MODEL_ID } from '../constants/models';
-import { ModelInfoItem } from '../utils/apiClient';
+import { useNotifications } from '../context/NotificationContext';
+import { DEFAULT_MODEL_ID } from '../config/models';
+import type { ModelInfoItem } from '../types/quota';
 import { 
   getDiscoveredModels, 
   getCustomModels, 

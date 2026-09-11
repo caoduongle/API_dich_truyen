@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
-import { KeyQuotaFullSnapshot, ModelInfoItem } from '../../utils/apiClient';
+import type { KeyQuotaFullSnapshot, ModelInfoItem } from '../../types/quota';
 import { getKeyModelStats, normalizeModelId, formatTokenCount } from '../../utils/modelRegistry';
 import { CountdownBadge } from './CountdownBadge';
 import { CustomLimit, DEFAULT_CUSTOM_LIMIT, formatClientMaskedKey } from './CustomLimitsPanel';

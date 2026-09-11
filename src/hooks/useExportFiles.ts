@@ -4,7 +4,7 @@ import { StoryProject, Chapter, ChapterMetadata } from '../types';
 import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
-import { useNotifications } from '../components/NotificationSystem';
+import { useNotifications } from '../context/NotificationContext';
 import { alignChapterDirect } from '../services/directGlossaryEngine';
 import { buildExportFileContent } from '../utils/exportFormatter';
 

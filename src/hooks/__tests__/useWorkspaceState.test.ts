@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { saveOrUpdateChapter, useWorkspaceState, UseWorkspaceStateProps } from '../useWorkspaceState';
-import { StoryProject, Chapter } from '../../../types';
-import { polishTranslationDirect, qaCritiqueDirect } from '../../../services/directTranslationEngine';
-import { runHeuristicQualityScan } from '../../../services/hakoQualityEngine';
+import { StoryProject, Chapter } from '../../types';
+import { polishTranslationDirect, qaCritiqueDirect } from '../../services/directTranslationEngine';
+import { runHeuristicQualityScan } from '../../services/hakoQualityEngine';
 
 // Notification mock
 const mockShowToast = vi.fn();
 const mockShowConfirm = vi.fn();
-vi.mock('../../NotificationSystem', () => ({
+vi.mock('../../context/NotificationContext', () => ({
   useNotifications: () => ({
     showToast: mockShowToast,
     showConfirm: mockShowConfirm,
@@ -15,7 +15,7 @@ vi.mock('../../NotificationSystem', () => ({
 }));
 
 // CRDT mock
-vi.mock('../../../hooks/useChapterCRDT', () => ({
+vi.mock('../useChapterCRDT', () => ({
   useChapterCRDT: () => ({
     status: 'offline',
     collaborators: [],
@@ -26,14 +26,14 @@ vi.mock('../../../hooks/useChapterCRDT', () => ({
 }));
 
 // Direct translation engine mock
-vi.mock('../../../services/directTranslationEngine', () => ({
+vi.mock('../../services/directTranslationEngine', () => ({
   translateRawDirect: vi.fn(),
   polishTranslationDirect: vi.fn(),
   qaCritiqueDirect: vi.fn(),
 }));
 
 // Hako quality engine mock
-vi.mock('../../../services/hakoQualityEngine', () => ({
+vi.mock('../../services/hakoQualityEngine', () => ({
   runHeuristicQualityScan: vi.fn(),
 }));
 

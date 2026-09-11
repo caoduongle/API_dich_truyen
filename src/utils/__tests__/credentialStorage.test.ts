@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { migrateAndLoadApiKeys } from '../../hooks/useAIConfig';
-import { apiFetch } from '../apiClient';
-import { sanitizeSecretString, sanitizeValue, redactApiKey } from '@shared/text';
+import { sanitizeSecretString, sanitizeValue, redactApiKey } from '../../lib/text';
 import { maskApiKey, hashApiKey } from '../../services/localQuotaTracker';
 import { verifyStorageIntegrity } from '../storageAudit';
 
@@ -94,34 +93,6 @@ describe('Credential Storage & Lifecycle Security', () => {
       
       expect(keys).toEqual([]);
       expect(mockSessionStorage['gemini_api_keys']).toBeUndefined();
-    });
-  });
-
-  describe('Payload Sanitization (apiFetch)', () => {
-    it('should strip apiKeys from outgoing JSON request body', async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ success: true }),
-      });
-      global.fetch = fetchMock;
-
-      await apiFetch('/api/translate-raw', {
-        method: 'POST',
-        body: JSON.stringify({
-          text: '天地玄黄',
-          model: 'gemini-2.5-flash',
-          apiKeys: ['AIzaSyPlaintextKeySecret'],
-        }),
-      });
-
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const callArgs = fetchMock.mock.calls[0];
-      const parsedBody = JSON.parse(callArgs[1].body);
-
-      expect(parsedBody.apiKeys).toBeUndefined();
-      expect(parsedBody.text).toBe('天地玄黄');
-      expect(parsedBody.model).toBe('gemini-2.5-flash');
     });
   });
 

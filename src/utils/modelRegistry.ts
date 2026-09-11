@@ -1,6 +1,6 @@
-import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../constants/models';
-import { KeyQuotaFullSnapshot, ModelInfoItem, ModelUsageStats } from './apiClient';
-import type { ModelCapabilities, ModelDefinition, ModelLimits, ModelSource, ModelStatus, ModelVerificationState } from '@shared/models';
+import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../config/models';
+import type { KeyQuotaFullSnapshot, ModelInfoItem, ModelUsageStats } from '../types/quota';
+import type { ModelCapabilities, ModelDefinition, ModelLimits, ModelSource, ModelStatus, ModelVerificationState } from '../config/models';
 
 export const DISCOVERED_MODELS_STORAGE_KEY = 'gemini_discovered_models';
 export const CUSTOM_MODELS_STORAGE_KEY = 'gemini_custom_models';

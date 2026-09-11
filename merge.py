@@ -8,7 +8,7 @@ project_root = script_dir
 
 output_dir = os.path.join(script_dir, 'Result')
 
-# Cấu hình cho project TypeScript / React + Express (Vite)
+# Cấu hình cho project Pure Client-Side SPA (React 19 + TypeScript + Vite)
 extraction_tasks = {
     # --- File cấu hình gốc ---
     "config_files.txt": {
@@ -20,27 +20,17 @@ extraction_tasks = {
             os.path.join(project_root, ".env.example"),
             os.path.join(project_root, ".gitignore"),
             os.path.join(project_root, "metadata.json"),
+            os.path.join(project_root, "vercel.json"),
         ],
         "extensions": ()  # Không dùng cho file cụ thể, chỉ để tương thích cấu trúc
     },
 
-    # --- Source code frontend (React / TSX / CSS) ---
+    # --- Source code client-side SPA (React / TSX / CSS) ---
     "frontend_source.txt": {
         "targets": [
             os.path.join(project_root, "src"),
-            os.path.join(project_root, "shared"),
         ],
         "extensions": (".ts", ".tsx", ".css")
-    },
-
-    # --- Backend Express ---
-    "backend_source.txt": {
-        "targets": [
-            os.path.join(project_root, "server.ts"),
-            os.path.join(project_root, "server"),
-            os.path.join(project_root, "shared"),
-        ],
-        "extensions": (".ts",)
     },
 }
 
@@ -77,7 +67,7 @@ def run_extraction():
                     continue
 
                 if os.path.isfile(target):
-                    # File cụ thể (vd: package.json, server.ts)
+                    # File cụ thể (vd: package.json)
                     write_file_content(outfile, target)
                     count += 1
                 else:

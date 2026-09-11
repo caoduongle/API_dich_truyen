@@ -6,7 +6,7 @@ import {
   normalizeModelId,
   isDiscoveryStale,
 } from '../modelRegistry';
-import { DEFAULT_MODEL_ID } from '../../constants/models';
+import { DEFAULT_MODEL_ID } from '../../config/models';
 import { verifyStorageIntegrity } from '../storageAudit';
 
 describe('User Story 4: Model Registry & UI Preference Hierarchy (TASK 13)', () => {

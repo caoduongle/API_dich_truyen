@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeModelStatsSummary, getKeyModelStats } from '../../utils/modelRegistry';
-import { KeyQuotaFullSnapshot, LogicalSummaryStats } from '../../utils/apiClient';
+import type { KeyQuotaFullSnapshot, LogicalSummaryStats } from '../../types/quota';
 
 describe('QuotaPanel Metrics & Decoupled Semantics Unit Tests', () => {
   it('handles snapshots with provider attempt metrics properly', () => {

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { GlossaryItem, GlossaryType, StoryProject } from '../../types';
 import { useNotifications } from '../NotificationSystem';
-import { isHanEquivalent } from '@shared/sinoNormalize';
+import { isHanEquivalent } from '../../lib/sinoNormalize';
 import { quickTranslateTermDirect } from '../../services/directGeminiClient';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';

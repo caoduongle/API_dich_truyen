@@ -5,16 +5,16 @@ import {
   buildExtractGlossaryPayload,
   buildAlignChapterPayload,
   buildAlignmentJsonlLines,
-} from '@shared/prompts';
+} from './ai/prompts';
 import {
   safeParseJson,
   splitTextAdaptively,
   splitTextIntoChunks,
   estimateTokenCount,
-} from '@shared/text';
-import { validateAndSnapBackEntities, isHanEquivalent } from '@shared/sinoNormalize';
-import { parseGlossaryFromMd } from '@shared/parser';
-import { GLOSSARY_LIMITS } from '@shared/constants';
+} from '../lib/text';
+import { validateAndSnapBackEntities, isHanEquivalent } from '../lib/sinoNormalize';
+import { parseGlossaryFromMd } from '../lib/parser';
+import { GLOSSARY_LIMITS } from '../config/constants';
 
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
 const MAX_CHUNKS_TO_ANALYZE = 5;

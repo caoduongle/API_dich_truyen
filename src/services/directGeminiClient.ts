@@ -1,5 +1,5 @@
-import { DEFAULT_MODEL_ID } from '@shared/models';
-import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '@shared/text';
+import { DEFAULT_MODEL_ID } from '../config/models';
+import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '../lib/text';
 import { GlossaryType } from '../types';
 import { localQuotaTracker, hashApiKey } from './localQuotaTracker';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';

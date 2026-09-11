@@ -1,15 +1,16 @@
 # AGENTS.md
 
 ## Dự án
-Công cụ dịch tiểu thuyết Trung → Việt bằng AI (Gemini). Frontend: React 19 + Vite +
-TypeScript + Tailwind v4. Backend: Express + ioredis, chạy trong cùng repo (`server/`).
-Dữ liệu chương/dự án lưu ở IndexedDB phía client (`src/services/db.ts`).
+Công cụ dịch tiểu thuyết Trung → Việt bằng AI (Gemini).
+Kiến trúc: Thuần Client-side SPA (React 19 + Vite + TypeScript + Tailwind v4).
+Dữ liệu chương, dự án và từ điển được lưu trữ cục bộ ở IndexedDB phía client (`src/services/db.ts`).
+Giao tiếp trực tiếp với Google Gemini API từ trình duyệt thông qua `@google/genai` client SDK và đồng bộ tùy chọn Google Drive v3 REST API.
 
 ## Lệnh bắt buộc chạy trước khi báo cáo "xong việc"
 ```
 npm run lint    # tsc --noEmit — PHẢI sạch, không có lỗi type
 npm test        # vitest run  — PHẢI pass toàn bộ, không được xóa/skip test để né lỗi
-npm run build   # vite build + esbuild server — PHẢI build thành công
+npm run build   # tsc && vite build — PHẢI build thành công
 ```
 Nếu đang sửa UI và có khả năng dùng trình duyệt (browser agent/Chrome tool): chạy
 `npm run dev`, mở app, **chụp ảnh màn hình trước và sau** mỗi màn hình được sửa. Đừng
@@ -21,7 +22,7 @@ File đó định nghĩa bảng màu, font, mô-típ nhận diện (con dấu tr
 và danh sách "cấm kỵ" để tránh giao diện kiểu "AI slop" chung chung.
 
 ## Không được tự ý làm (deny-list)
-- Không sửa logic dịch/gọi API Gemini trong `server/` hoặc `src/services/` khi nhiệm vụ
+- Không sửa logic dịch/gọi API Gemini trong `src/services/` khi nhiệm vụ
   là UI — nếu cần đổi, dừng lại và hỏi trước.
 - Không đổi schema IndexedDB (`src/services/db.ts`) hoặc cấu trúc `types.ts` khi chỉ
   làm UI.

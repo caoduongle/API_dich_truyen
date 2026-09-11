@@ -1,6 +1,6 @@
 # Chính sách Bảo mật (Security Policy)
 
-Dự án **AI Dịch Truyện Trung - Việt (Bàn Biên Tập Bản Thảo Chu Sa)** luôn coi trọng tính an toàn, bảo mật dữ liệu và quyền riêng tư của người dùng.
+Dự án **AI Dịch Truyện Trung - Việt (Bàn Biên Tập Bản Thảo Chu Sa)** hoạt động theo kiến trúc **thuần Client-side Single Page Application (SPA)**, luôn đặt tính an toàn, bảo vệ dữ liệu bản thảo và quyền riêng tư của người dùng lên hàng đầu.
 
 ---
 
@@ -21,12 +21,12 @@ Nếu bạn phát hiện bất kỳ lỗ hổng hoặc rủi ro an toàn thông 
 
 Vui lòng báo cáo an toàn theo một trong các kênh sau:
 1. **GitHub Security Advisory**: Truy cập tab [Security > Advisories](../../security/advisories) của kho chứa và chọn **"Report a vulnerability"**.
-2. **Email liên hệ**: Gửi thông tin chi tiết đến email quản trị viên dự án.
+2. **Email liên hệ**: Gửi thông tin chi tiết đến `caoduongle22@gmail.com`.
 
 ### Thông tin cần cung cấp khi báo cáo:
-- Mô tả chi tiết lỗ hổng và phạm vi ảnh hưởng (ví dụ: rò rỉ secret trong log, bypass xác thực, prompt injection, CSRF/XSS, lỗi validation API).
+- Mô tả chi tiết lỗ hổng và phạm vi ảnh hưởng (ví dụ: rò rỉ secret trong client state, prompt injection, bypass CSP, XSS, sai sót trong cơ chế mã hóa/xác thực).
 - Các bước cụ thể để tái hiện lỗi (Proof of Concept - PoC).
-- Môi trường thử nghiệm (Hệ điều hành, Node.js version, chế độ môi trường `development` hay `production`).
+- Môi trường thử nghiệm (Trình duyệt, Hệ điều hành, Node.js version khi build).
 - Đề xuất phương án khắc phục (nếu có).
 
 ### Cam kết phản hồi:
@@ -36,34 +36,41 @@ Vui lòng báo cáo an toàn theo một trong các kênh sau:
 
 ---
 
-## Nguyên tắc bảo mật cốt lõi của dự án
+## Mô hình bảo mật Client-Side cốt lõi
 
-1. **Kiến trúc Đồng bộ Không Tri thức (Zero-Knowledge Session Sync) & Bảo vệ API Key**:
-   - API key cá nhân (Gemini, OpenAI, Anthropic) được lưu trữ an toàn trong `sessionStorage` của trình duyệt và **tuyệt đối không bao giờ gửi plaintext** tới máy chủ ứng dụng khi đồng bộ phiên.
-   - Trình duyệt chỉ gửi mã băm SHA-256 một chiều (`crypto.subtle.digest`) lên máy chủ để phục vụ quản lý phiên, hạn mức và điều phối (`/api/session-keys`).
-   - Các thao tác gọi AI (dịch thuật trực tiếp, tra cứu model, dịch nhanh) được thực hiện Client-Direct từ trình duyệt thẳng đến nhà cung cấp AI.
-   - Máy chủ và hệ thống ghi log (`Logger`, Metrics) tự động lọc và thay thế chuỗi API key (`AIza...`, `sk-...`, `sk-ant-...`), token xác thực, mật khẩu bằng `[REDACTED]`.
-   - Toàn bộ query parameter nhạy cảm trên URL đều bị xóa khỏi log structured.
-2. **Phòng thủ AI & Chống Prompt Injection**:
-   - Dữ liệu truyện và cẩm nang do người dùng cung cấp được xem là **Untrusted Data** (không đáng tin cậy).
+1. **Lưu trữ Cục bộ & Bảo vệ API Key (Zero-Server-Knowledge)**:
+   - Toàn bộ Khóa API (Gemini API Key) do người dùng cung cấp được lưu trữ hoàn toàn tại trình duyệt (`sessionStorage` / local state). Ứng dụng **hoàn toàn không có máy chủ trung gian**, do đó API key không bao giờ bị truyền tải qua bất kỳ bên thứ ba nào ngoài chính Google AI (`generativelanguage.googleapis.com`).
+   - Mọi thao tác kiểm tra tình trạng key, đo đạc quota và truy vấn danh sách model đều thực hiện Client-Direct qua `directGeminiClient.ts` và `modelVerificationService.ts`.
+   - Chuỗi API key được ẩn / mask trên giao diện người dùng và tự động làm sạch trong log console/chẩn đoán.
+
+2. **Xác thực Google OAuth 2.0 PKCE từ Trình duyệt**:
+   - Tính năng đồng bộ Google Drive sử dụng luồng OAuth 2.0 Authorization Code với PKCE (Proof Key for Code Exchange) hoặc Google Identity Services Token Client chạy trực tiếp trên trình duyệt.
+   - Token chỉ yêu cầu phạm vi tối thiểu (`drive.file` / `drive.appdata`) để chỉ truy cập các tệp do chính ứng dụng tạo ra, không thể đọc các tài liệu cá nhân khác của người dùng.
+
+3. **Điều tiết Hạn mức Cục bộ (Client-Side Local Quota Tracker)**:
+   - Thay thế hoàn toàn Redis server-side, hệ thống sử dụng `localQuotaTracker.ts` chạy trên bộ nhớ trình duyệt để quản lý hạn mức Request Per Minute (RPM) và Request Per Day (RPD), tự động luân chuyển giữa các API key khi gặp Rate Limit (429) hoặc tạm ngắt mạch (circuit breaker cooldown).
+
+4. **Phòng thủ AI & Chống Prompt Injection**:
+   - Dữ liệu chương truyện và cẩm nang do người dùng tải lên được xem là **Untrusted Data**.
    - Tự động làm sạch các ký tự điều khiển tàng hình (Unicode Zero-Width `\u200B`–`\u200D`, `\uFEFF`, Directional formatting, Unicode Tag range `\u{E0000}`–`\u{E007F}`).
-   - Chỉ thị hệ thống của AI được bọc trong khung bảo vệ văn học nghiêm ngặt (`ANTI_INJECTION_DEFENSE_DIRECTIVE` & `LITERARY_TRANSLATION_FRAMING`), ngăn chặn mọi nỗ lực ghi đè luật dịch thuật.
-3. **Kiểm soát truy cập & Giới hạn tần suất (Rate Limiting)**:
-   - Endpoint đăng nhập (`POST /api/auth/login`) áp dụng giới hạn riêng biệt: tối đa 10 lần thử trong 15 phút.
-   - Các API xử lý nghiệp vụ được giới hạn tần suất theo địa chỉ IP và phiên làm việc (`ioredis` hoặc bộ nhớ trong).
-4. **Kiểm tra dữ liệu đầu vào (Input Validation)**:
-   - Toàn bộ POST endpoint đều kiểm tra kiểu dữ liệu, giới hạn số lượng và độ dài tối đa trước khi đưa vào luồng xử lý.
-5. **Chính sách bảo mật trình duyệt (CSP)**:
-   - Ở môi trường Production, Express kích hoạt đầy đủ bộ header Helmet với Content Security Policy hạn chế tối đa nguy cơ XSS/clickjacking (`object-src 'none'`, `frame-ancestors 'none'`).
+   - Chỉ thị hệ thống của AI được bọc trong khung bảo vệ văn học nghiêm ngặt (`ANTI_INJECTION_DEFENSE_DIRECTIVE` & `LITERARY_TRANSLATION_FRAMING`), ngăn chặn mọi nỗ lực ghi đè prompt hoặc trích xuất quy tắc dịch thuật.
+
+5. **Chính sách bảo mật trình duyệt khắt khe (CSP via `vercel.json`)**:
+   - Ứng dụng triển khai chính sách `Content-Security-Policy` nghiêm ngặt:
+     - `default-src 'self'`
+     - `connect-src 'self' https://generativelanguage.googleapis.com https://*.googleapis.com https://accounts.google.com`
+     - `frame-ancestors 'none'` ngăn chặn hoàn toàn tấn công Clickjacking
+     - `object-src 'none'` ngăn chặn nhúng plugin Flash/Java nguy hiểm
+     - Kích hoạt đầy đủ `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, và HSTS.
+
+6. **Lưu trữ Bản thảo Cục bộ (IndexedDB)**:
+   - Bản thảo và từ điển lưu hoàn toàn trong IndexedDB của trình duyệt người dùng qua `src/services/db.ts`. Dữ liệu chỉ rời khỏi trình duyệt khi người dùng chủ động xuất file (TXT/EPUB) hoặc bấm nút Đồng bộ lên Google Drive cá nhân của mình.
 
 ---
 
-## Danh mục kiểm tra khi triển khai Production (Production Deployment Checklist)
+## Danh mục kiểm tra khi triển khai (Deployment Checklist)
 
-Trước khi mở ứng dụng ra mạng công cộng (Public Internet):
-- [ ] Thiết lập biến môi trường `NODE_ENV=production`.
-- [ ] Thiết lập `ACCESS_PASSWORD` đủ mạnh nếu muốn giới hạn quyền sử dụng ứng dụng.
-- [ ] Cấu hình `REDIS_URL` khi triển khai dạng multi-instance hoặc serverless container (Cloud Run, ECS) để đồng bộ rate limit và session keys.
-- [ ] Thiết lập `TRUST_PROXY_HOPS` đúng với số lớp proxy/load balancer phía trước.
-- [ ] Đảm bảo file `.env` không bị commit vào git repository.
-- [ ] Chạy kiểm thử tự động: `npm run lint`, `npm test`, `npm run build`.
+Trước khi triển khai lên môi trường tĩnh (Vercel, Cloudflare Pages, GitHub Pages):
+- [ ] Xác nhận cấu hình header bảo mật trong `vercel.json` (hoặc cấu hình tương đương trên web server).
+- [ ] Chạy kiểm thử tự động và build production: `npm run lint && npm test && npm run build`.
+- [ ] Đảm bảo không commit file cấu hình cục bộ hoặc API key thử nghiệm vào git repository.

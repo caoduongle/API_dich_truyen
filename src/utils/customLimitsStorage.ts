@@ -1,4 +1,4 @@
-import { CustomLimit, DEFAULT_CUSTOM_LIMIT } from './apiClient';
+import { CustomLimit, DEFAULT_CUSTOM_LIMIT } from '../types/quota';
 
 export const CUSTOM_LIMITS_STORAGE_KEY = 'gemini_quota_custom_limits';
 

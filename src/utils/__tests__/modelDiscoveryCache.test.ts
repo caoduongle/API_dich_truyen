@@ -9,7 +9,7 @@ import {
   DISCOVERED_MODELS_TTL_MS,
   DISCOVERED_MODELS_STORAGE_KEY,
 } from '../modelRegistry';
-import { ModelInfoItem } from '../apiClient';
+import type { ModelInfoItem } from '../../types/quota';
 
 describe('Model Discovery Cache & SWR Lifecycle (TASK 14)', () => {
   let mockStorage: Record<string, string> = {};

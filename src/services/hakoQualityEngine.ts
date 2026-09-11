@@ -17,7 +17,7 @@ import {
   QualityReportStats,
 } from '../types/hakoChecker';
 import { callGeminiDirect } from './directGeminiClient';
-import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '@shared/text';
+import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '../lib/text';
 
 /**
  * Tạo UUID ngẫu nhiên cho lỗi phát hiện

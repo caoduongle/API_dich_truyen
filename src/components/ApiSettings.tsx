@@ -11,7 +11,7 @@ import { cn } from '../lib/cn';
 import { useModelObservability } from '../hooks/useModelObservability';
 import { useModelDiscovery } from '../hooks/useModelDiscovery';
 import { useAIConfigContext } from '../context/AIConfigContext';
-import { verifyModel } from '../utils/apiClient';
+import { verifyModel } from '../services/modelVerificationService';
 import { 
   computeModelStatsSummary, 
   updateCustomModelVerification,

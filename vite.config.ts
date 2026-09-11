@@ -10,7 +10,6 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
-        '@shared': path.resolve(__dirname, './shared'),
       },
     },
     esbuild: {
@@ -28,7 +27,7 @@ export default defineConfig(() => {
        *      Chinese dictionary tables), dẫn đến kích thước bundle `vendor-opencc` đạt ~1.12MB (485KB gzip).
        * 
        * 2. Lý do không thể lazy-load bất đồng bộ:
-       *    - Các hàm chuẩn hóa Hán-Việt trong `@shared/sinoNormalize.ts` (`canonicalizeHan`, `isHanEquivalent`,
+       *    - Các hàm chuẩn hóa Hán-Việt trong `src/lib/sinoNormalize.ts` (`canonicalizeHan`, `isHanEquivalent`,
        *      `validateAndSnapBackEntities`, `findFuzzyCandidates`) được gọi đồng bộ (synchronous) liên tục
        *      trong toàn bộ vòng đời ứng dụng: React Hooks (`useProjects`, `useTranslationProcess`, `useGlossaryDuplicates`),
        *      `useMemo` tìm kiếm/lọc danh sách từ điển, và kiểm tra trùng lặp thời gian thực khi người dùng nhập liệu.

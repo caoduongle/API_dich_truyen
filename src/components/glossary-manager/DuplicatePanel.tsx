@@ -5,11 +5,8 @@ import { useNotifications } from '../NotificationSystem';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 
-export interface DuplicateGroupEdit {
-  groupId: string;
-  reason: string;
-  items: GlossaryItem[];
-}
+import { DuplicateGroupEdit } from '../../types/glossary';
+export type { DuplicateGroupEdit };
 
 interface DuplicateGroupCardProps {
   group: DuplicateGroupEdit;

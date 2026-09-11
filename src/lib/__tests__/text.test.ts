@@ -15,7 +15,7 @@ import {
   buildRawTranslationPayload,
   buildPolishTranslationPayload,
   buildQaCritiquePayload,
-} from '../prompts';
+} from '../../services/ai/prompts';
 
 describe('shared/text.ts utilities', () => {
   it('sanitizes zero-width and invisible prompt injection characters', () => {

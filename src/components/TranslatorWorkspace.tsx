@@ -8,7 +8,7 @@ import { ImportChaptersModal } from './translator-workspace/ImportChaptersModal'
 import { BilingualEditor } from './translator-workspace/BilingualEditor';
 import { GlossarySidebar } from './translator-workspace/GlossarySidebar';
 import { SuggestionsDrawer } from './translator-workspace/SuggestionsDrawer';
-import { useWorkspaceState } from './translator-workspace/useWorkspaceState';
+import { useWorkspaceState } from '../hooks/useWorkspaceState';
 
 export interface TranslatorWorkspaceProps {
   activeProject: StoryProject;

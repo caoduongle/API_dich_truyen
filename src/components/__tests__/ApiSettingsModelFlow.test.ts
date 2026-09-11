@@ -13,7 +13,7 @@ import {
   isTpmNearLimit,
   formatPacingSummary,
 } from '../../utils/modelRegistry';
-import { KeyQuotaFullSnapshot, ModelInfoItem } from '../../utils/apiClient';
+import type { KeyQuotaFullSnapshot, ModelInfoItem } from '../../types/quota';
 
 describe('Model Selection & Quota Stats Flow Acceptance Tests', () => {
   let mockStorage: Record<string, string> = {};

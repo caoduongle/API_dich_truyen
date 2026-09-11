@@ -4,7 +4,7 @@ import { History, BookOpen, Clock, Trash2, RotateCcw, ArrowRight } from 'lucide-
 import { getChapterFromDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { useVirtualList } from '../hooks/useVirtualList';
-import { UI_CONFIG } from '@shared/constants';
+import { UI_CONFIG } from '../config/constants';
 import { SkeletonBlock } from './common/Skeleton';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';

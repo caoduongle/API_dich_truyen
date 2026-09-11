@@ -9,7 +9,7 @@ vi.mock('../../services/db', () => ({
   saveChaptersToDB: vi.fn(),
 }));
 
-vi.mock('../../components/NotificationSystem', () => ({
+vi.mock('../../context/NotificationContext', () => ({
   useNotifications: () => ({
     showToast: vi.fn(),
   }),

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executeSingleChapterTranslation } from '../chapterTranslationService';
 import * as db from '../db';
-import * as apiClient from '../../utils/apiClient';
 import * as directEngine from '../directTranslationEngine';
 
 describe('src/services/chapterTranslationService.ts personal key enforcement', () => {
@@ -35,7 +34,6 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
       discoveredEntities: [],
       successKeyIndex: 0,
     });
-    const apiFetchSpy = vi.spyOn(apiClient, 'apiFetch');
 
     const res = await executeSingleChapterTranslation({
       chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
@@ -58,14 +56,12 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
     expect(res.success).toBe(true);
     expect(directRawSpy).toHaveBeenCalled();
     expect(directPolishSpy).toHaveBeenCalled();
-    expect(apiFetchSpy).not.toHaveBeenCalled();
     expect(res.updatedChapter?.polishedTranslation).toContain('Nội dung chuốt mượt mà');
   });
 
   it('immediately throws error and rejects when no personal API keys are provided', async () => {
     const directRawSpy = vi.spyOn(directEngine, 'translateRawDirect');
     const directPolishSpy = vi.spyOn(directEngine, 'polishTranslationDirect');
-    const apiFetchSpy = vi.spyOn(apiClient, 'apiFetch');
 
     await expect(
       executeSingleChapterTranslation({
@@ -89,6 +85,5 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
 
     expect(directRawSpy).not.toHaveBeenCalled();
     expect(directPolishSpy).not.toHaveBeenCalled();
-    expect(apiFetchSpy).not.toHaveBeenCalled();
   });
 });

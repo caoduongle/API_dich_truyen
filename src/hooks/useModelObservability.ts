@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  fetchModelsForKey, 
+import { fetchModelsForKey } from '../services/modelVerificationService';
+import type { 
   KeyQuotaFullSnapshot, 
   QuotaGroupDisplayItem,
   ModelInfoItem,
   QuotaStatusResponse,
   LogicalSummaryStats
-} from '../utils/apiClient';
+} from '../types/quota';
 import { saveDiscoveredModels } from '../utils/modelRegistry';
 import { localQuotaTracker } from '../services/localQuotaTracker';
 

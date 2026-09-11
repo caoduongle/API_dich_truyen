@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { StoryProject, Chapter } from '../types';
 import { getChaptersByProjectFromDB, getChapterFromDB } from '../services/db';
-import { useNotifications } from '../components/NotificationSystem';
+import { useNotifications } from '../context/NotificationContext';
 import { LogEntry } from './useAutoTranslationQueue';
 import { zuminovelRestClient, ZuminovelApiError, ZuminovelNetworkError } from '../services/zuminovel/zuminovelRestClient';
 import { getStoredZuminovelApiKey, setStoredZuminovelApiKey } from '../services/zuminovel/zuminovelCredentials';

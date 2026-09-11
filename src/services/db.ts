@@ -7,7 +7,7 @@ import {
   handleDBUpgrade,
   migrateLegacyProjects,
 } from './dbMigration';
-import { STORAGE_CONFIG } from '@shared/constants';
+import { STORAGE_CONFIG } from '../config/constants';
 
 export { PROJECTS_STORE, CHAPTERS_STORE, CRDT_STATES_STORE };
 
