@@ -52,6 +52,34 @@ const VIRTUALIZATION_THRESHOLD = 20;
 const ITEM_HEIGHT = 48;
 const CONTAINER_HEIGHT = 480;
 
+/**
+ * Tính danh sách chapterId cho lô "N chương tiếp theo", dựa trên chương có số thứ
+ * tự (chapterNumber) lớn nhất đang nằm trong selectedSet. Nếu chưa chọn gì (selectedSet
+ * rỗng hoặc không khớp chương nào), coi mốc bắt đầu là 0 — tương đương chọn N chương
+ * đầu tiên có thể dịch. Tách thành hàm thuần (không phụ thuộc React) để unit test trực
+ * tiếp mà không cần render component hay giả lập sự kiện click trong DOM.
+ */
+export function computeNextBatchChapterIds(
+  chapterList: ProjectReviewChapter[],
+  translatableChapters: ProjectReviewChapter[],
+  selectedSet: Set<string>,
+  limit: number = MAX_SELECTION_LIMIT
+): string[] {
+  let maxSelectedNumber = 0;
+  for (const ch of chapterList) {
+    const chapterIdStr = String(ch.chapterId || (ch as any).id);
+    if (selectedSet.has(chapterIdStr)) {
+      const num = ch.chapterNumber ?? 0;
+      if (num > maxSelectedNumber) maxSelectedNumber = num;
+    }
+  }
+
+  return translatableChapters
+    .filter((ch) => (ch.chapterNumber ?? 0) > maxSelectedNumber)
+    .slice(0, limit)
+    .map((c) => String(c.chapterId || (c as any).id));
+}
+
 export function HakoChapterSelector({
   projects,
   selectedProjectId,
@@ -194,6 +222,12 @@ export function HakoChapterSelector({
   const isLimitReached = selectedChapterIds.length >= MAX_SELECTION_LIMIT;
   const isVirtualized = chapterList.length > VIRTUALIZATION_THRESHOLD;
 
+  // Xác định lô 12 chương kế tiếp, tính từ chương có số thứ tự lớn nhất đang được chọn.
+  const nextBatchChapterIds = useMemo(
+    () => computeNextBatchChapterIds(chapterList, translatableChapters, selectedSet, MAX_SELECTION_LIMIT),
+    [chapterList, translatableChapters, selectedSet]
+  );
+
   // Virtual list hook for high-performance windowing
   const { visibleItems, totalHeight, onScroll } = useVirtualList({
     items: chapterList,
@@ -207,6 +241,11 @@ export function HakoChapterSelector({
       .slice(0, MAX_SELECTION_LIMIT)
       .map((c) => String(c.chapterId || (c as any).id));
     onSelectRange(idsToSelect);
+  };
+
+  const handleSelectNextBatch = () => {
+    if (nextBatchChapterIds.length === 0) return;
+    onSelectRange(nextBatchChapterIds);
   };
 
   const handleApplyRange = () => {
@@ -484,6 +523,28 @@ export function HakoChapterSelector({
                   className="text-[11px] text-polish hover:underline font-medium px-2 py-0.5 cursor-pointer"
                 >
                   Chọn nhanh 12 chương đầu
+                </button>
+              )}
+
+              {translatableChapters.length > 0 && (
+                <button
+                  type="button"
+                  data-testid="select-next-batch-btn"
+                  onClick={handleSelectNextBatch}
+                  disabled={isAnalyzing || nextBatchChapterIds.length === 0}
+                  title={
+                    nextBatchChapterIds.length === 0
+                      ? 'Đã chọn tới chương cuối cùng có thể kiểm định'
+                      : `Chọn ${nextBatchChapterIds.length} chương tiếp theo sau chương đang chọn`
+                  }
+                  className={cn(
+                    'text-[11px] font-medium px-2 py-0.5',
+                    nextBatchChapterIds.length === 0
+                      ? 'text-text-muted/50 cursor-not-allowed'
+                      : 'text-polish hover:underline cursor-pointer'
+                  )}
+                >
+                  Chọn 12 chương tiếp theo →
                 </button>
               )}
 
