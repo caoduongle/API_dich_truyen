@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { StoryProject, Chapter } from '../types';
 import { Cpu } from 'lucide-react';
 import { getChapterFromDB } from '../services/db';
 import { useRangeState } from '../hooks/useRangeState';
+import { LogEntry } from '../hooks/useAutoTranslationQueue';
+import { useZuminovelPublish } from '../hooks/useZuminovelPublish';
 
 // Hooks
 import { useAutoTranslationQueue } from '../hooks/useAutoTranslationQueue';
@@ -12,6 +14,7 @@ import { TranslationConfigPanel } from './auto-translator/TranslationConfigPanel
 import { ApplyGlossaryPanel } from './auto-translator/ApplyGlossaryPanel';
 import { BulkScanConfigPanel } from './auto-translator/BulkScanConfigPanel';
 import { ExportFilesPanel } from './auto-translator/ExportFilesPanel';
+import { ZuminovelPublishPanel } from './auto-translator/ZuminovelPublishPanel';
 import { QueueStatusPanel } from './auto-translator/QueueStatusPanel';
 import { DiscoveredTermsPanel } from './auto-translator/DiscoveredTermsPanel';
 import { DiffModal } from './auto-translator/DiffModal';
@@ -65,6 +68,7 @@ export default function AutoTranslator({
   const applyGlossaryRange = useRangeState(totalChapters);
   const scanRange = useRangeState(totalChapters);
   const exportRange = useRangeState(totalChapters);
+  const publishRange = useRangeState(totalChapters);
   const [extractionLoops, setExtractionLoops] = useState<number>(1);
 
   // Export configs
@@ -164,6 +168,19 @@ export default function AutoTranslator({
     concurrency,
     enableAiQaCritique,
     enableSegmentTranslation,
+  });
+
+  // addLog cục bộ dùng chung cho panel ZumiNovel — cùng định dạng timestamp
+  // với addLog nội bộ của useAutoTranslationQueue, ghi vào cùng 1 mảng logs (setLogs).
+  const addZuminovelLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
+    const time = new Date().toLocaleTimeString('vi-VN');
+    setLogs((prev) => [...prev, { timestamp: time, type, message }]);
+  }, [setLogs]);
+
+  const zuminovel = useZuminovelPublish({
+    activeProject,
+    onUpdateProject,
+    addLog: addZuminovelLog,
   });
 
   const handleExportModeChange = (mode: 'web' | 'audio' | 'align_jsonl') => {
@@ -343,6 +360,33 @@ export default function AutoTranslator({
             exportRangeEnd={exportRange.end}
             setExportRangeEnd={exportRange.setEnd}
             totalChapters={totalChapters}
+          />
+
+          <ZuminovelPublishPanel
+            project={activeProject}
+            totalChapters={totalChapters}
+            apiKey={zuminovel.apiKey}
+            setApiKey={zuminovel.setApiKey}
+            isVerifying={zuminovel.isVerifying}
+            isKeyValid={zuminovel.isKeyValid}
+            novels={zuminovel.novels}
+            handleVerifyKey={zuminovel.handleVerifyKey}
+            handleLinkNovel={zuminovel.handleLinkNovel}
+            handleUnlinkNovel={zuminovel.handleUnlinkNovel}
+            isPublishing={zuminovel.isPublishing}
+            publishProgress={zuminovel.publishProgress}
+            handlePublishChapters={zuminovel.handlePublishChapters}
+            deletingChapterId={zuminovel.deletingChapterId}
+            handleDeleteChapter={zuminovel.handleDeleteChapter}
+            isUploading={zuminovel.isUploading}
+            uploadResult={zuminovel.uploadResult}
+            handleUploadImage={zuminovel.handleUploadImage}
+            publishRangeEnabled={publishRange.enabled}
+            setPublishRangeEnabled={publishRange.setEnabled}
+            publishRangeStart={publishRange.start}
+            setPublishRangeStart={publishRange.setStart}
+            publishRangeEnd={publishRange.end}
+            setPublishRangeEnd={publishRange.setEnd}
           />
         </div>
 

@@ -41,12 +41,19 @@ export interface PendingGlossaryItem {
 
 export type ChapterStatus = 'not_started' | 'in_progress' | 'completed';
 
+// Trạng thái đồng bộ giữa chương trong app và chương đã đăng trên ZumiNovel.
+// 'never_published' = chưa từng đăng; 'synced' = bản trên Zumi khớp bản dịch mới nhất;
+// 'out_of_date' = chương đã đăng nhưng bản dịch local đã sửa sau đó; 'error' = lần đăng/cập nhật gần nhất thất bại.
+export type ZuminovelSyncStatus = 'never_published' | 'synced' | 'out_of_date' | 'error';
+
 export interface ChapterMetadata {
     id: string;
     title: string;
     status: ChapterStatus;
     createdAt: string;
     updatedAt: string;
+    zuminovelChapterId?: string;
+    zuminovelSyncStatus?: ZuminovelSyncStatus;
 }
 
 export interface Chapter {
@@ -65,6 +72,10 @@ export interface Chapter {
     status: ChapterStatus;
     createdAt: string;
     updatedAt: string;
+    // --- ZumiNovel publish integration (optional, additive) ---
+    zuminovelChapterId?: string;         // ID chương trên ZumiNovel sau lần đăng đầu tiên
+    zuminovelSyncStatus?: ZuminovelSyncStatus;
+    zuminovelPublishedAt?: string;       // ISO timestamp lần đăng/cập nhật thành công gần nhất
 }
 
 export interface StoryProject {
@@ -82,6 +93,10 @@ export interface StoryProject {
     driveFolderId?: string;
     driveFileId?: string;
     driveStorageFormat?: 'monolithic' | 'granular' | 'bundle';
+    // --- ZumiNovel publish integration (optional, additive) ---
+    zuminovelNovelId?: string;       // ID truyện trên ZumiNovel sau khi liên kết
+    zuminovelNovelSlug?: string;     // Slug truyện trên ZumiNovel (dùng khi gọi API)
+    zuminovelNovelTitle?: string;    // Tên hiển thị cache lại từ lúc liên kết, chỉ để hiển thị UI
     isShared?: boolean;
     isOwner?: boolean;
     collaborators?: Array<{
