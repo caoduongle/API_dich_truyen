@@ -3,17 +3,10 @@ import { Settings2 } from 'lucide-react';
 import { KeyQuotaFullSnapshot } from '../../utils/apiClient';
 import { formatPacingSummary } from '../../utils/modelRegistry';
 
-export interface CustomLimit {
-  maxRpm: number;
-  maxRpd: number;
-  maxTpm: number;
-}
-
-export const DEFAULT_CUSTOM_LIMIT: CustomLimit = {
-  maxRpm: 15,
-  maxRpd: 1500,
-  maxTpm: 1000000,
-};
+import type { CustomLimit } from '../../utils/customLimitsStorage';
+import { DEFAULT_CUSTOM_LIMIT } from '../../utils/customLimitsStorage';
+export type { CustomLimit };
+export { DEFAULT_CUSTOM_LIMIT };
 
 export function formatClientMaskedKey(rawKey?: string, fallbackMask?: string): string {
   if (!rawKey || typeof rawKey !== 'string') return fallbackMask || '***';

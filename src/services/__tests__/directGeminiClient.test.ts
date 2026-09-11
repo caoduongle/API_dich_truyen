@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { callGeminiDirect, DirectGeminiRequestOptions } from '../directGeminiClient';
+import { localQuotaTracker, hashApiKey } from '../localQuotaTracker';
+import { saveStoredCustomLimits, clearStoredCustomLimits } from '../../utils/customLimitsStorage';
 
 describe('src/services/directGeminiClient.ts', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    localQuotaTracker.resetMetrics();
+    clearStoredCustomLimits();
   });
 
   afterEach(() => {
@@ -115,5 +119,73 @@ describe('src/services/directGeminiClient.ts', () => {
         prompt: 'Test',
       })
     ).rejects.toThrow(/hạn mức|quá tải|RESOURCE_EXHAUSTED|429/i);
+  });
+
+  it('strictly enforces personal maxRpd limit: bypasses key that reached limit and routes to next key with 0 fetch calls for limited key', async () => {
+    const key1 = 'CUSTOM_LIMITED_KEY_1';
+    const key2 = 'HEALTHY_KEY_2';
+    const key1Hash = hashApiKey(key1);
+
+    // Set custom limit of 2 requests for key 1
+    saveStoredCustomLimits({
+      [key1Hash]: { maxRpm: 15, maxRpd: 2, maxTpm: 1000000 },
+    });
+
+    // Record 2 provider attempts on key 1 to hit the limit
+    localQuotaTracker.recordProviderAttempt(key1, 'gemini-2.5-flash');
+    localQuotaTracker.recordProviderAttempt(key1, 'gemini-2.5-flash');
+
+    const calledKeys: string[] = [];
+    global.fetch = vi.fn().mockImplementation(async (url, init) => {
+      const apiKey = init.headers['x-goog-api-key'];
+      calledKeys.push(apiKey);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: 'OK with Key 2' }], role: 'model' } }],
+        }),
+      };
+    });
+
+    const res = await callGeminiDirect({
+      apiKeys: [key1, key2],
+      model: 'gemini-2.5-flash',
+      prompt: 'Test limit',
+      startKeyIndex: 0,
+    });
+
+    // KEY 1 should NEVER be fetched! Only KEY 2 is called.
+    expect(calledKeys).toEqual([key2]);
+    expect(res.successKeyIndex).toBe(1);
+    expect(res.text).toBe('OK with Key 2');
+
+    // Key 1 errorsTotal should still be 0!
+    const status = localQuotaTracker.getQuotaStatus([key1]);
+    expect(status.keys[0].errorsTotal).toBe(0);
+    expect(status.keys[0].isCustomLimitReached).toBe(true);
+  });
+
+  it('aborts immediately with ALL_KEYS_EXHAUSTED if all keys have reached personal limits, with 0 fetch calls', async () => {
+    const key1 = 'ALL_EXHAUSTED_KEY_1';
+    const key1Hash = hashApiKey(key1);
+
+    saveStoredCustomLimits({
+      [key1Hash]: { maxRpm: 15, maxRpd: 1, maxTpm: 1000000 },
+    });
+    localQuotaTracker.recordProviderAttempt(key1, 'gemini-2.5-flash');
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy;
+
+    await expect(
+      callGeminiDirect({
+        apiKeys: [key1],
+        model: 'gemini-2.5-flash',
+        prompt: 'Test all exhausted',
+      })
+    ).rejects.toThrow(/hạn mức|quá tải|RESOURCE_EXHAUSTED|cá nhân/i);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

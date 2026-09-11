@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { callGeminiDirect } from '../directGeminiClient';
+import { localQuotaTracker } from '../localQuotaTracker';
 
 describe('src/services/clientKeyRotation.test.ts', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    localQuotaTracker.resetMetrics();
   });
 
   afterEach(() => {
@@ -96,5 +98,59 @@ describe('src/services/clientKeyRotation.test.ts', () => {
 
     expect(calledKeys).toEqual(['KEY_1', 'KEY_2']);
     expect(res.successKeyIndex).toBe(1);
+  });
+
+  it('bypasses already QuotaExhausted keys completely without issuing HTTP fetch or inflating error count', async () => {
+    const exhaustedKey = 'ALREADY_EXHAUSTED_KEY';
+    const healthyKey = 'HEALTHY_KEY_2';
+
+    // Simulate exhaustedKey previously receiving 429 daily quota exhausted
+    localQuotaTracker.recordFailure(exhaustedKey, 'gemini-2.5-flash', {
+      status: 429,
+      message: 'Resource has been exhausted (e.g. check quota)',
+      isRateLimit: true,
+    });
+
+    const initialStatus = localQuotaTracker.getQuotaStatus([exhaustedKey]);
+    expect(initialStatus.keys[0].healthState).toBe('QuotaExhausted');
+    const initialErrors = initialStatus.keys[0].errorsTotal;
+    expect(initialErrors).toBe(1);
+
+    const calledKeys: string[] = [];
+    global.fetch = vi.fn().mockImplementation(async (url, init) => {
+      const apiKey = init.headers['x-goog-api-key'];
+      calledKeys.push(apiKey);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: 'Success with Healthy Key' }], role: 'model' } }],
+        }),
+      };
+    });
+
+    // Send 5 consecutive requests with startKeyIndex: 0 (which would be exhaustedKey if not pre-checked)
+    for (let i = 0; i < 5; i++) {
+      const res = await callGeminiDirect({
+        apiKeys: [exhaustedKey, healthyKey],
+        model: 'gemini-2.5-flash',
+        prompt: `Test call #${i}`,
+        startKeyIndex: 0,
+      });
+      expect(res.successKeyIndex).toBe(1);
+    }
+
+    // Exhausted key should NEVER be passed to fetch across all 5 calls!
+    expect(calledKeys).toEqual([
+      healthyKey,
+      healthyKey,
+      healthyKey,
+      healthyKey,
+      healthyKey,
+    ]);
+
+    // Exhausted key errorsTotal must still be 1 (NOT 1 + 5 = 6)!
+    const finalStatus = localQuotaTracker.getQuotaStatus([exhaustedKey]);
+    expect(finalStatus.keys[0].errorsTotal).toBe(1);
   });
 });

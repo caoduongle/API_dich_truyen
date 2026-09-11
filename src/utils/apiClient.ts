@@ -82,6 +82,18 @@ export type KeyHealthState =
   | 'Cooldown'
   | 'Disabled';
 
+export interface CustomLimit {
+  maxRpm: number;
+  maxRpd: number;
+  maxTpm: number;
+}
+
+export const DEFAULT_CUSTOM_LIMIT: CustomLimit = {
+  maxRpm: 15,
+  maxRpd: 1500,
+  maxTpm: 1000000,
+};
+
 export interface KeyRuntimeStatus {
   isBlacklisted: boolean;
   blacklistRemainingMs: number;
@@ -89,6 +101,7 @@ export interface KeyRuntimeStatus {
   nextAllowedRemainingMs: number;
   healthState?: KeyHealthState;
   transitionReason?: string;
+  isCustomLimitReached?: boolean;
 }
 
 export interface ModelUsageStats {
@@ -178,6 +191,7 @@ export interface KeyQuotaFullSnapshot {
   runtime: KeyRuntimeStatus;
   healthState?: string;
   transitionReason?: string;
+  isCustomLimitReached?: boolean;
   circuitBreakerState?: string;
   cooldownRemainingMs?: number;
   lastRequestTimestamp?: number;

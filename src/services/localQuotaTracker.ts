@@ -10,9 +10,20 @@ import {
   QuotaStatusResponse,
   KeyHealthState,
   KeyRuntimeStatus,
+  CustomLimit,
 } from '../utils/apiClient';
+import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 
 export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
+
+export interface KeyHealthResult {
+  state: KeyHealthState;
+  circuitBreaker: CircuitBreakerStatus;
+  cooldownRemainingMs: number;
+  transitionReason?: string;
+  isAvailable: boolean;
+  isCustomLimitReached?: boolean;
+}
 
 export interface CallLogEntry {
   timestamp: number;
@@ -435,18 +446,54 @@ class LocalQuotaTracker {
   }
 
   /**
-   * Kiểm tra tình trạng sức khỏe hiện tại của một API key
+   * Kiểm tra tình trạng sức khỏe hiện tại của một API key, kết hợp cả máy trạng thái và ngưỡng cá nhân (Max RPD)
    */
-  public getKeyHealth(key: string, now: number = Date.now()): {
-    state: KeyHealthState;
-    circuitBreaker: CircuitBreakerStatus;
-    cooldownRemainingMs: number;
-    transitionReason?: string;
-    isAvailable: boolean;
-  } {
+  public getKeyHealth(
+    key: string,
+    now: number = Date.now(),
+    customLimit?: CustomLimit
+  ): KeyHealthResult {
     const stats = this.getOrCreateKeyStats(key, now);
 
-    // Kiểm tra hết hạn Cooldown
+    // 1. Kiểm tra nếu vi phạm giới hạn cá nhân tự đặt (Max RPD)
+    if (customLimit && typeof customLimit.maxRpd === 'number' && customLimit.maxRpd > 0) {
+      if (stats.requestsToday >= customLimit.maxRpd) {
+        return {
+          state: 'QuotaExhausted',
+          circuitBreaker: stats.circuitBreakerStatus,
+          cooldownRemainingMs: 0,
+          transitionReason: `Đã chạm ngưỡng giới hạn cá nhân trong ngày (${stats.requestsToday}/${customLimit.maxRpd} RPD)`,
+          isAvailable: false,
+          isCustomLimitReached: true,
+        };
+      }
+    }
+
+    // 2. Kiểm tra AuthFailed (401/403)
+    if (stats.healthState === 'AuthFailed') {
+      return {
+        state: 'AuthFailed',
+        circuitBreaker: stats.circuitBreakerStatus,
+        cooldownRemainingMs: 0,
+        transitionReason: stats.transitionReason,
+        isAvailable: false,
+        isCustomLimitReached: false,
+      };
+    }
+
+    // 3. Kiểm tra QuotaExhausted do upstream 429
+    if (stats.healthState === 'QuotaExhausted') {
+      return {
+        state: 'QuotaExhausted',
+        circuitBreaker: stats.circuitBreakerStatus,
+        cooldownRemainingMs: 0,
+        transitionReason: stats.transitionReason,
+        isAvailable: false,
+        isCustomLimitReached: false,
+      };
+    }
+
+    // 4. Kiểm tra hết hạn Cooldown / RateLimited
     if (stats.cooldownUntil > 0) {
       if (stats.cooldownUntil > now) {
         const remaining = stats.cooldownUntil === Number.MAX_SAFE_INTEGER
@@ -459,6 +506,7 @@ class LocalQuotaTracker {
           cooldownRemainingMs: remaining,
           transitionReason: stats.transitionReason,
           isAvailable: false,
+          isCustomLimitReached: false,
         };
       } else {
         // Cooldown đã kết thúc -> chuyển sang HalfOpen để thử nghiệm
@@ -479,16 +527,56 @@ class LocalQuotaTracker {
       cooldownRemainingMs: 0,
       transitionReason: stats.transitionReason,
       isAvailable: isAvail,
+      isCustomLimitReached: false,
     };
+  }
+
+  /**
+   * Quét danh sách các keys bắt đầu từ startIndex để tìm key đầu tiên khả dụng (chưa chạm quota/cooldown)
+   * Trả về -1 nếu toàn bộ keys đều không khả dụng.
+   */
+  public findNextAvailableKeyIndex(
+    keys: string[],
+    startIndex: number = 0,
+    customLimits?: Record<string, CustomLimit>,
+    now: number = Date.now()
+  ): number {
+    const cleanKeys = Array.isArray(keys)
+      ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
+      : [];
+
+    if (cleanKeys.length === 0) return -1;
+
+    const effectiveLimits = customLimits || getStoredCustomLimits();
+    const safeStart = startIndex >= 0 ? startIndex % cleanKeys.length : 0;
+
+    for (let attempt = 0; attempt < cleanKeys.length; attempt++) {
+      const idx = (safeStart + attempt) % cleanKeys.length;
+      const key = cleanKeys[idx];
+      const keyHash = hashApiKey(key);
+      const limit = effectiveLimits ? effectiveLimits[keyHash] : undefined;
+      const health = this.getKeyHealth(key, now, limit);
+
+      if (health.isAvailable) {
+        return idx;
+      }
+    }
+
+    return -1;
   }
 
   /**
    * Xuất báo cáo Quota Snapshot đầy đủ cho danh sách các keys
    */
-  public getQuotaStatus(keys: string[], now: number = Date.now()): QuotaStatusResponse {
+  public getQuotaStatus(
+    keys: string[],
+    now: number = Date.now(),
+    customLimits?: Record<string, CustomLimit>
+  ): QuotaStatusResponse {
     this.checkPstReset(now);
     const minuteThreshold = now - 60_000;
     const currentDay = getDayInLosAngeles(now);
+    const effectiveLimits = customLimits || getStoredCustomLimits();
 
     const cleanKeys = Array.isArray(keys)
       ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
@@ -496,7 +584,8 @@ class LocalQuotaTracker {
 
     const snapshotKeys: KeyQuotaFullSnapshot[] = cleanKeys.map((key, idx) => {
       const stats = this.getOrCreateKeyStats(key, now);
-      const health = this.getKeyHealth(key, now);
+      const limit = effectiveLimits ? effectiveLimits[stats.keyHash] : undefined;
+      const health = this.getKeyHealth(key, now, limit);
 
       // Lọc các cuộc gọi trong 60 giây gần nhất để tính RPM & TPM
       stats.recentCalls = stats.recentCalls.filter((c) => c.timestamp > minuteThreshold);
@@ -528,6 +617,7 @@ class LocalQuotaTracker {
         nextAllowedRemainingMs: health.state === 'RateLimited' ? health.cooldownRemainingMs : 0,
         healthState: health.state,
         transitionReason: health.transitionReason,
+        isCustomLimitReached: health.isCustomLimitReached,
       };
 
       return {
@@ -548,6 +638,7 @@ class LocalQuotaTracker {
         runtime,
         healthState: health.state,
         transitionReason: health.transitionReason,
+        isCustomLimitReached: health.isCustomLimitReached,
         circuitBreakerState: health.circuitBreaker,
         cooldownRemainingMs: health.cooldownRemainingMs,
         lastRequestTimestamp: stats.lastRequestTimestamp,

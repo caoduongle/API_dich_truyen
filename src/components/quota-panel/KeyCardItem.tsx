@@ -93,10 +93,11 @@ export const KeyCardItem = React.memo(function KeyCardItem({
               );
             }
             if (healthState === 'QuotaExhausted') {
+              const isCustom = item.isCustomLimitReached || item.runtime?.isCustomLimitReached || (item.requestsToday >= safeLimit.maxRpd);
               return (
-                <Badge tone="warning" title={reason}>
+                <Badge tone="warning" title={reason || (isCustom ? 'Đã chạm ngưỡng giới hạn cá nhân trong ngày (Max RPD)' : 'Hết hạn mức ngày')}>
                   <AlertTriangle className="w-3 h-3 text-amber-400" />
-                  Hết hạn mức ngày
+                  {isCustom ? 'Đạt giới hạn ngày (Tự đặt)' : 'Hết hạn mức ngày'}
                 </Badge>
               );
             }

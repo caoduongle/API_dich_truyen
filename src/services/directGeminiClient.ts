@@ -1,7 +1,10 @@
 import { DEFAULT_MODEL_ID } from '@shared/models';
 import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '@shared/text';
 import { GlossaryType } from '../types';
-import { localQuotaTracker } from './localQuotaTracker';
+import { localQuotaTracker, hashApiKey } from './localQuotaTracker';
+import { getStoredCustomLimits } from '../utils/customLimitsStorage';
+
+export { getStoredCustomLimits };
 
 export interface DirectGeminiRequestOptions {
   apiKeys: string[];
@@ -75,16 +78,47 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
     payload.generationConfig.responseSchema = options.schema;
   }
 
+  const customLimits = getStoredCustomLimits();
   const startIdx = options.startKeyIndex && options.startKeyIndex >= 0 ? options.startKeyIndex % rawKeys.length : 0;
-  let lastError: any = null;
 
+  // 1. Kiểm tra nhanh: có key nào khả dụng hay tất cả đã cạn kiệt/đạt ngưỡng cá nhân?
+  const initialAvailableIdx = localQuotaTracker.findNextAvailableKeyIndex(rawKeys, startIdx, customLimits);
+  if (initialAvailableIdx === -1) {
+    const quotaErr = new Error(
+      'Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED hoặc đã chạm ngưỡng cá nhân). Vui lòng kiểm tra Bảng điều khiển Quota.'
+    );
+    (quotaErr as any).code = 'ALL_KEYS_EXHAUSTED';
+    throw quotaErr;
+  }
+
+  let lastError: any = null;
   localQuotaTracker.recordLogicalStart();
 
-  for (let attempt = 0; attempt < rawKeys.length; attempt++) {
-    const currentKeyIdx = (startIdx + attempt) % rawKeys.length;
-    const currentKey = rawKeys[currentKeyIdx];
-    const callStartTime = Date.now();
+  let currentKeyIdx = initialAvailableIdx;
+  let attemptsCount = 0;
 
+  while (attemptsCount < rawKeys.length) {
+    const currentKey = rawKeys[currentKeyIdx];
+    const keyHash = hashApiKey(currentKey);
+    const keyLimit = customLimits[keyHash];
+    const health = localQuotaTracker.getKeyHealth(currentKey, Date.now(), keyLimit);
+
+    // Nếu key không khả dụng (ví dụ vừa cạn kiệt ở vòng trước), tìm key tiếp theo
+    if (!health.isAvailable) {
+      const nextIdx = localQuotaTracker.findNextAvailableKeyIndex(
+        rawKeys,
+        (currentKeyIdx + 1) % rawKeys.length,
+        customLimits
+      );
+      if (nextIdx === -1 || (nextIdx === initialAvailableIdx && attemptsCount > 0)) {
+        break;
+      }
+      currentKeyIdx = nextIdx;
+      attemptsCount++;
+      continue;
+    }
+
+    const callStartTime = Date.now();
     localQuotaTracker.recordProviderAttempt(currentKey, modelName, callStartTime);
 
     try {
@@ -122,19 +156,29 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
 
         lastError = new Error(`Gemini API Error [Key #${currentKeyIdx + 1}]: ${errMsg}`);
 
-        if (isRateLimitOrOverload && attempt < rawKeys.length - 1) {
-          // Xoay vòng sang key tiếp theo
+        if (isRateLimitOrOverload) {
+          const nextIdx = localQuotaTracker.findNextAvailableKeyIndex(
+            rawKeys,
+            (currentKeyIdx + 1) % rawKeys.length,
+            customLimits
+          );
+          if (nextIdx === -1 || attemptsCount >= rawKeys.length - 1) {
+            if (response.status === 429 || errStatus === 'RESOURCE_EXHAUSTED') {
+              const quotaErr = new Error(`Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${errMsg}`);
+              (quotaErr as any).code = 'ALL_KEYS_EXHAUSTED';
+              throw quotaErr;
+            }
+            throw lastError;
+          }
+          currentKeyIdx = nextIdx;
+          attemptsCount++;
           continue;
         }
 
-        if (attempt === rawKeys.length - 1) {
-          if (response.status === 429 || errStatus === 'RESOURCE_EXHAUSTED') {
-            const quotaErr = new Error(`Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${errMsg}`);
-            (quotaErr as any).code = 'ALL_KEYS_EXHAUSTED';
-            throw quotaErr;
-          }
+        if (attemptsCount === rawKeys.length - 1) {
           throw lastError;
         }
+        attemptsCount++;
         continue;
       }
 
@@ -177,11 +221,29 @@ export async function callGeminiDirect(options: DirectGeminiRequestOptions): Pro
         message: err?.message,
       });
       lastError = formatGeminiNetworkError(err);
-      if (attempt === rawKeys.length - 1) {
+      if (attemptsCount === rawKeys.length - 1) {
         throw lastError;
       }
+      const nextIdx = localQuotaTracker.findNextAvailableKeyIndex(
+        rawKeys,
+        (currentKeyIdx + 1) % rawKeys.length,
+        customLimits
+      );
+      if (nextIdx === -1) {
+        throw lastError;
+      }
+      currentKeyIdx = nextIdx;
+      attemptsCount++;
     }
   }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  const allExhausted = new Error('Toàn bộ API Key đã hết hạn mức (hoặc đã chạm ngưỡng cá nhân).');
+  (allExhausted as any).code = 'ALL_KEYS_EXHAUSTED';
+  throw allExhausted;
 
   throw lastError || new Error('Không thể kết nối đến Gemini API (Vui lòng kiểm tra kết nối mạng hoặc chính sách CSP).');
 }

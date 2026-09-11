@@ -71,4 +71,20 @@ describe('QuotaPanel Health Badges & Key Health State Verification', () => {
     expect(item.runtime.healthState).toBe('Disabled');
     expect(item.runtime.isBlacklisted).toBe(true);
   });
+
+  it('should format key snapshot with isCustomLimitReached when user personal limit is reached', () => {
+    const item = createMockSnapshot(
+      'QuotaExhausted',
+      false,
+      0,
+      'Đã chạm ngưỡng giới hạn cá nhân trong ngày (500/500 RPD)'
+    );
+    item.isCustomLimitReached = true;
+    item.runtime.isCustomLimitReached = true;
+
+    expect(item.runtime.healthState).toBe('QuotaExhausted');
+    expect(item.isCustomLimitReached).toBe(true);
+    expect(item.runtime.isCustomLimitReached).toBe(true);
+    expect(item.runtime.transitionReason).toContain('giới hạn cá nhân');
+  });
 });
