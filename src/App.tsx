@@ -447,14 +447,14 @@ function AppContent() {
                     tabIndex={0}
                     onClick={() => switchTab('translate')}
                     title={`${t('nav.translate')} (Alt+1)`}
-                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
+                    className={`flex items-center gap-1 lg:gap-1.5 px-2 lg:px-2.5 2xl:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                       activeTab === 'translate'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                     }`}
                   >
                     <BookOpenText className="w-3.5 h-3.5 shrink-0 text-polish" />
-                    <span>{t('nav.translate')}</span>
+                    <span><span className="hidden 2xl:inline">Mặt Trận </span>Dịch Thuật</span>
                     <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+1</Kbd>
                   </button>
 
@@ -467,14 +467,14 @@ function AppContent() {
                     tabIndex={0}
                     onClick={() => switchTab('auto-translate')}
                     title={`${t('nav.autoTranslate')} (Alt+2)`}
-                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
+                    className={`flex items-center gap-1 lg:gap-1.5 px-2 lg:px-2.5 2xl:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
                       activeTab === 'auto-translate'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                     }`}
                   >
                     <Cpu className={`w-3.5 h-3.5 shrink-0 ${isAutoTranslating ? 'text-polish animate-pulse' : 'text-text-muted'}`} />
-                    <span>{t('nav.autoTranslate')}</span>
+                    <span>Dịch Tự Động<span className="hidden 2xl:inline"> Toàn Bộ</span></span>
                     <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+2</Kbd>
                   </button>
 
@@ -487,14 +487,14 @@ function AppContent() {
                     tabIndex={0}
                     onClick={() => switchTab('glossary')}
                     title={`${t('nav.glossary')} (Alt+3)`}
-                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
+                    className={`flex items-center gap-1 lg:gap-1.5 px-2 lg:px-2.5 2xl:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
                       activeTab === 'glossary'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                     }`}
                   >
                     <Settings className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-                    <span>{t('nav.glossary')}</span>
+                    <span>Từ Điển<span className="hidden 2xl:inline"> Nhân Vật</span></span>
                     <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+3</Kbd>
                     {activeProject && activeProject.glossary.length > 0 && (
                       <Badge tone="neutral" className="ml-0.5">
@@ -517,14 +517,14 @@ function AppContent() {
                     tabIndex={0}
                     onClick={() => switchTab('history')}
                     title={`${t('nav.history')} (Alt+4)`}
-                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
+                    className={`flex items-center gap-1 lg:gap-1.5 px-2 lg:px-2.5 2xl:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 relative ${
                       activeTab === 'history'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                     }`}
                   >
                     <History className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-                    <span>{t('nav.history')}</span>
+                    <span>Lịch Sử<span className="hidden 2xl:inline"> Chương Dịch</span></span>
                     <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+4</Kbd>
                     {activeProject && activeProject.chapters.length > 0 && (
                       <Badge tone="neutral" className="ml-0.5">
@@ -542,14 +542,14 @@ function AppContent() {
                     tabIndex={0}
                     onClick={() => switchTab('projects')}
                     title={`${t('nav.projects')} (Alt+5)`}
-                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
+                    className={`flex items-center gap-1 lg:gap-1.5 px-2 lg:px-2.5 2xl:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                       activeTab === 'projects'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
                     }`}
                   >
                     <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-                    <span>{t('nav.projects')}</span>
+                    <span><span className="hidden 2xl:inline">Quản Lý </span>Truyện</span>
                     <Kbd className="hidden 2xl:inline-block text-[9px]">Alt+5</Kbd>
                     <Badge tone="neutral" className="ml-0.5">
                       {projects.length}
@@ -565,7 +565,7 @@ function AppContent() {
                     tabIndex={0}
                     onClick={() => switchTab('hako-checker')}
                     title={`${t('nav.hakoChecker')} (Alt+6)`}
-                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
+                    className={`flex items-center gap-1 lg:gap-1.5 px-2 lg:px-2.5 2xl:px-3 py-1.5 sm:py-2 text-xs font-bold border-b-2 transition-all cursor-pointer shrink-0 ${
                       activeTab === 'hako-checker'
                         ? 'border-polish text-text-main bg-parchment-2/40'
                         : 'border-transparent text-text-muted hover:text-text-main hover:bg-parchment-2/20'
@@ -601,7 +601,7 @@ function AppContent() {
             </div>
 
             {/* More Tabs Popover Dropdown Menu */}
-            <div className="relative shrink-0 hidden sm:flex xl:hidden items-center">
+            <div className="relative shrink-0 hidden sm:flex 2xl:hidden items-center">
               <button
                 id="nav-more-menu-btn"
                 type="button"
@@ -616,7 +616,7 @@ function AppContent() {
                 }`}
               >
                 <MoreHorizontal className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline text-[11px]">Thêm</span>
+                <span className="hidden md:inline text-[11px]">Thêm</span>
                 <ChevronDown className={`w-3 h-3 transition-transform ${showMoreNavMenu ? 'rotate-180' : ''}`} />
               </button>
 
@@ -722,8 +722,8 @@ function AppContent() {
                 className="hidden sm:flex items-center gap-1.5 text-xs text-text-muted shrink-0 pl-3 border-l border-parchment-2/60 ml-1"
                 title={`${t('nav.currentBook')}: ${activeProject.title}`}
               >
-                <span className="shrink-0">{t('nav.currentBook')}: </span>
-                <strong className="text-text-main font-display bg-ink border border-parchment-2 px-2.5 py-0.5 rounded-[2px] font-bold truncate max-w-[160px] md:max-w-[220px] lg:max-w-[300px]">
+                <span className="shrink-0 hidden 2xl:inline">{t('nav.currentBook')}: </span>
+                <strong className="text-text-main font-display bg-ink border border-parchment-2 px-2 py-0.5 rounded-[2px] font-bold truncate max-w-[140px] md:max-w-[180px] lg:max-w-[220px] 2xl:max-w-[300px]">
                   {activeProject.title}
                 </strong>
               </div>

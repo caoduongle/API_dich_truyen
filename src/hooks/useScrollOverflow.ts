@@ -155,6 +155,17 @@ export function useScrollOverflow<T extends HTMLElement = HTMLElement>(
         checkOverflow();
       });
       resizeObserver.observe(el);
+      if (el.firstElementChild) {
+        resizeObserver.observe(el.firstElementChild);
+      }
+    }
+
+    let mutationObserver: MutationObserver | null = null;
+    if (typeof MutationObserver !== 'undefined') {
+      mutationObserver = new MutationObserver(() => {
+        checkOverflow();
+      });
+      mutationObserver.observe(el, { childList: true, subtree: true, characterData: true });
     }
 
     const handleWindowResize = () => {
@@ -168,6 +179,9 @@ export function useScrollOverflow<T extends HTMLElement = HTMLElement>(
       el.removeEventListener('scroll', handleScroll);
       if (resizeObserver) {
         resizeObserver.disconnect();
+      }
+      if (mutationObserver) {
+        mutationObserver.disconnect();
       }
       if (typeof window !== 'undefined') {
         window.removeEventListener('resize', handleWindowResize);
