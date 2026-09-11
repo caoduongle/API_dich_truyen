@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { UnifiedAuditPanel, handleAuditIssueSelection } from '../UnifiedAuditPanel';
+import {
+  UnifiedAuditPanel,
+  handleAuditIssueSelection,
+  getNextIssueIndex,
+  getPrevIssueIndex,
+  canTriggerAuditEnterAction,
+} from '../UnifiedAuditPanel';
 import type { QualityIssue } from '../../../types/hakoChecker';
 import type { DirectQaCritiqueIssue } from '../../../services/directTranslationEngine';
 import type { UnifiedAuditIssue } from '../../../types/audit';
@@ -522,6 +528,71 @@ describe('UnifiedAuditPanel Component Suite', () => {
       );
 
       expect(html).not.toContain('Nhờ AI viết lại câu này');
+    });
+  });
+
+  describe('Feature 105: Pure Navigation Helpers (getNextIssueIndex & getPrevIssueIndex)', () => {
+    it('advances index by 1 when below bounds and clamps at total - 1', () => {
+      expect(getNextIssueIndex(0, 3)).toBe(1);
+      expect(getNextIssueIndex(1, 3)).toBe(2);
+      expect(getNextIssueIndex(2, 3)).toBe(2); // clamped, no overflow
+      expect(getNextIssueIndex(-1, 3)).toBe(0);
+      expect(getNextIssueIndex(0, 0)).toBe(-1); // empty list
+    });
+
+    it('decreases index by 1 when above 0 and clamps at 0', () => {
+      expect(getPrevIssueIndex(2, 3)).toBe(1);
+      expect(getPrevIssueIndex(1, 3)).toBe(0);
+      expect(getPrevIssueIndex(0, 3)).toBe(0); // clamped, no underflow
+      expect(getPrevIssueIndex(-1, 3)).toBe(0);
+      expect(getPrevIssueIndex(0, 0)).toBe(-1); // empty list
+    });
+  });
+
+  describe('Feature 105: Form Collision Guard (canTriggerAuditEnterAction)', () => {
+    it('returns false for form input elements (INPUT, TEXTAREA, SELECT)', () => {
+      const mockInput = { tagName: 'INPUT', getAttribute: () => null } as any;
+      const mockTextarea = { tagName: 'TEXTAREA', getAttribute: () => null } as any;
+      const mockSelect = { tagName: 'SELECT', getAttribute: () => null } as any;
+
+      expect(canTriggerAuditEnterAction(mockInput)).toBe(false);
+      expect(canTriggerAuditEnterAction(mockTextarea)).toBe(false);
+      expect(canTriggerAuditEnterAction(mockSelect)).toBe(false);
+    });
+
+    it('returns false for contenteditable elements', () => {
+      const mockEditable = {
+        tagName: 'DIV',
+        getAttribute: (attr: string) => (attr === 'contenteditable' ? 'true' : null),
+      } as any;
+
+      expect(canTriggerAuditEnterAction(mockEditable)).toBe(false);
+    });
+
+    it('returns true for null or non-form elements (DIV, BUTTON, BODY)', () => {
+      expect(canTriggerAuditEnterAction(null)).toBe(true);
+      const mockDiv = { tagName: 'DIV', getAttribute: () => null } as any;
+      const mockBtn = { tagName: 'BUTTON', getAttribute: () => null } as any;
+      expect(canTriggerAuditEnterAction(mockDiv)).toBe(true);
+      expect(canTriggerAuditEnterAction(mockBtn)).toBe(true);
+    });
+  });
+
+  describe('Feature 105: Visual Focus Styling', () => {
+    it('renders visual focus styling on initial issue card (index 0)', () => {
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={mockHakoIssues}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      expect(html).toContain('data-focused="true"');
+      expect(html).toContain('ring-1 ring-polish/60 bg-parchment-2/40 border-polish/50');
+      expect(html).toContain('data-testid="audit-issue-card-0"');
+      expect(html).toContain('data-testid="audit-issue-card-1"');
     });
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   AlertCircle,
   Loader2,
@@ -20,6 +20,7 @@ import {
 import { rewriteSentenceDirect } from '../../services/directTranslationEngine';
 import { scrollAndSelectInTextarea } from '../../utils/textareaHighlight';
 import { useNotifications } from '../NotificationSystem';
+import { useHotkeys } from '../../hooks/useHotkeys';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { EmptyState } from '../ui/EmptyState';
@@ -90,6 +91,36 @@ export function handleAuditIssueSelection({
   return false;
 }
 
+/**
+ * Tính toán index kế tiếp khi bấm Alt+J (tăng có chặn trên)
+ */
+export function getNextIssueIndex(currentIndex: number, totalIssues: number): number {
+  if (totalIssues <= 0) return -1;
+  if (currentIndex < 0) return 0;
+  return Math.min(currentIndex + 1, totalIssues - 1);
+}
+
+/**
+ * Tính toán index trước đó khi bấm Alt+K (giảm có chặn dưới)
+ */
+export function getPrevIssueIndex(currentIndex: number, totalIssues: number): number {
+  if (totalIssues <= 0) return -1;
+  if (currentIndex < 0) return 0;
+  return Math.max(currentIndex - 1, 0);
+}
+
+/**
+ * Kiểm tra xem phím Enter có được phép kích hoạt hành động audit hay không
+ * (Tránh xung đột khi người dùng đang nhập liệu trong form / textarea)
+ */
+export function canTriggerAuditEnterAction(targetElement: Element | null): boolean {
+  if (!targetElement) return true;
+  const tagName = targetElement.tagName.toUpperCase();
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tagName)) return false;
+  if (targetElement.getAttribute('contenteditable') === 'true') return false;
+  return true;
+}
+
 export function UnifiedAuditPanel({
   hakoIssues = [],
   qaIssues = [],
@@ -113,6 +144,10 @@ export function UnifiedAuditPanel({
   const [rewritingIssueId, setRewritingIssueId] = useState<string | null>(null);
   const [pendingPreviews, setPendingPreviews] = useState<Record<string, string>>({});
 
+  // Feature 105: Keyboard navigation focus index and card DOM references
+  const [focusedIssueIndex, setFocusedIssueIndex] = useState<number>(0);
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+
   let notifications: ReturnType<typeof useNotifications> | null = null;
   try {
     notifications = useNotifications();
@@ -121,7 +156,10 @@ export function UnifiedAuditPanel({
   }
   const showToast = notifications?.showToast;
 
-  const handleIssueCardClick = (issue: UnifiedAuditIssue) => {
+  const handleIssueCardClick = (issue: UnifiedAuditIssue, index?: number) => {
+    if (typeof index === 'number') {
+      setFocusedIssueIndex(index);
+    }
     handleAuditIssueSelection({
       issue,
       activeTextareaRef,
@@ -179,8 +217,8 @@ export function UnifiedAuditPanel({
 
   // Feature 104: Handle "Sửa ngay" click
   const handleQuickFix = useCallback(
-    async (e: React.MouseEvent, issue: UnifiedAuditIssue) => {
-      e.stopPropagation();
+    async (e: React.MouseEvent | React.SyntheticEvent | null | undefined, issue: UnifiedAuditIssue) => {
+      e?.stopPropagation();
       if (!onApplyFix) return;
       try {
         const result = await onApplyFix(issue);
@@ -293,6 +331,67 @@ export function UnifiedAuditPanel({
       });
     },
     []
+  );
+
+  // Feature 105: Clamping focusedIssueIndex when list or tab changes
+  useEffect(() => {
+    if (filteredIssues.length === 0) {
+      setFocusedIssueIndex(-1);
+    } else {
+      setFocusedIssueIndex((prev) => Math.max(0, Math.min(prev, filteredIssues.length - 1)));
+    }
+  }, [filteredIssues.length, activeTab]);
+
+  // Feature 105: Alt+J - Navigate to next issue
+  useHotkeys('alt+j', () => {
+    setFocusedIssueIndex((prev) => {
+      const next = getNextIssueIndex(prev, filteredIssues.length);
+      if (next >= 0 && cardRefs.current[next]) {
+        cardRefs.current[next]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      return next;
+    });
+  });
+
+  // Feature 105: Alt+K - Navigate to previous issue
+  useHotkeys('alt+k', () => {
+    setFocusedIssueIndex((prev) => {
+      const next = getPrevIssueIndex(prev, filteredIssues.length);
+      if (next >= 0 && cardRefs.current[next]) {
+        cardRefs.current[next]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      return next;
+    });
+  });
+
+  // Feature 105: Enter - Execute primary action of focused issue
+  useHotkeys(
+    'enter',
+    () => {
+      const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+      if (!canTriggerAuditEnterAction(activeEl)) return;
+      if (focusedIssueIndex < 0 || focusedIssueIndex >= filteredIssues.length) return;
+
+      const focusedIssue = filteredIssues[focusedIssueIndex];
+      if (!focusedIssue) return;
+
+      if (
+        focusedIssue.autoFixable &&
+        focusedIssue.suggestion &&
+        focusedIssue.status !== 'resolved' &&
+        onApplyFix
+      ) {
+        handleQuickFix(null, focusedIssue);
+      } else {
+        handleAuditIssueSelection({
+          issue: focusedIssue,
+          activeTextareaRef,
+          onIssueClick,
+          showToast,
+        });
+      }
+    },
+    { enableOnFormTags: false }
   );
 
   return (
@@ -464,7 +563,7 @@ export function UnifiedAuditPanel({
         ) : (
           /* Danh sách thẻ lỗi thu gọn (Compact Issue Cards) */
           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-            {filteredIssues.map((issue) => {
+            {filteredIssues.map((issue, index) => {
               const badge = getSeverityBadge(issue.severity);
               const isResolved = issue.status === 'resolved';
               const isRewriting = rewritingIssueId === issue.id;
@@ -476,14 +575,21 @@ export function UnifiedAuditPanel({
                 !isResolved &&
                 !hasPreview &&
                 (apiKeys?.length || onRewriteSentence);
+              const isFocused = index === focusedIssueIndex;
 
               return (
                 <div
                   key={issue.id}
-                  onClick={() => handleIssueCardClick(issue)}
+                  ref={(el) => {
+                    cardRefs.current[index] = el;
+                  }}
+                  data-testid={`audit-issue-card-${index}`}
+                  data-focused={isFocused ? 'true' : 'false'}
+                  onClick={() => handleIssueCardClick(issue, index)}
                   className={cn(
                     "group bg-parchment/60 hover:bg-parchment border border-parchment-2 hover:border-polish/40 rounded-[2px] p-2.5 space-y-1.5 transition-all cursor-pointer shadow-xs",
-                    isResolved && "opacity-60"
+                    isResolved && "opacity-60",
+                    isFocused && "ring-1 ring-polish/60 bg-parchment-2/40 border-polish/50"
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
