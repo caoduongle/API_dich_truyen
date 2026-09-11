@@ -35,11 +35,13 @@ import { ErrorBoundary } from '../ErrorBoundary';
 export interface HakoCheckerWorkspaceProps {
   apiKeys: string[];
   selectedModel?: string;
+  onOpenInTranslator?: (chapterId: string) => void;
 }
 
 export function HakoCheckerWorkspace({
   apiKeys,
   selectedModel,
+  onOpenInTranslator,
 }: HakoCheckerWorkspaceProps) {
   const { projects } = useProjectContext();
   const {
@@ -429,6 +431,7 @@ export function HakoCheckerWorkspace({
             onOpenExportModal={() => setIsExportModalOpen(true)}
             onReanalyze={handleStartAnalysis}
             isAnalyzing={isAnalyzing}
+            onOpenInTranslator={onOpenInTranslator}
           />
         )}
 

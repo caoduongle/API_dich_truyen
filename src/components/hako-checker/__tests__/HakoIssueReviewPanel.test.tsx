@@ -5,6 +5,7 @@ import {
   HakoIssueReviewPanel,
   BATCH_CONFIRM_THRESHOLD,
 } from '../HakoIssueReviewPanel';
+import { HakoIssueCard } from '../HakoIssueCard';
 import { QualityIssue, QualityIssueDecision, ProjectReviewChapter } from '../../../types/hakoChecker';
 
 describe('HakoIssueReviewPanel Batch Action Confirmation & Undo Guard', () => {
@@ -236,6 +237,122 @@ describe('HakoIssueReviewPanel Batch Action Confirmation & Undo Guard', () => {
       capturedToastOptions.onUndo();
       expect(onDecisionChange).toHaveBeenCalledWith('issue-1', 'pending');
       expect(onDecisionChange).toHaveBeenCalledWith('issue-2', 'pending');
+    });
+  });
+
+  describe('Hako Checker to Translator Workspace Navigation', () => {
+    it('renders chapter issues breakdown with "Mở trong Bàn Dịch để sửa" buttons', () => {
+      const mockMultiChapterIssues: QualityIssue[] = [
+        {
+          id: 'issue-1',
+          chapterId: 'chap-1',
+          chapterTitle: 'Chương 1: Khởi đầu',
+          chapterNumber: 1,
+          category: 'raw_leak',
+          severity: 'minor',
+          vietnameseSnippet: 'Đoạn dịch lỗi 1',
+          explanation: 'Sót từ thô',
+          decision: 'pending',
+          detectedBy: 'heuristic',
+          createdAt: '2026-09-10T12:00:00Z',
+        },
+        {
+          id: 'issue-2',
+          chapterId: 'chap-1',
+          chapterTitle: 'Chương 1: Khởi đầu',
+          chapterNumber: 1,
+          category: 'other',
+          severity: 'minor',
+          vietnameseSnippet: 'Đoạn dịch lỗi 2',
+          explanation: 'Lỗi dấu câu',
+          decision: 'pending',
+          detectedBy: 'heuristic',
+          createdAt: '2026-09-10T12:00:00Z',
+        },
+        {
+          id: 'issue-3',
+          chapterId: 'chap-2',
+          chapterTitle: 'Chương 2: Tiến bước',
+          chapterNumber: 2,
+          category: 'mistranslation',
+          severity: 'major',
+          vietnameseSnippet: 'Đoạn dịch lỗi 3',
+          explanation: 'Sai nghĩa',
+          decision: 'pending',
+          detectedBy: 'ai',
+          createdAt: '2026-09-10T12:00:00Z',
+        },
+      ];
+
+      const onOpenInTranslator = vi.fn();
+
+      const html = renderToString(
+        <HakoIssueReviewPanel
+          issues={mockMultiChapterIssues}
+          chapters={mockChapters}
+          onDecisionChange={vi.fn()}
+          onBatchDecisionChange={vi.fn()}
+          onOpenExportModal={vi.fn()}
+          onReanalyze={vi.fn()}
+          isAnalyzing={false}
+          onOpenInTranslator={onOpenInTranslator}
+        />
+      );
+
+      // Verify the chapter breakdown section header
+      expect(html).toContain('Danh sách chương phát hiện lỗi (2 chương):');
+      // Verify both chapters are represented
+      expect(html).toContain('Chương 1: Khởi đầu');
+      expect(html).toContain('Chương 2: Tiến bước');
+      // Verify issue counts
+      expect(html).toContain('2</span> lỗi phát hiện');
+      expect(html).toContain('1</span> lỗi phát hiện');
+      // Verify "Mở trong Bàn Dịch để sửa" button label exists
+      expect(html).toContain('Mở trong Bàn Dịch để sửa');
+    });
+
+    it('does not render "Mở trong Bàn Dịch để sửa" buttons if onOpenInTranslator is omitted', () => {
+      const issues = createMockIssues(2);
+      const html = renderToString(
+        <HakoIssueReviewPanel
+          issues={issues}
+          chapters={mockChapters}
+          onDecisionChange={vi.fn()}
+          onBatchDecisionChange={vi.fn()}
+          onOpenExportModal={vi.fn()}
+          onReanalyze={vi.fn()}
+          isAnalyzing={false}
+        />
+      );
+
+      expect(html).toContain('Danh sách chương phát hiện lỗi (1 chương):');
+      expect(html).not.toContain('Mở trong Bàn Dịch để sửa');
+    });
+
+    it('renders "Mở trong Bàn Dịch để sửa" on individual HakoIssueCard when onOpenInTranslator is provided', () => {
+      const issue = createMockIssues(1)[0];
+      const onOpenInTranslator = vi.fn();
+      const html = renderToString(
+        <HakoIssueCard
+          issue={issue}
+          onDecisionChange={vi.fn()}
+          onOpenInTranslator={onOpenInTranslator}
+        />
+      );
+
+      expect(html).toContain('Mở trong Bàn Dịch để sửa');
+    });
+
+    it('omits "Mở trong Bàn Dịch để sửa" on HakoIssueCard when onOpenInTranslator is undefined', () => {
+      const issue = createMockIssues(1)[0];
+      const html = renderToString(
+        <HakoIssueCard
+          issue={issue}
+          onDecisionChange={vi.fn()}
+        />
+      );
+
+      expect(html).not.toContain('Mở trong Bàn Dịch để sửa');
     });
   });
 });

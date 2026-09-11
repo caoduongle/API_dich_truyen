@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   XCircle,
   Copy,
+  ExternalLink,
 } from 'lucide-react';
 import {
   QualityIssue,
@@ -35,6 +36,7 @@ import { cn } from '../../lib/cn';
 export interface HakoIssueCardProps {
   issue: QualityIssue;
   onDecisionChange: (issueId: string, decision: QualityIssueDecision, note?: string) => void;
+  onOpenInTranslator?: (chapterId: string) => void;
 }
 
 const CATEGORY_NAMES: Record<QualityIssueCategory, string> = {
@@ -50,7 +52,7 @@ const CATEGORY_NAMES: Record<QualityIssueCategory, string> = {
   other: 'Lỗi biên tập khác',
 };
 
-export function HakoIssueCard({ issue, onDecisionChange }: HakoIssueCardProps) {
+export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: HakoIssueCardProps) {
   const [isEditingNote, setIsEditingNote] = useState(!!issue.moderatorNote);
   const [noteText, setNoteText] = useState(issue.moderatorNote || '');
   const [isCopied, setIsCopied] = useState(false);
@@ -303,6 +305,20 @@ export function HakoIssueCard({ issue, onDecisionChange }: HakoIssueCardProps) {
               <MessageSquare className="w-3 h-3" />
               <span>+ Thêm ghi chú</span>
             </button>
+          )}
+
+          {onOpenInTranslator && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onOpenInTranslator(issue.chapterId)}
+              icon={<ExternalLink className="w-3 h-3" />}
+              className="text-[11px] h-7.5 px-2.5 font-medium"
+              title={`Mở chương #${issue.chapterNumber} trong Bàn Dịch để sửa`}
+            >
+              Mở trong Bàn Dịch để sửa
+            </Button>
           )}
         </div>
 

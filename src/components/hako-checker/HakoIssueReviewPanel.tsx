@@ -19,6 +19,8 @@ import {
   CheckCheck,
   ChevronLeft,
   ChevronRight,
+  BookOpenText,
+  ExternalLink,
 } from 'lucide-react';
 import {
   QualityIssue,
@@ -44,6 +46,7 @@ export interface HakoIssueReviewPanelProps {
   onOpenExportModal: () => void;
   onReanalyze: () => void;
   isAnalyzing: boolean;
+  onOpenInTranslator?: (chapterId: string) => void;
 }
 
 export interface BatchConfirmState {
@@ -62,6 +65,7 @@ export function HakoIssueReviewPanel({
   onOpenExportModal,
   onReanalyze,
   isAnalyzing,
+  onOpenInTranslator,
 }: HakoIssueReviewPanelProps) {
   let notifications: ReturnType<typeof useNotifications> | null = null;
   try {
@@ -146,6 +150,25 @@ export function HakoIssueReviewPanel({
     const map = new Map<string, string>();
     issues.forEach((i) => map.set(i.chapterId, i.chapterTitle));
     return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
+  }, [issues]);
+
+  // Danh sách các chương phát hiện có lỗi kèm số lượng lỗi
+  const chaptersWithIssues = useMemo(() => {
+    const map = new Map<string, { id: string; number: number; title: string; issueCount: number }>();
+    issues.forEach((issue) => {
+      const existing = map.get(issue.chapterId);
+      if (existing) {
+        existing.issueCount += 1;
+      } else {
+        map.set(issue.chapterId, {
+          id: issue.chapterId,
+          number: issue.chapterNumber,
+          title: issue.chapterTitle,
+          issueCount: 1,
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.number - b.number);
   }, [issues]);
 
   // Batch action execution helper with undo toast notification
@@ -293,6 +316,62 @@ export function HakoIssueReviewPanel({
           </div>
         </div>
       </div>
+
+      {/* Chapter Issues Breakdown & Quick Jump to Translator */}
+      {chaptersWithIssues.length > 0 && (
+        <div
+          data-testid="chapter-issues-breakdown"
+          className="bg-parchment border border-parchment-2 rounded-md p-4 shadow-xs"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-2 border-b border-parchment-2/60">
+            <div className="flex items-center gap-2">
+              <BookOpenText className="w-4 h-4 text-polish shrink-0" />
+              <h4 className="text-xs font-display font-bold text-text-main">
+                {`Danh sách chương phát hiện lỗi (${chaptersWithIssues.length} chương):`}
+              </h4>
+            </div>
+            <span className="text-[11px] text-text-muted">
+              Nhấn để mở chương tương ứng trong Bàn Dịch để sửa lỗi
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {chaptersWithIssues.map((chap) => (
+              <div
+                key={chap.id}
+                data-testid={`chapter-issue-row-${chap.id}`}
+                className="bg-ink/30 border border-parchment-2 rounded-[3px] p-2.5 flex items-center justify-between gap-2 hover:border-polish/40 transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 text-xs truncate">
+                    <span className="font-mono font-bold text-polish shrink-0">#{chap.number}</span>
+                    <span className="font-medium text-text-main truncate" title={chap.title}>
+                      {chap.title}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-text-muted mt-0.5 font-mono">
+                    <span className="text-amber-400 font-bold">{chap.issueCount}</span> lỗi phát hiện
+                  </div>
+                </div>
+
+                {onOpenInTranslator && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onOpenInTranslator(chap.id)}
+                    icon={<ExternalLink className="w-3 h-3" />}
+                    className="text-[11px] h-7 px-2 shrink-0 font-medium"
+                    title={`Mở chương #${chap.number} trong Bàn Dịch để sửa`}
+                  >
+                    Mở trong Bàn Dịch để sửa
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Multi-Criteria Filter Bar */}
       <div className="bg-ink/50 border border-parchment-2 rounded-md p-3.5 text-xs">
@@ -466,6 +545,7 @@ export function HakoIssueReviewPanel({
               key={issue.id}
               issue={issue}
               onDecisionChange={onDecisionChange}
+              onOpenInTranslator={onOpenInTranslator}
             />
           ))}
 

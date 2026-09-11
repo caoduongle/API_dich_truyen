@@ -4,7 +4,8 @@ import {
   ChevronLeft, ChevronRight, MoreHorizontal, ChevronDown, X, Phone, Mail
 } from 'lucide-react';
 import { Chapter, StoryProject } from './types';
-import { NotificationProvider } from './components/NotificationSystem';
+import { NotificationProvider, useNotifications } from './components/NotificationSystem';
+import { getChapterFromDB } from './services/db';
 import { AIConfigProvider, useAIConfigContext } from './context/AIConfigContext';
 import { ProjectProvider, useProjectContext } from './context/ProjectContext';
 import { TabSkeleton } from './components/common/Skeleton';
@@ -83,6 +84,7 @@ function AppContent() {
     handleImportClipboardKeys,
   } = useAIConfigContext();
   const { t } = useTranslation();
+  const { showToast } = useNotifications();
 
   const VALID_TABS = React.useMemo(() => ['translate', 'auto-translate', 'glossary', 'history', 'projects', 'hako-checker'], []);
   const [activeTab, setActiveTab] = useState<'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker'>('translate');
@@ -227,6 +229,26 @@ function AppContent() {
       switchTab('translate');
     },
     [switchTab]
+  );
+
+  const handleOpenChapterFromHakoChecker = useCallback(
+    async (chapterId: string) => {
+      try {
+        const chapter = await getChapterFromDB(chapterId);
+        if (!chapter) {
+          showToast({ message: 'Không tìm thấy dữ liệu chương!', type: 'error' });
+          return;
+        }
+        handleGoToTranslate(chapter);
+      } catch (err) {
+        console.error('[AppContent] handleOpenChapterFromHakoChecker error:', err);
+        showToast({
+          message: 'Lỗi khi tải dữ liệu chương: ' + (err instanceof Error ? err.message : String(err)),
+          type: 'error',
+        });
+      }
+    },
+    [handleGoToTranslate, showToast]
   );
 
   const handleSelectProjectAndSwitch = useCallback(
@@ -882,6 +904,7 @@ function AppContent() {
                 <MemoHakoCheckerWorkspace
                   apiKeys={apiKeys}
                   selectedModel={selectedModel}
+                  onOpenInTranslator={handleOpenChapterFromHakoChecker}
                 />
               </ErrorBoundary>
             )}
