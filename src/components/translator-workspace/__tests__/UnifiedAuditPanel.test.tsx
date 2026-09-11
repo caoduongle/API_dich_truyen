@@ -595,4 +595,81 @@ describe('UnifiedAuditPanel Component Suite', () => {
       expect(html).toContain('data-testid="audit-issue-card-1"');
     });
   });
+
+  describe('Feature 107: Audit Quality Score & Tier Display', () => {
+    it('renders 100/100 and "Xuất sắc" when there are no issues', () => {
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={[]}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      expect(html).toContain('100/100');
+      expect(html).toContain('Xuất sắc');
+      expect(html).toContain('data-testid="audit-score-container"');
+      expect(html).toContain(
+        'title="Điểm chất lượng tham khảo ước tính dựa trên số lỗi chưa xử lý, không phải đánh giá tuyệt đối."'
+      );
+    });
+
+    it('renders correct score and tier for mixed pending and dismissed issues', () => {
+      // mockHakoIssues: 1 pending error (-8), 1 dismissed minor (0) -> 92/100, "Xuất sắc"
+      const htmlHakoOnly = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={mockHakoIssues}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      expect(htmlHakoOnly).toContain('92/100');
+      expect(htmlHakoOnly).toContain('Xuất sắc');
+
+      // mockHakoIssues + mockQaIssues:
+      // 1 pending error (-8) + 1 pending warning (-3) + 1 pending info (-1) = 88/100, "Khá"
+      const htmlMixed = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={mockHakoIssues}
+          qaIssues={mockQaIssues}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      expect(htmlMixed).toContain('88/100');
+      expect(htmlMixed).toContain('Khá');
+    });
+
+    it('renders "Cần rà soát lại" and clamps at 0/100 when issues exceed 100 points', () => {
+      const heavyIssues: QualityIssue[] = Array.from({ length: 15 }, (_, i) => ({
+        id: `hako-heavy-${i}`,
+        chapterId: 'chap-1',
+        chapterTitle: 'Chương 1',
+        chapterNumber: 1,
+        category: 'raw_leak',
+        severity: 'critical',
+        vietnameseSnippet: 'Chữ hán',
+        explanation: 'Lỗi',
+        decision: 'pending',
+        detectedBy: 'heuristic',
+        createdAt: '2026-09-10T12:00:00Z',
+      }));
+
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={heavyIssues}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      expect(html).toContain('0/100');
+      expect(html).toContain('Cần rà soát lại');
+    });
+  });
 });

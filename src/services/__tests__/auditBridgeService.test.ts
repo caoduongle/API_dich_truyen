@@ -4,12 +4,15 @@ import {
   mapQaIssueToUnified,
   isHakoCategoryAutoFixable,
   generateQaIssueId,
+  calculateAuditScore,
+  getAuditScoreTier,
 } from '../auditBridgeService';
 import {
   HAKO_SEVERITY_MAP,
   QA_SEVERITY_MAP,
   mapHakoSeverity,
   mapQaSeverity,
+  type UnifiedAuditIssue,
 } from '../../types/audit';
 import type { QualityIssue } from '../../types/hakoChecker';
 import type { DirectQaCritiqueIssue } from '../directTranslationEngine';
@@ -229,6 +232,106 @@ describe('auditBridgeService', () => {
       expect(id1).toMatch(/^qa-/);
       expect(id2).toMatch(/^qa-/);
       expect(id1).not.toBe(id2);
+    });
+  });
+
+  describe('calculateAuditScore', () => {
+    const makeIssue = (
+      id: string,
+      severity: 'error' | 'warning' | 'info',
+      status: 'pending' | 'resolved' | 'ignored'
+    ): UnifiedAuditIssue => ({
+      id,
+      source: 'hako_rule',
+      severity,
+      title: 'Issue',
+      message: 'Message',
+      autoFixable: false,
+      status,
+    });
+
+    it('returns 100 for an empty issue list', () => {
+      expect(calculateAuditScore([])).toBe(100);
+    });
+
+    it('returns 100 when all issues are resolved or ignored', () => {
+      const issues: UnifiedAuditIssue[] = [
+        makeIssue('1', 'error', 'resolved'),
+        makeIssue('2', 'error', 'ignored'),
+        makeIssue('3', 'warning', 'resolved'),
+        makeIssue('4', 'info', 'ignored'),
+      ];
+      expect(calculateAuditScore(issues)).toBe(100);
+    });
+
+    it('deducts 8 points for pending error', () => {
+      const issues: UnifiedAuditIssue[] = [makeIssue('1', 'error', 'pending')];
+      expect(calculateAuditScore(issues)).toBe(92);
+    });
+
+    it('deducts 3 points for pending warning', () => {
+      const issues: UnifiedAuditIssue[] = [makeIssue('1', 'warning', 'pending')];
+      expect(calculateAuditScore(issues)).toBe(97);
+    });
+
+    it('deducts 1 point for pending info', () => {
+      const issues: UnifiedAuditIssue[] = [makeIssue('1', 'info', 'pending')];
+      expect(calculateAuditScore(issues)).toBe(99);
+    });
+
+    it('correctly calculates mixed pending issues (1 error, 2 warnings, 1 info -> 85)', () => {
+      const issues: UnifiedAuditIssue[] = [
+        makeIssue('1', 'error', 'pending'),
+        makeIssue('2', 'warning', 'pending'),
+        makeIssue('3', 'warning', 'pending'),
+        makeIssue('4', 'info', 'pending'),
+      ];
+      // 100 - (8*1 + 3*2 + 1*1) = 85
+      expect(calculateAuditScore(issues)).toBe(85);
+    });
+
+    it('deducts only for pending issues and ignores resolved/ignored ones in mixed list', () => {
+      const issues: UnifiedAuditIssue[] = [
+        makeIssue('1', 'error', 'pending'), // -8
+        makeIssue('2', 'error', 'resolved'), // 0
+        makeIssue('3', 'warning', 'pending'), // -3
+        makeIssue('4', 'warning', 'ignored'), // 0
+        makeIssue('5', 'info', 'resolved'), // 0
+      ];
+      // 100 - 8 - 3 = 89
+      expect(calculateAuditScore(issues)).toBe(89);
+    });
+
+    it('clamps score at 0 when deductions exceed 100 points', () => {
+      // 15 errors = -120 points
+      const issues: UnifiedAuditIssue[] = Array.from({ length: 15 }, (_, i) =>
+        makeIssue(`err-${i}`, 'error', 'pending')
+      );
+      expect(calculateAuditScore(issues)).toBe(0);
+    });
+
+    it('never exceeds 100', () => {
+      expect(calculateAuditScore([])).toBe(100);
+    });
+  });
+
+  describe('getAuditScoreTier', () => {
+    it('returns "Xuất sắc" and tone "polish" for scores >= 90', () => {
+      expect(getAuditScoreTier(100)).toEqual({ label: 'Xuất sắc', tone: 'polish' });
+      expect(getAuditScoreTier(95)).toEqual({ label: 'Xuất sắc', tone: 'polish' });
+      expect(getAuditScoreTier(90)).toEqual({ label: 'Xuất sắc', tone: 'polish' });
+    });
+
+    it('returns "Khá" and tone "warning" for scores from 70 to 89', () => {
+      expect(getAuditScoreTier(89)).toEqual({ label: 'Khá', tone: 'warning' });
+      expect(getAuditScoreTier(75)).toEqual({ label: 'Khá', tone: 'warning' });
+      expect(getAuditScoreTier(70)).toEqual({ label: 'Khá', tone: 'warning' });
+    });
+
+    it('returns "Cần rà soát lại" and tone "danger" for scores < 70', () => {
+      expect(getAuditScoreTier(69)).toEqual({ label: 'Cần rà soát lại', tone: 'danger' });
+      expect(getAuditScoreTier(50)).toEqual({ label: 'Cần rà soát lại', tone: 'danger' });
+      expect(getAuditScoreTier(0)).toEqual({ label: 'Cần rà soát lại', tone: 'danger' });
     });
   });
 });

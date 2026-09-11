@@ -16,6 +16,8 @@ import type { UnifiedAuditIssue, UnifiedSeverity } from '../../types/audit';
 import {
   mapHakoIssueToUnified,
   mapQaIssueToUnified,
+  calculateAuditScore,
+  getAuditScoreTier,
 } from '../../services/auditBridgeService';
 import { rewriteSentenceDirect } from '../../services/directTranslationEngine';
 import { scrollAndSelectInTextarea } from '../../utils/textareaHighlight';
@@ -187,6 +189,10 @@ export function UnifiedAuditPanel({
     const pendingCount = unifiedIssues.filter((i) => i.status === 'pending').length;
     return { total, hakoCount, qaCount, pendingCount };
   }, [unifiedIssues]);
+
+  // Feature 107: Điểm chất lượng thẩm định bản dịch tổng hợp (0 - 100) và phân hạng định tính
+  const auditScore = useMemo(() => calculateAuditScore(unifiedIssues), [unifiedIssues]);
+  const scoreTier = useMemo(() => getAuditScoreTier(auditScore), [auditScore]);
 
   // Lọc danh sách theo tab đang chọn
   const filteredIssues = useMemo(() => {
@@ -414,7 +420,7 @@ export function UnifiedAuditPanel({
       <div className="border border-parchment-2 bg-ink/70 rounded-md p-3 space-y-3 shadow-xs">
         {/* Header Action Bar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 pb-2.5 border-b border-parchment-2/50">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Seal character="評" tone="polish" className="text-[10px]" />
             <h4 className="font-display font-bold text-xs text-text-main">
               Thẩm định chất lượng
@@ -422,6 +428,18 @@ export function UnifiedAuditPanel({
             <Badge tone="neutral" className="font-mono text-[10px] px-1.5 py-0.2">
               {`${stats.total} vấn đề`}
             </Badge>
+            <div
+              className="flex items-center gap-1.5 pl-2 border-l border-parchment-2/50 cursor-help"
+              title="Điểm chất lượng tham khảo ước tính dựa trên số lỗi chưa xử lý, không phải đánh giá tuyệt đối."
+              data-testid="audit-score-container"
+            >
+              <span className="font-mono font-bold text-xs text-text-main" data-testid="audit-score-value">
+                {`${auditScore}/100`}
+              </span>
+              <Badge tone={scoreTier.tone} className="font-sans text-[10px] px-1.5 py-0.2" data-testid="audit-score-badge">
+                {scoreTier.label}
+              </Badge>
+            </div>
           </div>
 
           <Button

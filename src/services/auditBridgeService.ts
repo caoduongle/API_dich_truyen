@@ -103,3 +103,45 @@ export function mapQaIssueToUnified(
     status: 'pending',
   };
 }
+
+export interface AuditScoreTier {
+  label: 'Xuất sắc' | 'Khá' | 'Cần rà soát lại';
+  tone: 'polish' | 'warning' | 'danger';
+}
+
+/**
+ * Tính điểm chất lượng bản dịch tổng hợp (0 - 100) từ danh sách vấn đề kiểm định.
+ * - Điểm bắt đầu: 100
+ * - Trừ theo severity của mỗi issue có status === 'pending':
+ *   - error: -8 điểm
+ *   - warning: -3 điểm
+ *   - info: -1 điểm
+ * - Không trừ điểm đối với issue đã ở trạng thái 'resolved' hoặc 'ignored'.
+ * - Điểm luôn được giới hạn trong khoảng [0, 100] và làm tròn số nguyên.
+ */
+export function calculateAuditScore(issues: UnifiedAuditIssue[]): number {
+  let score = 100;
+  for (const issue of issues) {
+    if (issue.status !== 'pending') continue;
+    if (issue.severity === 'error') {
+      score -= 8;
+    } else if (issue.severity === 'warning') {
+      score -= 3;
+    } else if (issue.severity === 'info') {
+      score -= 1;
+    }
+  }
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+/**
+ * Trả về phân hạng chất lượng định tính và tone màu Badge tương ứng:
+ * - 90 - 100: "Xuất sắc" (tone: 'polish')
+ * - 70 - 89: "Khá" (tone: 'warning')
+ * - 0 - 69: "Cần rà soát lại" (tone: 'danger')
+ */
+export function getAuditScoreTier(score: number): AuditScoreTier {
+  if (score >= 90) return { label: 'Xuất sắc', tone: 'polish' };
+  if (score >= 70) return { label: 'Khá', tone: 'warning' };
+  return { label: 'Cần rà soát lại', tone: 'danger' };
+}
