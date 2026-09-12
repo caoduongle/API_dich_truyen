@@ -392,5 +392,65 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
       expect(logs.some((l) => l.includes('[Cảnh báo toàn vẹn]'))).toBe(true);
       expect(res.updatedChapter?.rawTranslation).toContain('Bản dịch thô mới đầy đủ');
     });
+
+    it('successfully recovers and completes chapter translation when GĐ1/GĐ2 triggers onSplitRetry for UNTRANSLATED_CHINESE_LEFTOVER', async () => {
+      vi.spyOn(db, 'getChapterFromDB').mockResolvedValue(mockChapter as any);
+
+      const directRawSpy = vi.spyOn(directEngine, 'translateRawDirect').mockImplementation(async (params) => {
+        params.onSplitRetry?.({
+          stage: 'raw',
+          depth: 0,
+          partsCount: 2,
+          reason: 'UNTRANSLATED_CHINESE_LEFTOVER: Bản dịch chứa tỉ lệ chữ Hán bất thường',
+        });
+        return {
+          rawTranslation: 'Bản dịch thô đã cứu nguy thành công qua chia nhỏ thích ứng.',
+          discoveredEntities: [],
+          successKeyIndex: 0,
+        };
+      });
+
+      const directPolishSpy = vi.spyOn(directEngine, 'polishTranslationDirect').mockImplementation(async (params) => {
+        params.onSplitRetry?.({
+          stage: 'polish',
+          depth: 0,
+          partsCount: 2,
+          reason: 'UNTRANSLATED_CHINESE_LEFTOVER: Bản chuốt chứa tỉ lệ chữ Hán bất thường',
+        });
+        return {
+          polishedTranslation: 'Bản chuốt đã cứu nguy thành công qua chia nhỏ thích ứng.',
+          discoveredEntities: [],
+          successKeyIndex: 0,
+        };
+      });
+
+      const logs: string[] = [];
+      const res = await executeSingleChapterTranslation({
+        chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+        glossarySnapshot: [],
+        signal: new AbortController().signal,
+        logPrefix: '[Test-Recover]',
+        startKeyIndex: 0,
+        projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+        apiKeys: ['AQ_USER_KEY_123'],
+        selectedModel: 'gemini-2.5-flash',
+        polishCycles: 1,
+        autoTranslateMode: 'from_scratch',
+        additionalInstructions: '',
+        isExtractionDuringTranslationEnabled: false,
+        enableAiQaCritique: false,
+        enableSegmentTranslation: false,
+        addLog: (msg) => logs.push(msg),
+      });
+
+      expect(res.success).toBe(true);
+      expect(directRawSpy).toHaveBeenCalled();
+      expect(directPolishSpy).toHaveBeenCalled();
+      expect(logs.some((l) => l.includes('[Cứu nguy GĐ1]') && l.includes('Bản dịch sót nhiều chữ Hán'))).toBe(true);
+      expect(logs.some((l) => l.includes('[Cứu nguy GĐ2 Lượt 1]') && l.includes('Bản chuốt văn sót nhiều chữ Hán'))).toBe(true);
+      expect(res.updatedChapter?.status).toBe('completed');
+      expect(res.updatedChapter?.rawTranslation).toContain('đã cứu nguy thành công');
+      expect(res.updatedChapter?.polishedTranslation).toContain('đã cứu nguy thành công');
+    });
   });
 });

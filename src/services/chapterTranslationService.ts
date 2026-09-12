@@ -153,6 +153,17 @@ export async function executeSingleChapterTranslation({
         startKeyIndex: currentKeyIndex,
         enableSegmentTranslation,
         signal,
+        onSplitRetry: (info) => {
+          const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
+            ? 'Bản dịch sót nhiều chữ Hán'
+            : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY')
+            ? 'Vi phạm bộ lọc an toàn'
+            : 'Phản hồi rỗng';
+          addLog(
+            `${logPrefix} [Cứu nguy GĐ1] Phát hiện sự cố (${reasonSummary}). Tự động kích hoạt phân đoạn thích ứng cấp ${info.depth + 1} (chia ${info.partsCount} phần) để dịch lại...`,
+            'warn'
+          );
+        },
       });
     } catch (err: any) {
       const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
@@ -266,6 +277,17 @@ export async function executeSingleChapterTranslation({
         signal,
         roundIndex: j,
         totalRounds: polishCycles,
+        onSplitRetry: (info) => {
+          const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
+            ? 'Bản chuốt văn sót nhiều chữ Hán'
+            : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY')
+            ? 'Vi phạm bộ lọc an toàn'
+            : 'Phản hồi rỗng';
+          addLog(
+            `${logPrefix} [Cứu nguy GĐ2 Lượt ${j}] Phát hiện sự cố (${reasonSummary}). Tự động kích hoạt phân đoạn thích ứng cấp ${info.depth + 1} (chia ${info.partsCount} phần) để chuốt lại...`,
+            'warn'
+          );
+        },
       });
     } catch (err: any) {
       if (err?.name === 'AbortError' || (err instanceof DOMException && err.name === 'AbortError')) {

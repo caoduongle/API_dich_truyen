@@ -251,4 +251,111 @@ describe('src/services/directTranslationEngine.ts', () => {
     expect(res.isPartial).toBe(true);
     expect(res.polishedTranslation).toContain('Chương 1: Tiêu Đề');
   });
+
+  it('recursively splits text and translates when translateRawDirect encounters UNTRANSLATED_CHINESE_LEFTOVER', async () => {
+    let callCount = 0;
+    const retryEvents: any[] = [];
+    const p1 = '楚风站在高山之巅远眺四方，天地广阔无边，令人心旷神怡。';
+    const p2 = '山脚下海浪滔滔，拍打着礁石发出如雷轰鸣，震撼人心。';
+    const p3 = '他深深吸了一口清纯的灵气，眼神逐渐变得坚定起来。';
+    const p4 = '温热的灵流在经脉中流淌，驱散了多日以来的疲惫。';
+    const source = `第一章 初始\n\n${p1}\n\n${p2}\n\n${p3}\n\n${p4}`;
+
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        // First call returns untranslated Chinese text (> 10% Chinese characters), which triggers UNTRANSLATED_CHINESE_LEFTOVER
+        return {
+          text: JSON.stringify({
+            rawTranslation: `Chương 1: Khởi Đầu\n\n${p1}\n\n${p2}\n\n${p3}\n\n${p4}`,
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      if (callCount === 2) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: `Chương 1: Khởi Đầu\n\nĐoạn dịch thô tiếng Việt sạch chữ Hán phần 1.`,
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      // Subsequent split calls succeed with pure Vietnamese translation
+      return {
+        text: JSON.stringify({
+          rawTranslation: `Đoạn dịch thô tiếng Việt sạch chữ Hán phần ${callCount}.`,
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await translateRawDirect({
+      text: source,
+      genre: 'Tiên Hiệp',
+      tone: 'Trang nghiêm',
+      glossary: [],
+      apiKeys: ['KEY_1', 'KEY_2'],
+      onSplitRetry: (info) => {
+        retryEvents.push(info);
+      },
+    });
+
+    expect(callCount).toBeGreaterThan(1);
+    expect(retryEvents.length).toBeGreaterThan(0);
+    expect(retryEvents[0].stage).toBe('raw');
+    expect(retryEvents[0].reason).toContain('UNTRANSLATED_CHINESE_LEFTOVER');
+    expect(res.rawTranslation).toContain('Chương 1: Khởi Đầu');
+    expect(res.rawTranslation).toContain('Đoạn dịch thô tiếng Việt sạch chữ Hán');
+  });
+
+  it('recursively splits text and polishes when polishTranslationDirect encounters UNTRANSLATED_CHINESE_LEFTOVER', async () => {
+    let callCount = 0;
+    const retryEvents: any[] = [];
+    const p1 = 'Sở Phong đứng trên đỉnh núi cao lộng gió nhìn về phương xa, tâm trạng vô cùng trầm mặc trước phong cảnh tráng lệ của đất trời bao la vô tận nơi đây.';
+    const p2 = 'Bên dưới chân núi, sóng biển cuồn cuộn vỗ bờ như sấm rền vang vọng khắp không gian, khiến cho lòng người không khỏi dâng lên cảm giác cô liêu.';
+    const p3 = 'Hắn hít sâu một hơi linh khí thanh thuần, ánh mắt dần trở nên kiên định, bắt đầu vận chuyển huyền công trong cơ thể theo lộ tuyến đã định sẵn.';
+    const p4 = 'Từng đạo linh lưu ấm áp lưu chuyển qua các kinh mạch, xua tan đi sự mệt mỏi sau chuỗi ngày dài bôn ba nơi hoang dã hiểm trở.';
+    const source = `第一章 初始\n\n楚风站在高山之巅远眺四方，天地广阔无边，令人心旷神怡。\n\n山脚下海浪滔滔，拍打着礁石发出如雷轰鸣，震撼人心。\n\n他深深吸了一口清纯的灵气，眼神逐渐变得坚定起来。\n\n温热的灵流在经脉中流淌，驱散了多日以来的疲惫。`;
+    const raw = `Chương 1: Khởi Đầu\n\n${p1}\n\n${p2}\n\n${p3}\n\n${p4}`;
+
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        // First call returns untranslated Chinese text (> 10% Chinese characters), which triggers UNTRANSLATED_CHINESE_LEFTOVER
+        return {
+          text: JSON.stringify({
+            polishedTranslation: `Chương 1: Khởi Đầu\n\n楚风站在高山之巅远眺四方，天地广阔无边，令人心旷神怡。山脚下海浪滔滔，拍打着礁石发出如雷轰鸣，震撼人心。`,
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      // Subsequent split calls succeed with pure Vietnamese polished text
+      return {
+        text: JSON.stringify({
+          polishedTranslation: `Đoạn văn đã chuốt mịn màng thuần Việt không còn chữ Hán phần ${callCount}.`,
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await polishTranslationDirect({
+      sourceText: source,
+      rawTranslation: raw,
+      genre: 'Tiên Hiệp',
+      tone: 'Trang nghiêm',
+      glossary: [],
+      apiKeys: ['KEY_1', 'KEY_2'],
+      model: 'gemini-2.5-flash',
+      onSplitRetry: (info) => {
+        retryEvents.push(info);
+      },
+    });
+
+    expect(callCount).toBeGreaterThan(1);
+    expect(retryEvents.length).toBeGreaterThan(0);
+    expect(retryEvents[0].stage).toBe('polish');
+    expect(retryEvents[0].reason).toContain('UNTRANSLATED_CHINESE_LEFTOVER');
+    expect(res.polishedTranslation).toContain('Chương 1: Khởi Đầu');
+    expect(res.polishedTranslation).toContain('Đoạn văn đã chuốt mịn màng thuần Việt');
+  });
 });

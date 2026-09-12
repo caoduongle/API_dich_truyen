@@ -16,6 +16,13 @@ import {
 import { validateAndSnapBackEntities } from '../lib/sinoNormalize';
 import { GlossaryItem } from '../types';
 
+export interface SplitRetryEventInfo {
+  stage: 'raw' | 'polish';
+  depth: number;
+  partsCount: number;
+  reason: string;
+}
+
 export interface DirectRawTranslationParams {
   text: string;
   genre: string;
@@ -27,6 +34,7 @@ export interface DirectRawTranslationParams {
   description?: string;
   enableSegmentTranslation?: boolean;
   signal?: AbortSignal;
+  onSplitRetry?: (info: SplitRetryEventInfo) => void;
 }
 
 export interface DirectRawTranslationResult {
@@ -52,6 +60,7 @@ export interface DirectPolishTranslationParams {
   roundIndex?: number;
   totalRounds?: number;
   temperature?: number;
+  onSplitRetry?: (info: SplitRetryEventInfo) => void;
 }
 
 export interface DirectPolishTranslationResult {
@@ -88,9 +97,9 @@ export interface DirectQaCritiqueResult {
 }
 
 /**
- * Thực thi dịch thô Giai đoạn 1 trực tiếp từ trình duyệt
+ * Gọi Gemini API đơn lẻ cho 1 khối văn bản dịch thô
  */
-export async function translateRawDirect(
+async function callRawDirectCore(
   params: DirectRawTranslationParams
 ): Promise<DirectRawTranslationResult> {
   const {
@@ -139,35 +148,6 @@ export async function translateRawDirect(
     };
   }
 
-  // Nếu văn bản quá dài (> 2000 token), phân đoạn thích ứng để tránh tràn token hoặc vi phạm filter
-  if (estimateTokenCount(text) > 2000) {
-    const chunks = splitTextAdaptively(text, 2);
-    if (chunks.length > 1) {
-      const translatedChunks: string[] = [];
-      let currentKeyIdx = startKeyIndex;
-      const discoveredEntitiesAll: any[] = [];
-
-      for (const chunk of chunks) {
-        const res = await translateRawDirect({
-          ...params,
-          text: chunk,
-          startKeyIndex: currentKeyIdx,
-        });
-        translatedChunks.push(res.rawTranslation);
-        currentKeyIdx = res.successKeyIndex;
-        if (Array.isArray(res.discoveredEntities)) {
-          discoveredEntitiesAll.push(...res.discoveredEntities);
-        }
-      }
-
-      return {
-        rawTranslation: translatedChunks.join('\n\n'),
-        discoveredEntities: discoveredEntitiesAll,
-        successKeyIndex: currentKeyIdx,
-      };
-    }
-  }
-
   const { systemInstruction, prompt, schema } = buildRawTranslationPayload({
     text,
     genre,
@@ -214,14 +194,134 @@ export async function translateRawDirect(
   };
 }
 
-function isSafetyOrEmptyErrorDirect(err: any): boolean {
+/**
+ * Dịch thô phân đoạn thích ứng đệ quy (Divide & Conquer) khi gặp phản hồi rỗng, bộ lọc an toàn hoặc sót chữ Hán
+ */
+async function rawWithContentSplitDirect(
+  params: DirectRawTranslationParams,
+  depth = 0
+): Promise<DirectRawTranslationResult> {
+  const { text, apiKeys, startKeyIndex = 0, onSplitRetry } = params;
+
+  // Nếu văn bản ban đầu quá dài (> 2000 token) tại depth 0, phân đoạn thích ứng trước
+  if (depth === 0 && estimateTokenCount(text) > 2000) {
+    const chunks = splitTextAdaptively(text, 2);
+    if (chunks.length > 1) {
+      const translatedChunks: string[] = [];
+      let currentKeyIdx = startKeyIndex;
+      const discoveredEntitiesAll: any[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const staggeredKey = Array.isArray(apiKeys) && apiKeys.length > 0
+          ? (currentKeyIdx + i) % apiKeys.length
+          : currentKeyIdx;
+
+        const res = await rawWithContentSplitDirect(
+          {
+            ...params,
+            text: chunk,
+            startKeyIndex: staggeredKey,
+          },
+          depth + 1
+        );
+        translatedChunks.push(res.rawTranslation);
+        currentKeyIdx = res.successKeyIndex;
+        if (Array.isArray(res.discoveredEntities)) {
+          discoveredEntitiesAll.push(...res.discoveredEntities);
+        }
+      }
+
+      return {
+        rawTranslation: separateChapterTitleAndBody(translatedChunks.join('\n\n').trim()),
+        discoveredEntities: discoveredEntitiesAll,
+        successKeyIndex: currentKeyIdx,
+      };
+    }
+  }
+
+  try {
+    return await callRawDirectCore(params);
+  } catch (error: any) {
+    if (!isAdaptiveSplitRetryableError(error)) {
+      throw error;
+    }
+
+    if (depth >= 2) {
+      // Đạt giới hạn đệ quy tối đa, ném lỗi chẩn đoán
+      throw error;
+    }
+
+    const partsCount = depth >= 1 ? 3 : 2;
+    const chunks = splitTextAdaptively(text, partsCount);
+
+    if (chunks.length <= 1) {
+      throw error;
+    }
+
+    onSplitRetry?.({
+      stage: 'raw',
+      depth,
+      partsCount: chunks.length,
+      reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
+    });
+
+    const translatedChunks: string[] = [];
+    let currentKeyIdx = startKeyIndex;
+    const discoveredEntitiesAll: any[] = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
+        ? (currentKeyIdx + i) % apiKeys.length
+        : currentKeyIdx;
+
+      const res = await rawWithContentSplitDirect(
+        {
+          ...params,
+          text: chunk,
+          startKeyIndex: staggeredKeyIndex,
+        },
+        depth + 1
+      );
+
+      translatedChunks.push(res.rawTranslation);
+      currentKeyIdx = res.successKeyIndex;
+      if (Array.isArray(res.discoveredEntities)) {
+        discoveredEntitiesAll.push(...res.discoveredEntities);
+      }
+    }
+
+    return {
+      rawTranslation: separateChapterTitleAndBody(translatedChunks.join('\n\n').trim()),
+      discoveredEntities: discoveredEntitiesAll,
+      successKeyIndex: currentKeyIdx,
+    };
+  }
+}
+
+/**
+ * Thực thi dịch thô Giai đoạn 1 trực tiếp từ trình duyệt
+ */
+export async function translateRawDirect(
+  params: DirectRawTranslationParams
+): Promise<DirectRawTranslationResult> {
+  return rawWithContentSplitDirect(params, 0);
+}
+
+export function isAdaptiveSplitRetryableError(err: any): boolean {
   const msg = err?.message || '';
   return (
     msg.includes('bộ lọc an toàn') ||
     msg.includes('phản hồi rỗng') ||
     msg.includes('SAFETY') ||
-    msg.includes('kết quả trả về trống')
+    msg.includes('kết quả trả về trống') ||
+    msg.includes('UNTRANSLATED_CHINESE_LEFTOVER')
   );
+}
+
+function isSafetyOrEmptyErrorDirect(err: any): boolean {
+  return isAdaptiveSplitRetryableError(err);
 }
 
 /**
@@ -315,7 +415,7 @@ async function polishWithContentSplitDirect(
   try {
     return await callPolishDirectCore(params);
   } catch (error: any) {
-    if (!isSafetyOrEmptyErrorDirect(error)) {
+    if (!isAdaptiveSplitRetryableError(error)) {
       throw error;
     }
 
@@ -341,6 +441,13 @@ async function polishWithContentSplitDirect(
       };
     }
 
+    params.onSplitRetry?.({
+      stage: 'polish',
+      depth,
+      partsCount: sourceParts.length,
+      reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
+    });
+
     const results = await Promise.all(
       sourceParts.map(async (srcPart, index) => {
         const matchingRawPart = rawParts[index] || rawParts[rawParts.length - 1] || '';
@@ -358,7 +465,7 @@ async function polishWithContentSplitDirect(
             depth + 1
           );
         } catch (partErr: any) {
-          if (isSafetyOrEmptyErrorDirect(partErr)) {
+          if (isAdaptiveSplitRetryableError(partErr)) {
             return {
               polishedTranslation: matchingRawPart,
               discoveredEntities: [],
