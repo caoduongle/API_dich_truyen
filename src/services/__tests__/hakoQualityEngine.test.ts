@@ -103,6 +103,79 @@ describe('hakoQualityEngine Unit Tests', () => {
       const issues = runHeuristicQualityScan(chapter);
       expect(issues.length).toBe(0);
     });
+
+    it('detects severe truncation when Vietnamese length is < 35% of Chinese raw text', () => {
+      const chapter = {
+        chapterId: 'c138',
+        title: 'Chương 138: Đâm thẳng vào hạ bộ',
+        chapterNumber: 138,
+        // 80 words Vietnamese text
+        vietnameseContent:
+          'Kiểm tra xem trên người đối phương có thứ gì đáng giá hay không vốn là thói quen mỗi khi Tô Bạch ra tay sát hại kẻ khác, nhưng điều khiến hắn có chút thất vọng là, trên người vị luyện khí giả này ngoài một thanh phi kiếm ra thì chẳng còn gì khác; ngoại trừ bộ quần áo đang mặc, đến cả một món trang sức tùy thân cũng không có.',
+        // 2000 Chinese characters
+        rawChineseContent: '第一百三十八章 捅向裆部\n' + '检查对方身上是否有值钱的东西，是苏白每次杀人后的习惯...'.repeat(70),
+        translationType: 'polished' as const,
+      };
+
+      const issues = runHeuristicQualityScan(chapter);
+      const omissionIssues = issues.filter((i) => i.category === 'omission');
+      expect(omissionIssues.length).toBe(1);
+      expect(omissionIssues[0].severity).toBe('critical');
+      expect(omissionIssues[0].explanation).toContain('thiếu hụt nội dung nghiêm trọng');
+      expect(omissionIssues[0].suggestedFix).toContain('Dịch lại');
+    });
+
+    it('detects structural paragraph collapse when raw has >= 3 paragraphs but translation has only 1 paragraph', () => {
+      const chapter = {
+        chapterId: 'c139',
+        title: 'Chương 139',
+        chapterNumber: 139,
+        vietnameseContent: 'Đoạn dịch duy nhất nhưng bản gốc có rất nhiều đoạn văn khác nhau.',
+        rawChineseContent:
+          '第一段中文文本内容，这里详细描述了主人公进入山谷的经过，四周云雾缭绕，极为神秘莫测...\n\n' +
+          '第二段中文文本内容，突然前方出现了一道奇异的光芒，伴随着阵阵低沉的兽吼声响彻天地...\n\n' +
+          '第三段中文文本内容，他立刻拔出身后的长剑，真气运转全身，警惕地注视着四周的一切动静...\n\n' +
+          '第四段中文文本内容，战斗一触即发，狂风呼啸，空气中弥漫着浓厚而压抑的肃杀紧张气息。',
+        translationType: 'polished' as const,
+      };
+
+      const issues = runHeuristicQualityScan(chapter);
+      const omissionIssues = issues.filter((i) => i.category === 'omission');
+      expect(omissionIssues.length).toBe(1);
+      expect(omissionIssues[0].severity).toBe('critical');
+      expect(omissionIssues[0].explanation).toContain('cấu trúc đoạn văn bất thường');
+    });
+
+    it('detects abnormally short chapter (< 150 words) when raw is absent but marked as polished', () => {
+      const chapter = {
+        chapterId: 'c140',
+        title: 'Chương 140',
+        chapterNumber: 140,
+        vietnameseContent: 'Chỉ có một câu dịch ngắn ngủi trong toàn bộ chương.',
+        translationType: 'polished' as const,
+      };
+
+      const issues = runHeuristicQualityScan(chapter);
+      const omissionIssues = issues.filter((i) => i.category === 'omission');
+      expect(omissionIssues.length).toBe(1);
+      expect(omissionIssues[0].severity).toBe('major');
+      expect(omissionIssues[0].explanation).toContain('Nghi vấn thiếu hụt nội dung');
+    });
+
+    it('does not flag legitimately short chapters when raw source text is <= 150 characters', () => {
+      const chapter = {
+        chapterId: 'c141',
+        title: 'Thông báo',
+        chapterNumber: 141,
+        vietnameseContent: 'Tác giả có lời: Hôm nay nghỉ một ngày để dưỡng bệnh, mai sẽ bù hai chương.',
+        rawChineseContent: '作者有话说：今天请假一天，明天补更两章。',
+        translationType: 'polished' as const,
+      };
+
+      const issues = runHeuristicQualityScan(chapter);
+      const omissionIssues = issues.filter((i) => i.category === 'omission');
+      expect(omissionIssues.length).toBe(0);
+    });
   });
 
   describe('generateQualityReport', () => {
@@ -374,6 +447,45 @@ describe('hakoQualityEngine Unit Tests', () => {
 
       // Both chapters were called
       expect(spy).toHaveBeenCalledTimes(2);
+    });
+
+    it('preserves AI omission issue when Gemini returns omission without vietnameseSnippet', async () => {
+      const chapters = [
+        {
+          chapterId: 'c138',
+          title: 'Chương 138',
+          chapterNumber: 138,
+          vietnameseContent: 'Kiểm tra xem trên người đối phương có thứ gì đáng giá hay không...',
+          rawChineseContent: '第一百三十八章 捅向裆部 检查对方身上是否有值钱的东西...',
+        },
+      ];
+
+      vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValueOnce({
+        text: JSON.stringify({
+          issues: [
+            {
+              category: 'omission',
+              severity: 'critical',
+              rawSnippet: '第二段未翻译的原始内容...',
+              explanation: 'Bản dịch kết thúc đột ngột, thiếu hơn 80% phần sau của chương.',
+              suggestedFix: 'Dịch bổ sung phần còn lại.',
+            },
+          ],
+        }),
+        successKeyIndex: 0,
+      });
+
+      const issues = await runAiQualityScan({
+        apiKeys: ['KEY_VALID'],
+        projectTitle: 'Đại Phát Thanh Kinh Dị',
+        chapters,
+      });
+
+      expect(issues.length).toBe(1);
+      expect(issues[0].category).toBe('omission');
+      expect(issues[0].severity).toBe('critical');
+      expect(issues[0].rawSnippet).toContain('第二段未翻译的原始内容');
+      expect(issues[0].vietnameseSnippet).toBeTruthy();
     });
   });
 

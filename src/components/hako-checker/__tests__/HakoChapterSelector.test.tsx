@@ -564,4 +564,74 @@ describe('HakoChapterSelector: Select Next Batch (12 chương tiếp theo)', () 
       expect(onSelectRange).toHaveBeenCalledWith(['chap-13', 'chap-14', 'chap-15']);
     });
   });
+
+  describe('User Story 2: Raw Chinese Text Badge and Hydration', () => {
+    it('renders "Đã có Raw" when chapter has rawChineseContent', () => {
+      const chaptersWithRaw: Record<string, ProjectReviewChapter> = {
+        'chap-1': {
+          chapterId: 'chap-1',
+          title: 'Chương 1',
+          chapterNumber: 1,
+          translationType: 'polished',
+          wordCount: 1500,
+          status: 'done',
+          rawChineseContent: '这是第一章原始中文文本内容...',
+        },
+      };
+
+      const html = normalizeHtml(
+        renderToString(
+          <HakoChapterSelector
+            projects={mockProjects}
+            selectedProjectId="proj-1"
+            onSelectProject={vi.fn()}
+            selectedChapterIds={['chap-1']}
+            chapters={chaptersWithRaw}
+            onToggleChapter={vi.fn()}
+            onSelectRange={vi.fn()}
+            onClearSelection={vi.fn()}
+            onUpdateRawText={vi.fn()}
+            onStartAnalysis={vi.fn()}
+            isAnalyzing={false}
+          />
+        )
+      );
+
+      expect(html).toContain('Đã có Raw');
+      expect(html).not.toContain('+ Thêm Raw');
+    });
+
+    it('renders "+ Thêm Raw" when chapter lacks rawChineseContent', () => {
+      const chaptersWithoutRaw: Record<string, ProjectReviewChapter> = {
+        'chap-1': {
+          chapterId: 'chap-1',
+          title: 'Chương 1',
+          chapterNumber: 1,
+          translationType: 'polished',
+          wordCount: 1500,
+          status: 'done',
+        },
+      };
+
+      const html = normalizeHtml(
+        renderToString(
+          <HakoChapterSelector
+            projects={mockProjects}
+            selectedProjectId="proj-1"
+            onSelectProject={vi.fn()}
+            selectedChapterIds={['chap-1']}
+            chapters={chaptersWithoutRaw}
+            onToggleChapter={vi.fn()}
+            onSelectRange={vi.fn()}
+            onClearSelection={vi.fn()}
+            onUpdateRawText={vi.fn()}
+            onStartAnalysis={vi.fn()}
+            isAnalyzing={false}
+          />
+        )
+      );
+
+      expect(html).toContain('+ Thêm Raw');
+    });
+  });
 });

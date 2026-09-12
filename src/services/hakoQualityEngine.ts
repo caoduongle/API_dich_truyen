@@ -179,16 +179,20 @@ export function generateIssueId(): string {
   return `issue-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 }
 
-/**
- * 1. HEURISTIC SCAN: Quét quy tắc nhanh trên văn bản tiếng Việt
- */
-export function runHeuristicQualityScan(chapter: {
+export interface HeuristicQualityScanInput {
   chapterId?: string;
   url?: string;
   title: string;
   chapterNumber: number;
   vietnameseContent: string;
-}): QualityIssue[] {
+  rawChineseContent?: string;
+  translationType?: 'polished' | 'raw' | 'none';
+}
+
+/**
+ * 1. HEURISTIC SCAN: Quét quy tắc nhanh trên văn bản tiếng Việt và đối chiếu độ dài với raw
+ */
+export function runHeuristicQualityScan(chapter: HeuristicQualityScanInput): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const text = chapter.vietnameseContent || '';
   if (!text.trim()) return issues;
@@ -267,6 +271,80 @@ export function runHeuristicQualityScan(chapter: {
     }
   });
 
+  // --- Rule 4: Phát hiện chương bị cắt cụt / thiếu hụt nội dung nghiêm trọng (Omission / Truncation) ---
+  const cleanVi = text.trim();
+  const wordCount = cleanVi ? cleanVi.split(/\s+/).filter(Boolean).length : 0;
+  const rawText = (chapter.rawChineseContent || '').trim();
+
+  if (rawText && rawText.length > 150) {
+    const rawParagraphs = rawText.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+    const viParagraphs = paragraphs.length;
+    const ratio = (cleanVi.length / rawText.length) * 100;
+
+    // Trường hợp 4A: Bản dịch quá ngắn so với raw (< 35% độ dài raw)
+    if (cleanVi.length < rawText.length * 0.35) {
+      const lastSentence = paragraphs[paragraphs.length - 1] || cleanVi;
+      const viSnippet = lastSentence.length > 200 ? lastSentence.slice(-200) : lastSentence;
+      const rawCutIndex = Math.floor(rawText.length * 0.35);
+      const rawSnippet = rawText.slice(rawCutIndex, rawCutIndex + 200);
+
+      issues.push({
+        id: generateIssueId(),
+        chapterId,
+        chapterTitle: chapter.title,
+        chapterNumber: chapter.chapterNumber,
+        category: 'omission',
+        severity: 'critical',
+        vietnameseSnippet: viSnippet,
+        rawSnippet: rawSnippet ? `${rawSnippet}...` : undefined,
+        explanation: `Bản dịch bị thiếu hụt nội dung nghiêm trọng so với nguyên tác: Độ dài bản dịch chỉ có ${wordCount} từ (~${cleanVi.length} ký tự) so với ${rawText.length} ký tự Hán của bản gốc (tỷ lệ chỉ đạt ${ratio.toFixed(1)}%). Có dấu hiệu bị cắt cụt giữa chừng do lỗi AI hoặc gián đoạn mạng.`,
+        suggestedFix: 'Dịch lại toàn bộ chương từ bản gốc hoặc dịch bổ sung các phần raw bị bỏ sót.',
+        decision: 'pending',
+        detectedBy: 'heuristic',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    // Trường hợp 4B: Bản gốc nhiều đoạn (>= 3) nhưng bản dịch chỉ có 1 đoạn và độ dài dưới 50%
+    else if (rawParagraphs.length >= 3 && viParagraphs <= 1 && cleanVi.length < rawText.length * 0.5) {
+      const lastSentence = paragraphs[0] || cleanVi;
+      const viSnippet = lastSentence.length > 200 ? lastSentence.slice(-200) : lastSentence;
+      const rawSnippet = rawParagraphs[1] ? rawParagraphs[1].slice(0, 200) : rawText.slice(0, 200);
+
+      issues.push({
+        id: generateIssueId(),
+        chapterId,
+        chapterTitle: chapter.title,
+        chapterNumber: chapter.chapterNumber,
+        category: 'omission',
+        severity: 'critical',
+        vietnameseSnippet: viSnippet,
+        rawSnippet: rawSnippet ? `${rawSnippet}...` : undefined,
+        explanation: `Bản dịch có cấu trúc đoạn văn bất thường: Bản gốc có ${rawParagraphs.length} đoạn văn nhưng bản dịch chỉ có đúng 1 đoạn duy nhất và độ dài chưa tới 50% bản gốc (${wordCount} từ so với ${rawText.length} chữ Hán, tỷ lệ ${ratio.toFixed(1)}%).`,
+        suggestedFix: 'Rà soát và dịch bổ sung các đoạn văn còn thiếu.',
+        decision: 'pending',
+        detectedBy: 'heuristic',
+        createdAt: new Date().toISOString(),
+      });
+    }
+  } else if (!rawText && (chapter.translationType === 'polished' || chapter.translationType === 'raw') && wordCount < 150) {
+    // Trường hợp 4C: Không có raw tiếng Trung nhưng chương đã dịch có độ dài bất thường quá ngắn (< 150 từ)
+    const viSnippet = paragraphs[paragraphs.length - 1] || cleanVi;
+    issues.push({
+      id: generateIssueId(),
+      chapterId,
+      chapterTitle: chapter.title,
+      chapterNumber: chapter.chapterNumber,
+      category: 'omission',
+      severity: 'major',
+      vietnameseSnippet: viSnippet.length > 200 ? viSnippet.slice(-200) : viSnippet,
+      explanation: `Nghi vấn thiếu hụt nội dung: Chương này đã có bản dịch (${chapter.translationType === 'polished' ? 'đã biên tập' : 'đã dịch thô'}) nhưng chỉ có ${wordCount} từ, quá ngắn so với độ dài thông thường của một chương tiểu thuyết (thường từ 800 - 3.000 từ). Có thể bản dịch đã bị kết thúc sớm hoặc lỗi cắt cụt.`,
+      suggestedFix: 'Kiểm tra lại xem bản dịch đã hoàn chỉnh toàn bộ chương chưa, hoặc nạp raw tiếng Trung để đối chiếu chính xác.',
+      decision: 'pending',
+      detectedBy: 'heuristic',
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   return issues;
 }
 
@@ -337,13 +415,13 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
       `4. "repetition": Đoạn văn lặp ý nghiêm trọng hoặc đăng nhầm văn bản.\n` +
       (hasRaw
         ? `5. "mistranslation": Dịch sai lệch nghĩa gốc tiếng Trung một cách nghiêm trọng.\n` +
-          `6. "omission": Bỏ sót câu, đoạn có ý nghĩa quan trọng trong raw tiếng Trung.\n` +
+          `6. "omission": Bỏ sót câu, đoạn hoặc bản dịch bị cắt cụt/kết thúc dở dang so với raw tiếng Trung. ĐẶC BIỆT: Nếu raw tiếng Trung còn nhiều nội dung mà bản dịch đã kết thúc, BẮT BUỘC phải tạo lỗi "omission" mức "critical" và trích dẫn phần raw bị bỏ sót trong "rawSnippet".\n` +
           `7. "hallucination": Bịa thêm nội dung dài không hề có trong raw tiếng Trung.\n`
         : '') +
       `8. "other": Lỗi hành văn lủng củng nghiêm trọng hoặc dùng sai từ ngữ Hán-Việt.\n\n` +
       `Quy định đánh giá:\n` +
-      `- severity: "critical" (lỗi rất nặng gây hiểu sai cốt truyện), "major" (lỗi lớn làm giảm trải nghiệm đọc), "minor" (lỗi nhỏ), "warning" (nghi vấn cần xem xét).\n` +
-      `- Chỉ đưa ra những lỗi có bằng chứng xác đáng, trích dẫn chính xác đoạn văn chứa lỗi trong "vietnameseSnippet" (và "rawSnippet" nếu có đối chiếu raw).\n` +
+      `- severity: "critical" (lỗi rất nặng gây hiểu sai cốt truyện hoặc thiếu hụt nội dung lớn), "major" (lỗi lớn làm giảm trải nghiệm đọc), "minor" (lỗi nhỏ), "warning" (nghi vấn cần xem xét).\n` +
+      `- Chỉ đưa ra những lỗi có bằng chứng xác đáng, trích dẫn chính xác đoạn văn chứa lỗi trong "vietnameseSnippet" (và "rawSnippet" nếu có đối chiếu raw). Với lỗi omission do thiếu đoạn, trích dẫn câu cuối của bản dịch làm mốc.\n` +
       `- Không bịa đặt lỗi nếu văn bản trôi chảy và chuẩn xác.`;
 
     const schema = {
@@ -377,7 +455,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
               explanation: { type: 'string' },
               suggestedFix: { type: 'string' },
             },
-            required: ['category', 'severity', 'vietnameseSnippet', 'explanation'],
+            required: ['category', 'severity', 'explanation'],
           },
         },
       },
@@ -405,7 +483,13 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
       const rawIssues = Array.isArray(parsed?.issues) ? parsed.issues : [];
 
       for (const item of rawIssues) {
-        if (!item.vietnameseSnippet || !item.explanation) continue;
+        if (!item.explanation) continue;
+        const hasViSnippet = typeof item.vietnameseSnippet === 'string' && item.vietnameseSnippet.trim().length > 0;
+        if (!hasViSnippet && item.category !== 'omission') continue;
+
+        const viSnippet = hasViSnippet
+          ? String(item.vietnameseSnippet).trim()
+          : (chapter.vietnameseContent.trim().slice(-150) || 'Đoạn kết thúc bản dịch');
 
         allAiIssues.push({
           id: generateIssueId(),
@@ -414,7 +498,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
           chapterNumber: chapter.chapterNumber,
           category: (item.category as QualityIssueCategory) || 'other',
           severity: (item.severity as QualityIssueSeverity) || 'major',
-          vietnameseSnippet: String(item.vietnameseSnippet).trim(),
+          vietnameseSnippet: viSnippet,
           rawSnippet: item.rawSnippet ? String(item.rawSnippet).trim() : undefined,
           explanation: String(item.explanation).trim(),
           suggestedFix: item.suggestedFix ? String(item.suggestedFix).trim() : undefined,

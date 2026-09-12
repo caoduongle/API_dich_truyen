@@ -169,6 +169,7 @@ export function HakoCheckerWorkspace({
             ...updatedChaptersRecord[chData.chapterId],
             status: 'analyzing',
             wordCount: chData.wordCount,
+            rawChineseContent: chData.rawChineseContent,
           };
         }
 
@@ -185,6 +186,8 @@ export function HakoCheckerWorkspace({
             title: chData.title,
             chapterNumber: chData.chapterNumber,
             vietnameseContent: chData.vietnameseContent,
+            rawChineseContent: chData.rawChineseContent,
+            translationType: chData.translationType,
           });
           allDetectedIssues.push(...heuristicIssues);
         }
@@ -229,6 +232,7 @@ export function HakoCheckerWorkspace({
             ...updatedChaptersRecord[chData.chapterId],
             status: 'done',
             wordCount: chData.wordCount,
+            rawChineseContent: chData.rawChineseContent,
           };
         }
 

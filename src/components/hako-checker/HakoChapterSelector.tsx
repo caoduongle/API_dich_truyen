@@ -31,6 +31,7 @@ import { cn } from '../../lib/cn';
 import { useVirtualList } from '../../hooks/useVirtualList';
 import { localQuotaTracker } from '../../services/localQuotaTracker';
 import { migrateAndLoadApiKeys } from '../../hooks/useAIConfig';
+import { getChapterFromDB } from '../../services/db';
 
 export interface HakoChapterSelectorProps {
   projects: StoryProject[];
@@ -182,6 +183,51 @@ export function HakoChapterSelector({
   }, [selectedChapterIds.length, effectiveApiKeys]);
   // Trạng thái modal chỉnh sửa raw tiếng Trung cho một chapterId
   const [editingRawChapterId, setEditingRawChapterId] = useState<string | null>(null);
+  const checkedRawIdsRef = useRef<Set<string>>(new Set());
+
+  // Tự động nạp sourceText từ IndexedDB cho các chương được chọn nếu chưa có raw
+  useEffect(() => {
+    if (!selectedChapterIds || selectedChapterIds.length === 0) return;
+    let isMounted = true;
+    selectedChapterIds.forEach((id) => {
+      const idStr = String(id);
+      if (checkedRawIdsRef.current.has(idStr)) return;
+      checkedRawIdsRef.current.add(idStr);
+
+      const ch = chapters[idStr];
+      if (!ch?.rawChineseContent || !ch.rawChineseContent.trim()) {
+        getChapterFromDB(idStr)
+          .then((fullChap) => {
+            if (isMounted && fullChap?.sourceText?.trim()) {
+              onUpdateRawText(idStr, fullChap.sourceText.trim());
+            }
+          })
+          .catch((err) => {
+            console.warn(`[HakoChapterSelector] Lỗi khi nạp sourceText chương ${idStr}:`, err);
+          });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedChapterIds, chapters, onUpdateRawText]);
+
+  // Xử lý mở modal chỉnh sửa raw và tự động nạp từ IndexedDB nếu chưa có
+  const handleOpenRawModal = async (chapterIdStr: string) => {
+    setEditingRawChapterId(chapterIdStr);
+    const existingRaw = chapters[chapterIdStr]?.rawChineseContent;
+    if (!existingRaw || !existingRaw.trim()) {
+      try {
+        const fullChap = await getChapterFromDB(chapterIdStr);
+        if (fullChap?.sourceText?.trim()) {
+          onUpdateRawText(chapterIdStr, fullChap.sourceText.trim());
+        }
+      } catch (err) {
+        console.warn(`[HakoChapterSelector] Lỗi khi nạp sourceText cho modal chương ${chapterIdStr}:`, err);
+      }
+    }
+  };
 
   // Trạng thái chọn theo khoảng chương (from ... to ...)
   const [fromChapterInput, setFromChapterInput] = useState<string>('');
@@ -392,7 +438,7 @@ export function HakoChapterSelector({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setEditingRawChapterId(chapterIdStr);
+                handleOpenRawModal(chapterIdStr);
               }}
               title={
                 hasRaw
