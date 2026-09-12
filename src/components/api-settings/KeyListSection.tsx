@@ -51,7 +51,7 @@ export function KeyListSection({
             const isRevealed = revealedKeys.has(idx);
             return (
               <div key={idx} className="flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-1 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 bg-ink">
+                <div className="flex-1 flex items-center gap-1 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 bg-ink focus-within:ring-2 focus-within:ring-polish/60 focus-within:border-polish">
                   <span className="text-[10px] font-bold text-text-muted shrink-0 w-5 text-center">
                     {idx + 1}
                   </span>
@@ -66,7 +66,7 @@ export function KeyListSection({
                 <button
                   type="button"
                   onClick={() => toggleReveal(idx)}
-                  className="text-text-muted hover:text-text-main p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer shrink-0"
+                  className="text-text-muted hover:text-text-main p-1.5 rounded-[2px] hover:bg-parchment-2 transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-polish/60"
                   title={isRevealed ? 'Ẩn key' : 'Hiện key'}
                 >
                   {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -74,7 +74,7 @@ export function KeyListSection({
                 <button
                   type="button"
                   onClick={() => onDeleteKeyIndex(idx)}
-                  className="text-text-muted hover:text-polish p-1.5 rounded-[2px] hover:bg-polish/10 transition-colors cursor-pointer shrink-0"
+                  className="text-text-muted hover:text-polish p-1.5 rounded-[2px] hover:bg-polish/10 transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-polish/60"
                   title="Xóa key này"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -109,6 +109,9 @@ export function KeyListSection({
 
       <p className="text-[11px] text-text-muted leading-relaxed">
         Hệ thống tự động gom nhóm khóa theo Project / Quota Group và quản lý hạn ngạch RPM/TPM độc lập. Thêm nhiều khóa thuộc các dự án khác nhau để mở rộng dung lượng dịch.
+      </p>
+      <p className="text-[11px] text-text-muted leading-relaxed border-t border-parchment-2/50 pt-2">
+        💡 <strong className="text-text-main">Gợi ý quản lý chi phí:</strong> Bạn nên chủ động thiết lập <span className="font-semibold text-text-main">Quota Limits &amp; Billing Alerts</span> trên chính Google Cloud Console của mình để kiểm soát hạn mức chi tiêu an toàn cho từng API Key cá nhân.
       </p>
     </div>
   );

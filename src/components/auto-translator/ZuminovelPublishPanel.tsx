@@ -126,7 +126,7 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
       <div className="space-y-1.5">
         <label className="text-xs font-bold text-text-main uppercase tracking-wider">API Key ZumiNovel</label>
         <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-1 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 bg-ink">
+          <div className="flex-1 flex items-center gap-1 border border-parchment-2 rounded-[2px] px-2.5 py-1.5 bg-ink focus-within:ring-2 focus-within:ring-polish/60 focus-within:border-polish">
             <input
               type={revealKey ? 'text' : 'password'}
               value={apiKey}
@@ -134,7 +134,7 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
               placeholder="zn_..."
               className="flex-1 bg-transparent text-xs text-text-main focus:outline-none font-mono"
             />
-            <button type="button" onClick={() => setRevealKey((v) => !v)} className="text-text-muted hover:text-text-main shrink-0" aria-label="Hiện/ẩn API Key">
+            <button type="button" onClick={() => setRevealKey((v) => !v)} className="text-text-muted hover:text-text-main shrink-0 p-0.5 rounded-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-polish/60" aria-label="Hiện/ẩn API Key">
               {revealKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             </button>
           </div>
@@ -143,10 +143,10 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
           </Button>
         </div>
         {isKeyValid === true && (
-          <p className="text-[11px] text-emerald-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Key hợp lệ — tìm thấy {novels.length} truyện sở hữu.</p>
+          <p className="text-[11px] text-success flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Key hợp lệ — tìm thấy {novels.length} truyện sở hữu.</p>
         )}
         {isKeyValid === false && (
-          <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Key không hợp lệ hoặc chưa kết nối được — xem log bên dưới.</p>
+          <p className="text-[11px] text-danger flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Key không hợp lệ hoặc chưa kết nối được — xem log bên dưới.</p>
         )}
       </div>
 
@@ -158,7 +158,7 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
             <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
               <Link2 className="w-3.5 h-3.5 text-polish" /> {project.zuminovelNovelTitle || project.zuminovelNovelSlug || project.zuminovelNovelId}
             </span>
-            <button type="button" onClick={handleUnlinkNovel} className="text-[10px] font-bold text-text-muted hover:text-red-500 flex items-center gap-1">
+            <button type="button" onClick={handleUnlinkNovel} className="text-[10px] font-bold text-text-muted hover:text-danger flex items-center gap-1 rounded-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-polish/60 p-0.5">
               <Unlink className="w-3 h-3" /> Đổi truyện khác
             </button>
           </div>
@@ -232,8 +232,8 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
 
         <div className="flex items-center gap-3 text-[10px] font-bold pt-1">
           <span className="flex items-center gap-1 text-text-muted"><CircleDashed className="w-3 h-3" /> {counts.never_published} chưa đăng</span>
-          <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-3 h-3" /> {counts.synced} đã đồng bộ</span>
-          <span className="flex items-center gap-1 text-red-500"><AlertCircle className="w-3 h-3" /> {counts.error} lỗi</span>
+          <span className="flex items-center gap-1 text-success"><CheckCircle2 className="w-3 h-3" /> {counts.synced} đã đồng bộ</span>
+          <span className="flex items-center gap-1 text-danger"><AlertCircle className="w-3 h-3" /> {counts.error} lỗi</span>
         </div>
       </div>
 
@@ -242,7 +242,7 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
         <button
           type="button"
           onClick={() => setIsVIP((v) => !v)}
-          className={`py-1.5 px-2 rounded-[2px] text-xs font-bold border cursor-pointer ${isVIP ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}
+          className={`py-1.5 px-2 rounded-[2px] text-xs font-bold border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-polish/60 ${isVIP ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}
         >
           {isVIP ? 'Chương VIP (thu phí)' : 'Chương miễn phí'}
         </button>
@@ -253,7 +253,7 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
           value={price}
           onChange={(e) => setPrice(Math.max(0, Number(e.target.value)))}
           placeholder="Giá (VND/Zumi)"
-          className="w-full text-center text-xs font-bold border border-parchment-2 rounded-[2px] bg-ink py-1.5 text-text-main focus:outline-none focus:border-polish disabled:opacity-40"
+          className="w-full text-center text-xs font-bold border border-parchment-2 rounded-[2px] bg-ink py-1.5 text-text-main focus:outline-none focus:border-polish focus-visible:ring-2 focus-visible:ring-polish/60 disabled:opacity-40"
         />
       </div>
 
@@ -290,9 +290,9 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
               >
                 <span className="text-xs text-text-main truncate flex items-center gap-1.5">
                   {meta.zuminovelSyncStatus === 'error' ? (
-                    <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
+                    <AlertCircle className="w-3 h-3 text-danger shrink-0" />
                   ) : (
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="w-3 h-3 text-success shrink-0" />
                   )}
                   {meta.title}
                 </span>
@@ -301,7 +301,7 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
                   onClick={() => handleDeleteChapter(meta.id)}
                   disabled={deletingChapterId === meta.id}
                   aria-label={`Xoá "${meta.title}" khỏi ZumiNovel`}
-                  className="shrink-0 text-text-muted hover:text-red-500 disabled:opacity-40 p-1"
+                  className="shrink-0 text-text-muted hover:text-danger disabled:opacity-40 p-1 rounded-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-polish/60"
                 >
                   {deletingChapterId === meta.id ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -361,10 +361,10 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
               <button
                 type="button"
                 onClick={() => copyToClipboard(uploadResult.url, 'url')}
-                className="shrink-0 text-text-muted hover:text-polish p-1"
+                className="shrink-0 text-text-muted hover:text-polish p-1 rounded-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-polish/60"
                 aria-label="Sao chép URL ảnh"
               >
-                {copiedField === 'url' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedField === 'url' ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
             </div>
             <div className="flex items-center justify-between gap-2">
@@ -372,10 +372,10 @@ export const ZuminovelPublishPanel = React.memo(function ZuminovelPublishPanel({
               <button
                 type="button"
                 onClick={() => copyToClipboard(`<img src="${uploadResult.url}" alt="" />`, 'img')}
-                className="shrink-0 text-text-muted hover:text-polish p-1"
+                className="shrink-0 text-text-muted hover:text-polish p-1 rounded-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-polish/60"
                 aria-label="Sao chép thẻ img"
               >
-                {copiedField === 'img' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedField === 'img' ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
             </div>
           </div>

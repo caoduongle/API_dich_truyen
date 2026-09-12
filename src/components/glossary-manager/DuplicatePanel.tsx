@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { Link2, X, Check, Search, Trash2, BookOpen } from 'lucide-react';
+import { Link2, X, Check, Search, Trash2, BookOpen, CheckCircle2 } from 'lucide-react';
 import { GlossaryItem } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { EmptyState } from '../ui/EmptyState';
 
 import { DuplicateGroupEdit } from '../../types/glossary';
 export type { DuplicateGroupEdit };
@@ -82,7 +83,9 @@ const DuplicateGroupCard = React.memo(function DuplicateGroupCard({
               {item.origin === 'scanned' && (
                 <div className="space-y-1.5">
                   <button
+                    type="button"
                     onClick={() => toggleContext(item.id)}
+                    aria-expanded={expandedContextIds.has(item.id)}
                     className="flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-950/30 border border-amber-800/40 rounded-[2px] px-2.5 py-1.5 hover:bg-amber-900/40 transition-colors cursor-pointer"
                   >
                     <Search className="w-3 h-3" />
@@ -242,9 +245,12 @@ export const DuplicatePanel = React.memo(function DuplicatePanel({
       </div>
 
       {duplicateGroups.length === 0 ? (
-        <div className="text-center py-6 text-xs text-text-muted">
-          ✓ Tuyệt vời! Không phát hiện từ nào bị trùng lặp trong từ điển hiện tại.
-        </div>
+        <EmptyState
+          icon={<CheckCircle2 className="w-8 h-8 text-success" />}
+          title="Không có từ nào trùng lặp"
+          description="Từ điển hiện tại đã được rà soát và không phát hiện thuật ngữ hoặc danh xưng bị trùng nhau."
+          className="py-6"
+        />
       ) : (
         <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
           {duplicateGroups.map(group => (

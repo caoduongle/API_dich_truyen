@@ -1,0 +1,51 @@
+# Blueprint cấu hình triển khai Render Static Site cho Bản Thảo Chu Sa (Pure Client-Side SPA)
+# Tài liệu tham khảo: https://render.com/docs/static-sites & https://render.com/docs/static-site-headers
+
+services:
+  - type: web
+    name: api-dich-truyen
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      # SPA Rewrite Rule: Điều hướng toàn bộ yêu cầu URL sâu (Deep-link) về /index.html để client-side router xử lý
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # 1. Chống MIME-sniffing
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+
+      # 2. Ngăn chặn clickjacking bằng cách cấm nhúng iframe từ bên ngoài
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+
+      # 3. Bảo vệ referrer khi chuyển hướng sang domain khác
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+      # 4. Cho phép popup đăng nhập Google Identity Services (GIS) giao tiếp với trang mẹ
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
+
+      # 5. Vô hiệu hóa các quyền thiết bị phần cứng không dùng trong ứng dụng
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+
+      # 6. Bắt buộc kết nối an toàn HTTPS trong vòng 1 năm
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000; includeSubDomains; preload
+
+      # 7. Chính sách an ninh nội dung (Content-Security-Policy)
+      # Lưu ý: 'unsafe-inline' cho script-src là bắt buộc vì ứng dụng 100% Client-Side Pure SPA không có máy chủ backend để sinh dynamic cryptographic nonce per-request;
+      # đồng thời Google Identity Services (GIS) và Google Picker API (apis.google.com/js/api.js) nạp và thực thi script callback động phía client.
+      - path: /*
+        name: Content-Security-Policy
+        value: default-src 'self'; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https: *.googleusercontent.com; connect-src 'self' ws: wss: https://generativelanguage.googleapis.com https://*.googleapis.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com; frame-src https://drive.google.com https://docs.google.com https://accounts.google.com https://content.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';

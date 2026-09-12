@@ -79,7 +79,7 @@ export const THEME_PALETTES = {
     parchment: '#F7F2E9',
     parchment2: '#E4DCC8',
     textMain: '#3A2E22',
-    textMuted: '#8A7A63',
+    textMuted: '#685945',
     polish: '#B8402C',
   },
   dark: {
@@ -87,7 +87,7 @@ export const THEME_PALETTES = {
     parchment: '#1F1914',
     parchment2: '#2A241D',
     textMain: '#DCD1BC',
-    textMuted: '#786F5E',
+    textMuted: '#9B907E',
     polish: '#B8402C',
   },
   sepia: {
@@ -95,7 +95,7 @@ export const THEME_PALETTES = {
     parchment: '#F4ECD8',
     parchment2: '#D5C5A5',
     textMain: '#5B4636',
-    textMuted: '#7A6A5A',
+    textMuted: '#5C4D3F',
     polish: '#B8402C',
   },
 };

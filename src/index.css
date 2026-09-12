@@ -14,6 +14,38 @@
   --color-text-muted: var(--color-text-muted);
   --color-draft: var(--color-draft);
   --color-polish: var(--color-polish);
+
+  /* Semantic Color Tokens: Success */
+  --color-success-lightest: var(--color-success-lightest);
+  --color-success-lighter: var(--color-success-lighter);
+  --color-success: var(--color-success-default);
+  --color-success-default: var(--color-success-default);
+  --color-success-darker: var(--color-success-darker);
+  --color-success-darkest: var(--color-success-darkest);
+
+  /* Semantic Color Tokens: Warning */
+  --color-warning-lightest: var(--color-warning-lightest);
+  --color-warning-lighter: var(--color-warning-lighter);
+  --color-warning: var(--color-warning-default);
+  --color-warning-default: var(--color-warning-default);
+  --color-warning-darker: var(--color-warning-darker);
+  --color-warning-darkest: var(--color-warning-darkest);
+
+  /* Semantic Color Tokens: Danger */
+  --color-danger-lightest: var(--color-danger-lightest);
+  --color-danger-lighter: var(--color-danger-lighter);
+  --color-danger: var(--color-danger-default);
+  --color-danger-default: var(--color-danger-default);
+  --color-danger-darker: var(--color-danger-darker);
+  --color-danger-darkest: var(--color-danger-darkest);
+
+  /* Semantic Color Tokens: Info */
+  --color-info-lightest: var(--color-info-lightest);
+  --color-info-lighter: var(--color-info-lighter);
+  --color-info: var(--color-info-default);
+  --color-info-default: var(--color-info-default);
+  --color-info-darker: var(--color-info-darker);
+  --color-info-darkest: var(--color-info-darkest);
 }
 
 :root,
@@ -22,9 +54,37 @@ html[data-theme="dark"] {
   --color-parchment: #1F1914;     /* Panel / Card tối */
   --color-parchment-2: #2A241D;   /* Border / Divider tối */
   --color-text-main: #DCD1BC;     /* Text chính tối */
-  --color-text-muted: #786F5E;    /* Text phụ tối */
+  --color-text-muted: #9B907E;    /* Text phụ tối (WCAG AA 4.88:1 trên parchment-2) */
   --color-draft: #3D4A5C;         /* Accent Dịch thô */
   --color-polish: #B8402C;        /* Accent Chu Sa */
+
+  /* Semantic: Success (Ngọc bích cổ phong) */
+  --color-success-lightest: #E8F6EE;
+  --color-success-lighter: #85CBA0;
+  --color-success-default: #52A474;
+  --color-success-darker: #2B6846;
+  --color-success-darkest: #163A26;
+
+  /* Semantic: Warning (Hổ phách hoàng thổ) */
+  --color-warning-lightest: #FEF7E6;
+  --color-warning-lighter: #F3C97E;
+  --color-warning-default: #D4973B;
+  --color-warning-darker: #8C5A14;
+  --color-warning-darkest: #482C05;
+
+  /* Semantic: Danger (Đỏ chu sa) */
+  --color-danger-lightest: #FDECE8;
+  --color-danger-lighter: #E57361;
+  --color-danger-default: #B8402C;
+  --color-danger-darker: #7D2516;
+  --color-danger-darkest: #45120A;
+
+  /* Semantic: Info (Mực chàm trầm lam) */
+  --color-info-lightest: #EDF5FC;
+  --color-info-lighter: #8EBEE6;
+  --color-info-default: #548CB8;
+  --color-info-darker: #2D5477;
+  --color-info-darkest: #142C42;
 }
 
 html[data-theme="light"] {
@@ -32,9 +92,37 @@ html[data-theme="light"] {
   --color-parchment: #F7F2E9;     /* Nền giấy ngà ấm */
   --color-parchment-2: #E4DCC8;   /* Viền trang nhã */
   --color-text-main: #3A2E22;     /* Chữ nâu-đen ấm */
-  --color-text-muted: #8A7A63;    /* Chữ phụ */
+  --color-text-muted: #685945;    /* Chữ phụ (WCAG AA 4.95:1 trên parchment-2) */
   --color-draft: #4A5B70;         /* Accent Dịch thô */
   --color-polish: #B8402C;        /* Accent Chu Sa */
+
+  /* Semantic: Success */
+  --color-success-lightest: #EDF7F1;
+  --color-success-lighter: #A3D7B8;
+  --color-success-default: #2D6A42;
+  --color-success-darker: #1D4A2D;
+  --color-success-darkest: #0F2918;
+
+  /* Semantic: Warning */
+  --color-warning-lightest: #FEF9EE;
+  --color-warning-lighter: #F5D699;
+  --color-warning-default: #9C5B09;
+  --color-warning-darker: #693D04;
+  --color-warning-darkest: #3B2201;
+
+  /* Semantic: Danger */
+  --color-danger-lightest: #FDF1EE;
+  --color-danger-lighter: #EB9485;
+  --color-danger-default: #B8402C;
+  --color-danger-darker: #852919;
+  --color-danger-darkest: #4A150C;
+
+  /* Semantic: Info */
+  --color-info-lightest: #F0F6FB;
+  --color-info-lighter: #A8CEEB;
+  --color-info-default: #2E5B82;
+  --color-info-darker: #1D3D59;
+  --color-info-darkest: #0E2131;
 }
 
 html[data-theme="sepia"] {
@@ -42,9 +130,37 @@ html[data-theme="sepia"] {
   --color-parchment: #F4ECD8;     /* Nền giấy cổ phong */
   --color-parchment-2: #D5C5A5;   /* Viền sepia */
   --color-text-main: #5B4636;     /* Chữ nâu đậm */
-  --color-text-muted: #7A6A5A;    /* Chữ phụ sepia */
+  --color-text-muted: #5C4D3F;    /* Chữ phụ sepia (WCAG AA 4.77:1 trên parchment-2) */
   --color-draft: #4E5D6E;         /* Accent Dịch thô */
   --color-polish: #B8402C;        /* Accent Chu Sa */
+
+  /* Semantic: Success */
+  --color-success-lightest: #EFF5E9;
+  --color-success-lighter: #98C5A4;
+  --color-success-default: #2E623E;
+  --color-success-darker: #1E432A;
+  --color-success-darkest: #102718;
+
+  /* Semantic: Warning */
+  --color-warning-lightest: #FAF2DC;
+  --color-warning-lighter: #E5C282;
+  --color-warning-default: #8C5106;
+  --color-warning-darker: #5E3602;
+  --color-warning-darkest: #331D00;
+
+  /* Semantic: Danger */
+  --color-danger-lightest: #FBF0E9;
+  --color-danger-lighter: #E28776;
+  --color-danger-default: #B8402C;
+  --color-danger-darker: #822818;
+  --color-danger-darkest: #46130A;
+
+  /* Semantic: Info */
+  --color-info-lightest: #EFF4F6;
+  --color-info-lighter: #9BBCCF;
+  --color-info-default: #335874;
+  --color-info-darker: #203C52;
+  --color-info-darkest: #0F202D;
 }
 
 html, body, #root {

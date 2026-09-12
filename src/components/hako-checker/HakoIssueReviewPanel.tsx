@@ -251,23 +251,23 @@ export function HakoIssueReviewPanel({
     <div className="space-y-4">
       {/* Re-audit Diff Summary Alert */}
       {diffSummary && (
-        <div className="bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 rounded-md p-3.5 shadow-xs flex items-start justify-between gap-3 animate-in fade-in duration-200">
+        <div className="bg-success/15 border border-success/30 text-text-main rounded-md p-3.5 shadow-xs flex items-start justify-between gap-3 animate-in fade-in duration-200">
           <div className="flex items-start gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-success shrink-0 mt-0.5" />
             <div>
-              <h4 className="text-xs font-display font-bold text-emerald-300">
+              <h4 className="text-xs font-display font-bold text-success">
                 Kết quả rà soát lại có đối chiếu quyết định
               </h4>
-              <p className="text-xs text-emerald-200/90 mt-0.5 leading-relaxed">
+              <p className="text-xs text-text-muted mt-0.5 leading-relaxed">
                 Đã tự động đối chiếu các quyết định kiểm định trước đó:
                 {diffSummary.resolvedCount > 0 && (
-                  <span className="font-bold text-emerald-300"> {diffSummary.resolvedCount} lỗi đã được khắc phục sau khi sửa bản dịch (Đã giải quyết).</span>
+                  <span className="font-bold text-success"> {diffSummary.resolvedCount} lỗi đã được khắc phục sau khi sửa bản dịch (Đã giải quyết).</span>
                 )}
                 {diffSummary.unresolvedCount > 0 && (
-                  <span className="text-amber-200"> {diffSummary.unresolvedCount} lỗi đã xác nhận vẫn còn tồn tại.</span>
+                  <span className="text-warning font-medium"> {diffSummary.unresolvedCount} lỗi đã xác nhận vẫn còn tồn tại.</span>
                 )}
                 {diffSummary.newCount > 0 && (
-                  <span className="text-sky-300 font-medium"> Phát hiện {diffSummary.newCount} lỗi mới phát sinh.</span>
+                  <span className="text-info font-medium"> Phát hiện {diffSummary.newCount} lỗi mới phát sinh.</span>
                 )}
                 {diffSummary.dismissedCount > 0 && (
                   <span className="text-text-muted"> {diffSummary.dismissedCount} lỗi đã bỏ qua tiếp tục được bảo toàn.</span>
@@ -279,7 +279,7 @@ export function HakoIssueReviewPanel({
             <button
               type="button"
               onClick={onDismissDiffSummary}
-              className="text-emerald-400 hover:text-emerald-200 p-1 rounded hover:bg-emerald-900/30 transition-colors cursor-pointer shrink-0"
+              className="text-text-muted hover:text-text-main p-1 rounded hover:bg-parchment-2 transition-colors cursor-pointer shrink-0"
               title="Đóng thông báo"
             >
               <X className="w-4 h-4" />
@@ -313,8 +313,8 @@ export function HakoIssueReviewPanel({
 
               {/* Resolved Badge */}
               {stats.resolved > 0 && (
-                <Badge tone="neutral" className="font-mono font-bold px-2 py-0.5 text-emerald-400 border-emerald-500/40 bg-emerald-950/40 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                <Badge tone="success" className="font-mono font-bold px-2 py-0.5 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
                   <span>{stats.resolved} đã khắc phục</span>
                 </Badge>
               )}

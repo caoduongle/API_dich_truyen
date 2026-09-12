@@ -24,7 +24,7 @@ export const SEO_CONFIG = {
     if (envUrl && envUrl.startsWith('http')) {
       return envUrl.replace(/\/+$/, '');
     }
-    return 'https://dich-truyen.example.com';
+    return 'https://api-dich-truyen.onrender.com';
   },
 
   /**

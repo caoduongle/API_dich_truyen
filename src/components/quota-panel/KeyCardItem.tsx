@@ -316,6 +316,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
           <button
             type="button"
             onClick={() => onToggleExpand(idx)}
+            aria-expanded={isExpanded}
             className="flex items-center justify-between w-full text-left text-[11px] font-semibold text-text-muted hover:text-text-main cursor-pointer"
           >
             <span className="flex items-center gap-1">

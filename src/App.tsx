@@ -119,6 +119,14 @@ function AppShell() {
 
   return (
     <div id="ai-story-translator-app" className="min-h-screen w-full max-w-full overflow-x-clip bg-ink flex flex-col font-sans text-text-main selection:bg-polish/25 selection:text-text-main">
+      {/* Skip to Content accessible link for keyboard / screen reader users */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3.5 focus:py-1.5 focus:bg-polish focus:text-white focus:font-bold focus:rounded-[2px] focus:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      >
+        Bỏ qua đến nội dung chính
+      </a>
+
       <AppHeader
         activeTab={activeTab}
         onSwitchTab={switchTab}
@@ -136,7 +144,7 @@ function AppShell() {
         isAutoTranslating={isAutoTranslating}
       />
       {isNotFound ? (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 outline-none">
           <NotFoundPage onGoHome={() => switchTab('translate')} />
         </main>
       ) : (

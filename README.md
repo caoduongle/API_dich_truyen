@@ -159,6 +159,10 @@ npm run preview
 
 Dự án có thể deploy lên bất kỳ static host nào mà **không cần server runtime**:
 
+- **Render (Static Site)**:
+  - Build command: `npm ci && npm run build`
+  - Publish directory: `dist`
+  - Đã tích hợp sẵn file Blueprint `render.yaml` tại thư mục gốc (cấu hình SPA rewrites `source: /*` -> `/index.html` và toàn bộ 7 HTTP security headers CSP, HSTS, X-Frame-Options, COOP, Permissions-Policy). *Lưu ý: Render Static Site chỉ nhận header/rewrite qua `render.yaml` hoặc Render Dashboard, không đọc `public/_headers`.*
 - **Cloudflare Pages**:
   - Build command: `npm run build`
   - Build output directory: `dist`

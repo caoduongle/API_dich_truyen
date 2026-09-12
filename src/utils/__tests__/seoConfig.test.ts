@@ -17,7 +17,7 @@ describe('SEO_CONFIG Utility Suite', () => {
 
   it('should resolve fallback URL when window is undefined', () => {
     delete (globalThis as unknown as { window?: unknown }).window;
-    expect(SEO_CONFIG.getBaseUrl()).toBe('https://dich-truyen.example.com');
+    expect(SEO_CONFIG.getBaseUrl()).toBe('https://api-dich-truyen.onrender.com');
   });
 
   it('should resolve getBaseUrl from window.location.origin when present', () => {

@@ -102,32 +102,38 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       {children}
 
       {/* Floating Toasts Stack */}
-      <div className="fixed bottom-4 right-4 left-4 sm:left-auto sm:max-w-sm z-[60] flex flex-col gap-2.5 pointer-events-none">
+      <div 
+        className="fixed bottom-4 right-4 left-4 sm:left-auto sm:max-w-sm z-[60] flex flex-col gap-2.5 pointer-events-none"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <AnimatePresence>
           {toasts.map((toast) => {
             const isUndoable = !!toast.onUndo;
             return (
               <motion.div
                 key={toast.id}
+                role={toast.type === 'error' ? 'alert' : 'status'}
+                aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
                 initial={{ opacity: 0, y: 20, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
                 className={`pointer-events-auto relative overflow-hidden rounded-[3px] border p-3.5 shadow-2xl flex gap-3 items-start bg-parchment text-text-main ${
                   toast.type === 'success'
-                    ? 'border-polish/50'
+                    ? 'border-success/50'
                     : toast.type === 'warning'
-                    ? 'border-amber-800/60'
+                    ? 'border-warning/50'
                     : toast.type === 'error'
-                    ? 'border-polish/50'
+                    ? 'border-danger/50'
                     : 'border-parchment-2'
                 }`}
               >
                 {/* Icon */}
                 <div className="mt-0.5 shrink-0">
-                  {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-polish" />}
-                  {toast.type === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-400" />}
-                  {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-polish" />}
-                  {toast.type === 'info' && <Info className="w-4 h-4 text-text-muted" />}
+                  {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-success" />}
+                  {toast.type === 'warning' && <AlertTriangle className="w-4 h-4 text-warning" />}
+                  {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-danger" />}
+                  {toast.type === 'info' && <Info className="w-4 h-4 text-info" />}
                 </div>
 
                 {/* Message & Actions */}
@@ -160,11 +166,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                     <div
                       className={`h-full transition-all duration-75 ${
                         toast.type === 'success'
-                          ? 'bg-polish'
+                          ? 'bg-success'
                           : toast.type === 'warning'
-                          ? 'bg-amber-500'
+                          ? 'bg-warning'
                           : toast.type === 'error'
-                          ? 'bg-polish'
+                          ? 'bg-danger'
                           : 'bg-draft'
                       }`}
                       style={{ width: `${toast.progress}%` }}
@@ -192,6 +198,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             {/* Modal Box */}
             <motion.div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="confirm-modal-title"
               initial={{ scale: 0.95, y: 10, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.95, y: 10, opacity: 0 }}
@@ -203,10 +212,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 <div
                   className={`p-2 rounded-[3px] shrink-0 border ${
                     confirmModal.type === 'danger'
-                      ? 'bg-polish/10 border-polish/40 text-polish'
+                      ? 'bg-danger/10 border-danger/40 text-danger'
                       : confirmModal.type === 'warning'
-                      ? 'bg-amber-950/30 border-amber-800/50 text-amber-400'
-                      : 'bg-ink border-parchment-2 text-text-main'
+                      ? 'bg-warning/10 border-warning/40 text-warning'
+                      : 'bg-info/10 border-info/40 text-info'
                   }`}
                 >
                   {confirmModal.type === 'danger' ? (
@@ -219,7 +228,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 </div>
 
                 <div className="space-y-1 flex-1">
-                  <h3 className="text-sm font-display font-bold text-text-main leading-snug">
+                  <h3 id="confirm-modal-title" className="text-sm font-display font-bold text-text-main leading-snug">
                     {confirmModal.title}
                   </h3>
                   <p className="text-xs text-text-muted leading-relaxed">

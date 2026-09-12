@@ -239,8 +239,8 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
             >
               {isCopied ? (
                 <>
-                  <Check className="w-2.5 h-2.5 text-emerald-400" />
-                  <span className="text-emerald-400 font-bold">Đã chép</span>
+                  <Check className="w-2.5 h-2.5 text-success" />
+                  <span className="text-success font-bold">Đã chép</span>
                 </>
               ) : (
                 <>
@@ -339,8 +339,8 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
 
         <div className="flex items-center gap-1.5">
           {issue.decision === 'resolved' && (
-            <span className="text-[11px] text-emerald-400 font-medium mr-1.5 flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+            <span className="text-[11px] text-success font-medium mr-1.5 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 text-success" />
               <span>Đã khắc phục</span>
             </span>
           )}
@@ -361,7 +361,7 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
             variant={issue.decision === 'review_needed' ? 'secondary' : 'ghost'}
             size="sm"
             onClick={() => onDecisionChange(issue.id, 'review_needed', noteText)}
-            icon={<HelpCircle className="w-3.5 h-3.5 text-amber-400" />}
+            icon={<HelpCircle className="w-3.5 h-3.5 text-warning" />}
             className="text-xs h-7.5 px-2.5"
             title="Đánh dấu cần hội ý thêm"
           >

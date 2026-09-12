@@ -1,7 +1,7 @@
 import React from 'react';
 import { cn } from '../../lib/cn';
 
-export type BadgeTone = 'neutral' | 'polish' | 'warning' | 'danger' | 'solid';
+export type BadgeTone = 'neutral' | 'polish' | 'warning' | 'danger' | 'solid' | 'success';
 
 // Chủ ý KHÔNG dùng rounded-full: mọi badge trong app đều bo góc [2px] để đồng bộ
 // với input/button/card. Badge chỉ hiển thị số liệu/trạng thái thật (số thuật ngữ,
@@ -12,6 +12,7 @@ const TONE_STYLES: Record<BadgeTone, string> = {
   warning: 'bg-amber-950/40 text-amber-300 border-amber-800/50',
   danger: 'bg-polish/10 text-polish border-polish/40',
   solid: 'bg-polish text-white border-[#8F2D1E] uppercase tracking-wider',
+  success: 'bg-success/15 text-success border-success/40',
 };
 
 export function Badge({

@@ -211,6 +211,7 @@ export default function ChapterHistoryPanel({
 
                         <button
                           type="button"
+                          aria-label={`Xóa lịch sử chương ${chap.title}`}
                           onClick={async (e) => {
                             e.stopPropagation();
                             const confirmed = await showConfirm({
@@ -226,7 +227,7 @@ export default function ChapterHistoryPanel({
                               setSelectedChapterIds(prev => prev.filter(id => id !== chap.id));
                             }
                           }}
-                          className="text-text-muted hover:text-polish p-1 rounded-[2px] opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-2 cursor-pointer"
+                          className="text-text-muted hover:text-danger p-1 rounded-[2px] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-danger transition-opacity absolute right-2 top-2 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -301,7 +302,7 @@ export default function ChapterHistoryPanel({
                     </div>
 
                     {/* Tab switcher */}
-                    <div className="flex gap-1 bg-ink rounded-[2px] p-1 w-fit border border-parchment-2">
+                    <div role="tablist" aria-label="Phiên bản văn bản chương" className="flex gap-1 bg-ink rounded-[2px] p-1 w-fit border border-parchment-2">
                       {(
                         [
                           { key: 'source', label: 'Bản gốc', available: !!chap.sourceText },
@@ -311,9 +312,12 @@ export default function ChapterHistoryPanel({
                       ).map(({ key, label, available }) => (
                         <button
                           key={key}
+                          type="button"
+                          role="tab"
+                          aria-selected={historyViewTab === key}
                           onClick={() => setHistoryViewTab(key)}
                           disabled={!available}
-                          className={`text-[11px] font-bold px-3 py-1.5 rounded-[2px] transition-all cursor-pointer ${
+                          className={`text-[11px] font-bold px-3 py-1.5 min-h-[36px] sm:min-h-0 rounded-[2px] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-polish ${
                             historyViewTab === key
                               ? 'bg-polish text-white shadow-xs'
                               : available

@@ -1,5 +1,3 @@
 User-agent: *
 Allow: /
-Disallow: /api/
-Disallow: /ws/
-Sitemap: https://dich-truyen.example.com/sitemap.xml
+Sitemap: https://api-dich-truyen.onrender.com/sitemap.xml

@@ -75,6 +75,8 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({ onOpenCustomModal 
         onClick={() => setIsOpen((prev) => !prev)}
         className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs"
         aria-label="Chuyển chế độ màu đọc và biên tập"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
         title="Chế độ màu đọc & biên tập"
       >
         <ActiveIcon className="w-3.5 h-3.5 text-text-muted shrink-0" />
