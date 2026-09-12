@@ -29,12 +29,40 @@ export interface TranslateChapterParams {
   apiKeys: string[];
   selectedModel: string;
   polishCycles: number;
-  autoTranslateMode: 'resume' | 'from_scratch';
+  autoTranslateMode: 'resume' | 'from_scratch' | 'repolish';
   additionalInstructions: string;
   isExtractionDuringTranslationEnabled: boolean;
   enableAiQaCritique: boolean;
   enableSegmentTranslation: boolean;
   addLog: (message: string, type?: 'info' | 'gemini' | 'success' | 'warn' | 'error') => void;
+}
+
+/**
+ * Kiểm định tính toàn vẹn của bản nháp so với văn bản gốc.
+ * Nhận diện các bản dịch bị cụt (ví dụ chỉ có 1 đoạn ngắn hoặc độ dài quá thấp do lỗi mạng/AI).
+ */
+export function isDraftTruncated(draft: string, sourceText: string): boolean {
+  const cleanDraft = (draft || '').trim();
+  const cleanSource = (sourceText || '').trim();
+
+  if (!cleanDraft || cleanDraft.length === 0) return true;
+  // Với văn bản gốc ngắn (<= 150 ký tự), bỏ qua kiểm tra tỷ lệ
+  if (cleanSource.length <= 150) return false;
+
+  // Bản dịch tiếng Việt thường dài hơn hoặc tương đương tiếng Trung (tỷ lệ 1.0 - 1.8).
+  // Nếu tỷ lệ ký tự dưới 35% so với tiếng Trung gốc -> Bị cụt nặng.
+  if (cleanDraft.length < cleanSource.length * 0.35) {
+    return true;
+  }
+
+  // Nếu bản gốc có từ 3 đoạn văn trở lên nhưng bản dịch chỉ có 1 đoạn và độ dài dưới 50% bản gốc
+  const sourceParagraphs = cleanSource.split(/\n+/).filter(p => p.trim().length > 0).length;
+  const draftParagraphs = cleanDraft.split(/\n+/).filter(p => p.trim().length > 0).length;
+  if (sourceParagraphs >= 3 && draftParagraphs <= 1 && cleanDraft.length < cleanSource.length * 0.5) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -86,16 +114,31 @@ export async function executeSingleChapterTranslation({
   const newGlossaryItems: GlossaryItem[] = [];
   const newPendingItems: PendingGlossaryItem[] = [];
 
-  const existingTranslation = (chapter.polishedTranslation || chapter.rawTranslation || '').trim();
-  const hasExistingTranslation = existingTranslation.length > 0;
+  const rawCandidate = (chapter.rawTranslation || '').trim();
+  const hasRawTranslation = rawCandidate.length > 0;
+  const isRawTruncated = hasRawTranslation ? isDraftTruncated(rawCandidate, chapter.sourceText) : true;
   const hasProcessedText = !!(chapter.processedSourceText && chapter.processedSourceText.trim());
 
+  let hasFreshRaw = false;
+
   // ── GIAI ĐOẠN 1: Dịch thô trực tiếp ──
-  if (autoTranslateMode === 'from_scratch' && hasExistingTranslation) {
-    addLog(`${logPrefix} [Dịch từ đầu] Phát hiện bản dịch khả dụng. Tiến hành chuốt văn luôn (Bỏ qua Giai đoạn 1)...`, 'success');
-    firstDraft = existingTranslation;
+  // Mode 'repolish': Cho phép tái sử dụng bản dịch thô ĐÃ CÓ nếu bản thô hợp lệ và không bị cụt.
+  // Mode 'from_scratch': BẮT BUỘC dịch lại mới 100% từ tiếng Trung gốc.
+  // Mode 'resume': Dịch nếu chưa có bản thô hoặc bản thô bị cụt.
+  const canReuseRaw = (autoTranslateMode === 'repolish') && hasRawTranslation && !isRawTruncated;
+
+  if (canReuseRaw) {
+    addLog(`${logPrefix} [Chuốt lại từ bản thô] Phát hiện bản dịch thô hợp lệ (${rawCandidate.length} ký tự). Bỏ qua Giai đoạn 1 và tiến hành chuốt văn phong...`, 'info');
+    firstDraft = rawCandidate;
+    hasFreshRaw = false;
   } else {
-    addLog(`${logPrefix} Đang dịch thô trực tiếp qua Gemini API cá nhân (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
+    if (autoTranslateMode === 'repolish' && hasRawTranslation && isRawTruncated) {
+      addLog(`${logPrefix} [Cảnh báo toàn vẹn] Bản dịch thô hiện tại có dấu hiệu bị cụt (${rawCandidate.length} ký tự vs ${chapter.sourceText.length} ký tự gốc). Tự động dịch thô lại mới từ đầu để bảo đảm tính toàn vẹn...`, 'warn');
+    } else if (autoTranslateMode === 'from_scratch') {
+      addLog(`${logPrefix} [Dịch từ đầu] Đang dịch thô mới trực tiếp từ văn bản gốc tiếng Trung (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
+    } else {
+      addLog(`${logPrefix} Đang dịch thô trực tiếp qua Gemini API cá nhân (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
+    }
     let rawData: { rawTranslation: string; discoveredEntities?: any[]; successKeyIndex?: number };
 
     try {
@@ -117,6 +160,7 @@ export async function executeSingleChapterTranslation({
     }
 
     firstDraft = rawData.rawTranslation || '';
+    hasFreshRaw = true;
     if (typeof rawData.successKeyIndex === 'number') {
       currentKeyIndex = rawData.successKeyIndex;
     }
@@ -315,7 +359,9 @@ export async function executeSingleChapterTranslation({
   }
 
   // ── Lưu kết quả ──
-  const cleanRaw = separateChapterTitleAndBody(firstDraft);
+  const cleanRaw = hasFreshRaw
+    ? separateChapterTitleAndBody(firstDraft)
+    : (chapter.rawTranslation || separateChapterTitleAndBody(firstDraft));
   const cleanPolished = currentTextToPolish ? separateChapterTitleAndBody(currentTextToPolish) : '';
 
   const paragraphs = chapter.sourceText.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 0);

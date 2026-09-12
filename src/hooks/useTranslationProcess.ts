@@ -16,7 +16,7 @@ export interface UseTranslationProcessProps {
   apiKeys: string[];
   selectedModel: string;
   polishCycles: number;
-  autoTranslateMode: 'resume' | 'from_scratch';
+  autoTranslateMode: 'resume' | 'from_scratch' | 'repolish';
   additionalInstructions: string;
   isExtractionDuringTranslationEnabled: boolean;
   rangeEnabled: boolean;
@@ -178,6 +178,9 @@ export function useTranslationProcess({
       const queue = scopedChaps.filter(c => c.status !== 'completed');
       addLog(`Chế độ 'Tiếp tục dịch' (Resume): Tìm thấy ${queue.length}/${scopedChaps.length} chương cần dịch.`, 'info');
       return queue;
+    } else if (paramsRef.current.autoTranslateMode === 'repolish') {
+      addLog(`Chế độ 'Chỉ chuốt lại' (Repolish): Nạp toàn bộ ${scopedChaps.length} chương để chuốt lại văn phong từ bản thô.`, 'info');
+      return [...scopedChaps];
     } else {
       addLog(`Chế độ 'Dịch từ đầu': Nạp sẵn sàng toàn bộ ${scopedChaps.length} chương.`, 'info');
       return [...scopedChaps];

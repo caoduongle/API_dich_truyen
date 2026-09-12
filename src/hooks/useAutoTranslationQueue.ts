@@ -11,7 +11,7 @@ export interface UseAutoTranslationQueueProps {
   apiKeys: string[];
   selectedModel: string;
   polishCycles: number;
-  autoTranslateMode: 'resume' | 'from_scratch';
+  autoTranslateMode: 'resume' | 'from_scratch' | 'repolish';
   additionalInstructions: string;
   isExtractionDuringTranslationEnabled: boolean;
   

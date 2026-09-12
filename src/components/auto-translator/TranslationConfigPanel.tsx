@@ -1,12 +1,12 @@
 import React from 'react';
-import { Sliders, ListOrdered, Layers, Play, Pause, Square, Download, RefreshCw, Zap, AlertTriangle } from 'lucide-react';
+import { Sliders, ListOrdered, Layers, Play, Pause, Square, Download, RefreshCw, Zap, AlertTriangle, Sparkles } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 export interface TranslationConfigPanelProps {
   polishCycles: number;
   setPolishCycles: (n: number) => void;
-  autoTranslateMode: 'resume' | 'from_scratch';
-  setAutoTranslateMode: (mode: 'resume' | 'from_scratch') => void;
+  autoTranslateMode: 'resume' | 'from_scratch' | 'repolish';
+  setAutoTranslateMode: (mode: 'resume' | 'from_scratch' | 'repolish') => void;
   additionalInstructions: string;
   setAdditionalInstructions: (s: string) => void;
   isExtractionDuringTranslationEnabled: boolean;
@@ -74,23 +74,32 @@ export const TranslationConfigPanel = React.memo(function TranslationConfigPanel
 
       <div className="space-y-1.5">
         <label className="text-xs font-bold text-text-muted block">Chế độ dịch tự động</label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-1.5">
           <button
             type="button"
             onClick={() => setAutoTranslateMode('resume')}
-            className={`py-2 px-3 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'resume' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2'}`}
+            className={`py-2 px-1.5 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'resume' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2'}`}
           >
-            <span className="text-[11px] flex items-center gap-1"><Play className="w-3 h-3 text-polish fill-polish" /> Dịch tiếp tục</span>
-            <span className="text-[9px] text-text-muted font-normal mt-0.5">({totalUntranslatedChapters} chương)</span>
+            <span className="text-[11px] flex items-center gap-1"><Play className="w-3 h-3 text-polish fill-polish" /> Tiếp tục</span>
+            <span className="text-[9px] text-text-muted font-normal mt-0.5">({totalUntranslatedChapters} ch.)</span>
           </button>
 
           <button
             type="button"
             onClick={() => setAutoTranslateMode('from_scratch')}
-            className={`py-2 px-3 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'from_scratch' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2'}`}
+            className={`py-2 px-1.5 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'from_scratch' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2'}`}
           >
-            <span className="text-[11px] flex items-center gap-1"><RefreshCw className="w-3 h-3 text-polish" /> Dịch từ đầu</span>
-            <span className="text-[9px] text-text-muted font-normal mt-0.5">({totalChapters} chương)</span>
+            <span className="text-[11px] flex items-center gap-1"><RefreshCw className="w-3 h-3 text-polish" /> Từ đầu</span>
+            <span className="text-[9px] text-text-muted font-normal mt-0.5">({totalChapters} ch.)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAutoTranslateMode('repolish')}
+            className={`py-2 px-1.5 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[56px] ${autoTranslateMode === 'repolish' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2'}`}
+          >
+            <span className="text-[11px] flex items-center gap-1"><Sparkles className="w-3 h-3 text-polish" /> Chuốt lại</span>
+            <span className="text-[9px] text-text-muted font-normal mt-0.5">(từ bản thô)</span>
           </button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
-import { History, BookOpen, Clock, Trash2, RotateCcw, ArrowRight } from 'lucide-react';
-import { getChapterFromDB } from '../services/db';
+import { History, BookOpen, Clock, Trash2, RotateCcw, ArrowRight, FileX, Sparkles } from 'lucide-react';
+import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { useVirtualList } from '../hooks/useVirtualList';
 import { UI_CONFIG } from '../config/constants';
@@ -18,8 +18,42 @@ interface ChapterHistoryPanelProps {
   onResetChapters: (projectId: string, chapIds: string[]) => Promise<void>;
 }
 
+export function transformChapterDeletePolished(chap: Chapter): Chapter {
+  const hasRaw = !!chap.rawTranslation && chap.rawTranslation.trim().length > 0;
+  return {
+    ...chap,
+    polishedTranslation: '',
+    translatedLines: hasRaw ? chap.rawTranslation.split(/\n+/).map((l) => l.trim()).filter(Boolean) : [],
+    status: hasRaw ? 'in_progress' : 'not_started',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function transformChapterDeleteRaw(chap: Chapter): Chapter {
+  const hasPolished = !!chap.polishedTranslation && chap.polishedTranslation.trim().length > 0;
+  return {
+    ...chap,
+    rawTranslation: '',
+    translatedLines: hasPolished ? chap.polishedTranslation.split(/\n+/).map((l) => l.trim()).filter(Boolean) : [],
+    status: hasPolished ? 'completed' : 'not_started',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function transformChapterPromotePolishedToRaw(chap: Chapter): Chapter {
+  return {
+    ...chap,
+    rawTranslation: chap.polishedTranslation,
+    polishedTranslation: '',
+    translatedLines: chap.polishedTranslation.split(/\n+/).map((l) => l.trim()).filter(Boolean),
+    status: 'in_progress',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export default function ChapterHistoryPanel({
   activeProject,
+  onUpdateProject,
   onDeleteChapterHistory,
   onGoToTranslate,
   onResetChapters,
@@ -80,6 +114,72 @@ export default function ChapterHistoryPanel({
       setSelectedChapterDetails(updated);
       setHistoryViewTab('source');
     }
+  };
+
+  const handleDeletePolishedTranslation = async (chap: Chapter) => {
+    const confirmed = await showConfirm({
+      title: 'Xóa bản dịch biên tập',
+      message: `Bạn có chắc muốn xóa bản dịch biên tập của chương "${chap.title}"? Bản dịch thô sẽ được giữ nguyên 100%.`,
+      confirmText: 'Xác nhận xóa',
+      cancelText: 'Hủy',
+      type: 'warning',
+    });
+    if (!confirmed) return;
+
+    const updatedChap = transformChapterDeletePolished(chap);
+    await saveChapterToDB(updatedChap);
+    setSelectedChapterDetails(updatedChap);
+    setHistoryViewTab(updatedChap.rawTranslation ? 'raw' : 'source');
+
+    const updatedChaptersMeta = activeProject.chapters.map((c) =>
+      c.id === chap.id ? { ...c, status: updatedChap.status, updatedAt: updatedChap.updatedAt } : c
+    );
+    onUpdateProject({ ...activeProject, chapters: updatedChaptersMeta });
+    showToast({ message: `Đã xóa bản dịch biên tập của chương "${chap.title}".`, type: 'info' });
+  };
+
+  const handleDeleteRawTranslation = async (chap: Chapter) => {
+    const confirmed = await showConfirm({
+      title: 'Xóa bản dịch thô',
+      message: `Bạn có chắc muốn xóa bản dịch thô của chương "${chap.title}"?`,
+      confirmText: 'Xác nhận xóa',
+      cancelText: 'Hủy',
+      type: 'warning',
+    });
+    if (!confirmed) return;
+
+    const updatedChap = transformChapterDeleteRaw(chap);
+    await saveChapterToDB(updatedChap);
+    setSelectedChapterDetails(updatedChap);
+    setHistoryViewTab(updatedChap.polishedTranslation ? 'polished' : 'source');
+
+    const updatedChaptersMeta = activeProject.chapters.map((c) =>
+      c.id === chap.id ? { ...c, status: updatedChap.status, updatedAt: updatedChap.updatedAt } : c
+    );
+    onUpdateProject({ ...activeProject, chapters: updatedChaptersMeta });
+    showToast({ message: `Đã xóa bản dịch thô của chương "${chap.title}".`, type: 'info' });
+  };
+
+  const handlePromotePolishedToRaw = async (chap: Chapter) => {
+    const confirmed = await showConfirm({
+      title: 'Chuyển thành bản dịch thô',
+      message: `Bạn có chắc muốn chuyển bản biên tập hiện tại thành bản dịch thô của chương "${chap.title}"? Bản dịch thô mới sẽ sẵn sàng làm bản nháp để chuốt văn tiếp.`,
+      confirmText: 'Xác nhận chuyển',
+      cancelText: 'Hủy',
+      type: 'info',
+    });
+    if (!confirmed) return;
+
+    const updatedChap = transformChapterPromotePolishedToRaw(chap);
+    await saveChapterToDB(updatedChap);
+    setSelectedChapterDetails(updatedChap);
+    setHistoryViewTab('raw');
+
+    const updatedChaptersMeta = activeProject.chapters.map((c) =>
+      c.id === chap.id ? { ...c, status: updatedChap.status, updatedAt: updatedChap.updatedAt } : c
+    );
+    onUpdateProject({ ...activeProject, chapters: updatedChaptersMeta });
+    showToast({ message: `Đã chuyển bản biên tập thành bản dịch thô thành công.`, type: 'success' });
   };
 
   return (
@@ -272,7 +372,7 @@ export default function ChapterHistoryPanel({
                           Lưu trữ lúc: {new Date(chap.createdAt).toLocaleString('vi-VN')}
                         </p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {chap.status !== 'not_started' && (
                           <Button
                             variant="outline"
@@ -280,10 +380,51 @@ export default function ChapterHistoryPanel({
                             onClick={() => handleResetSingleToSource(chap.id)}
                             icon={<RotateCcw className="w-3.5 h-3.5" />}
                             className="text-amber-300 border-amber-800/40 hover:bg-amber-950/20"
+                            title="Reset toàn bộ về bản gốc tiếng Trung (xóa cả bản thô và bản biên tập)"
                           >
                             Reset về bản gốc
                           </Button>
                         )}
+
+                        {!!chap.polishedTranslation && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDeletePolishedTranslation(chap)}
+                            icon={<FileX className="w-3.5 h-3.5" />}
+                            className="text-amber-300 border-amber-800/40 hover:bg-amber-950/20"
+                            title="Xóa bản dịch biên tập, giữ nguyên 100% bản dịch thô"
+                          >
+                            Xóa bản biên tập
+                          </Button>
+                        )}
+
+                        {!!chap.rawTranslation && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDeleteRawTranslation(chap)}
+                            icon={<Trash2 className="w-3.5 h-3.5" />}
+                            className="text-amber-300 border-amber-800/40 hover:bg-amber-950/20"
+                            title="Xóa bản dịch thô của chương"
+                          >
+                            Xóa bản dịch thô
+                          </Button>
+                        )}
+
+                        {!!chap.polishedTranslation && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handlePromotePolishedToRaw(chap)}
+                            icon={<Sparkles className="w-3.5 h-3.5 text-polish" />}
+                            className="text-text-main border-parchment-2 hover:bg-parchment-2"
+                            title="Chuyển bản biên tập hiện tại thành bản dịch thô để sẵn sàng chuốt tiếp"
+                          >
+                            Chuyển thành bản thô
+                          </Button>
+                        )}
+
                         <Button
                           variant="primary"
                           size="sm"

@@ -50,7 +50,7 @@ export default function AutoTranslator({
 
   // Local configs
   const [polishCycles, setPolishCycles] = useState<number>(1);
-  const [autoTranslateMode, setAutoTranslateMode] = useState<'resume' | 'from_scratch'>('resume');
+  const [autoTranslateMode, setAutoTranslateMode] = useState<'resume' | 'from_scratch' | 'repolish'>('resume');
   const [additionalInstructions, setAdditionalInstructions] = useState<string>(activeProject.additionalInstructions || '');
   const [isExtractionDuringTranslationEnabled, setIsExtractionDuringTranslationEnabled] = useState<boolean>(true);
   const [skipFailedChapters, setSkipFailedChapters] = useState<boolean>(true);
