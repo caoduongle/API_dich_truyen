@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as hakoSessionStore from '../../services/hakoSessionStore';
 import { sanitizeSession, _resetHakoDbInstanceForTests } from '../../services/hakoSessionStore';
+import * as db from '../../services/db';
 import { QualityReviewSession, ProjectReviewChapter, QualityIssue } from '../../types/hakoChecker';
 import { StoryProject } from '../../types';
 
@@ -867,6 +868,164 @@ describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
         (global as any).indexedDB = originalIndexedDB;
         _resetHakoDbInstanceForTests();
       }
+    });
+  });
+
+  describe('Bulk Raw Chinese Hydration Tests (Feature 121)', () => {
+    it('automatically hydrates rawChineseContent for all chapters when selectProject is called', async () => {
+      const mockProject: StoryProject = {
+        id: 'proj-horror',
+        title: 'Đài Phát Thanh Kinh Dị',
+        author: 'Khôi Lỗi Sư',
+        genre: 'Linh Dị',
+        tone: 'Linh Dị / Thần Quái',
+        description: 'Truyện linh dị',
+        glossary: [],
+        pendingGlossary: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        chapters: [
+          { id: 'chap-1', title: 'Chương 1', status: 'completed', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+          { id: 'chap-2', title: 'Chương 2', status: 'completed', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+          { id: 'chap-3', title: 'Chương 3', status: 'in_progress', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+        ],
+      };
+
+      vi.spyOn(db, 'getChaptersByProjectFromDB').mockResolvedValue([
+        {
+          id: 'chap-1',
+          projectId: 'proj-horror',
+          title: 'Chương 1',
+          chapterNumber: 1,
+          sourceText: '第一章 恐怖广播内容...',
+          rawTranslation: 'Chương 1 nội dung dịch thô...',
+          polishedTranslation: 'Chương 1 nội dung đã biên tập...',
+          status: 'completed',
+          updatedAt: new Date().toISOString(),
+        } as any,
+        {
+          id: 'chap-2',
+          projectId: 'proj-horror',
+          title: 'Chương 2',
+          chapterNumber: 2,
+          sourceText: '第二章 踩到底吧内容...',
+          rawTranslation: 'Chương 2 dịch thô...',
+          polishedTranslation: 'Chương 2 đã biên tập...',
+          status: 'completed',
+          updatedAt: new Date().toISOString(),
+        } as any,
+        {
+          id: 'chap-3',
+          projectId: 'proj-horror',
+          title: 'Chương 3',
+          chapterNumber: 3,
+          sourceText: '第三章 善恶到头终有报...',
+          rawTranslation: 'Chương 3 dịch thô...',
+          status: 'in_progress',
+          updatedAt: new Date().toISOString(),
+        } as any,
+      ]);
+
+      const saveSpy = vi.spyOn(hakoSessionStore, 'saveSession').mockImplementation(async (s) => s);
+
+      stateSlots[0] = null;
+      refSlots[0] = { current: null };
+      stateIndex = 0;
+      refIndex = 0;
+
+      const hook = useHakoReviewSession();
+      await hook.selectProject(mockProject);
+
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      const savedSession = saveSpy.mock.calls[0][0];
+
+      expect(savedSession.projectId).toBe('proj-horror');
+      expect(savedSession.chapters['chap-1'].rawChineseContent).toBe('第一章 恐怖广播内容...');
+      expect(savedSession.chapters['chap-2'].rawChineseContent).toBe('第二章 踩到底吧内容...');
+      expect(savedSession.chapters['chap-3'].rawChineseContent).toBe('第三章 善恶到头终有报...');
+    });
+
+    it('hydrateAllChaptersRaw batch queries DB and updates session chapters with counts', async () => {
+      const initialSession: QualityReviewSession = {
+        id: 's-bulk-1',
+        projectId: 'proj-horror',
+        projectTitle: 'Đài Phát Thanh Kinh Dị',
+        selectedChapterIds: [],
+        chapters: {
+          'chap-1': {
+            chapterId: 'chap-1',
+            title: 'Chương 1',
+            chapterNumber: 1,
+            translationType: 'polished',
+            wordCount: 1000,
+            status: 'pending',
+            // No raw initially
+          },
+          'chap-2': {
+            chapterId: 'chap-2',
+            title: 'Chương 2',
+            chapterNumber: 2,
+            translationType: 'polished',
+            wordCount: 1200,
+            status: 'pending',
+            // No raw initially
+          },
+          'chap-3': {
+            chapterId: 'chap-3',
+            title: 'Chương 3',
+            chapterNumber: 3,
+            translationType: 'raw',
+            wordCount: 800,
+            status: 'pending',
+            // No raw initially
+          },
+        },
+        issues: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'idle',
+      };
+
+      // Mock DB where chap-1 and chap-2 have sourceText, but chap-3 does not
+      vi.spyOn(db, 'getChaptersByProjectFromDB').mockResolvedValue([
+        {
+          id: 'chap-1',
+          projectId: 'proj-horror',
+          sourceText: '第一章 文本...',
+        } as any,
+        {
+          id: 'chap-2',
+          projectId: 'proj-horror',
+          sourceText: '第二章 文本...',
+        } as any,
+        {
+          id: 'chap-3',
+          projectId: 'proj-horror',
+          sourceText: '', // Empty source text
+        } as any,
+      ]);
+
+      const saveSpy = vi.spyOn(hakoSessionStore, 'saveSession').mockImplementation(async (s) => s);
+
+      stateSlots[0] = initialSession;
+      refSlots[0] = { current: initialSession };
+      stateIndex = 0;
+      refIndex = 0;
+
+      const hook = useHakoReviewSession();
+      const result = await hook.hydrateAllChaptersRaw();
+
+      expect(result).toEqual({
+        successCount: 2,
+        totalCount: 3,
+        missingRawCount: 1,
+      });
+
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      const savedSession = saveSpy.mock.calls[0][0];
+      expect(savedSession.chapters['chap-1'].rawChineseContent).toBe('第一章 文本...');
+      expect(savedSession.chapters['chap-2'].rawChineseContent).toBe('第二章 文本...');
+      expect(savedSession.chapters['chap-3'].rawChineseContent).toBeUndefined();
     });
   });
 });

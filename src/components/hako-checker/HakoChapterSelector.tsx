@@ -20,6 +20,8 @@ import {
   BookOpen,
   FolderOpen,
   X,
+  Zap,
+  Loader2,
 } from 'lucide-react';
 import { ProjectReviewChapter } from '../../types/hakoChecker';
 import { StoryProject } from '../../types';
@@ -43,6 +45,7 @@ export interface HakoChapterSelectorProps {
   onSelectRange: (chapterIds: (string | number)[]) => void;
   onClearSelection: () => void;
   onUpdateRawText: (chapterId: string | number, raw: string) => void;
+  onHydrateAllRaw?: () => Promise<{ successCount: number; totalCount: number; missingRawCount: number }>;
   onStartAnalysis: () => void;
   isAnalyzing: boolean;
   apiKeys?: string[];
@@ -91,6 +94,7 @@ export function HakoChapterSelector({
   onSelectRange,
   onClearSelection,
   onUpdateRawText,
+  onHydrateAllRaw,
   onStartAnalysis,
   isAnalyzing,
   apiKeys,
@@ -229,6 +233,58 @@ export function HakoChapterSelector({
     }
   };
 
+  // Trạng thái nạp raw toàn bộ chương
+  const [isHydratingRaw, setIsHydratingRaw] = useState(false);
+  const [rawHydrationFeedback, setRawHydrationFeedback] = useState<string | null>(null);
+  const rawHydrationTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleBulkHydrateRaw = async () => {
+    if (!onHydrateAllRaw || isHydratingRaw) return;
+    setIsHydratingRaw(true);
+    try {
+      const res = await onHydrateAllRaw();
+      if (rawHydrationTimerRef.current) {
+        clearTimeout(rawHydrationTimerRef.current);
+      }
+      if (res.missingRawCount > 0) {
+        setRawHydrationFeedback(
+          `Đã nạp Raw cho ${res.successCount}/${res.totalCount} chương (${res.missingRawCount} chương chưa có bản gốc trong DB)`
+        );
+      } else {
+        setRawHydrationFeedback(
+          `Đã nạp Raw thành công cho ${res.successCount}/${res.totalCount} chương`
+        );
+      }
+      rawHydrationTimerRef.current = setTimeout(() => {
+        setRawHydrationFeedback(null);
+      }, 4000);
+    } catch (err) {
+      console.error('[HakoChapterSelector] Lỗi khi nạp raw toàn bộ:', err);
+      setRawHydrationFeedback('Có lỗi khi nạp raw từ cơ sở dữ liệu');
+      rawHydrationTimerRef.current = setTimeout(() => {
+        setRawHydrationFeedback(null);
+      }, 3000);
+    } finally {
+      setIsHydratingRaw(false);
+    }
+  };
+
+  // Tự động nạp raw trong background nếu còn chương chưa có raw khi mở dự án
+  const hasAttemptedAutoHydrateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!onHydrateAllRaw || !selectedProjectId) return;
+    const chList = Object.values(chapters || {});
+    if (chList.length === 0) return;
+
+    const hasMissingRaw = chList.some((ch) => !ch?.rawChineseContent || !ch.rawChineseContent.trim());
+    if (hasMissingRaw && hasAttemptedAutoHydrateRef.current !== selectedProjectId) {
+      hasAttemptedAutoHydrateRef.current = selectedProjectId;
+      onHydrateAllRaw().catch((err) => {
+        console.warn('[HakoChapterSelector] Auto-hydration background error:', err);
+      });
+    }
+  }, [chapters, selectedProjectId, onHydrateAllRaw]);
+
   // Trạng thái chọn theo khoảng chương (from ... to ...)
   const [fromChapterInput, setFromChapterInput] = useState<string>('');
   const [toChapterInput, setToChapterInput] = useState<string>('');
@@ -243,6 +299,9 @@ export function HakoChapterSelector({
       if (singleChapterTimerRef.current) {
         clearTimeout(singleChapterTimerRef.current);
       }
+      if (rawHydrationTimerRef.current) {
+        clearTimeout(rawHydrationTimerRef.current);
+      }
     };
   }, []);
 
@@ -254,6 +313,11 @@ export function HakoChapterSelector({
       .filter((c): c is ProjectReviewChapter => Boolean(c && (c.chapterId || (c as any).id)))
       .sort((a, b) => (a?.chapterNumber ?? 0) - (b?.chapterNumber ?? 0));
   }, [chapters]);
+
+  // Đếm số chương đã có raw text tiếng Trung
+  const rawChaptersCount = useMemo(() => {
+    return chapterList.filter((c) => c && c.rawChineseContent && c.rawChineseContent.trim()).length;
+  }, [chapterList]);
 
   // Memoize translatable chapters for quick selection
   const translatableChapters = useMemo(() => {
@@ -512,10 +576,21 @@ export function HakoChapterSelector({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 font-mono text-[11px]">
+            <div className="flex items-center gap-2 font-mono text-[11px] flex-wrap">
               <span>Tổng {selectedProject.chapters?.length || 0} chương</span>
               <span className="text-polish font-medium">
                 ({translatableChapters.length} chương có bản dịch)
+              </span>
+              <span
+                data-testid="raw-coverage-badge"
+                className={cn(
+                  'font-medium',
+                  rawChaptersCount === chapterList.length && chapterList.length > 0
+                    ? 'text-success'
+                    : 'text-amber-400'
+                )}
+              >
+                ({rawChaptersCount}/{chapterList.length} đã có raw)
               </span>
             </div>
           </div>
@@ -539,12 +614,18 @@ export function HakoChapterSelector({
         <>
           {/* Controls Header */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 pb-2 border-b border-parchment-2/50">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-display font-semibold text-text-main">
                 Danh sách chương ({chapterList.length} chương)
               </span>
               <span className="text-[11px] text-text-muted">
                 (Tối đa {MAX_SELECTION_LIMIT} chương mỗi đợt)
+              </span>
+              <span
+                data-testid="header-raw-coverage"
+                className="text-[10px] font-mono text-text-muted bg-ink/40 px-1.5 py-0.5 rounded-[2px] border border-parchment-2/50"
+              >
+                Đã có Raw: {rawChaptersCount}/{chapterList.length}
               </span>
               {isVirtualized && (
                 <span className="text-[10px] font-mono text-polish bg-polish/10 px-1.5 py-0.5 rounded-[2px] border border-polish/20">
@@ -695,7 +776,46 @@ export function HakoChapterSelector({
                 </span>
               )}
             </div>
+
+            {/* Bulk Hydrate Raw Button */}
+            {onHydrateAllRaw && (
+              <>
+                <div className="hidden md:block h-5 w-px bg-parchment-2/60" />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    data-testid="bulk-hydrate-raw-btn"
+                    onClick={handleBulkHydrateRaw}
+                    disabled={isAnalyzing || isHydratingRaw || chapterList.length === 0}
+                    icon={
+                      isHydratingRaw ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-polish" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5 text-polish" />
+                      )
+                    }
+                    className="text-xs h-7 px-2.5 font-medium border-polish/30 hover:border-polish/60"
+                    title="Tự động nạp văn bản raw tiếng Trung từ cơ sở dữ liệu cho toàn bộ chương"
+                  >
+                    {isHydratingRaw ? 'Đang nạp Raw...' : '⚡ Nạp Raw toàn bộ'}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
+
+          {/* Feedback banner for bulk raw hydration */}
+          {rawHydrationFeedback && (
+            <div
+              data-testid="raw-hydration-feedback"
+              className="mb-4 text-[11px] text-polish bg-polish/10 border border-polish/30 px-3 py-1.5 rounded-[3px] flex items-center gap-2 animate-in fade-in duration-200"
+            >
+              <Check className="w-3.5 h-3.5 text-success shrink-0" />
+              <span>{rawHydrationFeedback}</span>
+            </div>
+          )}
 
           {/* Chapter Items Container */}
           {isVirtualized ? (

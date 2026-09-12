@@ -16,6 +16,13 @@ import {
   getLatestSession,
   deleteSession as deleteSessionFromDb,
 } from '../services/hakoSessionStore';
+import { getChaptersByProjectFromDB } from '../services/db';
+
+export interface BulkHydrationResult {
+  successCount: number;
+  totalCount: number;
+  missingRawCount: number;
+}
 
 export interface UseHakoReviewSessionReturn {
   session: QualityReviewSession | null;
@@ -31,6 +38,7 @@ export interface UseHakoReviewSessionReturn {
   selectChapterRange: (chapterIds: (string | number)[]) => void;
   clearChapterSelection: () => void;
   updateChapterRawText: (chapterId: string | number, rawText: string) => void;
+  hydrateAllChaptersRaw: () => Promise<BulkHydrationResult>;
   updateSessionChaptersAndIssues: (
     chapters: Record<string, ProjectReviewChapter>,
     issues: QualityIssue[],
@@ -84,6 +92,41 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
         if (!isMounted) return;
         if (savedSession) {
           setSession(savedSession);
+          // Tự động bổ sung raw content trong background nếu phiên làm việc đã lưu còn chương thiếu raw
+          if (
+            savedSession.projectId &&
+            Object.values(savedSession.chapters || {}).some((c) => !c.rawChineseContent)
+          ) {
+            getChaptersByProjectFromDB(savedSession.projectId)
+              .then((dbChaps) => {
+                if (!isMounted || !Array.isArray(dbChaps)) return;
+                const dbMap = new Map<string, string>();
+                dbChaps.forEach((ch) => {
+                  if (ch?.id && ch.sourceText && ch.sourceText.trim()) {
+                    dbMap.set(String(ch.id), ch.sourceText.trim());
+                  }
+                });
+                let hasChanges = false;
+                const curr = sessionRef.current;
+                if (!curr || curr.projectId !== savedSession.projectId) return;
+                const nextChapters = { ...curr.chapters };
+                Object.entries(nextChapters).forEach(([id, ch]) => {
+                  if (!ch.rawChineseContent && dbMap.has(id)) {
+                    nextChapters[id] = { ...ch, rawChineseContent: dbMap.get(id) };
+                    hasChanges = true;
+                  }
+                });
+                if (hasChanges) {
+                  const refreshed = { ...curr, chapters: nextChapters };
+                  setSession(refreshed);
+                  sessionRef.current = refreshed;
+                  saveSession(refreshed).catch(() => {});
+                }
+              })
+              .catch((err) => {
+                console.warn('[useHakoReviewSession] Background raw hydration failed:', err);
+              });
+          }
         } else {
           const empty = createEmptySession();
           setSession(empty);
@@ -139,7 +182,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
   }, []);
 
   /**
-   * Chọn dự án dịch từ ứng dụng và khởi tạo danh sách chương (nhanh 0ms, không đọc full text)
+   * Chọn dự án dịch từ ứng dụng và khởi tạo danh sách chương (kèm batch nạp sourceText từ IndexedDB)
    */
   const selectProject = useCallback(
     async (project: StoryProject) => {
@@ -147,7 +190,22 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
 
       const current = sessionRef.current || createEmptySession();
 
-      // Khởi tạo metadata siêu nhẹ trực tiếp từ project.chapters
+      // Truy vấn batch sourceText từ DB cho toàn bộ chương của dự án
+      const dbChaptersMap = new Map<string, string>();
+      try {
+        const dbChapters = await getChaptersByProjectFromDB(project.id);
+        if (Array.isArray(dbChapters)) {
+          dbChapters.forEach((ch) => {
+            if (ch?.id && ch.sourceText && ch.sourceText.trim()) {
+              dbChaptersMap.set(String(ch.id), ch.sourceText.trim());
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('[useHakoReviewSession] Không thể nạp batch sourceText khi chọn dự án:', err);
+      }
+
+      // Khởi tạo metadata kết hợp batch sourceText
       const chaptersRecord: Record<string, ProjectReviewChapter> = {};
       (project.chapters || []).forEach((meta, index) => {
         if (!meta) return;
@@ -159,6 +217,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
             ? 'raw'
             : 'none';
         const existingChapter = current.projectId === project.id ? current.chapters[chapterIdStr] : null;
+        const rawContent = existingChapter?.rawChineseContent || dbChaptersMap.get(chapterIdStr) || undefined;
 
         chaptersRecord[chapterIdStr] = {
           chapterId: chapterIdStr,
@@ -167,7 +226,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
           translationType,
           wordCount: 0,
           status: 'pending',
-          rawChineseContent: existingChapter?.rawChineseContent,
+          rawChineseContent: rawContent,
         };
       });
 
@@ -316,6 +375,59 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
   );
 
   /**
+   * Nạp hoặc cập nhật văn bản raw (sourceText) từ IndexedDB cho toàn bộ chương của dự án hiện tại
+   */
+  const hydrateAllChaptersRaw = useCallback(async (): Promise<BulkHydrationResult> => {
+    const current = sessionRef.current;
+    if (!current || !current.projectId) {
+      return { successCount: 0, totalCount: 0, missingRawCount: 0 };
+    }
+
+    try {
+      const dbChapters = await getChaptersByProjectFromDB(current.projectId);
+      const dbMap = new Map<string, string>();
+      if (Array.isArray(dbChapters)) {
+        dbChapters.forEach((ch) => {
+          if (ch?.id && ch.sourceText && ch.sourceText.trim()) {
+            dbMap.set(String(ch.id), ch.sourceText.trim());
+          }
+        });
+      }
+
+      let successCount = 0;
+      let missingRawCount = 0;
+      const chapterEntries = Object.entries(current.chapters || {});
+      const totalCount = chapterEntries.length;
+
+      const updatedChapters: Record<string, ProjectReviewChapter> = {};
+      chapterEntries.forEach(([idStr, ch]) => {
+        const rawFromDb = dbMap.get(idStr);
+        const effectiveRaw = ch.rawChineseContent || rawFromDb || undefined;
+        if (effectiveRaw) {
+          successCount++;
+        } else {
+          missingRawCount++;
+        }
+        updatedChapters[idStr] = {
+          ...ch,
+          rawChineseContent: effectiveRaw,
+        };
+      });
+
+      const updatedSession: QualityReviewSession = {
+        ...current,
+        chapters: updatedChapters,
+      };
+
+      await persistSession(updatedSession, 0);
+      return { successCount, totalCount, missingRawCount };
+    } catch (err) {
+      console.error('[useHakoReviewSession] hydrateAllChaptersRaw error:', err);
+      return { successCount: 0, totalCount: 0, missingRawCount: 0 };
+    }
+  }, [persistSession]);
+
+  /**
    * Cập nhật toàn bộ chapters và issues sau khi phân tích xong (lưu metadata & issues, loại bỏ full text)
    */
   const updateSessionChaptersAndIssues = useCallback(
@@ -433,6 +545,7 @@ export function useHakoReviewSession(): UseHakoReviewSessionReturn {
     selectChapterRange,
     clearChapterSelection,
     updateChapterRawText,
+    hydrateAllChaptersRaw,
     updateSessionChaptersAndIssues,
     updateIssueDecision,
     updateMultipleIssueDecisions,

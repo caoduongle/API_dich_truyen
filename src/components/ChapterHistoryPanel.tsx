@@ -51,6 +51,33 @@ export function transformChapterPromotePolishedToRaw(chap: Chapter): Chapter {
   };
 }
 
+export function transformChaptersBatch(
+  chapters: Chapter[],
+  action: 'deletePolished' | 'deleteRaw' | 'promotePolishedToRaw'
+): { updatedChapters: Chapter[]; modifiedCount: number } {
+  let modifiedCount = 0;
+  const updatedChapters = chapters.map((chap) => {
+    if (action === 'deletePolished') {
+      if (chap.polishedTranslation && chap.polishedTranslation.trim().length > 0) {
+        modifiedCount++;
+        return transformChapterDeletePolished(chap);
+      }
+    } else if (action === 'deleteRaw') {
+      if (chap.rawTranslation && chap.rawTranslation.trim().length > 0) {
+        modifiedCount++;
+        return transformChapterDeleteRaw(chap);
+      }
+    } else if (action === 'promotePolishedToRaw') {
+      if (chap.polishedTranslation && chap.polishedTranslation.trim().length > 0) {
+        modifiedCount++;
+        return transformChapterPromotePolishedToRaw(chap);
+      }
+    }
+    return chap;
+  });
+  return { updatedChapters, modifiedCount };
+}
+
 export default function ChapterHistoryPanel({
   activeProject,
   onUpdateProject,
@@ -97,7 +124,140 @@ export default function ChapterHistoryPanel({
         setHistoryViewTab('source');
       }
       setSelectedChapterIds([]);
+      showToast({ message: `Đã reset ${selectedChapterIds.length} chương về bản gốc tiếng Trung.`, type: 'info' });
     }
+  };
+
+  const handleDeleteSelectedPolished = async () => {
+    if (selectedChapterIds.length === 0) return;
+    const count = selectedChapterIds.length;
+    const confirmed = await showConfirm({
+      title: 'Xóa bản biên tập hàng loạt',
+      message: `Bạn có chắc muốn xóa bản dịch biên tập của ${count} chương đã chọn? Bản dịch thô của các chương này sẽ được giữ nguyên 100%.`,
+      confirmText: 'Xác nhận xóa',
+      cancelText: 'Hủy',
+      type: 'warning',
+    });
+    if (!confirmed) return;
+
+    let modifiedCount = 0;
+    const updatedMap = new Map<string, Chapter>();
+
+    for (const chapId of selectedChapterIds) {
+      const chap = await getChapterFromDB(chapId);
+      if (chap && chap.polishedTranslation && chap.polishedTranslation.trim().length > 0) {
+        const updated = transformChapterDeletePolished(chap);
+        await saveChapterToDB(updated);
+        updatedMap.set(chapId, updated);
+        modifiedCount++;
+      }
+    }
+
+    if (modifiedCount > 0) {
+      const updatedChaptersMeta = activeProject.chapters.map((c) => {
+        const updated = updatedMap.get(c.id);
+        return updated ? { ...c, status: updated.status, updatedAt: updated.updatedAt } : c;
+      });
+      onUpdateProject({ ...activeProject, chapters: updatedChaptersMeta });
+
+      if (selectedHistoryChapterId && updatedMap.has(selectedHistoryChapterId)) {
+        const activeUpdated = updatedMap.get(selectedHistoryChapterId)!;
+        setSelectedChapterDetails(activeUpdated);
+        setHistoryViewTab(activeUpdated.rawTranslation ? 'raw' : 'source');
+      }
+      showToast({ message: `Đã xóa bản dịch biên tập của ${modifiedCount} chương đã chọn.`, type: 'info' });
+    } else {
+      showToast({ message: 'Không có chương nào trong danh sách đã chọn có bản dịch biên tập.', type: 'info' });
+    }
+    setSelectedChapterIds([]);
+  };
+
+  const handleDeleteSelectedRaw = async () => {
+    if (selectedChapterIds.length === 0) return;
+    const count = selectedChapterIds.length;
+    const confirmed = await showConfirm({
+      title: 'Xóa bản dịch thô hàng loạt',
+      message: `Bạn có chắc muốn xóa bản dịch thô của ${count} chương đã chọn?`,
+      confirmText: 'Xác nhận xóa',
+      cancelText: 'Hủy',
+      type: 'warning',
+    });
+    if (!confirmed) return;
+
+    let modifiedCount = 0;
+    const updatedMap = new Map<string, Chapter>();
+
+    for (const chapId of selectedChapterIds) {
+      const chap = await getChapterFromDB(chapId);
+      if (chap && chap.rawTranslation && chap.rawTranslation.trim().length > 0) {
+        const updated = transformChapterDeleteRaw(chap);
+        await saveChapterToDB(updated);
+        updatedMap.set(chapId, updated);
+        modifiedCount++;
+      }
+    }
+
+    if (modifiedCount > 0) {
+      const updatedChaptersMeta = activeProject.chapters.map((c) => {
+        const updated = updatedMap.get(c.id);
+        return updated ? { ...c, status: updated.status, updatedAt: updated.updatedAt } : c;
+      });
+      onUpdateProject({ ...activeProject, chapters: updatedChaptersMeta });
+
+      if (selectedHistoryChapterId && updatedMap.has(selectedHistoryChapterId)) {
+        const activeUpdated = updatedMap.get(selectedHistoryChapterId)!;
+        setSelectedChapterDetails(activeUpdated);
+        setHistoryViewTab(activeUpdated.polishedTranslation ? 'polished' : 'source');
+      }
+      showToast({ message: `Đã xóa bản dịch thô của ${modifiedCount} chương đã chọn.`, type: 'info' });
+    } else {
+      showToast({ message: 'Không có chương nào trong danh sách đã chọn có bản dịch thô.', type: 'info' });
+    }
+    setSelectedChapterIds([]);
+  };
+
+  const handlePromoteSelectedPolishedToRaw = async () => {
+    if (selectedChapterIds.length === 0) return;
+    const count = selectedChapterIds.length;
+    const confirmed = await showConfirm({
+      title: 'Chuyển thành bản dịch thô hàng loạt',
+      message: `Bạn có chắc muốn chuyển bản biên tập thành bản dịch thô cho ${count} chương đã chọn? Bản dịch thô mới sẽ sẵn sàng làm bản nháp để chuốt văn tiếp.`,
+      confirmText: 'Xác nhận chuyển',
+      cancelText: 'Hủy',
+      type: 'info',
+    });
+    if (!confirmed) return;
+
+    let modifiedCount = 0;
+    const updatedMap = new Map<string, Chapter>();
+
+    for (const chapId of selectedChapterIds) {
+      const chap = await getChapterFromDB(chapId);
+      if (chap && chap.polishedTranslation && chap.polishedTranslation.trim().length > 0) {
+        const updated = transformChapterPromotePolishedToRaw(chap);
+        await saveChapterToDB(updated);
+        updatedMap.set(chapId, updated);
+        modifiedCount++;
+      }
+    }
+
+    if (modifiedCount > 0) {
+      const updatedChaptersMeta = activeProject.chapters.map((c) => {
+        const updated = updatedMap.get(c.id);
+        return updated ? { ...c, status: updated.status, updatedAt: updated.updatedAt } : c;
+      });
+      onUpdateProject({ ...activeProject, chapters: updatedChaptersMeta });
+
+      if (selectedHistoryChapterId && updatedMap.has(selectedHistoryChapterId)) {
+        const activeUpdated = updatedMap.get(selectedHistoryChapterId)!;
+        setSelectedChapterDetails(activeUpdated);
+        setHistoryViewTab('raw');
+      }
+      showToast({ message: `Đã chuyển bản biên tập thành bản thô cho ${modifiedCount} chương thành công.`, type: 'success' });
+    } else {
+      showToast({ message: 'Không có chương nào trong danh sách đã chọn có bản dịch biên tập.', type: 'info' });
+    }
+    setSelectedChapterIds([]);
   };
 
   const handleResetSingleToSource = async (chapId: string) => {
@@ -215,29 +375,73 @@ export default function ChapterHistoryPanel({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
           {/* Chapter list left sidebar */}
           <div className="space-y-3 bg-parchment border border-parchment-2 rounded-md p-4 shadow-xs">
-            <div className="flex items-center justify-between border-b border-parchment-2 pb-2.5">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={selectedChapterIds.length === chapters.length && chapters.length > 0}
-                  onChange={handleSelectAll}
-                  className="rounded-[2px] accent-polish w-3.5 h-3.5 cursor-pointer"
-                  title="Chọn tất cả các chương"
-                />
-                <span className="text-xs font-bold text-text-muted uppercase tracking-wider">
-                  Danh Sách Chương ({chapters.length})
-                </span>
+            <div className="border-b border-parchment-2 pb-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedChapterIds.length === chapters.length && chapters.length > 0}
+                    onChange={handleSelectAll}
+                    className="rounded-[2px] accent-polish w-3.5 h-3.5 cursor-pointer"
+                    title="Chọn tất cả các chương"
+                  />
+                  <span className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                    Danh Sách Chương ({chapters.length})
+                  </span>
+                </div>
+                {selectedChapterIds.length > 0 && (
+                  <span className="text-[11px] font-semibold text-polish">
+                    Đã chọn {selectedChapterIds.length}
+                  </span>
+                )}
               </div>
+
               {selectedChapterIds.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleResetSelectedToSource}
-                  icon={<RotateCcw className="w-3 h-3" />}
-                  className="text-[10px] text-amber-300 border-amber-800/40 hover:bg-amber-950/20 py-0.5 px-2"
-                >
-                  Reset ({selectedChapterIds.length})
-                </Button>
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-parchment-2/50">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResetSelectedToSource}
+                    icon={<RotateCcw className="w-3 h-3" />}
+                    className="text-[11px] text-warning border-warning/40 hover:bg-warning/10 hover:text-warning py-0.5 px-2 min-h-[28px] sm:min-h-[28px]"
+                    title="Reset toàn bộ các chương đã chọn về bản gốc tiếng Trung (xóa cả bản thô và bản biên tập)"
+                  >
+                    Reset ({selectedChapterIds.length})
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDeleteSelectedPolished}
+                    icon={<FileX className="w-3 h-3" />}
+                    className="text-[11px] text-warning border-warning/40 hover:bg-warning/10 hover:text-warning py-0.5 px-2 min-h-[28px] sm:min-h-[28px]"
+                    title="Xóa bản dịch biên tập của các chương đã chọn, giữ nguyên 100% bản dịch thô"
+                  >
+                    Xóa biên tập ({selectedChapterIds.length})
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDeleteSelectedRaw}
+                    icon={<Trash2 className="w-3 h-3" />}
+                    className="text-[11px] text-warning border-warning/40 hover:bg-warning/10 hover:text-warning py-0.5 px-2 min-h-[28px] sm:min-h-[28px]"
+                    title="Xóa bản dịch thô của các chương đã chọn"
+                  >
+                    Xóa bản thô ({selectedChapterIds.length})
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePromoteSelectedPolishedToRaw}
+                    icon={<Sparkles className="w-3 h-3 text-polish" />}
+                    className="text-[11px] text-text-main border-parchment-2 hover:bg-parchment-2 py-0.5 px-2 min-h-[28px] sm:min-h-[28px]"
+                    title="Chuyển bản biên tập hiện tại thành bản dịch thô cho các chương đã chọn để chuốt tiếp"
+                  >
+                    Thành bản thô ({selectedChapterIds.length})
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -379,7 +583,7 @@ export default function ChapterHistoryPanel({
                             size="sm"
                             onClick={() => handleResetSingleToSource(chap.id)}
                             icon={<RotateCcw className="w-3.5 h-3.5" />}
-                            className="text-amber-300 border-amber-800/40 hover:bg-amber-950/20"
+                            className="text-warning border-warning/40 hover:bg-warning/10 hover:text-warning"
                             title="Reset toàn bộ về bản gốc tiếng Trung (xóa cả bản thô và bản biên tập)"
                           >
                             Reset về bản gốc
@@ -392,7 +596,7 @@ export default function ChapterHistoryPanel({
                             size="sm"
                             onClick={() => handleDeletePolishedTranslation(chap)}
                             icon={<FileX className="w-3.5 h-3.5" />}
-                            className="text-amber-300 border-amber-800/40 hover:bg-amber-950/20"
+                            className="text-warning border-warning/40 hover:bg-warning/10 hover:text-warning"
                             title="Xóa bản dịch biên tập, giữ nguyên 100% bản dịch thô"
                           >
                             Xóa bản biên tập
@@ -405,7 +609,7 @@ export default function ChapterHistoryPanel({
                             size="sm"
                             onClick={() => handleDeleteRawTranslation(chap)}
                             icon={<Trash2 className="w-3.5 h-3.5" />}
-                            className="text-amber-300 border-amber-800/40 hover:bg-amber-950/20"
+                            className="text-warning border-warning/40 hover:bg-warning/10 hover:text-warning"
                             title="Xóa bản dịch thô của chương"
                           >
                             Xóa bản dịch thô

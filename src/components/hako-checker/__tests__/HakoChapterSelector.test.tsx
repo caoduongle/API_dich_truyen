@@ -633,5 +633,84 @@ describe('HakoChapterSelector: Select Next Batch (12 chương tiếp theo)', () 
 
       expect(html).toContain('+ Thêm Raw');
     });
+
+    it('renders "⚡ Nạp Raw toàn bộ" button and coverage metrics when onHydrateAllRaw is provided', () => {
+      const mixedChapters: Record<string, ProjectReviewChapter> = {
+        'chap-1': {
+          chapterId: 'chap-1',
+          title: 'Chương 1',
+          chapterNumber: 1,
+          translationType: 'polished',
+          wordCount: 1500,
+          status: 'done',
+          rawChineseContent: '第一章 原始文本...',
+        },
+        'chap-2': {
+          chapterId: 'chap-2',
+          title: 'Chương 2',
+          chapterNumber: 2,
+          translationType: 'polished',
+          wordCount: 1200,
+          status: 'done',
+          // raw missing
+        },
+      };
+
+      const html = normalizeHtml(
+        renderToString(
+          <HakoChapterSelector
+            projects={mockProjects}
+            selectedProjectId="proj-1"
+            onSelectProject={vi.fn()}
+            selectedChapterIds={['chap-1']}
+            chapters={mixedChapters}
+            onToggleChapter={vi.fn()}
+            onSelectRange={vi.fn()}
+            onClearSelection={vi.fn()}
+            onUpdateRawText={vi.fn()}
+            onHydrateAllRaw={vi.fn().mockResolvedValue({ successCount: 2, totalCount: 2, missingRawCount: 0 })}
+            onStartAnalysis={vi.fn()}
+            isAnalyzing={false}
+          />
+        )
+      );
+
+      expect(html).toContain('Nạp Raw toàn bộ');
+      expect(html).toContain('Đã có Raw: 1/2');
+      expect(html).toContain('(1/2 đã có raw)');
+    });
+
+    it('omits "⚡ Nạp Raw toàn bộ" button when onHydrateAllRaw is not provided', () => {
+      const testChapters: Record<string, ProjectReviewChapter> = {
+        'chap-1': {
+          chapterId: 'chap-1',
+          title: 'Chương 1',
+          chapterNumber: 1,
+          translationType: 'polished',
+          wordCount: 1500,
+          status: 'done',
+        },
+      };
+
+      const html = normalizeHtml(
+        renderToString(
+          <HakoChapterSelector
+            projects={mockProjects}
+            selectedProjectId="proj-1"
+            onSelectProject={vi.fn()}
+            selectedChapterIds={['chap-1']}
+            chapters={testChapters}
+            onToggleChapter={vi.fn()}
+            onSelectRange={vi.fn()}
+            onClearSelection={vi.fn()}
+            onUpdateRawText={vi.fn()}
+            onStartAnalysis={vi.fn()}
+            isAnalyzing={false}
+          />
+        )
+      );
+
+      expect(html).not.toContain('Nạp Raw toàn bộ');
+    });
   });
 });

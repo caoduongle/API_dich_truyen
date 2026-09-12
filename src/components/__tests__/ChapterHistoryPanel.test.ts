@@ -3,6 +3,7 @@ import {
   transformChapterDeletePolished,
   transformChapterDeleteRaw,
   transformChapterPromotePolishedToRaw,
+  transformChaptersBatch,
 } from '../ChapterHistoryPanel';
 import { Chapter } from '../../types';
 
@@ -82,6 +83,108 @@ describe('ChapterHistoryPanel Draft Transformation Functions', () => {
       expect(result.translatedLines).toEqual(
         baseChapter.polishedTranslation.split(/\n+/).map((l) => l.trim()).filter(Boolean)
       );
+    });
+  });
+
+  describe('transformChaptersBatch', () => {
+    const chapter1: Chapter = {
+      ...baseChapter,
+      id: 'chap_1',
+      title: 'Chương 1',
+      rawTranslation: 'Bản dịch thô 1',
+      polishedTranslation: 'Bản biên tập 1',
+      status: 'completed',
+    };
+
+    const chapter2: Chapter = {
+      ...baseChapter,
+      id: 'chap_2',
+      title: 'Chương 2',
+      rawTranslation: 'Bản dịch thô 2',
+      polishedTranslation: '',
+      status: 'in_progress',
+    };
+
+    const chapter3: Chapter = {
+      ...baseChapter,
+      id: 'chap_3',
+      title: 'Chương 3',
+      rawTranslation: '',
+      polishedTranslation: 'Bản biên tập 3',
+      status: 'completed',
+    };
+
+    it('batch deletePolished only modifies chapters with polished translations', () => {
+      const { updatedChapters, modifiedCount } = transformChaptersBatch(
+        [chapter1, chapter2, chapter3],
+        'deletePolished'
+      );
+
+      expect(modifiedCount).toBe(2);
+      // chapter 1 had polished -> cleared, raw preserved
+      expect(updatedChapters[0].polishedTranslation).toBe('');
+      expect(updatedChapters[0].rawTranslation).toBe('Bản dịch thô 1');
+      expect(updatedChapters[0].status).toBe('in_progress');
+
+      // chapter 2 had no polished -> untouched
+      expect(updatedChapters[1].polishedTranslation).toBe('');
+      expect(updatedChapters[1].rawTranslation).toBe('Bản dịch thô 2');
+
+      // chapter 3 had polished but no raw -> cleared, status not_started
+      expect(updatedChapters[2].polishedTranslation).toBe('');
+      expect(updatedChapters[2].status).toBe('not_started');
+    });
+
+    it('batch deleteRaw only modifies chapters with raw translations', () => {
+      const { updatedChapters, modifiedCount } = transformChaptersBatch(
+        [chapter1, chapter2, chapter3],
+        'deleteRaw'
+      );
+
+      expect(modifiedCount).toBe(2);
+      // chapter 1 had raw -> cleared, polished preserved
+      expect(updatedChapters[0].rawTranslation).toBe('');
+      expect(updatedChapters[0].polishedTranslation).toBe('Bản biên tập 1');
+      expect(updatedChapters[0].status).toBe('completed');
+
+      // chapter 2 had raw but no polished -> cleared, status not_started
+      expect(updatedChapters[1].rawTranslation).toBe('');
+      expect(updatedChapters[1].status).toBe('not_started');
+
+      // chapter 3 had no raw -> untouched
+      expect(updatedChapters[2].rawTranslation).toBe('');
+      expect(updatedChapters[2].polishedTranslation).toBe('Bản biên tập 3');
+    });
+
+    it('batch promotePolishedToRaw only modifies chapters with polished translations', () => {
+      const { updatedChapters, modifiedCount } = transformChaptersBatch(
+        [chapter1, chapter2, chapter3],
+        'promotePolishedToRaw'
+      );
+
+      expect(modifiedCount).toBe(2);
+      // chapter 1: polished becomes raw
+      expect(updatedChapters[0].rawTranslation).toBe('Bản biên tập 1');
+      expect(updatedChapters[0].polishedTranslation).toBe('');
+      expect(updatedChapters[0].status).toBe('in_progress');
+
+      // chapter 2: had no polished -> untouched
+      expect(updatedChapters[1].rawTranslation).toBe('Bản dịch thô 2');
+
+      // chapter 3: polished becomes raw
+      expect(updatedChapters[2].rawTranslation).toBe('Bản biên tập 3');
+      expect(updatedChapters[2].polishedTranslation).toBe('');
+      expect(updatedChapters[2].status).toBe('in_progress');
+    });
+
+    it('returns 0 modifiedCount when no chapters meet criteria', () => {
+      const { updatedChapters, modifiedCount } = transformChaptersBatch(
+        [chapter2],
+        'deletePolished'
+      );
+
+      expect(modifiedCount).toBe(0);
+      expect(updatedChapters[0]).toEqual(chapter2);
     });
   });
 });

@@ -61,6 +61,7 @@ export function HakoCheckerWorkspace({
     selectChapterRange,
     clearChapterSelection,
     updateChapterRawText,
+    hydrateAllChaptersRaw,
     updateSessionChaptersAndIssues,
     updateIssueDecision,
     updateMultipleIssueDecisions,
@@ -433,6 +434,7 @@ export function HakoCheckerWorkspace({
           onSelectRange={selectChapterRange}
           onClearSelection={clearChapterSelection}
           onUpdateRawText={updateChapterRawText}
+          onHydrateAllRaw={hydrateAllChaptersRaw}
           onStartAnalysis={handleStartAnalysis}
           isAnalyzing={isAnalyzing}
         />
