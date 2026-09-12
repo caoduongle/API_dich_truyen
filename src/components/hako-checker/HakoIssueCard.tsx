@@ -124,6 +124,13 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
             <span>Đã xác nhận lỗi</span>
           </span>
         );
+      case 'resolved':
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-500/50 px-2 py-0.5 rounded-[2px]">
+            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+            <span>Đã giải quyết</span>
+          </span>
+        );
       case 'review_needed':
         return (
           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-amber-950/40 border border-amber-800/60 px-2 py-0.5 rounded-[2px]">
@@ -154,6 +161,8 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
         'border rounded-[3px] p-4 transition-all duration-150',
         issue.decision === 'confirmed'
           ? 'bg-parchment border-polish/50 shadow-xs'
+          : issue.decision === 'resolved'
+          ? 'bg-emerald-950/20 border-emerald-500/40 shadow-xs'
           : issue.decision === 'dismissed'
           ? 'bg-ink/30 border-parchment-2/40 opacity-70'
           : issue.decision === 'review_needed'
@@ -169,6 +178,12 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
           <span className="text-xs font-bold text-text-main">
             {CATEGORY_NAMES[issue.category] || issue.category}
           </span>
+
+          {issue.isNew && (
+            <span className="text-[10px] font-bold text-sky-300 bg-sky-950/60 border border-sky-500/40 px-1.5 py-0.5 rounded-[2px] uppercase tracking-wide">
+              Mới
+            </span>
+          )}
 
           <span className="inline-flex items-center gap-1 text-[10px] text-text-muted bg-ink/60 px-1.5 py-0.5 rounded-[2px] border border-parchment-2">
             {issue.detectedBy === 'ai' ? (
@@ -323,6 +338,12 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
         </div>
 
         <div className="flex items-center gap-1.5">
+          {issue.decision === 'resolved' && (
+            <span className="text-[11px] text-emerald-400 font-medium mr-1.5 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+              <span>Đã khắc phục</span>
+            </span>
+          )}
           <Button
             type="button"
             variant={issue.decision === 'dismissed' ? 'secondary' : 'ghost'}

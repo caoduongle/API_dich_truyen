@@ -355,4 +355,75 @@ describe('HakoIssueReviewPanel Batch Action Confirmation & Undo Guard', () => {
       expect(html).not.toContain('Mở trong Bàn Dịch để sửa');
     });
   });
+
+  describe('Smart Re-audit Resolved State & Diff Summary Rendering', () => {
+    it('renders "đã khắc phục" badge and filter option when resolved issues exist', () => {
+      const issues: QualityIssue[] = [
+        ...createMockIssues(2, 'confirmed'),
+        ...createMockIssues(1, 'resolved'),
+      ];
+
+      const html = renderToString(
+        <HakoIssueReviewPanel
+          issues={issues}
+          chapters={mockChapters}
+          onDecisionChange={vi.fn()}
+          onOpenExportModal={vi.fn()}
+          onReanalyze={vi.fn()}
+          isAnalyzing={false}
+        />
+      );
+
+      expect(html).toContain('đã khắc phục');
+      expect(html).toContain('value="resolved"');
+    });
+
+    it('renders diffSummary notification banner when provided after rescan', () => {
+      const issues = createMockIssues(2);
+      const diffSummary = {
+        resolvedCount: 3,
+        unresolvedCount: 1,
+        dismissedCount: 2,
+        newCount: 1,
+        totalCurrent: 3,
+      };
+
+      const html = renderToString(
+        <HakoIssueReviewPanel
+          issues={issues}
+          chapters={mockChapters}
+          onDecisionChange={vi.fn()}
+          onOpenExportModal={vi.fn()}
+          onReanalyze={vi.fn()}
+          isAnalyzing={false}
+          diffSummary={diffSummary}
+          onDismissDiffSummary={vi.fn()}
+        />
+      );
+
+      expect(html).toContain('Kết quả rà soát lại có đối chiếu quyết định');
+      expect(html).toContain('lỗi đã được khắc phục sau khi sửa bản dịch (Đã giải quyết).');
+      expect(html).toContain('lỗi đã xác nhận vẫn còn tồn tại.');
+      expect(html).toContain('lỗi mới phát sinh.');
+      expect(html).toContain('lỗi đã bỏ qua tiếp tục được bảo toàn.');
+    });
+
+    it('renders HakoIssueCard with resolved and isNew markers', () => {
+      const resolvedIssue: QualityIssue = {
+        ...createMockIssues(1, 'resolved')[0],
+        isNew: true,
+      };
+
+      const html = renderToString(
+        <HakoIssueCard
+          issue={resolvedIssue}
+          onDecisionChange={vi.fn()}
+        />
+      );
+
+      expect(html).toContain('Đã giải quyết');
+      expect(html).toContain('Đã khắc phục');
+      expect(html).toContain('Mới');
+    });
+  });
 });

@@ -15,6 +15,10 @@
   1. **Phase 1 (Dịch thô)**: Nhận từ điển dự án để đính kèm bảng tra cứu đại từ, vai trò nhân vật và thực thể (giúp AI nhận biết giới tính, bối cảnh để xưng hô chuẩn xác thay vì thấy `[Tên_Việt]` mà không biết xưng hô thế nào).
   2. **Phase 2 (Chuốt văn phong)**: **TUYỆT ĐỐI KHÔNG nhồi toàn bộ từ điển vào prompt.** Hệ thống có bộ quét so khớp (`matchedTermsList`) chỉ trích xuất các thuật ngữ **thực sự xuất hiện** trong đoạn văn/chương đang dịch để đưa vào khối `[TỪ ĐIỂN RIÊNG ĐÃ XUẤT HIỆN TRONG ĐOẠN NÀY]`. Lỗi gán `glossary: []` trước đây đã tước mất kho dữ liệu của bộ lọc, khiến cho ngay cả các thuật ngữ có mặt trong đoạn cũng không thể hiển thị.
   3. **Phase 3 (QA Critique)**: Bảng từ điển tham chiếu được giới hạn (tối đa 150 mục) nhằm đối chiếu kiểm tra chéo lỗi dịch sai thuật ngữ (`terminology`) mà không gây tràn token.
+- Q: Kiểm duyệt chất lượng (Quality Assurance / QA Critique) hoạt động như thế nào trong hệ thống? → A: Hệ thống vận hành mô hình kiểm duyệt 2 tầng (Two-Tier Audit Pipeline):
+  1. **Tầng 1 - Luật Heuristic Hako cục bộ (Offline)**: Quét tức thì không tốn API token dựa trên luật biên tập Hako (sót Hán tự raw leak, lặp đoạn văn, lỗi đóng mở ngoặc kép, v.v.), có khả năng tự động sửa (autoFixable).
+  2. **Tầng 2 - AI QA Critique chuyên sâu (Online Gemini)**: AI đóng vai chuyên gia thẩm định đối chiếu song song giữa bản gốc tiếng Trung và bản dịch tiếng Việt dựa trên bối cảnh Thể loại (`genre`), Tông giọng (`tone`), Cẩm nang dịch (`description`) và Bảng từ điển (`glossary`) để phát hiện 4 loại lỗi: Bỏ sót (`omission`), Thêm thắt (`addition`), Lặp lại (`repetition`), và Sai thuật ngữ (`terminology`).
+  3. **Tích hợp & Khắc phục**: Chạy tự động trong hàng đợi dịch (lưu vào `Chapter.qaIssues` trong IndexedDB) hoặc thủ công trong Workspace; cung cấp tính năng "Viết lại câu" (`rewriteSentenceDirect`) kết hợp đúng thể loại/tông giọng để sửa lỗi ngay tại chỗ trên `UnifiedAuditPanel`.
 
 ## User Scenarios & Testing *(mandatory)*
 

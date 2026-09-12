@@ -25,7 +25,8 @@ export type QualityIssueDecision =
   | 'pending'              // Chờ moderator xem xét
   | 'confirmed'            // Moderator xác nhận là lỗi cần sửa
   | 'review_needed'        // Moderator đánh dấu cần hội ý thêm
-  | 'dismissed';           // Moderator bác bỏ / bỏ qua
+  | 'dismissed'            // Moderator bác bỏ / bỏ qua
+  | 'resolved';            // Lỗi đã được khắc phục sau khi sửa bản dịch
 
 export interface HakoChapterMeta {
   chapterId: string;
@@ -62,6 +63,21 @@ export interface QualityIssue {
   moderatorNote?: string;          // Ghi chú của moderator
   detectedBy: 'heuristic' | 'ai';  // Nguồn phát hiện
   createdAt: string;
+  resolvedAt?: string;             // Thời điểm xác định đã khắc phục
+  isNew?: boolean;                 // Lỗi mới phát sinh trong lần quét lại
+}
+
+export interface ReauditDiffSummary {
+  resolvedCount: number;           // Số lỗi đã được khắc phục
+  unresolvedCount: number;         // Số lỗi đã xác nhận nhưng vẫn tồn tại
+  dismissedCount: number;          // Số lỗi bác bỏ được bảo toàn
+  newCount: number;                // Số lỗi mới phát hiện
+  totalCurrent: number;            // Tổng số lỗi còn hoạt động
+}
+
+export interface IssueReconciliationResult {
+  reconciledIssues: QualityIssue[];
+  diffSummary: ReauditDiffSummary;
 }
 
 export interface QualityReviewSession {
@@ -86,6 +102,7 @@ export interface QualityReportStats {
   reviewNeededCount: number;
   dismissedCount: number;
   pendingCount: number;
+  resolvedCount: number;
   bySeverity: Record<QualityIssueSeverity, number>;
   byCategory: Record<QualityIssueCategory, number>;
 }

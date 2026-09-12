@@ -5,8 +5,11 @@ import {
   runAiQualityScan,
   generateQualityReport,
   generateIssueId,
+  generateIssueFingerprint,
+  normalizeIssueSnippet,
+  reconcileIssuesWithDecisions,
 } from '../hakoQualityEngine';
-import { QualityReviewSession } from '../../types/hakoChecker';
+import { QualityReviewSession, QualityIssue } from '../../types/hakoChecker';
 
 describe('hakoQualityEngine Unit Tests', () => {
   describe('generateIssueId', () => {
@@ -371,6 +374,130 @@ describe('hakoQualityEngine Unit Tests', () => {
 
       // Both chapters were called
       expect(spy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('generateIssueFingerprint & normalizeIssueSnippet', () => {
+    it('normalizes whitespace and removes trailing ellipsis', () => {
+      const snip1 = 'Đoạn văn có nhiều   khoảng   trắng...';
+      const snip2 = 'đoạn văn có nhiều khoảng trắng';
+      expect(normalizeIssueSnippet('repetition', snip1)).toBe(normalizeIssueSnippet('repetition', snip2));
+    });
+
+    it('extracts exact CJK characters for raw_leak category', () => {
+      const snip1 = 'Phát hiện ký tự 龙涎草 ở vách đá...';
+      const snip2 = 'Một câu khác nhưng vẫn chứa 龙涎草 ở cuối.';
+      expect(normalizeIssueSnippet('raw_leak', snip1)).toBe('cjk:龙涎草');
+      expect(normalizeIssueSnippet('raw_leak', snip2)).toBe('cjk:龙涎草');
+      expect(generateIssueFingerprint('chap1', 'raw_leak', snip1)).toBe(
+        generateIssueFingerprint('chap1', 'raw_leak', snip2)
+      );
+    });
+
+    it('differentiates distinct categories or chapterIds', () => {
+      const fp1 = generateIssueFingerprint('chap1', 'raw_leak', 'Hán tự 剑');
+      const fp2 = generateIssueFingerprint('chap2', 'raw_leak', 'Hán tự 剑');
+      const fp3 = generateIssueFingerprint('chap1', 'other', 'Hán tự 剑');
+      expect(fp1).not.toBe(fp2);
+      expect(fp1).not.toBe(fp3);
+    });
+  });
+
+  describe('reconcileIssuesWithDecisions', () => {
+    const createSampleIssue = (overrides: Partial<QualityIssue> = {}): QualityIssue => ({
+      id: `issue-${Math.random()}`,
+      chapterId: 'chap1',
+      chapterTitle: 'Chương 1',
+      chapterNumber: 1,
+      category: 'raw_leak',
+      severity: 'major',
+      vietnameseSnippet: 'Có ký tự 龙涎草 chưa dịch',
+      explanation: 'Sót chữ Hán',
+      decision: 'pending',
+      detectedBy: 'heuristic',
+      createdAt: '2026-09-12T00:00:00.000Z',
+      ...overrides,
+    });
+
+    it('[US1] retains dismissed decision and does not re-alert on rescan', () => {
+      const oldIssue = createSampleIssue({ id: 'old-1', decision: 'dismissed' });
+      const scannedIssue = createSampleIssue({ id: 'new-temp-1' });
+
+      const result = reconcileIssuesWithDecisions([oldIssue], [scannedIssue], ['chap1']);
+
+      expect(result.reconciledIssues.length).toBe(1);
+      expect(result.reconciledIssues[0].id).toBe('old-1');
+      expect(result.reconciledIssues[0].decision).toBe('dismissed');
+      expect(result.diffSummary.dismissedCount).toBe(1);
+    });
+
+    it('[US2] transitions confirmed issue to resolved when text is fixed in rescan', () => {
+      const oldIssue = createSampleIssue({ id: 'old-confirmed', decision: 'confirmed' });
+      // Scanned issues is empty (fixed text)
+      const result = reconcileIssuesWithDecisions([oldIssue], [], ['chap1']);
+
+      expect(result.reconciledIssues.length).toBe(1);
+      expect(result.reconciledIssues[0].id).toBe('old-confirmed');
+      expect(result.reconciledIssues[0].decision).toBe('resolved');
+      expect(result.reconciledIssues[0].resolvedAt).toBeDefined();
+      expect(result.diffSummary.resolvedCount).toBe(1);
+    });
+
+    it('[US2] preserves confirmed decision when issue persists on rescan', () => {
+      const oldIssue = createSampleIssue({ id: 'old-confirmed', decision: 'confirmed' });
+      const scannedIssue = createSampleIssue({ id: 'scanned-1' });
+
+      const result = reconcileIssuesWithDecisions([oldIssue], [scannedIssue], ['chap1']);
+
+      expect(result.reconciledIssues.length).toBe(1);
+      expect(result.reconciledIssues[0].id).toBe('old-confirmed');
+      expect(result.reconciledIssues[0].decision).toBe('confirmed');
+      expect(result.diffSummary.unresolvedCount).toBe(1);
+    });
+
+    it('[US3] preserves review_needed decision and moderatorNote across rescan', () => {
+      const oldIssue = createSampleIssue({
+        id: 'old-review',
+        decision: 'review_needed',
+        moderatorNote: 'Cần thảo luận thêm với nhóm dịch',
+      });
+      const scannedIssue = createSampleIssue({ id: 'scanned-2' });
+
+      const result = reconcileIssuesWithDecisions([oldIssue], [scannedIssue], ['chap1']);
+
+      expect(result.reconciledIssues.length).toBe(1);
+      expect(result.reconciledIssues[0].id).toBe('old-review');
+      expect(result.reconciledIssues[0].decision).toBe('review_needed');
+      expect(result.reconciledIssues[0].moderatorNote).toBe('Cần thảo luận thêm với nhóm dịch');
+    });
+
+    it('[US4] marks newly introduced issues with isNew: true and decision: pending', () => {
+      const oldIssue = createSampleIssue({ id: 'old-1', decision: 'confirmed' });
+      const sameScanned = createSampleIssue({ id: 'same' });
+      const brandNewScanned = createSampleIssue({
+        id: 'new-error',
+        vietnameseSnippet: 'Một lỗi mới xuất hiện 乾坤袋',
+      });
+
+      const result = reconcileIssuesWithDecisions([oldIssue], [sameScanned, brandNewScanned], ['chap1']);
+
+      expect(result.reconciledIssues.length).toBe(2);
+      const newIssue = result.reconciledIssues.find((i) => i.vietnameseSnippet.includes('乾坤袋'));
+      expect(newIssue).toBeDefined();
+      expect(newIssue?.decision).toBe('pending');
+      expect(newIssue?.isNew).toBe(true);
+      expect(result.diffSummary.newCount).toBe(1);
+    });
+
+    it('leaves issues from non-scanned chapters untouched', () => {
+      const chap2Issue = createSampleIssue({ chapterId: 'chap2', id: 'chap2-issue', decision: 'confirmed' });
+      const chap1Old = createSampleIssue({ chapterId: 'chap1', id: 'chap1-issue', decision: 'dismissed' });
+      const chap1New = createSampleIssue({ chapterId: 'chap1' });
+
+      const result = reconcileIssuesWithDecisions([chap2Issue, chap1Old], [chap1New], ['chap1']);
+
+      expect(result.reconciledIssues.find((i) => i.id === 'chap2-issue')).toBeDefined();
+      expect(result.reconciledIssues.find((i) => i.id === 'chap1-issue')?.decision).toBe('dismissed');
     });
   });
 });

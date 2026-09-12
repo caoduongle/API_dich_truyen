@@ -15,9 +15,11 @@ import {
   X,
 } from 'lucide-react';
 import {
+  QualityReviewSession,
+  ProjectReviewChapter,
   QualityIssue,
   HakoChapterFull,
-  ProjectReviewChapter,
+  ReauditDiffSummary,
 } from '../../types/hakoChecker';
 import { useHakoReviewSession } from '../../hooks/useHakoReviewSession';
 import { useProjectContext } from '../../context/ProjectContext';
@@ -25,6 +27,7 @@ import { getChapterFromDB } from '../../services/db';
 import {
   runHeuristicQualityScan,
   runAiQualityScan,
+  reconcileIssuesWithDecisions,
 } from '../../services/hakoQualityEngine';
 import { HakoChapterSelector } from './HakoChapterSelector';
 import { HakoIssueReviewPanel } from './HakoIssueReviewPanel';
@@ -65,6 +68,7 @@ export function HakoCheckerWorkspace({
   } = useHakoReviewSession();
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [diffSummary, setDiffSummary] = useState<ReauditDiffSummary | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Safe selected chapters derivation with defensive filter
@@ -110,11 +114,15 @@ export function HakoCheckerWorkspace({
 
     setIsAnalyzing(true);
     setError(null);
+    setDiffSummary(null);
     abortControllerRef.current = new AbortController();
 
     const selectedIds = (session.selectedChapterIds || []).map(String);
+    const previousSessionIssues = session.issues || [];
     const allDetectedIssues: QualityIssue[] = [];
     const updatedChaptersRecord = { ...session.chapters };
+    let processedIndex = 0;
+    let jitChapters: HakoChapterFull[] = [];
 
     try {
       setAnalysisProgress({
@@ -124,7 +132,7 @@ export function HakoCheckerWorkspace({
       });
 
       // BƯỚC 0: Nạp Just-In-Time (JIT) toàn bộ nội dung chỉ cho các chương đã chọn (tối đa 12 chương)
-      const jitChapters: HakoChapterFull[] = await Promise.all(
+      jitChapters = await Promise.all(
         selectedIds.map(async (id) => {
           const meta = session.chapters[id] || (session.chapters as any)[Number(id)];
           const fullChap = await getChapterFromDB(id);
@@ -151,6 +159,7 @@ export function HakoCheckerWorkspace({
           throw new DOMException('Aborted', 'AbortError');
         }
 
+        processedIndex = i;
         const chData = jitChapters[i];
         if (!chData) continue;
 
@@ -223,13 +232,24 @@ export function HakoCheckerWorkspace({
           };
         }
 
-        // BƯỚC 3: Lưu tăng dần vào IndexedDB ngay sau khi xong chương này
+        // BƯỚC 3: Hòa giải với quyết định cũ và lưu tăng dần vào IndexedDB ngay sau khi xong chương này
+        const scannedChaptersSoFar = jitChapters.slice(0, i + 1).map((c) => c.chapterId);
+        const { reconciledIssues, diffSummary: currentDiff } = reconcileIssuesWithDecisions(
+          previousSessionIssues,
+          allDetectedIssues,
+          scannedChaptersSoFar
+        );
+
         const isLastChapter = i === jitChapters.length - 1;
         await updateSessionChaptersAndIssues(
           updatedChaptersRecord,
-          allDetectedIssues,
+          reconciledIssues,
           isLastChapter ? 'completed' : 'analyzing'
         );
+
+        if (isLastChapter) {
+          setDiffSummary(currentDiff);
+        }
       }
     } catch (err: any) {
       const isAborted = err.name === 'AbortError' || abortControllerRef.current?.signal.aborted;
@@ -243,9 +263,16 @@ export function HakoCheckerWorkspace({
         });
       }
 
-      // Đảm bảo không mất kết quả: luôn lưu lại toàn bộ issues đã tích lũy với trạng thái 'partial'
+      // Đảm bảo không mất kết quả: hòa giải issues đã tích lũy và lưu lại với trạng thái 'partial'
       try {
-        await updateSessionChaptersAndIssues(updatedChaptersRecord, allDetectedIssues, 'partial');
+        const scannedChaptersSoFar = jitChapters.slice(0, Math.max(1, processedIndex + 1)).map((c) => c.chapterId);
+        const { reconciledIssues, diffSummary: partialDiff } = reconcileIssuesWithDecisions(
+          previousSessionIssues,
+          allDetectedIssues,
+          scannedChaptersSoFar
+        );
+        await updateSessionChaptersAndIssues(updatedChaptersRecord, reconciledIssues, 'partial');
+        setDiffSummary(partialDiff);
       } catch (persistErr) {
         console.error('[HakoCheckerWorkspace] Lỗi khi lưu kết quả một phần vào session:', persistErr);
       }
@@ -432,6 +459,8 @@ export function HakoCheckerWorkspace({
             onReanalyze={handleStartAnalysis}
             isAnalyzing={isAnalyzing}
             onOpenInTranslator={onOpenInTranslator}
+            diffSummary={diffSummary}
+            onDismissDiffSummary={() => setDiffSummary(null)}
           />
         )}
 

@@ -15,9 +15,162 @@ import {
   QualityReviewSession,
   QualityReport,
   QualityReportStats,
+  ReauditDiffSummary,
+  IssueReconciliationResult,
 } from '../types/hakoChecker';
 import { callGeminiDirect } from './directGeminiClient';
 import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '../lib/text';
+
+/**
+ * Chuẩn hóa đoạn trích văn bản tiếng Việt để so khớp ổn định giữa các lần quét:
+ * - Bỏ dấu ba chấm cuối câu (...)
+ * - Co cụm khoảng trắng liên tiếp
+ * - Chuyển chữ thường
+ * - Trích xuất token CJK nếu là lỗi raw_leak
+ */
+export function normalizeIssueSnippet(category: QualityIssueCategory, snippet: string): string {
+  if (!snippet) return '';
+  let cleaned = snippet.trim().replace(/\.{2,}$/, '').trim().toLowerCase();
+  cleaned = cleaned.replace(/\s+/g, ' ');
+
+  // Đối với lỗi raw_leak: trích xuất các ký tự CJK cụ thể để so khớp chính xác
+  if (category === 'raw_leak') {
+    const cjkMatches = snippet.match(/[\u4e00-\u9fa5\u3040-\u30ff]/g);
+    if (cjkMatches && cjkMatches.length > 0) {
+      return `cjk:${cjkMatches.join('')}`;
+    }
+  }
+
+  return cleaned.slice(0, 120);
+}
+
+/**
+ * Sinh chuỗi fingerprint định danh duy nhất cho một lỗi dựa trên chương, loại lỗi và snippet
+ */
+export function generateIssueFingerprint(
+  chapterId: string,
+  category: QualityIssueCategory,
+  snippet: string
+): string {
+  const normSnippet = normalizeIssueSnippet(category, snippet);
+  return `${String(chapterId || '').trim()}::${category}::${normSnippet}`;
+}
+
+/**
+ * Hòa giải danh sách lỗi mới quét được với các quyết định kiểm định đã có trong phiên
+ */
+export function reconcileIssuesWithDecisions(
+  previousIssues: QualityIssue[],
+  scannedIssues: QualityIssue[],
+  scannedChapterIds: string[]
+): IssueReconciliationResult {
+  const scannedChapterIdSet = new Set(scannedChapterIds.map(String));
+
+  // 1. Phân chia previousIssues thành:
+  // - Lỗi thuộc các chương KHÔNG quét lần này (giữ nguyên vẹn)
+  // - Lỗi thuộc các chương ĐƯỢC quét lần này (tham gia hòa giải)
+  const untouchedIssues: QualityIssue[] = [];
+  const activePreviousIssues: QualityIssue[] = [];
+
+  for (const issue of previousIssues || []) {
+    if (scannedChapterIdSet.has(String(issue.chapterId))) {
+      activePreviousIssues.push(issue);
+    } else {
+      untouchedIssues.push(issue);
+    }
+  }
+
+  // 2. Lập bản đồ tra cứu fingerprint cho activePreviousIssues
+  const prevMapByFingerprint = new Map<string, QualityIssue>();
+  for (const prev of activePreviousIssues) {
+    const fp = generateIssueFingerprint(prev.chapterId, prev.category, prev.vietnameseSnippet);
+    // Ưu tiên giữ lại issue có quyết định người dùng (confirmed, review_needed, dismissed, resolved)
+    if (!prevMapByFingerprint.has(fp) || prev.decision !== 'pending') {
+      prevMapByFingerprint.set(fp, prev);
+    }
+  }
+
+  const matchedPrevIds = new Set<string>();
+  const reconciledFromScanned: QualityIssue[] = [];
+  let newCount = 0;
+  let unresolvedCount = 0;
+  let dismissedCount = 0;
+
+  // 3. Duyệt qua từng lỗi mới quét được
+  for (const scanned of scannedIssues || []) {
+    const fp = generateIssueFingerprint(scanned.chapterId, scanned.category, scanned.vietnameseSnippet);
+    const existing = prevMapByFingerprint.get(fp);
+
+    if (existing) {
+      matchedPrevIds.add(existing.id);
+
+      // Kế thừa quyết định và ghi chú từ lỗi cũ
+      const inheritedDecision = existing.decision === 'resolved' ? 'confirmed' : existing.decision;
+      if (inheritedDecision === 'confirmed') unresolvedCount++;
+      if (inheritedDecision === 'dismissed') dismissedCount++;
+
+      reconciledFromScanned.push({
+        ...scanned,
+        id: existing.id,
+        decision: inheritedDecision,
+        moderatorNote: existing.moderatorNote || scanned.moderatorNote,
+        isNew: false,
+        createdAt: existing.createdAt || scanned.createdAt,
+      });
+    } else {
+      // Lỗi mới phát sinh chưa từng xuất hiện
+      newCount++;
+      reconciledFromScanned.push({
+        ...scanned,
+        decision: 'pending',
+        isNew: true,
+      });
+    }
+  }
+
+  // 4. Kiểm tra các lỗi cũ không còn xuất hiện trong lần quét mới (đã được sửa trong bản dịch)
+  let resolvedCount = 0;
+  const resolvedIssues: QualityIssue[] = [];
+
+  for (const prev of activePreviousIssues) {
+    if (!matchedPrevIds.has(prev.id)) {
+      if (prev.decision === 'confirmed' || prev.decision === 'review_needed') {
+        // Người dùng đã sửa bản dịch khiến lỗi biến mất -> chuyển sang resolved
+        resolvedCount++;
+        resolvedIssues.push({
+          ...prev,
+          decision: 'resolved',
+          resolvedAt: new Date().toISOString(),
+          isNew: false,
+        });
+      } else if (prev.decision === 'resolved') {
+        // Đã resolved từ trước và vẫn không xuất hiện lại
+        resolvedIssues.push(prev);
+      } else if (prev.decision === 'dismissed') {
+        // Đã bác bỏ và nay đoạn văn đó cũng không vi phạm
+        dismissedCount++;
+        resolvedIssues.push(prev);
+      }
+      // Nếu prev.decision === 'pending' mà biến mất thì không cần giữ lại
+    }
+  }
+
+  const finalIssues = [...untouchedIssues, ...reconciledFromScanned, ...resolvedIssues];
+  const activeUnresolved = finalIssues.filter(
+    (i) => i.decision === 'confirmed' || i.decision === 'pending' || i.decision === 'review_needed'
+  ).length;
+
+  return {
+    reconciledIssues: finalIssues,
+    diffSummary: {
+      resolvedCount,
+      unresolvedCount,
+      dismissedCount,
+      newCount,
+      totalCurrent: activeUnresolved,
+    },
+  };
+}
 
 /**
  * Tạo UUID ngẫu nhiên cho lỗi phát hiện
@@ -318,6 +471,7 @@ export function generateQualityReport(session: QualityReviewSession): QualityRep
   const reviewNeededIssues = session.issues.filter((i) => i.decision === 'review_needed');
   const dismissedIssues = session.issues.filter((i) => i.decision === 'dismissed');
   const pendingIssues = session.issues.filter((i) => i.decision === 'pending');
+  const resolvedIssues = session.issues.filter((i) => i.decision === 'resolved');
 
   const bySeverity: Record<QualityIssueSeverity, number> = {
     critical: 0,
@@ -350,6 +504,7 @@ export function generateQualityReport(session: QualityReviewSession): QualityRep
     reviewNeededCount: reviewNeededIssues.length,
     dismissedCount: dismissedIssues.length,
     pendingCount: pendingIssues.length,
+    resolvedCount: resolvedIssues.length,
     bySeverity,
     byCategory,
   };
@@ -368,7 +523,11 @@ export function generateQualityReport(session: QualityReviewSession): QualityRep
   md += `- **Dự án**: ${projectTitle}\n`;
   md += `- **Thời gian kiểm định**: ${dateStr}\n`;
   md += `- **Số chương rà soát**: ${totalChapters} chương\n`;
-  md += `- **Tổng số lỗi đã xác nhận**: ${confirmedIssues.length} lỗi (Nghiêm trọng: ${bySeverity.critical}, Lớn: ${bySeverity.major}, Nhẹ: ${bySeverity.minor}, Cảnh báo: ${bySeverity.warning})\n\n`;
+  md += `- **Tổng số lỗi đã xác nhận**: ${confirmedIssues.length} lỗi (Nghiêm trọng: ${bySeverity.critical}, Lớn: ${bySeverity.major}, Nhẹ: ${bySeverity.minor}, Cảnh báo: ${bySeverity.warning})\n`;
+  if (resolvedIssues.length > 0) {
+    md += `- **Số lỗi đã khắc phục thành công**: ${resolvedIssues.length} lỗi\n`;
+  }
+  md += `\n`;
 
   if (confirmedIssues.length === 0) {
     md += `> ✅ **Kết quả**: Không có lỗi nào được xác nhận trong đợt kiểm định này. Bản dịch đạt chuẩn chất lượng xuất bản.\n\n`;

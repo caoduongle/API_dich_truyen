@@ -10,8 +10,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   Filter,
   CheckCircle,
+  CheckCircle2,
   HelpCircle,
   XCircle,
+  X,
   Clock,
   Download,
   RotateCcw,
@@ -28,6 +30,7 @@ import {
   QualityIssueSeverity,
   QualityIssueCategory,
   ProjectReviewChapter,
+  ReauditDiffSummary,
 } from '../../types/hakoChecker';
 import { HakoIssueCard } from './HakoIssueCard';
 import { Button } from '../ui/Button';
@@ -47,6 +50,8 @@ export interface HakoIssueReviewPanelProps {
   onReanalyze: () => void;
   isAnalyzing: boolean;
   onOpenInTranslator?: (chapterId: string) => void;
+  diffSummary?: ReauditDiffSummary | null;
+  onDismissDiffSummary?: () => void;
 }
 
 export interface BatchConfirmState {
@@ -66,6 +71,8 @@ export function HakoIssueReviewPanel({
   onReanalyze,
   isAnalyzing,
   onOpenInTranslator,
+  diffSummary,
+  onDismissDiffSummary,
 }: HakoIssueReviewPanelProps) {
   let notifications: ReturnType<typeof useNotifications> | null = null;
   try {
@@ -87,6 +94,7 @@ export function HakoIssueReviewPanel({
   const stats = useMemo(() => {
     const total = issues.length;
     const confirmed = issues.filter((i) => i.decision === 'confirmed').length;
+    const resolved = issues.filter((i) => i.decision === 'resolved').length;
     const reviewNeeded = issues.filter((i) => i.decision === 'review_needed').length;
     const dismissed = issues.filter((i) => i.decision === 'dismissed').length;
     const pending = issues.filter((i) => i.decision === 'pending').length;
@@ -99,6 +107,7 @@ export function HakoIssueReviewPanel({
     return {
       total,
       confirmed,
+      resolved,
       reviewNeeded,
       dismissed,
       pending,
@@ -240,6 +249,45 @@ export function HakoIssueReviewPanel({
 
   return (
     <div className="space-y-4">
+      {/* Re-audit Diff Summary Alert */}
+      {diffSummary && (
+        <div className="bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 rounded-md p-3.5 shadow-xs flex items-start justify-between gap-3 animate-in fade-in duration-200">
+          <div className="flex items-start gap-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-xs font-display font-bold text-emerald-300">
+                Kết quả rà soát lại có đối chiếu quyết định
+              </h4>
+              <p className="text-xs text-emerald-200/90 mt-0.5 leading-relaxed">
+                Đã tự động đối chiếu các quyết định kiểm định trước đó:
+                {diffSummary.resolvedCount > 0 && (
+                  <span className="font-bold text-emerald-300"> {diffSummary.resolvedCount} lỗi đã được khắc phục sau khi sửa bản dịch (Đã giải quyết).</span>
+                )}
+                {diffSummary.unresolvedCount > 0 && (
+                  <span className="text-amber-200"> {diffSummary.unresolvedCount} lỗi đã xác nhận vẫn còn tồn tại.</span>
+                )}
+                {diffSummary.newCount > 0 && (
+                  <span className="text-sky-300 font-medium"> Phát hiện {diffSummary.newCount} lỗi mới phát sinh.</span>
+                )}
+                {diffSummary.dismissedCount > 0 && (
+                  <span className="text-text-muted"> {diffSummary.dismissedCount} lỗi đã bỏ qua tiếp tục được bảo toàn.</span>
+                )}
+              </p>
+            </div>
+          </div>
+          {onDismissDiffSummary && (
+            <button
+              type="button"
+              onClick={onDismissDiffSummary}
+              className="text-emerald-400 hover:text-emerald-200 p-1 rounded hover:bg-emerald-900/30 transition-colors cursor-pointer shrink-0"
+              title="Đóng thông báo"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Overview Stats Bar & Export Trigger */}
       <div className="bg-parchment border border-parchment-2 rounded-md p-4 shadow-xs">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
@@ -262,6 +310,14 @@ export function HakoIssueReviewPanel({
                 <CheckCircle className="w-3 h-3" />
                 <span>{stats.confirmed} đã xác nhận</span>
               </Badge>
+
+              {/* Resolved Badge */}
+              {stats.resolved > 0 && (
+                <Badge tone="neutral" className="font-mono font-bold px-2 py-0.5 text-emerald-400 border-emerald-500/40 bg-emerald-950/40 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  <span>{stats.resolved} đã khắc phục</span>
+                </Badge>
+              )}
 
               {/* Review Needed Badge */}
               {stats.reviewNeeded > 0 && (
@@ -422,6 +478,7 @@ export function HakoIssueReviewPanel({
               <option value="all">Tất cả trạng thái</option>
               <option value="pending">Chờ duyệt ({stats.pending})</option>
               <option value="confirmed">Đã xác nhận ({stats.confirmed})</option>
+              <option value="resolved">Đã khắc phục ({stats.resolved})</option>
               <option value="review_needed">Cần xem lại ({stats.reviewNeeded})</option>
               <option value="dismissed">Đã bỏ qua ({stats.dismissed})</option>
             </select>
