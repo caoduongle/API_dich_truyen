@@ -187,4 +187,68 @@ describe('src/services/directTranslationEngine.ts', () => {
       })
     ).rejects.toThrow('AI không trả về câu viết lại hợp lệ.');
   });
+
+  it('recursively splits text and polishes when full text throws empty or safety response', async () => {
+    let callCount = 0;
+    const p1 = 'Sở Phong đứng trên đỉnh núi cao lộng gió nhìn về phương xa, tâm trạng vô cùng trầm mặc trước phong cảnh tráng lệ của đất trời bao la vô tận nơi đây.';
+    const p2 = 'Bên dưới chân núi, sóng biển cuồn cuộn vỗ bờ như sấm rền vang vọng khắp không gian, khiến cho lòng người không khỏi dâng lên cảm giác cô liêu.';
+    const p3 = 'Hắn hít sâu một hơi linh khí thanh thuần, ánh mắt dần trở nên kiên định, bắt đầu vận chuyển huyền công trong cơ thể theo lộ tuyến đã định sẵn.';
+    const p4 = 'Từng đạo linh lưu ấm áp lưu chuyển qua các kinh mạch, xua tan đi sự mệt mỏi sau chuỗi ngày dài bôn ba nơi hoang dã hiểm trở.';
+    const source = `第一章 初始\n\n${p1}\n\n${p2}\n\n${p3}\n\n${p4}`;
+    const raw = `Chương 1: Khởi Đầu\n\n${p1}\n\n${p2}\n\n${p3}\n\n${p4}`;
+
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      callCount++;
+      if (callCount === 1) {
+        // First call on full chapter text throws empty response
+        throw new Error('AI trả về phản hồi rỗng.');
+      }
+      // Subsequent split calls succeed
+      return {
+        text: JSON.stringify({
+          polishedTranslation: `Đoạn đã chuốt mịn thành công phần ${callCount}: ` + args.prompt.substring(0, 30),
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await polishTranslationDirect({
+      sourceText: source,
+      rawTranslation: raw,
+      genre: 'Tiên Hiệp',
+      tone: 'Trang nghiêm',
+      glossary: [],
+      apiKeys: ['KEY_1'],
+      model: 'gemini-2.5-flash',
+    });
+
+    expect(callCount).toBeGreaterThan(1);
+    expect(res.polishedTranslation).toContain('Chương 1: Khởi Đầu');
+    expect(res.polishedTranslation).toContain('Đoạn đã chuốt mịn thành công');
+  });
+
+  it('falls back to raw text with isPartial flag when recursive child reaches leaf level and still throws empty response', async () => {
+    // Generate text with enough tokens to allow split
+    const longText = Array(15).fill('Sở Phong ngắm nhìn trời cao bao la vô tận. Cảnh vật nơi đây thật huyền bí và kỳ ảo.').join('\n\n');
+    const source = `第一章\n\n${longText}`;
+    const raw = `Chương 1: Tiêu Đề\n\n${longText}`;
+
+    // All calls throw empty response
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockRejectedValue(
+      new Error('AI trả về phản hồi rỗng.')
+    );
+
+    const res = await polishTranslationDirect({
+      sourceText: source,
+      rawTranslation: raw,
+      genre: 'Tiên Hiệp',
+      tone: 'Trang nghiêm',
+      glossary: [],
+      apiKeys: ['KEY_1'],
+      model: 'gemini-2.5-flash',
+    });
+
+    expect(res.isPartial).toBe(true);
+    expect(res.polishedTranslation).toContain('Chương 1: Tiêu Đề');
+  });
 });

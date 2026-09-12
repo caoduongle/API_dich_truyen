@@ -219,6 +219,7 @@ export function useTranslationProcess({
 
     // Adaptive concurrency: bắt đầu từ giá trị người dùng chọn
     let effectiveConcurrency = concurrency;
+    let accumulatedFailedIds: string[] = projectRef.current?.translationQueueState?.failedIds || [];
 
     let i = startIndex;
     while (i < queue.length) {
@@ -432,7 +433,8 @@ export function useTranslationProcess({
       }
 
       const existingFailedIds: string[] = freshProj.translationQueueState?.failedIds || [];
-      const allFailedIds: string[] = Array.from(new Set([...existingFailedIds, ...batchFailedIds]));
+      const allFailedIds: string[] = Array.from(new Set([...existingFailedIds, ...accumulatedFailedIds, ...batchFailedIds]));
+      accumulatedFailedIds = allFailedIds;
       const nextIndex = i + batchSize;
       const isQueueFinished = nextIndex >= queue.length;
 
@@ -485,9 +487,8 @@ export function useTranslationProcess({
       isPauseRequestedRef.current = false;
       addLog("Đã tạm dừng tiến trình dịch tự động an toàn.", "warn");
     } else if (i >= queue.length) {
-      const currentFailed = projectRef.current?.translationQueueState?.failedIds || [];
-      if (currentFailed.length > 0) {
-        addLog(`TẤT CẢ CHƯƠNG TRONG HÀNG ĐỢI ĐÃ ĐƯỢC XỬ LÝ (Có ${currentFailed.length} chương lỗi).`, "warn");
+      if (accumulatedFailedIds.length > 0) {
+        addLog(`TẤT CẢ CHƯƠNG TRONG HÀNG ĐỢI ĐÃ ĐƯỢC XỬ LÝ (Có ${accumulatedFailedIds.length} chương lỗi).`, "warn");
       } else {
         addLog("TẤT CẢ CHƯƠNG TRONG HÀNG ĐỢI ĐÃ ĐƯỢC BIÊN DỊCH THÀNH CÔNG!", "success");
       }

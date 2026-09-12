@@ -58,6 +58,7 @@ export interface DirectPolishTranslationResult {
   polishedTranslation: string;
   discoveredEntities?: any[];
   successKeyIndex: number;
+  isPartial?: boolean;
 }
 
 export interface DirectQaCritiqueParams {
@@ -213,10 +214,20 @@ export async function translateRawDirect(
   };
 }
 
+function isSafetyOrEmptyErrorDirect(err: any): boolean {
+  const msg = err?.message || '';
+  return (
+    msg.includes('bộ lọc an toàn') ||
+    msg.includes('phản hồi rỗng') ||
+    msg.includes('SAFETY') ||
+    msg.includes('kết quả trả về trống')
+  );
+}
+
 /**
- * Thực thi chuốt văn phong Giai đoạn 2 trực tiếp từ trình duyệt
+ * Gọi Gemini API đơn lẻ cho 1 khối văn bản chuốt văn
  */
-export async function polishTranslationDirect(
+async function callPolishDirectCore(
   params: DirectPolishTranslationParams
 ): Promise<DirectPolishTranslationResult> {
   const {
@@ -290,6 +301,99 @@ export async function polishTranslationDirect(
     discoveredEntities,
     successKeyIndex: response.successKeyIndex,
   };
+}
+
+/**
+ * Chuốt văn phong phân đoạn thích ứng đệ quy (Divide & Conquer) khi gặp phản hồi rỗng hoặc bộ lọc an toàn
+ */
+async function polishWithContentSplitDirect(
+  params: DirectPolishTranslationParams,
+  depth = 0
+): Promise<DirectPolishTranslationResult> {
+  const { sourceText, rawTranslation, apiKeys, startKeyIndex = 0 } = params;
+
+  try {
+    return await callPolishDirectCore(params);
+  } catch (error: any) {
+    if (!isSafetyOrEmptyErrorDirect(error)) {
+      throw error;
+    }
+
+    if (depth >= 2) {
+      return {
+        polishedTranslation: rawTranslation,
+        discoveredEntities: [],
+        successKeyIndex: startKeyIndex,
+        isPartial: true,
+      };
+    }
+
+    const partsCount = depth >= 1 ? 3 : 2;
+    const sourceParts = splitTextAdaptively(sourceText, partsCount);
+    const rawParts = splitTextAdaptively(rawTranslation, sourceParts.length);
+
+    if (sourceParts.length <= 1) {
+      return {
+        polishedTranslation: rawTranslation,
+        discoveredEntities: [],
+        successKeyIndex: startKeyIndex,
+        isPartial: true,
+      };
+    }
+
+    const results = await Promise.all(
+      sourceParts.map(async (srcPart, index) => {
+        const matchingRawPart = rawParts[index] || rawParts[rawParts.length - 1] || '';
+        const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
+          ? (startKeyIndex + index) % apiKeys.length
+          : startKeyIndex;
+        try {
+          return await polishWithContentSplitDirect(
+            {
+              ...params,
+              sourceText: srcPart,
+              rawTranslation: matchingRawPart,
+              startKeyIndex: staggeredKeyIndex,
+            },
+            depth + 1
+          );
+        } catch (partErr: any) {
+          if (isSafetyOrEmptyErrorDirect(partErr)) {
+            return {
+              polishedTranslation: matchingRawPart,
+              discoveredEntities: [],
+              successKeyIndex: staggeredKeyIndex,
+              isPartial: true,
+            };
+          }
+          throw partErr;
+        }
+      })
+    );
+
+    const hasPartial = results.some((r) => r.isPartial);
+    const combinedPolished = results.map((r) => r.polishedTranslation).join('\n\n').trim();
+    const combinedEntities = results.flatMap((r) => r.discoveredEntities || []);
+    const lastSuccessKey = results.findLast((r) => !r.isPartial)?.successKeyIndex ?? results[results.length - 1].successKeyIndex;
+
+    const formattedPolished = ensureChapterTitlePreserved(rawTranslation, combinedPolished);
+
+    return {
+      polishedTranslation: formattedPolished,
+      discoveredEntities: combinedEntities,
+      successKeyIndex: lastSuccessKey,
+      isPartial: hasPartial,
+    };
+  }
+}
+
+/**
+ * Thực thi chuốt văn phong Giai đoạn 2 trực tiếp từ trình duyệt
+ */
+export async function polishTranslationDirect(
+  params: DirectPolishTranslationParams
+): Promise<DirectPolishTranslationResult> {
+  return polishWithContentSplitDirect(params, 0);
 }
 
 /**

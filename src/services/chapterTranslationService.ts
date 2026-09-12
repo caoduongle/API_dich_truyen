@@ -224,8 +224,29 @@ export async function executeSingleChapterTranslation({
         totalRounds: polishCycles,
       });
     } catch (err: any) {
+      if (err?.name === 'AbortError' || (err instanceof DOMException && err.name === 'AbortError')) {
+        throw err;
+      }
       const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
-      throw Object.assign(new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (err?.message || 'Lỗi không xác định')), { isOverload });
+      if (isOverload) {
+        throw Object.assign(new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (err?.message || 'Lỗi không xác định')), { isOverload });
+      }
+
+      // Xử lý cứu nguy khi AI gặp sự cố phản hồi rỗng / bộ lọc không thể khắc phục
+      if (j > 1) {
+        addLog(
+          `${logPrefix} [Cứu nguy] Vòng biên tập thứ ${j} gặp sự cố AI (${err?.message || 'Phản hồi rỗng'}). Tự động bảo lưu kết quả mượt mà của Lượt ${j - 1} để tiếp tục.`,
+          'warn'
+        );
+        break;
+      } else {
+        addLog(
+          `${logPrefix} [Cứu nguy] Vòng biên tập thứ 1 gặp sự cố AI (${err?.message || 'Phản hồi rỗng'}). Tự động bảo lưu bản dịch thô (Phase 1) để tiếp tục.`,
+          'warn'
+        );
+        currentTextToPolish = firstDraft;
+        break;
+      }
     }
 
     const previousRoundText = currentTextToPolish;
