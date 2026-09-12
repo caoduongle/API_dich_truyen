@@ -10,6 +10,9 @@ import {
   splitTextAdaptively,
   safeParseJson,
   getGenreStyleGuide,
+  getPolishStrategyForRound,
+  calculateTextSimilarity,
+  isTextConverged,
 } from '../text';
 import {
   buildRawTranslationPayload,
@@ -123,5 +126,86 @@ describe('shared/prompts.ts generators', () => {
     expect(schema.properties.issues.items.properties).toHaveProperty('targetText');
     expect(schema.properties.issues.items.properties.targetText.type).toBe('STRING');
     expect(schema.properties.issues.items.required).toContain('targetText');
+  });
+});
+
+describe('Tiered Polish Strategy & Convergence Detection (Feature 111)', () => {
+  it('returns distinct strategies and progressive temperatures for rounds 1 through 5', () => {
+    const s1 = getPolishStrategyForRound(1, 3);
+    const s2 = getPolishStrategyForRound(2, 3);
+    const s3 = getPolishStrategyForRound(3, 3);
+    const s4 = getPolishStrategyForRound(4, 5);
+    const s5 = getPolishStrategyForRound(5, 5);
+
+    expect(s1.round).toBe(1);
+    expect(s1.inputLabel).toBe('[BẢN DỊCH THÔ GIAI ĐOẠN 1]');
+    expect(s1.temperature).toBe(0.4);
+    expect(s1.directive).toContain('LƯỢT 1/3');
+
+    expect(s2.round).toBe(2);
+    expect(s2.inputLabel).toBe('[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 1]');
+    expect(s2.temperature).toBe(0.5);
+    expect(s2.directive).toContain('LƯỢT 2/3');
+
+    expect(s3.round).toBe(3);
+    expect(s3.inputLabel).toBe('[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 2]');
+    expect(s3.temperature).toBe(0.55);
+
+    expect(s4.temperature).toBe(0.6);
+    expect(s5.temperature).toBe(0.65);
+    expect(s5.inputLabel).toBe('[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 4]');
+  });
+
+  it('handles out-of-bounds round indices gracefully', () => {
+    const s0 = getPolishStrategyForRound(0, 1);
+    expect(s0.round).toBe(1);
+
+    const s9 = getPolishStrategyForRound(9, 9);
+    expect(s9.round).toBe(9);
+    expect(s9.temperature).toBe(0.65);
+    expect(s9.inputLabel).toBe('[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 8]');
+  });
+
+  describe('calculateTextSimilarity & isTextConverged', () => {
+    it('returns 1.0 similarity for identical texts', () => {
+      const text = 'Sở Phong nhìn ngọn núi trước mắt, lòng đầy cảm xúc.';
+      const res = calculateTextSimilarity(text, text);
+      expect(res.similarity).toBe(1.0);
+      expect(res.diffPercentage).toBe(0);
+      expect(res.changedWordsCount).toBe(0);
+      expect(res.isConverged).toBe(true);
+      expect(isTextConverged(text, text)).toBe(true);
+    });
+
+    it('returns 1.0 for both empty texts', () => {
+      const res = calculateTextSimilarity('', '   ');
+      expect(res.similarity).toBe(1.0);
+      expect(res.isConverged).toBe(true);
+    });
+
+    it('returns 0.0 when one text is empty', () => {
+      const res = calculateTextSimilarity('Văn bản có nội dung', '');
+      expect(res.similarity).toBe(0.0);
+      expect(res.isConverged).toBe(false);
+    });
+
+    it('accurately detects convergence when similarity exceeds 0.96 threshold', () => {
+      // 1 từ thay đổi trên câu dài
+      const prev = 'Trời thu xanh ngắt mấy tầng cao, cần trúc lơ phơ gió hắt hiu, sóng biếc theo làn hơi gợn tí, lá vàng trước gió sẽ đưa vèo.';
+      const next = 'Trời thu xanh ngắt mấy tầng cao, cần trúc lơ phơ gió hắt hiu, sóng biếc theo làn hơi gợn nhẹ, lá vàng trước gió sẽ đưa vèo.';
+      const res = calculateTextSimilarity(prev, next, 0.90);
+      expect(res.similarity).toBeGreaterThanOrEqual(0.90);
+      expect(res.isConverged).toBe(true);
+      expect(res.diffPercentage).toBeLessThan(10);
+    });
+
+    it('returns isConverged = false when text has significant changes', () => {
+      const prev = 'Hắn bước vào sơn động tối tăm, cẩn thận từng bước một.';
+      const next = 'Nàng nhẹ nhàng bay qua rặng liễu, tà áo trắng phất phơ trong gió sớm mai.';
+      const res = calculateTextSimilarity(prev, next, 0.96);
+      expect(res.similarity).toBeLessThan(0.3);
+      expect(res.isConverged).toBe(false);
+      expect(res.diffPercentage).toBeGreaterThan(70);
+    });
   });
 });

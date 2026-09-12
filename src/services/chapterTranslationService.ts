@@ -2,6 +2,7 @@ import { Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryItem } from '../
 import { getChapterFromDB, saveChapterToDB } from './db';
 import { isHanEquivalent } from '../lib/sinoNormalize';
 import { separateChapterTitleAndBody } from '../utils/textCleaner';
+import { getPolishStrategyForRound, calculateTextSimilarity } from '../lib/text';
 import {
   translateRawDirect,
   polishTranslationDirect,
@@ -195,12 +196,13 @@ export async function executeSingleChapterTranslation({
   let currentTextToPolish = firstDraft;
   addLog(`${logPrefix} Kích hoạt chu trình mài giũa văn phong (${polishCycles} lượt)...`, 'info');
   for (let j = 1; j <= polishCycles; j++) {
+    const strategy = getPolishStrategyForRound(j, polishCycles);
     const shouldExtract = isExtractionDuringTranslationEnabled && j === 1;
     if (j === 1 && isExtractionDuringTranslationEnabled) {
       addLog(`${logPrefix} [Rà soát từ điển] Kích hoạt rà soát thuật ngữ bị sót (chỉ chạy 1 lần/chương tại lượt polish đầu tiên).`, 'info');
     }
 
-    addLog(`${logPrefix} Biên tập chuốt chữ trực tiếp Lần ${j}/${polishCycles}...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
+    addLog(`${logPrefix} Biên tập chuốt chữ trực tiếp Lần ${j}/${polishCycles} [${strategy.stageName}]...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
     let polishData: { polishedTranslation?: string; successKeyIndex?: number };
 
     try {
@@ -218,17 +220,38 @@ export async function executeSingleChapterTranslation({
         isExtractionEnabled: shouldExtract,
         enableSegmentTranslation,
         signal,
+        roundIndex: j,
+        totalRounds: polishCycles,
       });
     } catch (err: any) {
       const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
       throw Object.assign(new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (err?.message || 'Lỗi không xác định')), { isOverload });
     }
 
+    const previousRoundText = currentTextToPolish;
     currentTextToPolish = polishData.polishedTranslation || currentTextToPolish;
     if (typeof polishData.successKeyIndex === 'number') {
       currentKeyIndex = polishData.successKeyIndex;
     }
-    addLog(`${logPrefix} Hoàn tất chuốt mịn lượt thứ ${j}!`, 'success');
+
+    // Kiểm tra độ tương đồng và phát hiện hội tụ từ lượt 2 trở đi
+    if (j > 1 && previousRoundText) {
+      const conv = calculateTextSimilarity(previousRoundText, currentTextToPolish, 0.96);
+      if (conv.isConverged) {
+        addLog(
+          `${logPrefix} [Hội tụ] Bản dịch đã đạt độ hoàn thiện tối ưu tại Lần ${j}/${polishCycles} (Độ tương đồng ${(conv.similarity * 100).toFixed(1)}%). Tự động dừng sớm để tiết kiệm hạn mức API.`,
+          'success'
+        );
+        break;
+      } else {
+        addLog(
+          `${logPrefix} Hoàn tất chuốt mịn lượt thứ ${j}! (Thay đổi ${conv.diffPercentage}% câu cú/từ vựng so với lượt trước)`,
+          'success'
+        );
+      }
+    } else {
+      addLog(`${logPrefix} Hoàn tất chuốt mịn lượt thứ ${j}!`, 'success');
+    }
   }
 
   // ── GIAI ĐOẠN 3: Kiểm duyệt chất lượng AI trực tiếp (Critique Phase) ──

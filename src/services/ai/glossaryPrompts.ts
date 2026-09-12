@@ -4,7 +4,10 @@ import { ANTI_INJECTION_DEFENSE_DIRECTIVE } from "../../lib/text";
  * Trả về phần system instruction chung chứa các quy tắc xử lý tên phiên âm,
  * danh từ chỉ loại tiếng Trung (Athena, Trà Abbacchio, v.v.).
  */
-export function buildEntityExtractionInstruction(mode: 'checkLeftover' | 'analyze' | 'extract'): string {
+export function buildEntityExtractionInstruction(
+  mode: 'checkLeftover' | 'analyze' | 'extract',
+  options?: { loopIndex?: number; totalLoops?: number; hasExclusions?: boolean }
+): string {
   const prefix = ANTI_INJECTION_DEFENSE_DIRECTIVE;
   if (mode === 'checkLeftover') {
     return prefix +
@@ -14,11 +17,16 @@ export function buildEntityExtractionInstruction(mode: 'checkLeftover' | 'analyz
   }
   
   if (mode === 'analyze') {
+    const loopNote =
+      options?.loopIndex && options.loopIndex > 1
+        ? ` ĐÂY LÀ LƯỢT RÀ SOÁT THỨ ${options.loopIndex}/${options.totalLoops || options.loopIndex}. Bạn phải bỏ qua các từ đã được trích xuất trong các lượt trước và tập trung tìm kiếm các thực thể bị sót.`
+        : '';
     return prefix +
            "QUAN TRỌNG về trường 'vietnamese': Nếu tên nhân vật, địa danh trong văn bản là phiên âm từ tiếng Anh hoặc ngôn ngữ phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIẾNG ANH trong trường 'vietnamese'. " +
            "ĐẶC BIỆT LƯU Ý: Nếu từ ngữ gồm tên phiên âm ngoại quốc đi kèm hậu tố danh từ chỉ loại tiếng Trung (như - trà, 镇 - thị trấn, 河 - sông, 城 - thành), bạn phải dịch danh từ chỉ loại đó sang tiếng Việt và xếp lên trước tên gốc tiếng Anh (Ví dụ: 阿帕茶 dịch thành 'Trà Abbacchio' chứ KHÔNG ĐƯỢC để 'Abbacchio Tea'). " +
            "Chỉ dùng phiên âm Hán-Việt khi tên/thuật ngữ là hoàn toàn gốc Trung Quốc không có tên tiếng Anh tương ứng. " +
-           "ĐẶC BIỆT QUAN TRỌNG về trường 'chinese': Bạn PHẢI copy CHÍNH XÁC ký tự Hán như chúng xuất hiện trong văn bản gốc được cung cấp. TUYỆT ĐỐI KHÔNG tự ý chuyển đổi giữa phồn thể (繁體字) và giản thể (簡體字). Nếu văn bản gốc viết '萬劍歸宗' thì trả về đúng '萬劍歸宗', không được đổi thành '万剑归宗' hay bất kỳ biến thể nào khác.";
+           "ĐẶC BIỆT QUAN TRỌNG về trường 'chinese': Bạn PHẢI copy CHÍNH XÁC ký tự Hán như chúng xuất hiện trong văn bản gốc được cung cấp. TUYỆT ĐỐI KHÔNG tự ý chuyển đổi giữa phồn thể (繁體字) và giản thể (簡體字). Nếu văn bản gốc viết '萬劍歸宗' thì trả về đúng '萬劍归宗' hay bất kỳ biến thể nào khác." +
+           loopNote;
   }
 
   // extract mode

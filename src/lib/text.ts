@@ -550,3 +550,195 @@ export function sanitizeValue(val: any): any {
   return val;
 }
 
+// ─── TIERED POLISH STRATEGY & CONVERGENCE DETECTION (FEATURE 111) ──────────
+
+export interface PolishRoundStrategy {
+  /** Chỉ số vòng lặp (1-indexed: 1, 2, 3, 4, 5...) */
+  round: number;
+  /** Tên định danh giai đoạn biên tập */
+  stageName: string;
+  /** Tiêu đề nhãn đầu vào đặt trong prompt */
+  inputLabel: string;
+  /** Hướng dẫn trọng tâm bổ sung trong system instruction cho vòng này */
+  directive: string;
+  /** Mức temperature tối ưu cho vòng này (0.40 -> 0.65) */
+  temperature: number;
+}
+
+export interface ConvergenceResult {
+  /** Tỷ lệ tương đồng giữa hai chuỗi văn bản (từ 0.0 đến 1.0) */
+  similarity: number;
+  /** Phần trăm khác biệt (ví dụ 4.2%) */
+  diffPercentage: number;
+  /** Số từ thay đổi ước tính */
+  changedWordsCount: number;
+  /** Cờ xác định chu trình đã hội tụ hay chưa (similarity >= ngưỡng) */
+  isConverged: boolean;
+  /** Thông điệp giải thích kết quả hội tụ */
+  reason?: string;
+}
+
+/**
+ * Trả về chiến lược biên tập phân tầng phù hợp cho từng vòng lặp chuốt văn
+ */
+export function getPolishStrategyForRound(round: number, totalRounds: number = 1): PolishRoundStrategy {
+  const safeRound = Math.max(1, Math.floor(round));
+  const safeTotal = Math.max(safeRound, Math.floor(totalRounds));
+
+  switch (safeRound) {
+    case 1:
+      return {
+        round: 1,
+        stageName: 'Cơ bản - Cấu trúc & Ngữ pháp',
+        inputLabel: '[BẢN DỊCH THÔ GIAI ĐOẠN 1]',
+        directive:
+          `LƯỢT 1/${safeTotal} (BIÊN TẬP CƠ BẢN): Tập trung sửa lỗi ngữ pháp, loại bỏ câu dịch máy thô cứng, ` +
+          'bảo đảm đầy đủ 100% tình tiết so với bản gốc tiếng Trung, tuân thủ bảng từ điển và đại từ nhân xưng.',
+        temperature: 0.4,
+      };
+    case 2:
+      return {
+        round: 2,
+        stageName: 'Nâng cao - Nhịp điệu & Thuần Việt',
+        inputLabel: '[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 1]',
+        directive:
+          `LƯỢT 2/${safeTotal} (MÀI GIŨA NHỊP ĐIỆU & THUẦN VIỆT): Hãy nâng cấp câu cú từ bản dịch lượt 1. ` +
+          'Thay thế các từ ngữ Hán-Việt gượng gạo bằng từ thuần Việt giàu hình ảnh, gọt giũa nhịp điệu câu văn cho êm tai, uyển chuyển, xóa bỏ mọi cấu trúc câu lai căng.',
+        temperature: 0.5,
+      };
+    case 3:
+      return {
+        round: 3,
+        stageName: 'Sâu sắc - Khẩu khí & Tông giọng',
+        inputLabel: '[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 2]',
+        directive:
+          `LƯỢT 3/${safeTotal} (KHẨU KHÍ NHÂN VẬT & TÔNG GIỌNG): Tinh chỉnh chiều sâu biểu cảm, làm nổi bật ngữ điệu đối thoại và tính cách từng nhân vật, ` +
+          'hòa quyện với phong cách thể loại tác phẩm. Làm mượt mà các phân đoạn miêu tả cảnh vật và nội tâm.',
+        temperature: 0.55,
+      };
+    case 4:
+      return {
+        round: 4,
+        stageName: 'Trau chuốt - Nhất quán & Đa dạng từ vựng',
+        inputLabel: '[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 3]',
+        directive:
+          `LƯỢT 4/${safeTotal} (NHẤT QUÁN & KHỬ TỪ LẶP): Rà soát liên kết chuyển đoạn, loại bỏ hoàn toàn các từ bị lặp lại trong khoảng cách gần, ` +
+          'làm sắc bén các phân đoạn cao trào hành động và cảm xúc.',
+        temperature: 0.6,
+      };
+    default:
+      return {
+        round: safeRound,
+        stageName: 'Xuất bản - Đọc duyệt & Hoàn thiện',
+        inputLabel: `[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT ${safeRound - 1}]`,
+        directive:
+          `LƯỢT ${safeRound}/${safeTotal} (ĐỌC DUYỆT XUẤT BẢN): Đọc soát toàn diện như một tác phẩm văn học hoàn chỉnh sẵn sàng xuất bản. ` +
+          'Đảm bảo cảm giác đọc tự nhiên như một tác phẩm sáng tác thuần Việt mà vẫn bảo tồn chính xác 100% nguyên tác.',
+        temperature: 0.65,
+      };
+  }
+}
+
+/**
+ * Tính toán độ tương đồng giữa hai văn bản dựa trên hệ số Dice trên word-level bigrams.
+ * Trả về tỷ lệ similarity (0.0 đến 1.0), diffPercentage, và cờ isConverged (khi similarity >= threshold).
+ */
+export function calculateTextSimilarity(
+  prevText: string,
+  newText: string,
+  threshold: number = 0.96
+): ConvergenceResult {
+  const normPrev = (prevText || '').trim();
+  const normNew = (newText || '').trim();
+
+  if (!normPrev && !normNew) {
+    return {
+      similarity: 1.0,
+      diffPercentage: 0,
+      changedWordsCount: 0,
+      isConverged: true,
+      reason: 'Cả hai văn bản đều rỗng',
+    };
+  }
+  if (!normPrev || !normNew) {
+    const len = Math.max(normPrev.split(/\s+/).length, normNew.split(/\s+/).length);
+    return {
+      similarity: 0.0,
+      diffPercentage: 100,
+      changedWordsCount: len,
+      isConverged: false,
+      reason: 'Một trong hai văn bản bị rỗng',
+    };
+  }
+  if (normPrev === normNew) {
+    return {
+      similarity: 1.0,
+      diffPercentage: 0,
+      changedWordsCount: 0,
+      isConverged: true,
+      reason: 'Hai bản dịch giống nhau hoàn toàn 100%',
+    };
+  }
+
+  const wordsPrev = normPrev.toLowerCase().split(/\s+/).filter(Boolean);
+  const wordsNew = normNew.toLowerCase().split(/\s+/).filter(Boolean);
+
+  if (wordsPrev.length === 1 && wordsNew.length === 1) {
+    const isSame = wordsPrev[0] === wordsNew[0];
+    return {
+      similarity: isSame ? 1.0 : 0.0,
+      diffPercentage: isSame ? 0 : 100,
+      changedWordsCount: isSame ? 0 : 1,
+      isConverged: isSame,
+    };
+  }
+
+  const makeBigramMap = (words: string[]): Map<string, number> => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < words.length - 1; i++) {
+      const bg = words[i] + ' ' + words[i + 1];
+      map.set(bg, (map.get(bg) || 0) + 1);
+    }
+    return map;
+  };
+
+  const bgPrev = makeBigramMap(wordsPrev);
+  const bgNew = makeBigramMap(wordsNew);
+
+  const totalBigrams = Math.max(1, (wordsPrev.length - 1) + (wordsNew.length - 1));
+  let intersection = 0;
+
+  bgPrev.forEach((countPrev, bg) => {
+    const countNew = bgNew.get(bg) || 0;
+    intersection += Math.min(countPrev, countNew);
+  });
+
+  const similarity = Math.min(1.0, Math.max(0.0, (2 * intersection) / totalBigrams));
+  const diffPercentage = Math.round((1 - similarity) * 1000) / 10;
+  const changedWordsCount =
+    Math.abs(wordsNew.length - wordsPrev.length) +
+    Math.round((1 - similarity) * Math.min(wordsPrev.length, wordsNew.length));
+  const isConverged = similarity >= threshold;
+
+  return {
+    similarity: Math.round(similarity * 10000) / 10000,
+    diffPercentage,
+    changedWordsCount,
+    isConverged,
+    reason: isConverged
+      ? `Độ tương đồng đạt ${(similarity * 100).toFixed(1)}% (ngưỡng hội tụ ${(threshold * 100).toFixed(1)}%)`
+      : undefined,
+  };
+}
+
+/**
+ * Kiểm tra nhanh xem hai chuỗi văn bản đã hội tụ hay chưa
+ */
+export function isTextConverged(
+  prevText: string,
+  newText: string,
+  threshold: number = 0.96
+): boolean {
+  return calculateTextSimilarity(prevText, newText, threshold).isConverged;
+}
+

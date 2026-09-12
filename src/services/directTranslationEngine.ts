@@ -11,6 +11,7 @@ import {
   validateTranslationOutput,
   splitTextAdaptively,
   estimateTokenCount,
+  getPolishStrategyForRound,
 } from '../lib/text';
 import { validateAndSnapBackEntities } from '../lib/sinoNormalize';
 import { GlossaryItem } from '../types';
@@ -48,6 +49,9 @@ export interface DirectPolishTranslationParams {
   isExtractionEnabled?: boolean;
   enableSegmentTranslation?: boolean;
   signal?: AbortSignal;
+  roundIndex?: number;
+  totalRounds?: number;
+  temperature?: number;
 }
 
 export interface DirectPolishTranslationResult {
@@ -224,7 +228,13 @@ export async function polishTranslationDirect(
     description,
     isExtractionEnabled = false,
     signal,
+    roundIndex = 1,
+    totalRounds = 1,
+    temperature,
   } = params;
+
+  const strategy = getPolishStrategyForRound(roundIndex, totalRounds);
+  const effectiveTemperature = typeof temperature === 'number' ? temperature : strategy.temperature;
 
   const { systemInstruction, prompt, schema } = buildPolishTranslationPayload({
     sourceText,
@@ -235,6 +245,8 @@ export async function polishTranslationDirect(
     glossary,
     additionalInstructions,
     isExtractionEnabled,
+    roundIndex,
+    totalRounds,
   });
 
   const response = await callGeminiDirect({
@@ -243,7 +255,7 @@ export async function polishTranslationDirect(
     prompt,
     systemInstruction,
     schema,
-    temperature: 0.45,
+    temperature: effectiveTemperature,
     startKeyIndex,
     signal,
   });

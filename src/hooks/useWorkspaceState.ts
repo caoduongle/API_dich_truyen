@@ -636,10 +636,14 @@ export function useWorkspaceState({
     setErrorMessage(null);
     setActiveStage('polished');
 
+    const textToPolish = (polishedTranslation && polishedTranslation.trim()) ? polishedTranslation.trim() : rawTranslation.trim();
+    const isRePolish = Boolean(polishedTranslation && polishedTranslation.trim() && polishedTranslation.trim() !== rawTranslation.trim());
+    const currentRound = isRePolish ? 2 : 1;
+
     try {
       const data = await polishTranslationDirect({
         sourceText: sourceText,
-        rawTranslation: rawTranslation,
+        rawTranslation: textToPolish,
         genre: activeProject.genre,
         tone: activeProject.tone,
         description: activeProject.description,
@@ -648,7 +652,9 @@ export function useWorkspaceState({
         apiKeys,
         model: selectedModel,
         isExtractionEnabled,
-        enableSegmentTranslation
+        enableSegmentTranslation,
+        roundIndex: currentRound,
+        totalRounds: 2,
       });
 
       const polishedResult = data.polishedTranslation || "";

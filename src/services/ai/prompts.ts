@@ -3,6 +3,7 @@ import {
   getGenreStyleGuide,
   sanitizePromptInput,
   escapeRegex,
+  getPolishStrategyForRound,
 } from '../../lib/text';
 import { findCanonicalSubstring } from '../../lib/sinoNormalize';
 import { buildEntityExtractionInstruction, buildEntitySchema } from './glossaryPrompts';
@@ -34,6 +35,8 @@ export interface BuildPolishTranslationPromptParams {
   glossary?: GlossaryEntry[];
   additionalInstructions?: string;
   isExtractionEnabled?: boolean;
+  roundIndex?: number;
+  totalRounds?: number;
 }
 
 export interface BuildQaCritiquePromptParams {
@@ -185,7 +188,11 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     glossary = [],
     additionalInstructions,
     isExtractionEnabled = false,
+    roundIndex = 1,
+    totalRounds = 1,
   } = params;
+
+  const strategy = getPolishStrategyForRound(roundIndex, totalRounds);
 
   let substitutedSourceText = sanitizePromptInput(sourceText || "");
   const cleanRawTranslation = sanitizePromptInput(rawTranslation);
@@ -244,7 +251,10 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "BẠN LÀ MỘT BIÊN TẬP VIÊN VĂN HỌC VÀ DỊCH GIẢ TRUNG - VIỆT ĐẠI TÀI.\n" +
-    "Nhiệm vụ của bạn là thực hiện chuốt mịn văn phong (Translation Polishing Phase 2) cho bản dịch thô tiếng Việt dựa trên văn bản tiếng Trung đối chiếu.\n" +
+    (roundIndex > 1
+      ? `ĐÂY LÀ LƯỢT CHUỐT VĂN THỨ ${strategy.round}/${Math.max(strategy.round, totalRounds)} (${strategy.stageName.toUpperCase()}).\n` +
+        `CHỈ ĐẠO TRỌNG TÂM LƯỢT NÀY: ${strategy.directive}\n`
+      : "Nhiệm vụ của bạn là thực hiện chuốt mịn văn phong (Translation Polishing Phase 2) cho bản dịch thô tiếng Việt dựa trên văn bản tiếng Trung đối chiếu.\n") +
     "QUY ĐỊNH BẮT BUỘC:\n" +
     "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN (PARAGRAPH BREAKS): Mỗi đoạn văn của bản gốc PHẢI tương ứng với một đoạn văn trong bản dịch, ngăn cách nhau bằng dòng trống (\\n\\n). TUYỆT ĐỐI KHÔNG nén các đoạn văn lại thành một khối văn bản duy nhất. Tiêu đề chương PHẢI đứng riêng biệt trên một dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
     "2. Diễn đạt mượt mà thuần Việt, loại bỏ hoàn toàn cấu trúc câu 'sượng', ngữ pháp dịch máy thô cứng (convert/quick translator vibe).\n" +
@@ -260,7 +270,7 @@ Tông giọng: ${tone}
 ${description ? `Mô tả bối cảnh & phong cách: ${description}` : ''}
 ${additionalInstructions ? `Yêu cầu dịch thuật bổ sung từ người dùng:\n${additionalInstructions}` : ''}
 
-[BẢN DỊCH THÔ GIAI ĐOẠN 1]
+${strategy.inputLabel}
 ${cleanRawTranslation}
 
 [BẢN GỐC TIẾNG TRUNG ĐỐI CHIẾU]
@@ -274,7 +284,7 @@ ${matchedTermsList.map(term => {
 
 [HƯỚNG DẪN BIÊN TẬP VĂN HỌC]
 ${getGenreStyleGuide(genre)}
-- Hãy chuốt lại câu cú tiếng Việt cho mượt mà, bay bổng, loại bỏ hoàn toàn cảm giác "dịch máy", giữ đúng tông giọng ${tone}.
+${roundIndex > 1 ? `- Trọng tâm biên tập Lượt ${strategy.round}: ${strategy.directive}\n` : ''}- Hãy chuốt lại câu cú tiếng Việt cho mượt mà, bay bổng, loại bỏ hoàn toàn cảm giác "dịch máy", giữ đúng tông giọng ${tone}.
 - Đảm bảo mạch văn trôi chảy, danh từ riêng chuẩn xác theo từ điển và âm Hán Việt.
 - Giữ nguyên 100% cấu trúc phân đoạn và tiêu đề chương.`;
 
@@ -390,6 +400,9 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
 
 export interface BuildAnalyzeGlossaryPromptParams {
   text: string;
+  knownChineseTerms?: string[];
+  loopIndex?: number;
+  totalLoops?: number;
 }
 
 /**
@@ -397,12 +410,22 @@ export interface BuildAnalyzeGlossaryPromptParams {
  */
 export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptParams) {
   const text = sanitizePromptInput(params.text);
+  const { knownChineseTerms = [], loopIndex = 1, totalLoops = 1 } = params;
+
+  let exclusionText = '';
+  if (knownChineseTerms.length > 0 && loopIndex > 1) {
+    const termList = knownChineseTerms.slice(0, 150).join(', ');
+    exclusionText =
+      `\n\n--- DANH SÁCH THUẬT NGỮ ĐÃ CÓ / ĐÃ QUÉT ĐƯỢC (BỎ QUA KHÔNG TRÍCH XUẤT LẠI) ---\n` +
+      `${termList}\n` +
+      `ĐÂY LÀ LƯỢT RÀ SOÁT THỨ ${loopIndex}/${totalLoops}. Tuyệt đối BỎ QUA các thuật ngữ đã có trong danh sách trên. Hãy tập trung rà soát sâu để tìm ra các tên riêng nhân vật phụ, địa danh phụ, chiêu thức võ công/pháp thuật bị bỏ sót trong văn bản gốc.`;
+  }
 
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
     "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung, trích xuất tất cả các tên nhân vật (characters), địa danh quan trọng (locations), bí kíp/vũ khí/thuật ngữ chuyên môn (terms) xuất hiện. " +
-    buildEntityExtractionInstruction('analyze');
+    buildEntityExtractionInstruction('analyze', { loopIndex, totalLoops, hasExclusions: knownChineseTerms.length > 0 });
 
   const schema = {
     type: "OBJECT",
@@ -416,7 +439,7 @@ export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptPa
     required: ["suggestions"],
   };
 
-  return { systemInstruction, prompt: text, schema };
+  return { systemInstruction, prompt: text + exclusionText, schema };
 }
 
 export interface BuildAnalyzeGuidelinesPromptParams {

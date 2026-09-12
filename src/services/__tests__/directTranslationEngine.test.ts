@@ -69,6 +69,41 @@ describe('src/services/directTranslationEngine.ts', () => {
     expect(res.polishedTranslation).toContain('Sở Phong ngước mắt');
   });
 
+  it('executes polishTranslationDirect with roundIndex = 2 and uses dynamic temperature and round 2 prompt', async () => {
+    let capturedArgs: any = null;
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      capturedArgs = args;
+      return {
+        text: JSON.stringify({
+          polishedTranslation: 'Sở Phong nhìn lên bầu trời bao la vô tận.',
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await polishTranslationDirect({
+      sourceText: '第一章 初始\n\n楚风看着天空。',
+      rawTranslation: 'Chương 1: Khởi Đầu\n\nSở Phong ngước mắt nhìn lên vòm trời bao la.',
+      genre: 'Tiên Hiệp',
+      tone: 'Trang nghiêm',
+      glossary: [],
+      apiKeys: ['AQ_TEST_KEY'],
+      model: 'gemini-2.5-flash',
+      startKeyIndex: 0,
+      roundIndex: 2,
+      totalRounds: 3,
+    });
+
+    expect(res.polishedTranslation).toContain('Sở Phong nhìn lên bầu trời');
+    expect(capturedArgs).not.toBeNull();
+    // Round 2 uses temperature 0.50
+    expect(capturedArgs.temperature).toBe(0.5);
+    // Prompt contains round 1 translation label
+    expect(capturedArgs.prompt).toContain('[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 1]');
+    // System instruction contains round 2 directive
+    expect(capturedArgs.systemInstruction).toContain('ĐÂY LÀ LƯỢT CHUỐT VĂN THỨ 2/3');
+  });
+
   it('executes qaCritiqueDirect and returns validation report', async () => {
     vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
       text: JSON.stringify({

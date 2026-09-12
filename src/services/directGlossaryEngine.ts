@@ -29,20 +29,33 @@ export interface DirectGlossaryCommonParams {
   model?: string;
   startKeyIndex?: number;
   signal?: AbortSignal;
+  knownChineseTerms?: string[];
+  loopIndex?: number;
+  totalLoops?: number;
 }
 
 async function callGlossaryAnalysisDirect(
   text: string,
   common: DirectGlossaryCommonParams
 ): Promise<{ suggestions: any[]; successKeyIndex: number }> {
-  const { systemInstruction, prompt, schema } = buildAnalyzeGlossaryPayload({ text });
+  const { systemInstruction, prompt, schema } = buildAnalyzeGlossaryPayload({
+    text,
+    knownChineseTerms: common.knownChineseTerms,
+    loopIndex: common.loopIndex,
+    totalLoops: common.totalLoops,
+  });
+
+  let temp = 0.2;
+  if (common.loopIndex === 2) temp = 0.35;
+  else if (common.loopIndex && common.loopIndex >= 3) temp = 0.45;
+
   const response = await callGeminiDirect({
     apiKeys: common.apiKeys,
     model: common.model,
     prompt,
     systemInstruction,
     schema,
-    temperature: 0.2,
+    temperature: temp,
     startKeyIndex: common.startKeyIndex,
     signal: common.signal,
   });

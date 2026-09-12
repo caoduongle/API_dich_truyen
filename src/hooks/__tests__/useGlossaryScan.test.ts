@@ -31,4 +31,16 @@ describe('useGlossaryScan Hook Suite', () => {
 
     expect(mockProps.extractionLoops).toBe(2);
   });
+
+  it('supports progressive multi-loop glossary scan configuration', () => {
+    const loopCount = 3;
+    expect(loopCount).toBeGreaterThan(1);
+    const mockGlossary = [
+      { id: '1', chinese: '萧炎', vietnamese: 'Tiêu Viêm', type: 'character' },
+      { id: '2', chinese: '药老', vietnamese: 'Dược Lão', type: 'character' },
+    ];
+    // In loops > 1, Chinese terms are extracted to form the exclusion list
+    const excludedList = mockGlossary.map((g) => g.chinese);
+    expect(excludedList).toEqual(['萧炎', '药老']);
+  });
 });

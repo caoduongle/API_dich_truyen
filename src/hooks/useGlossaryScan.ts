@@ -125,9 +125,11 @@ export function useGlossaryScan({
           setCurrentScanningChapterIndex(i + 1);
           setCurrentScanningChapterTitle(chap.title);
           setScanningProgress(Math.round(((i + 1) / scopedChaps.length) * 100));
-          addLog(`[Vòng ${loop}] Quét lọc Chương ${i + 1}/${scopedChaps.length}: ${chap.title}`, 'gemini');
+          const loopNote = loop > 1 ? ` (Rà soát sâu lượt ${loop}/${extractionLoops} - Bỏ qua ${updatedGlossary.length} từ đã biết)` : '';
+          addLog(`[Vòng ${loop}] Quét lọc Chương ${i + 1}/${scopedChaps.length}: ${chap.title}${loopNote}`, 'gemini');
 
           try {
+            const knownChineseTerms = loop > 1 ? updatedGlossary.map((g) => g.chinese) : [];
             const data = await analyzeGlossaryDirect({
               text: `${chap.title}\n\n${chap.sourceText}`,
               apiKeys,
@@ -135,6 +137,9 @@ export function useGlossaryScan({
               startKeyIndex: currentApiKeyIndexRef.current,
               sourceChapterId: chap.id,
               signal: abortControllerRef.current?.signal,
+              knownChineseTerms,
+              loopIndex: loop,
+              totalLoops: extractionLoops,
             });
 
             if (data.truncated && isMountedRef.current) {

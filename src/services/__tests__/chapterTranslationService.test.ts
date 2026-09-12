@@ -86,4 +86,54 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
     expect(directRawSpy).not.toHaveBeenCalled();
     expect(directPolishSpy).not.toHaveBeenCalled();
   });
+
+  it('detects convergence and terminates polishing early when text similarity is >= 96%', async () => {
+    vi.spyOn(directEngine, 'translateRawDirect').mockResolvedValue({
+      rawTranslation: 'Chương 1: Tiêu đề\n\nNội dung dịch thô ban đầu.',
+      discoveredEntities: [],
+      successKeyIndex: 0,
+    });
+
+    const calls: number[] = [];
+    const logs: string[] = [];
+
+    // Round 1 and Round 2 return identical or near-identical text
+    vi.spyOn(directEngine, 'polishTranslationDirect').mockImplementation(async (params) => {
+      calls.push(params.roundIndex || 1);
+      if (params.roundIndex === 1) {
+        return {
+          polishedTranslation: 'Chương 1: Tiêu đề\n\nSở Phong ngước mắt nhìn lên bầu trời bao la vô tận.',
+          successKeyIndex: 0,
+        };
+      }
+      // Round 2 returns identical text -> 100% similarity >= 96%
+      return {
+        polishedTranslation: 'Chương 1: Tiêu đề\n\nSở Phong ngước mắt nhìn lên bầu trời bao la vô tận.',
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await executeSingleChapterTranslation({
+      chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+      glossarySnapshot: [],
+      signal: new AbortController().signal,
+      logPrefix: '[Test]',
+      startKeyIndex: 0,
+      projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+      apiKeys: ['AQ_USER_KEY_123'],
+      selectedModel: 'gemini-2.5-flash',
+      polishCycles: 4, // Requests 4 rounds
+      autoTranslateMode: 'resume',
+      additionalInstructions: '',
+      isExtractionDuringTranslationEnabled: false,
+      enableAiQaCritique: false,
+      enableSegmentTranslation: false,
+      addLog: (msg) => logs.push(msg),
+    });
+
+    expect(res.success).toBe(true);
+    // Should stop at round 2 because of convergence, NOT run round 3 or 4
+    expect(calls).toEqual([1, 2]);
+    expect(logs.some((l) => l.includes('[Hội tụ]'))).toBe(true);
+  });
 });
