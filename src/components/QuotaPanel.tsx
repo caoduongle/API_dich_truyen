@@ -13,7 +13,12 @@ import { Badge } from './ui/Badge';
 import { Seal } from './ui/Seal';
 import { EmptyState } from './ui/EmptyState';
 import { useModelObservability, ModelObservabilityState } from '../hooks/useModelObservability';
-import { computeModelStatsSummary, formatTokenCount, formatPacingSummary } from '../utils/modelRegistry';
+import { 
+  computeModelStatsSummary, 
+  formatTokenCount, 
+  formatPacingSummary,
+  getModelDefinition,
+} from '../utils/modelRegistry';
 
 import {
   CountdownBadge,
@@ -56,7 +61,7 @@ export function QuotaPanel({
   observability: externalObservability,
 }: QuotaPanelProps) {
   // Sử dụng observability state truyền từ ApiSettings (hoặc tạo hook nội bộ nếu chạy độc lập)
-  const internalObservability = useModelObservability(apiKeys);
+  const internalObservability = useModelObservability(apiKeys, undefined, { enabled: !externalObservability });
   const obs = externalObservability || internalObservability;
 
   const {
@@ -224,6 +229,11 @@ export function QuotaPanel({
                   {modelSummary.availableKeyCount} / {cleanKeys.length} key khả dụng
                 </Badge>
               )
+            ) : cleanKeys.length > 0 && getModelDefinition(selectedModel)?.source === 'preset' ? (
+              <Badge tone="polish">
+                <CheckCircle2 className="w-3 h-3 text-polish" />
+                Sẵn sàng sử dụng
+              </Badge>
             ) : (
               <Badge tone="neutral">
                 <Clock className="w-3 h-3 text-text-muted" />

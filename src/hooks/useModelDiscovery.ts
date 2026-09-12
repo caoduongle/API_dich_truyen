@@ -91,11 +91,16 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
     }
   }, []);
 
+  const validKeysString = (apiKeys || [])
+    .map(k => (typeof k === 'string' ? k.trim() : ''))
+    .filter(k => k.length >= 25)
+    .join('::');
+
   const refresh = useCallback(
     async (force: boolean = false): Promise<RegisteredModelDef[]> => {
-      const hasKeys = apiKeys && apiKeys.length > 0;
+      const validKeys = (apiKeys || []).filter((k) => typeof k === 'string' && k.trim().length >= 25);
 
-      if (!hasKeys) {
+      if (validKeys.length === 0) {
         setIsLoading(false);
         setIsRefreshing(false);
         return getDiscoveredModels();
@@ -108,8 +113,6 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
 
       try {
         const fetchFn = async (): Promise<ModelInfoItem[]> => {
-          const validKeys = (apiKeys || []).filter((k) => typeof k === 'string' && k.trim().length > 0);
-          if (validKeys.length === 0) return [];
           let lastErr: any = null;
           for (const key of validKeys) {
             try {
@@ -158,12 +161,12 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
         }
       }
     },
-    [apiKeys, syncStateFromStorage]
+    [validKeysString, syncStateFromStorage]
   );
 
-  // Background revalidation khi mount hoặc khi có API keys
+  // Background revalidation khi mount hoặc khi có API keys hợp lệ ổn định
   useEffect(() => {
-    const hasCredentials = apiKeys && apiKeys.length > 0;
+    const hasCredentials = validKeysString.length > 0;
 
     if (!autoBackgroundRefresh || !hasCredentials) {
       setIsLoading(false);
@@ -180,7 +183,7 @@ export function useModelDiscovery(options: UseModelDiscoveryOptions = {}): UseMo
     } else {
       setIsLoading(false);
     }
-  }, [autoBackgroundRefresh, apiKeys, refresh]);
+  }, [autoBackgroundRefresh, validKeysString, refresh]);
 
   return {
     models,

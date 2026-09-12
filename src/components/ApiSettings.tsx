@@ -24,6 +24,8 @@ import { TranslationQualitySection } from './api-settings/TranslationQualitySect
 
 export interface ApiSettingsProps {
   apiKeys: string[];
+  rememberKeys?: boolean;
+  onToggleRememberKeys?: (b: boolean) => void;
   selectedModel: string;
   onClose: () => void;
   onSaveModel: (model: string) => void;
@@ -31,6 +33,7 @@ export interface ApiSettingsProps {
   onUpdateKeyIndex: (index: number, value: string) => void;
   onDeleteKeyIndex: (index: number) => void;
   onImportClipboardKeys: () => void;
+  onBatchUpdateKeys?: (keys: string[]) => void;
   warningParagraphMismatch: boolean;
   setWarningParagraphMismatch: (b: boolean) => void;
   enableAiQaCritique: boolean;
@@ -41,6 +44,8 @@ export interface ApiSettingsProps {
 
 export default function ApiSettings({
   apiKeys,
+  rememberKeys,
+  onToggleRememberKeys,
   selectedModel,
   onClose,
   onSaveModel,
@@ -48,6 +53,7 @@ export default function ApiSettings({
   onUpdateKeyIndex,
   onDeleteKeyIndex,
   onImportClipboardKeys,
+  onBatchUpdateKeys,
   warningParagraphMismatch,
   setWarningParagraphMismatch,
   enableAiQaCritique,
@@ -360,6 +366,9 @@ export default function ApiSettings({
               onUpdateKeyIndex={onUpdateKeyIndex}
               onDeleteKeyIndex={onDeleteKeyIndex}
               onImportClipboardKeys={onImportClipboardKeys}
+              onBatchUpdateKeys={onBatchUpdateKeys}
+              rememberKeys={rememberKeys}
+              onToggleRememberKeys={onToggleRememberKeys}
             />
           </div>
         )}

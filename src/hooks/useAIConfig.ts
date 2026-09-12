@@ -71,12 +71,41 @@ export function migrateAndLoadApiKeys(): string[] {
         } catch (_) {}
     }
 
+    // 3. Kiểm tra persisted keys trong app_ui_prefs (khi user bật rememberKeys)
+    try {
+        const prefsRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('app_ui_prefs') : null;
+        if (prefsRaw) {
+            const prefs = JSON.parse(prefsRaw);
+            if (prefs && prefs.rememberKeys !== false && Array.isArray(prefs.savedKeys)) {
+                const clean = prefs.savedKeys.filter((k: any): k is string => typeof k === 'string' && k.trim().length > 0);
+                if (clean.length > 0) {
+                    try {
+                        if (typeof sessionStorage !== 'undefined') {
+                            sessionStorage.setItem('gemini_api_keys', JSON.stringify(clean));
+                        }
+                    } catch (_) {}
+                    return clean;
+                }
+            }
+        }
+    } catch (_) {}
+
     return [];
 }
 
 export function useAIConfig() {
     const { showToast } = useNotifications();
     const [apiKeys, setApiKeys] = useState<string[]>(() => migrateAndLoadApiKeys());
+    const [rememberKeys, setRememberKeys] = useState<boolean>(() => {
+        try {
+            const prefsRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('app_ui_prefs') : null;
+            if (prefsRaw) {
+                const prefs = JSON.parse(prefsRaw);
+                return prefs?.rememberKeys !== false;
+            }
+        } catch (_) {}
+        return true;
+    });
 
     const [discoveredModels, setDiscoveredModels] = useState<RegisteredModelDef[]>(() => getDiscoveredModels());
     const [customModels, setCustomModels] = useState<RegisteredModelDef[]>(() => getCustomModels());
@@ -115,18 +144,28 @@ export function useAIConfig() {
         return stored === 'true';
     });
 
-    // Sync apiKeys to sessionStorage whenever they change (NEVER write to localStorage)
+    // Sync apiKeys to sessionStorage and optionally app_ui_prefs (NEVER write plaintext to gemini_api_keys in localStorage)
     useEffect(() => {
         try {
+            const cleanKeys = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0);
             if (typeof sessionStorage !== 'undefined') {
-                if (apiKeys.length > 0) {
-                    sessionStorage.setItem('gemini_api_keys', JSON.stringify(apiKeys));
+                if (cleanKeys.length > 0) {
+                    sessionStorage.setItem('gemini_api_keys', JSON.stringify(cleanKeys));
                 } else {
                     sessionStorage.removeItem('gemini_api_keys');
                 }
             }
+            if (typeof localStorage !== 'undefined') {
+                const currentPrefs = JSON.parse(localStorage.getItem('app_ui_prefs') || '{}');
+                const updatedPrefs = {
+                    ...currentPrefs,
+                    rememberKeys,
+                    savedKeys: rememberKeys ? cleanKeys : [],
+                };
+                localStorage.setItem('app_ui_prefs', JSON.stringify(updatedPrefs));
+            }
         } catch (_) {}
-    }, [apiKeys]);
+    }, [apiKeys, rememberKeys]);
 
     useEffect(() => {
         localStorage.setItem('warning_paragraph_mismatch', String(warningParagraphMismatch));
@@ -197,9 +236,19 @@ export function useAIConfig() {
 
     const handleUpdateKeyIndex = useCallback((index: number, val: string) => {
         setApiKeys(prev => {
+            if (prev[index] === val) return prev;
             const updated = [...prev];
             updated[index] = val;
             return updated;
+        });
+    }, []);
+
+    const handleBatchUpdateKeys = useCallback((newKeys: string[]) => {
+        setApiKeys(prev => {
+            if (prev.length === newKeys.length && prev.every((k, i) => k === newKeys[i])) {
+                return prev;
+            }
+            return newKeys;
         });
     }, []);
 
@@ -231,6 +280,8 @@ export function useAIConfig() {
 
     return {
         apiKeys,
+        rememberKeys,
+        setRememberKeys,
         selectedModel,
         availableModels,
         discoveredModels,
@@ -244,6 +295,7 @@ export function useAIConfig() {
         clearDiscoveredModels: handleClearDiscoveredModels,
         handleAddApiKey,
         handleUpdateKeyIndex,
+        handleBatchUpdateKeys,
         handleDeleteKeyIndex,
         handleImportClipboardKeys,
         warningParagraphMismatch,

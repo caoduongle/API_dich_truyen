@@ -86,10 +86,15 @@ export function ModelSummaryCard({
                 {summary.availableKeyCount} / {summary.totalKeys} key hỗ trợ
               </Badge>
             )
+          ) : summary.totalKeys > 0 ? (
+            <Badge tone="polish">
+              <CheckCircle2 className="w-3 h-3 text-polish" />
+              {isVerified || modelDef?.source === 'preset' ? 'Sẵn sàng sử dụng' : 'Chưa kiểm tra key'}
+            </Badge>
           ) : (
             <Badge tone="neutral">
               <Clock className="w-3 h-3 text-text-muted" />
-              Chưa kiểm tra key
+              Chưa có key
             </Badge>
           )}
         </div>
@@ -113,7 +118,7 @@ export function ModelSummaryCard({
         </div>
       )}
 
-      {summary.isUnavailable && (
+      {summary.isUnavailable && modelDef?.source !== 'preset' && (
         <div className="bg-amber-950/30 border border-amber-800/60 rounded-[2px] p-2.5 text-xs text-amber-300 flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />

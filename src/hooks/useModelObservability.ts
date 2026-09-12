@@ -42,8 +42,10 @@ export function clearQuotaCache(): void {
 
 export function useModelObservability(
   apiKeys: string[],
-  onModelsDiscovered?: (models: ModelInfoItem[]) => void
+  onModelsDiscovered?: (models: ModelInfoItem[]) => void,
+  options?: { enabled?: boolean }
 ): ModelObservabilityState {
+  const isEnabled = options?.enabled !== false;
   const [snapshotKeys, setSnapshotKeys] = useState<KeyQuotaFullSnapshot[]>([]);
   const [groups, setGroups] = useState<QuotaGroupDisplayItem[]>([]);
   const [summary, setSummary] = useState<LogicalSummaryStats | null>(null);
@@ -67,6 +69,7 @@ export function useModelObservability(
   onDiscoveredRef.current = onModelsDiscovered;
 
   const loadQuotaStatus = useCallback(async (_forceRefresh: boolean = false) => {
+    if (!isEnabled) return;
     const currentClean = cleanKeysRef.current;
     if (currentClean.length === 0) {
       setSnapshotKeys([]);
@@ -91,11 +94,13 @@ export function useModelObservability(
     } finally {
       setLoadingQuota(false);
     }
-  }, []);
+  }, [isEnabled]);
 
   useEffect(() => {
-    loadQuotaStatus();
-  }, [cleanKeysKey, loadQuotaStatus]);
+    if (isEnabled) {
+      loadQuotaStatus();
+    }
+  }, [cleanKeysKey, loadQuotaStatus, isEnabled]);
 
   const inspectKeyModels = useCallback(async (keyIndex: number) => {
     const currentClean = cleanKeysRef.current;

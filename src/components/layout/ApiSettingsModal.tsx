@@ -11,6 +11,8 @@ export interface ApiSettingsModalProps {
 export function ApiSettingsModal({ isOpen, onClose }: ApiSettingsModalProps) {
   const {
     apiKeys,
+    rememberKeys,
+    setRememberKeys,
     selectedModel,
     warningParagraphMismatch,
     enableAiQaCritique,
@@ -21,6 +23,7 @@ export function ApiSettingsModal({ isOpen, onClose }: ApiSettingsModalProps) {
     handleSaveModel,
     handleAddApiKey,
     handleUpdateKeyIndex,
+    handleBatchUpdateKeys,
     handleDeleteKeyIndex,
     handleImportClipboardKeys,
   } = useAIConfigContext();
@@ -31,6 +34,8 @@ export function ApiSettingsModal({ isOpen, onClose }: ApiSettingsModalProps) {
     <Suspense fallback={null}>
       <ApiSettings
         apiKeys={apiKeys}
+        rememberKeys={rememberKeys}
+        onToggleRememberKeys={setRememberKeys}
         selectedModel={selectedModel}
         onClose={onClose}
         onSaveModel={handleSaveModel}
@@ -38,6 +43,7 @@ export function ApiSettingsModal({ isOpen, onClose }: ApiSettingsModalProps) {
         onUpdateKeyIndex={handleUpdateKeyIndex}
         onDeleteKeyIndex={handleDeleteKeyIndex}
         onImportClipboardKeys={handleImportClipboardKeys}
+        onBatchUpdateKeys={handleBatchUpdateKeys}
         warningParagraphMismatch={warningParagraphMismatch}
         setWarningParagraphMismatch={setWarningParagraphMismatch}
         enableAiQaCritique={enableAiQaCritique}
