@@ -104,7 +104,7 @@ export async function executeSingleChapterTranslation({
         genre: projState.genre,
         tone: projState.tone,
         description: projState.description,
-        glossary: hasProcessedText ? [] : glossarySnapshot,
+        glossary: glossarySnapshot,
         apiKeys,
         model: selectedModel,
         startKeyIndex: currentKeyIndex,
@@ -212,8 +212,8 @@ export async function executeSingleChapterTranslation({
         genre: projState.genre,
         tone: projState.tone,
         description: projState.description,
-        glossary: hasProcessedText ? [] : localGlossary,
-        additionalInstructions: additionalInstructions || 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể.',
+        glossary: localGlossary,
+        additionalInstructions: additionalInstructions || 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể, giữ trọn vẹn văn phong tiểu thuyết.',
         apiKeys,
         model: selectedModel,
         startKeyIndex: currentKeyIndex,
@@ -255,17 +255,26 @@ export async function executeSingleChapterTranslation({
   }
 
   // ── GIAI ĐOẠN 3: Kiểm duyệt chất lượng AI trực tiếp (Critique Phase) ──
+  let detectedQaIssues: any[] = [];
   if (enableAiQaCritique) {
     addLog(`${logPrefix} [Kiểm duyệt AI] Bắt đầu rà soát thẩm định chất lượng bản dịch...`, 'info');
     try {
       const qaData = await qaCritiqueDirect({
         sourceText: chapter.sourceText,
         translatedText: currentTextToPolish,
+        genre: projState.genre,
+        tone: projState.tone,
+        description: projState.description,
+        glossary: localGlossary,
         apiKeys,
         model: selectedModel,
         startKeyIndex: currentKeyIndex,
         signal,
       });
+
+      if (Array.isArray(qaData.issues)) {
+        detectedQaIssues = qaData.issues;
+      }
 
       if (qaData.isValid) {
         addLog(`${logPrefix} [Kiểm duyệt AI] Đạt chuẩn! Không phát hiện lỗi bỏ sót, thêm thắt hoặc lặp lại.`, 'success');
@@ -301,6 +310,7 @@ export async function executeSingleChapterTranslation({
     translatedLines,
     status: 'completed',
     updatedAt: new Date().toISOString(),
+    qaIssues: detectedQaIssues.length > 0 ? detectedQaIssues : chapter.qaIssues,
   };
   await saveChapterToDB(updatedFullChapter);
 

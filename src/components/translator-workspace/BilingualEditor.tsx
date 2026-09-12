@@ -409,6 +409,10 @@ export const BilingualEditor = React.memo(function BilingualEditor({
               translationParaCount={translationParaCount}
               qaError={qaError}
               activeTextareaRef={activeTextareaRef}
+              apiKeys={apiKeys}
+              selectedModel={selectedModel}
+              genre={activeProject.genre}
+              tone={activeProject.tone}
             />
 
             {activeStage === 'raw' ? (

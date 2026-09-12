@@ -51,10 +51,28 @@ export default function AutoTranslator({
   // Local configs
   const [polishCycles, setPolishCycles] = useState<number>(1);
   const [autoTranslateMode, setAutoTranslateMode] = useState<'resume' | 'from_scratch'>('resume');
-  const [additionalInstructions, setAdditionalInstructions] = useState<string>('');
+  const [additionalInstructions, setAdditionalInstructions] = useState<string>(activeProject.additionalInstructions || '');
   const [isExtractionDuringTranslationEnabled, setIsExtractionDuringTranslationEnabled] = useState<boolean>(true);
   const [skipFailedChapters, setSkipFailedChapters] = useState<boolean>(true);
   const [concurrency, setConcurrency] = useState<number>(1);
+
+  // Sync additionalInstructions setting from activeProject if available
+  useEffect(() => {
+    setAdditionalInstructions(activeProject.additionalInstructions || '');
+  }, [activeProject.id, activeProject.additionalInstructions]);
+
+  const handleAdditionalInstructionsChange = useCallback(
+    (newVal: string) => {
+      setAdditionalInstructions(newVal);
+      if (activeProject.additionalInstructions !== newVal) {
+        onUpdateProject({
+          ...activeProject,
+          additionalInstructions: newVal,
+        });
+      }
+    },
+    [activeProject, onUpdateProject]
+  );
 
   // Sync skipFailedChapters setting from translationQueueState if available
   useEffect(() => {
@@ -257,7 +275,7 @@ export default function AutoTranslator({
             autoTranslateMode={autoTranslateMode}
             setAutoTranslateMode={setAutoTranslateMode}
             additionalInstructions={additionalInstructions}
-            setAdditionalInstructions={setAdditionalInstructions}
+            setAdditionalInstructions={handleAdditionalInstructionsChange}
             isExtractionDuringTranslationEnabled={isExtractionDuringTranslationEnabled}
             setIsExtractionDuringTranslationEnabled={setIsExtractionDuringTranslationEnabled}
             rangeEnabled={translationRange.enabled}

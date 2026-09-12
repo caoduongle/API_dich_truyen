@@ -54,6 +54,12 @@ export interface ChapterMetadata {
     updatedAt: string;
     zuminovelChapterId?: string;
     zuminovelSyncStatus?: ZuminovelSyncStatus;
+    qaIssues?: Array<{
+        type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'other';
+        severity: 'critical' | 'warning' | 'info';
+        targetText: string;
+        description: string;
+    }>;
 }
 
 export interface Chapter {
@@ -76,6 +82,13 @@ export interface Chapter {
     zuminovelChapterId?: string;         // ID chương trên ZumiNovel sau lần đăng đầu tiên
     zuminovelSyncStatus?: ZuminovelSyncStatus;
     zuminovelPublishedAt?: string;       // ISO timestamp lần đăng/cập nhật thành công gần nhất
+    // --- QA Critique results (optional, additive) ---
+    qaIssues?: Array<{
+        type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'other';
+        severity: 'critical' | 'warning' | 'info';
+        targetText: string;
+        description: string;
+    }>;
 }
 
 export interface StoryProject {
@@ -85,6 +98,7 @@ export interface StoryProject {
     genre: string;        // e.g. Tiên Hiệp, Võ Hiệp, Ngôn Tình, Đô Thị, Khoa Huyễn, Huyền Huyễn
     tone: string;         // Translation tone
     description: string;
+    additionalInstructions?: string; // Persistent custom instructions for polishing phase
     glossary: GlossaryItem[];
     pendingGlossary: PendingGlossaryItem[];  // Deduplication verification queue
     chapters: ChapterMetadata[];

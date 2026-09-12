@@ -57,6 +57,10 @@ export interface UnifiedAuditPanelProps {
   apiKeys?: string[];
   /** Model AI đang chọn (Feature 104) */
   selectedModel?: string;
+  /** Thể loại tiểu thuyết để định hướng văn phong viết lại câu */
+  genre?: string;
+  /** Tông giọng tiểu thuyết để định hướng văn phong viết lại câu */
+  tone?: string;
   /** Callback tùy chọn thay thế việc gọi trực tiếp rewriteSentenceDirect (Feature 104, testability) */
   onRewriteSentence?: (params: DirectRewriteSentenceParams) => Promise<string>;
 }
@@ -138,6 +142,8 @@ export function UnifiedAuditPanel({
   apiKeys,
   selectedModel,
   onRewriteSentence,
+  genre,
+  tone,
 }: UnifiedAuditPanelProps) {
   const [activeTab, setActiveTab] = useState<AuditFilterTab>('all');
 
@@ -257,6 +263,8 @@ export function UnifiedAuditPanel({
             targetText: issue.targetText || '',
             context: issue.message,
             issueMessage: issue.message,
+            genre,
+            tone,
             apiKeys: apiKeys || [],
             model: selectedModel,
           });
@@ -266,6 +274,8 @@ export function UnifiedAuditPanel({
             targetText: issue.targetText || '',
             context: issue.message,
             issueMessage: issue.message,
+            genre,
+            tone,
             apiKeys: apiKeys || [],
             model: selectedModel,
           });

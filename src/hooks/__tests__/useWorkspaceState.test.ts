@@ -558,6 +558,10 @@ describe('useWorkspaceState Hook - Decoupled Audit Scanners & Manual Handlers', 
       expect(mockQa).toHaveBeenCalledWith({
         sourceText: '罗峰看着浩瀚的星空。',
         translatedText: 'La Phong nhìn bầu trời đêm.',
+        genre: 'Tiên Hiệp',
+        tone: 'Hùng tráng',
+        description: 'Mô tả truyện',
+        glossary: [],
         apiKeys: ['key-abc'],
         model: 'gemini-2.5-flash',
         startKeyIndex: 0,
@@ -833,4 +837,68 @@ describe('useWorkspaceState Hook - Decoupled Audit Scanners & Manual Handlers', 
       expect(result).toBe(false);
     });
   });
+
+  describe('Prompt Pipeline & Context Verification (US2 & US3)', () => {
+    it('initializes additionalInstructions from activeProject and updates project via setAdditionalInstructions', () => {
+      const mockUpdate = vi.fn();
+      const props = createDefaultProps({
+        activeProject: {
+          ...createDefaultProps().activeProject,
+          additionalInstructions: 'Ban đầu: chú ý xưng hô',
+        },
+        onUpdateProject: mockUpdate,
+      });
+
+      let hook = renderWorkspaceHook(props);
+      expect(hook.additionalInstructions).toBe('Ban đầu: chú ý xưng hô');
+
+      hook.setAdditionalInstructions('Cập nhật: dịch văn phong kiếm hiệp');
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          additionalInstructions: 'Cập nhật: dịch văn phong kiếm hiệp',
+        })
+      );
+    });
+
+    it('always passes activeProject.glossary to polishTranslationDirect even when isGlossaryApplied is true', async () => {
+      const mockPolish = vi.mocked(polishTranslationDirect);
+      mockPolish.mockResolvedValueOnce({
+        polishedTranslation: 'Kết quả chuốt văn phong.',
+      } as any);
+
+      const testGlossary = [
+        {
+          id: 'glo-1',
+          chinese: '罗峰',
+          pinyin: 'La Phong',
+          vietnamese: 'La Phong',
+          type: 'character' as const,
+          note: 'Nhân vật chính',
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      const props = createDefaultProps({
+        activeProject: {
+          ...createDefaultProps().activeProject,
+          glossary: testGlossary,
+        },
+      });
+
+      let hook = renderWorkspaceHook(props);
+      hook.setSourceText('[La Phong] nhìn trời.');
+      hook.setRawTranslation('[La Phong] nhìn trời.');
+      hook.setIsGlossaryApplied(true);
+      hook = renderWorkspaceHook(props);
+
+      await hook.handlePolishTranslation();
+
+      expect(mockPolish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          glossary: testGlossary,
+        })
+      );
+    });
+  });
 });
+

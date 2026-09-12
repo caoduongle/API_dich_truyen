@@ -372,13 +372,16 @@ export async function quickTranslateTermDirect(options: {
   model?: string;
   term: string;
   contextText?: string;
+  genre?: string;
 }): Promise<QuickTermResult> {
   const sanitizedTerm = sanitizePromptInput(options.term);
   const sanitizedContext = sanitizePromptInput(options.contextText || '');
+  const genreNote = options.genre ? `\nBộ truyện thuộc thể loại: ${options.genre}. Hãy ưu tiên từ ngữ và cách dịch phù hợp với phong cách thể loại này.` : '';
 
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "Bạn là trợ lý dịch thuật Trung - Việt lão luyện tinh thông Hán học và văn học mạng (tiên hiệp, võ hiệp, ngôn tình, huyền huyễn, đô thị).\n" +
+    (genreNote ? `${genreNote}\n` : "") +
     "Nhiệm vụ của bạn là phân tích từ hoặc cụm từ tiếng Trung được bôi đen và ngữ cảnh xung quanh của nó (nếu có), từ đó đề xuất định nghĩa từ điển phù hợp gồm:\n" +
     "1. chinese: giữ nguyên từ tiếng Trung gốc.\n" +
     "2. pinyin: phiên âm Hán-Việt chuẩn xác của cụm từ (ví dụ: '萧炎' -> 'Tiêu Viêm', '斗罗大陆' -> 'Đấu La Đại Lục', '斗破苍穹' -> 'Đấu Phá Thương Khung').\n" +

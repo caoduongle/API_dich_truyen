@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } f
 import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem } from '../types';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { validateUploadFile } from '../utils/fileValidator';
-import { getChapterFromDB } from '../services/db';
+import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
 import {
@@ -27,6 +27,7 @@ export interface SaveChapterOptions {
   chapterTitle: string;
   rawTranslation: string;
   polishedTranslation: string;
+  qaIssues?: DirectQaCritiqueIssue[];
 }
 
 export interface SaveChapterResult {
@@ -42,6 +43,7 @@ export function saveOrUpdateChapter({
   chapterTitle,
   rawTranslation,
   polishedTranslation,
+  qaIssues,
 }: SaveChapterOptions): SaveChapterResult | null {
   if (!sourceText.trim()) {
     return null;
@@ -73,6 +75,7 @@ export function saveOrUpdateChapter({
       paragraphs,
       translatedLines,
       status,
+      qaIssues: qaIssues !== undefined ? qaIssues : existingChapter.qaIssues,
       updatedAt: new Date().toISOString(),
     };
 
@@ -99,6 +102,7 @@ export function saveOrUpdateChapter({
       paragraphs,
       translatedLines,
       status,
+      qaIssues: qaIssues || [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -147,7 +151,7 @@ export function useWorkspaceState({
   const [isExtractionEnabled, setIsExtractionEnabled] = useState(true);
   const [rawTranslation, setRawTranslation] = useState('');
   const [polishedTranslation, setPolishedTranslation] = useState('');
-  const [additionalInstructions, setAdditionalInstructions] = useState('');
+  const [additionalInstructions, setAdditionalInstructions] = useState(activeProject.additionalInstructions || '');
   const [chapterTitle, setChapterTitle] = useState('');
   const [qaIssues, setQaIssues] = useState<DirectQaCritiqueIssue[]>([]);
   const [hakoIssues, setHakoIssues] = useState<QualityIssue[]>([]);
@@ -234,6 +238,22 @@ export function useWorkspaceState({
     [crdt]
   );
 
+  const handleAdditionalInstructionsChange = useCallback(
+    (valueOrUpdater: string | ((prev: string) => string)) => {
+      setAdditionalInstructions((prev) => {
+        const nextVal = typeof valueOrUpdater === 'function' ? valueOrUpdater(prev) : valueOrUpdater;
+        if (activeProject.additionalInstructions !== nextVal) {
+          onUpdateProject({
+            ...activeProject,
+            additionalInstructions: nextVal,
+          });
+        }
+        return nextVal;
+      });
+    },
+    [activeProject, onUpdateProject]
+  );
+
   // Triggering alerts/sync on project id change
   useEffect(() => {
     setCurrentChapterId(null);
@@ -254,6 +274,7 @@ export function useWorkspaceState({
     setEditGenre(activeProject.genre);
     setEditTone(activeProject.tone);
     setEditDescription(activeProject.description || '');
+    setAdditionalInstructions(activeProject.additionalInstructions || '');
 
     setImportedFileName('');
     setParsedImportChapters([]);
@@ -262,6 +283,13 @@ export function useWorkspaceState({
     setIsParsingImportFile(false);
     if (importFileRef.current) importFileRef.current.value = '';
   }, [activeProject.id]);
+
+  // Sync additionalInstructions when updated externally (e.g. from AutoTranslator)
+  useEffect(() => {
+    if (activeProject.additionalInstructions !== undefined) {
+      setAdditionalInstructions(activeProject.additionalInstructions);
+    }
+  }, [activeProject.additionalInstructions]);
 
   // Load a chapter from history when loadedChapter changes
   useEffect(() => {
@@ -277,7 +305,7 @@ export function useWorkspaceState({
       setSelectedSuggestions({});
       setErrorMessage(null);
       setAutoDiscoveredTerms([]);
-      setQaIssues([]);
+      setQaIssues(loadedChapter.qaIssues || []);
       onClearLoadedChapter?.();
     }
   }, [loadedChapter]);
@@ -548,7 +576,7 @@ export function useWorkspaceState({
         genre: activeProject.genre,
         tone: activeProject.tone,
         description: activeProject.description,
-        glossary: isGlossaryApplied ? [] : activeProject.glossary,
+        glossary: activeProject.glossary,
         apiKeys,
         model: selectedModel,
         enableSegmentTranslation
@@ -647,7 +675,7 @@ export function useWorkspaceState({
         genre: activeProject.genre,
         tone: activeProject.tone,
         description: activeProject.description,
-        glossary: isGlossaryApplied ? [] : activeProject.glossary,
+        glossary: activeProject.glossary,
         additionalInstructions: additionalInstructions,
         apiKeys,
         model: selectedModel,
@@ -722,14 +750,34 @@ export function useWorkspaceState({
       const qaData = await qaCritiqueDirect({
         sourceText,
         translatedText: polishedTranslation,
+        genre: activeProject.genre,
+        tone: activeProject.tone,
+        description: activeProject.description,
+        glossary: activeProject.glossary,
         apiKeys,
         model: selectedModel,
         startKeyIndex: 0,
       });
-      setQaIssues(qaData.issues || []);
-      if (!qaData.isValid && qaData.issues?.length > 0) {
+      const issues = qaData.issues || [];
+      setQaIssues(issues);
+
+      if (currentChapterId) {
+        try {
+          const existingChap = await getChapterFromDB(currentChapterId);
+          if (existingChap) {
+            await saveChapterToDB({
+              ...existingChap,
+              qaIssues: issues,
+            });
+          }
+        } catch (dbErr) {
+          console.error("Lỗi khi lưu kết quả QA vào IndexedDB:", dbErr);
+        }
+      }
+
+      if (!qaData.isValid && issues.length > 0) {
         showToast({
-          message: `Phát hiện ${qaData.issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`,
+          message: `Phát hiện ${issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`,
           type: 'warning',
         });
       } else {
@@ -848,6 +896,7 @@ export function useWorkspaceState({
       chapterTitle,
       rawTranslation,
       polishedTranslation,
+      qaIssues,
     });
 
     if (!result) {
@@ -961,6 +1010,7 @@ export function useWorkspaceState({
         setIsGlossaryApplied(false);
         setRawTranslation(selectedChap.rawTranslation || '');
         setPolishedTranslation(selectedChap.polishedTranslation || '');
+        setQaIssues(selectedChap.qaIssues || []);
         setSuggestions([]);
         setSelectedSuggestions({});
         setErrorMessage(null);
@@ -1010,7 +1060,7 @@ export function useWorkspaceState({
     polishedTranslation,
     setPolishedTranslation: handlePolishedTranslationChange,
     additionalInstructions,
-    setAdditionalInstructions,
+    setAdditionalInstructions: handleAdditionalInstructionsChange,
     chapterTitle,
     setChapterTitle,
     qaIssues,

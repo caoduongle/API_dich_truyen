@@ -47,6 +47,7 @@ export function QuickAddTermModal({
       const termData = await quickTranslateTermDirect({
         term: selectedTerm,
         contextText: selectedContext,
+        genre: activeProject.genre,
         apiKeys,
         model: selectedModel,
       });

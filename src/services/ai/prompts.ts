@@ -42,6 +42,10 @@ export interface BuildPolishTranslationPromptParams {
 export interface BuildQaCritiquePromptParams {
   sourceText: string;
   translatedText: string;
+  genre?: string;
+  tone?: string;
+  description?: string;
+  glossary?: GlossaryEntry[];
 }
 
 /**
@@ -242,8 +246,8 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
         return `[${glossaryMap.get(match) || match}]`;
       });
 
-      matchCounts.forEach((count, term) => {
-        matchedTermsList.push(`${term} -> [${glossaryMap.get(term) || term}] (${count} lần)`);
+      matchCounts.forEach((_count, term) => {
+        matchedTermsList.push(term);
       });
     }
   }
@@ -261,14 +265,17 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     "3. Giữ đúng sắc thái, đại từ nhân xưng phù hợp thể loại và tông giọng được yêu cầu.\n" +
     "4. Tuyệt đối không được bỏ sót câu văn, đoạn văn, tình tiết hoặc lời thoại nhân vật nào so với bản gốc.\n" +
     "5. Tôn trọng triệt để các thuật ngữ trong Từ điển riêng đã được định nghĩa.\n" +
-    "6. Khi sử dụng thuật ngữ từ ngoặc vuông [Tên_Việt], hãy viết KHÔNG có ngoặc vuông trong bản dịch cuối cùng (ví dụ: [Philomena] → viết 'Philomena')." +
-    (isExtractionEnabled ? "\n7. Trong quá trình rà soát đối chiếu, nếu phát hiện thêm thực thể/tên riêng nào chưa có trong từ điển, hãy trích xuất vào discoveredEntities." : "");
+    "6. Khi sử dụng thuật ngữ từ ngoặc vuông [Tên_Việt], hãy viết KHÔNG có ngoặc vuông trong bản dịch cuối cùng (ví dụ: [Philomena] → viết 'Philomena').\n" +
+    `7. Phong cách phù hợp thể loại: ${getGenreStyleGuide(genre)}` +
+    (description && description.trim() ? `\n8. BẮT BUỘC TUÂN THỦ NGUYÊN TẮC DỊCH THUẬT & QUY TẮC XƯNG HÔ ĐẶC THÙ CỦA TRUYỆN:\n${description.trim()}` : "") +
+    (isExtractionEnabled ? "\n9. Trong quá trình rà soát đối chiếu, nếu phát hiện thêm thực thể/tên riêng nào chưa có trong từ điển, hãy trích xuất vào discoveredEntities. ĐẶC BIỆT LƯU Ý: Khôi phục tên gốc tiếng Anh nếu là phiên âm phương Tây; dịch danh từ chỉ loại tiếng Trung lên trước tên tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio'); và giữ nguyên dạng chữ Hán phồn/giản thể như trong bản gốc." : "");
 
   const prompt = `[THÔNG TIN BẢN THẢO]
-Thể loại: ${genre}
-Tông giọng: ${tone}
-${description ? `Mô tả bối cảnh & phong cách: ${description}` : ''}
-${additionalInstructions ? `Yêu cầu dịch thuật bổ sung từ người dùng:\n${additionalInstructions}` : ''}
+Thể loại: ${genre || "Tiên Hiệp"}
+Tông giọng: ${tone || "Trang nghiêm cổ phong"}
+${description && description.trim() ? `[NGUYÊN TẮC DỊCH THUẬT & QUY TẮC XƯNG HÔ ĐẶC THÙ TỪ CẨM NANG]\n${description.trim()}\n` : ''}
+[YÊU CẦU BIÊN TẬP BỔ SUNG TỪ NGƯỜI DÙNG]
+${additionalInstructions && additionalInstructions.trim() ? additionalInstructions.trim() : 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể, giữ trọn vẹn văn phong tiểu thuyết.'}
 
 ${strategy.inputLabel}
 ${cleanRawTranslation}
@@ -284,7 +291,7 @@ ${matchedTermsList.map(term => {
 
 [HƯỚNG DẪN BIÊN TẬP VĂN HỌC]
 ${getGenreStyleGuide(genre)}
-${roundIndex > 1 ? `- Trọng tâm biên tập Lượt ${strategy.round}: ${strategy.directive}\n` : ''}- Hãy chuốt lại câu cú tiếng Việt cho mượt mà, bay bổng, loại bỏ hoàn toàn cảm giác "dịch máy", giữ đúng tông giọng ${tone}.
+${roundIndex > 1 ? `- Trọng tâm biên tập Lượt ${strategy.round}: ${strategy.directive}\n` : ''}- Hãy chuốt lại câu cú tiếng Việt cho mượt mà, bay bổng, loại bỏ hoàn toàn cảm giác "dịch máy", giữ đúng tông giọng ${tone || "Trang nghiêm cổ phong"}.
 - Đảm bảo mạch văn trôi chảy, danh từ riêng chuẩn xác theo từ điển và âm Hán Việt.
 - Giữ nguyên 100% cấu trúc phân đoạn và tiêu đề chương.`;
 
@@ -334,15 +341,37 @@ ${roundIndex > 1 ? `- Trọng tâm biên tập Lượt ${strategy.round}: ${stra
 export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
   const sourceText = sanitizePromptInput(params.sourceText);
   const translatedText = sanitizePromptInput(params.translatedText);
+  const { genre, tone, description, glossary = [] } = params;
+
+  let glossarySection = "";
+  if (Array.isArray(glossary) && glossary.length > 0) {
+    const glossaryLines = glossary
+      .filter((g: any) => g.chinese && g.vietnamese)
+      .slice(0, 150)
+      .map((g: any) => `- Trung: [${g.chinese}] -> Việt: [${g.vietnamese}] (Loại: ${g.type || 'other'}${g.note ? `, Ghi chú: ${g.note}` : ''})`)
+      .join("\n");
+    if (glossaryLines) {
+      glossarySection = `\n\n--- BẢNG TỪ ĐIỂN QUY ƯỚC CỦA DỰ ÁN ---\n${glossaryLines}`;
+    }
+  }
+
+  const contextDirectives =
+    (genre ? `\n- Thể loại truyện: ${genre}` : "") +
+    (tone ? `\n- Tông giọng biên dịch: ${tone}` : "") +
+    (description && description.trim()
+      ? `\n- Quy tắc xưng hô & phong cách đặc thù: ${description.trim()}\nLƯU Ý QUAN TRỌNG: Các cách xưng hô hoặc văn phong tuân thủ đúng quy tắc đặc thù trên là CHỦ Ý CỦA DỊCH GIẢ, TUYỆT ĐỐI KHÔNG coi là lỗi sai.`
+      : "");
 
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "Bạn là một chuyên gia kiểm định chất lượng (QA) dịch thuật Trung - Việt chuyên nghiệp.\n" +
     "Nhiệm vụ của bạn là kiểm tra xem bản dịch tiếng Việt có đầy đủ, chính xác so với văn bản gốc tiếng Trung hay không.\n" +
+    (contextDirectives ? `BỐI CẢNH DỰ ÁN:${contextDirectives}\n\n` : "") +
     "Hãy đối chiếu kỹ văn bản gốc tiếng Trung và bản dịch tiếng Việt để phát hiện các lỗi sau:\n" +
     "1. Bỏ sót / cắt xén (Omissions): Những câu, đoạn hoặc chi tiết quan trọng trong bản gốc tiếng Trung bị thiếu trong bản dịch.\n" +
     "2. Thêm thắt / ảo giác (Additions/Hallucinations): Thông tin tự vẽ ra, không hề có trong bản gốc tiếng Trung.\n" +
-    "3. Lặp lại nội dung (Repetitions): Câu chữ bị lặp đi lặp lại nhiều lần vô nghĩa trong bản dịch.\n\n" +
+    "3. Lặp lại nội dung (Repetitions): Câu chữ bị lặp đi lặp lại nhiều lần vô nghĩa trong bản dịch.\n" +
+    "4. Sai thuật ngữ / từ điển (Terminology): Dịch sai các thuật ngữ, danh từ riêng hoặc nhân vật đã được quy ước rõ trong bảng từ điển đính kèm.\n\n" +
     "Yêu cầu về trích dẫn lỗi (targetText):\n" +
     "- Với mỗi lỗi phát hiện, bạn BẮT BUỘC phải trích dẫn NGUYÊN VĂN (copy chính xác từng ký tự, không diễn giải, không sửa từ, không thêm dấu ngoặc kép) câu hoặc đoạn văn bản tiếng Việt trong bản dịch trực tiếp liên quan đến lỗi vào trường 'targetText'.\n" +
     "- Trường hợp ĐẶC BIỆT: Nếu lỗi là BỎ SÓT (omission) mà câu/đoạn hoàn toàn không xuất hiện trong bản dịch tiếng Việt để trích dẫn, bạn ĐƯỢC PHÉP để 'targetText' là chuỗi rỗng (\"\").\n\n" +
@@ -352,9 +381,9 @@ export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
 ${sourceText}
 
 --- BẢN DỊCH TIẾNG VIỆT ---
-${translatedText}
+${translatedText}${glossarySection}
 
-Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản dịch.`;
+Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản dịch đối chiếu với bối cảnh và từ điển trên.`;
 
   const schema = {
     type: "OBJECT",

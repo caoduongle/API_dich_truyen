@@ -63,6 +63,10 @@ export interface DirectPolishTranslationResult {
 export interface DirectQaCritiqueParams {
   sourceText: string;
   translatedText: string;
+  genre?: string;
+  tone?: string;
+  description?: string;
+  glossary?: any[];
   apiKeys: string[];
   model?: string;
   startKeyIndex?: number;
@@ -294,11 +298,15 @@ export async function polishTranslationDirect(
 export async function qaCritiqueDirect(
   params: DirectQaCritiqueParams
 ): Promise<DirectQaCritiqueResult> {
-  const { sourceText, translatedText, apiKeys, model, startKeyIndex = 0, signal } = params;
+  const { sourceText, translatedText, genre, tone, description, glossary, apiKeys, model, startKeyIndex = 0, signal } = params;
 
   const { systemInstruction, prompt, schema } = buildQaCritiquePayload({
     sourceText,
     translatedText,
+    genre,
+    tone,
+    description,
+    glossary,
   });
 
   const response = await callGeminiDirect({
@@ -329,6 +337,10 @@ export interface DirectRewriteSentenceParams {
   context?: string;
   /** Hướng dẫn/vấn đề cần khắc phục lấy từ issue.message */
   issueMessage?: string;
+  /** Thể loại tiểu thuyết để giữ phong cách văn học */
+  genre?: string;
+  /** Tông giọng biên dịch của tác phẩm */
+  tone?: string;
   /** Danh sách API Keys cá nhân của người dùng */
   apiKeys: string[];
   /** Mã mô hình Gemini được chọn */
@@ -357,17 +369,22 @@ export async function rewriteSentenceDirect(
     targetText,
     context = '',
     issueMessage = '',
+    genre = '',
+    tone = '',
     apiKeys,
     model,
     startKeyIndex = 0,
     signal,
   } = params;
 
+  const genrePart = genre ? ` Thể loại truyện: ${genre}.` : '';
+  const tonePart = tone ? ` Tông giọng: ${tone}.` : '';
+
   const systemInstruction =
     'Bạn là biên tập viên tiểu thuyết dịch Trung-Việt chuyên nghiệp. ' +
     'Nhiệm vụ duy nhất: viết lại câu/cụm từ được cung cấp cho mượt mà, ' +
     'tự nhiên hơn trong tiếng Việt, giữ đúng ý nghĩa gốc và phong cách ' +
-    'văn phong tiểu thuyết. Không giải thích, chỉ trả về câu đã viết lại.';
+    'văn phong tiểu thuyết.' + genrePart + tonePart + ' Không giải thích, chỉ trả về câu đã viết lại.';
 
   const contextPart = context
     ? `\n\nNgữ cảnh xung quanh (để hiểu mạch văn):\n"${context}"`
