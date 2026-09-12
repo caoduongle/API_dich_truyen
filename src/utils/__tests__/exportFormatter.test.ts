@@ -4,6 +4,7 @@ import {
   formatChapterForWeb,
   formatChapterForAudio,
   buildExportFileContent,
+  formatExportTxtFileName,
   FormattedChapterInput
 } from '../exportFormatter';
 
@@ -141,4 +142,67 @@ describe('exportFormatter - Web and Audio export formatting', () => {
       );
     });
   });
+
+  describe('formatExportTxtFileName', () => {
+    it('should format filename for multiple chapters range with _den_ and _WEB suffix', () => {
+      const filename = formatExportTxtFileName({
+        projectTitle: 'Đài Phát Thanh Kinh Dị',
+        startIndex: 1,
+        endIndex: 20,
+        mode: 'web',
+      });
+      expect(filename).toBe('Đài_Phát_Thanh_Kinh_Dị_Chuong_001_den_Chuong_020_WEB.txt');
+    });
+
+    it('should format filename for multiple chapters range with _AUDIO suffix', () => {
+      const filename = formatExportTxtFileName({
+        projectTitle: 'Đài Phát Thanh Kinh Dị',
+        startIndex: 21,
+        endIndex: 30,
+        mode: 'audio',
+      });
+      expect(filename).toBe('Đài_Phát_Thanh_Kinh_Dị_Chuong_021_den_Chuong_030_AUDIO.txt');
+    });
+
+    it('should format single chapter filename without _den_ when startIndex equals endIndex', () => {
+      const filename = formatExportTxtFileName({
+        projectTitle: 'Đài Phát Thanh Kinh Dị',
+        startIndex: 5,
+        endIndex: 5,
+        mode: 'web',
+      });
+      expect(filename).toBe('Đài_Phát_Thanh_Kinh_Dị_Chuong_005_WEB.txt');
+    });
+
+    it('should pad chapter numbers with 3 digits correctly for large numbers', () => {
+      const filename = formatExportTxtFileName({
+        projectTitle: 'Phàm Nhân Tu Tiên',
+        startIndex: 101,
+        endIndex: 120,
+        mode: 'web',
+      });
+      expect(filename).toBe('Phàm_Nhân_Tu_Tiên_Chuong_101_den_Chuong_120_WEB.txt');
+    });
+
+    it('should sanitize special characters in project title', () => {
+      const filename = formatExportTxtFileName({
+        projectTitle: 'Truyện: Hay/Cực Phẩm? [Vip#1]',
+        startIndex: 1,
+        endIndex: 10,
+        mode: 'web',
+      });
+      expect(filename).toBe('Truyện_Hay_Cực_Phẩm_Vip_1_Chuong_001_den_Chuong_010_WEB.txt');
+    });
+
+    it('should fallback to default title if empty or undefined', () => {
+      const filename = formatExportTxtFileName({
+        projectTitle: '',
+        startIndex: 1,
+        endIndex: 1,
+        mode: 'audio',
+      });
+      expect(filename).toBe('Truyen_Chuong_001_AUDIO.txt');
+    });
+  });
 });
+

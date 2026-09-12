@@ -2,7 +2,14 @@
  * Module chuẩn hóa định dạng văn bản xuất bản chương truyện (Web, Audio, Align)
  */
 
-export type ExportMode = 'web' | 'audio' | 'align_jsonl';
+export type ExportMode = 'web' | 'audio';
+
+export interface ExportFileNameOptions {
+  projectTitle: string;
+  startIndex: number;
+  endIndex: number;
+  mode: ExportMode;
+}
 
 export interface FormattedChapterInput {
   index: number;
@@ -143,3 +150,37 @@ export function buildExportFileContent(chapters: FormattedChapterInput[], mode: 
     .map((c) => (c.translatedText || '').trim())
     .join('\n\n');
 }
+
+/**
+ * Định dạng tên tệp văn bản (.TXT) xuất bản theo số thứ tự chương chuẩn hóa
+ * Quy ước:
+ * - Đa chương: {Tên_truyện}_Chuong_{pad(start)}_den_Chuong_{pad(end)}_{SUFFIX}.txt
+ * - Đơn chương: {Tên_truyện}_Chuong_{pad(index)}_{SUFFIX}.txt
+ */
+export function formatExportTxtFileName({
+  projectTitle,
+  startIndex,
+  endIndex,
+  mode,
+}: ExportFileNameOptions): string {
+  const sanitize = (str: string) => {
+    const cleaned = (str || 'Truyen')
+      .replace(/[\s\/:*?"<>|\\#%@;=\[\]]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    return (cleaned || 'Truyen').substring(0, 30);
+  };
+  const cleanTitle = sanitize(projectTitle);
+  const pad3 = (n: number) => String(Math.max(1, Math.floor(n))).padStart(3, '0');
+  const suffix = mode === 'audio' ? '_AUDIO' : '_WEB';
+
+  const s = Math.max(1, startIndex);
+  const e = Math.max(s, endIndex);
+
+  if (s === e) {
+    return `${cleanTitle}_Chuong_${pad3(s)}${suffix}.txt`;
+  }
+
+  return `${cleanTitle}_Chuong_${pad3(s)}_den_Chuong_${pad3(e)}${suffix}.txt`;
+}
+

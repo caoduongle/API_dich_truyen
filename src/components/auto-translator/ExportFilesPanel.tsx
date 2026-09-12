@@ -3,15 +3,14 @@ import { FileText, ListOrdered, Download } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 export interface ExportFilesPanelProps {
-  exportMode: 'web' | 'audio' | 'align_jsonl';
-  handleExportModeChange: (mode: 'web' | 'audio' | 'align_jsonl') => void;
+  exportMode: 'web' | 'audio';
+  handleExportModeChange: (mode: 'web' | 'audio') => void;
   chaptersPerFile: number;
   setChaptersPerFile: (n: number) => void;
   exportScope: 'all' | 'translated';
   setExportScope: (scope: 'all' | 'translated') => void;
   isExportingTxt: boolean;
   handleExportTxt: () => void;
-  handleExportAlignJsonl: () => void;
   exportRangeEnabled: boolean;
   setExportRangeEnabled: (b: boolean) => void;
   exportRangeStart: number;
@@ -30,7 +29,6 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
   setExportScope,
   isExportingTxt,
   handleExportTxt,
-  handleExportAlignJsonl,
   exportRangeEnabled,
   setExportRangeEnabled,
   exportRangeStart,
@@ -50,7 +48,7 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
       </h3>
 
       <div className="space-y-1.5">
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={() => handleExportModeChange('web')} className={`py-2 px-1 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'web' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>
             <span className="text-[11px] font-bold">Web Truyện</span>
             <span className="text-[8px] text-text-muted font-normal mt-0.5">Giữ tiêu đề (≤20 ch.)</span>
@@ -59,37 +57,27 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
             <span className="text-[11px] font-bold">Làm Audio</span>
             <span className="text-[8px] text-text-muted font-normal mt-0.5">Xóa tiêu đề (≤10 ch.)</span>
           </button>
-          <button type="button" onClick={() => handleExportModeChange('align_jsonl')} className={`py-2 px-1 rounded-[2px] text-xs font-bold border transition-all text-center cursor-pointer flex flex-col items-center justify-center min-h-[64px] ${exportMode === 'align_jsonl' ? 'border-draft bg-draft/20 text-text-main font-bold' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>
-            <span className="text-[11px] font-bold">Gióng hàng FT</span>
-            <span className="text-[8px] text-text-muted font-normal mt-0.5">JSONL Song ngữ</span>
-          </button>
         </div>
       </div>
 
-      {exportMode !== 'align_jsonl' ? (
-        <>
-          <div className="space-y-1.5 pt-1">
-            <div className="flex justify-between items-center text-xs">
-              <span className="font-bold text-text-main">Gom chương mỗi tệp:</span>
-              <span className="bg-ink border border-parchment-2 text-polish rounded-[2px] px-2.5 py-0.5 text-[10px] font-bold">{chaptersPerFile} chương / file</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <input type="range" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Number(e.target.value))} className="flex-1 h-1.5 bg-ink rounded-lg appearance-none cursor-pointer accent-polish" />
-              <input type="number" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Math.min(maxLimit, Math.max(1, Number(e.target.value))))} className="w-12 text-center text-xs border border-parchment-2 rounded-[2px] bg-ink py-0.5 font-bold text-text-main focus:outline-none focus:border-polish" />
-            </div>
-          </div>
+      <div className="space-y-1.5 pt-1">
+        <div className="flex justify-between items-center text-xs">
+          <span className="font-bold text-text-main">Gom chương mỗi tệp:</span>
+          <span className="bg-ink border border-parchment-2 text-polish rounded-[2px] px-2.5 py-0.5 text-[10px] font-bold">{chaptersPerFile} chương / file</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <input type="range" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Number(e.target.value))} className="flex-1 h-1.5 bg-ink rounded-lg appearance-none cursor-pointer accent-polish" />
+          <input type="number" min={1} max={maxLimit} value={chaptersPerFile} onChange={(e) => setChaptersPerFile(Math.min(maxLimit, Math.max(1, Number(e.target.value))))} className="w-12 text-center text-xs border border-parchment-2 rounded-[2px] bg-ink py-0.5 font-bold text-text-main focus:outline-none focus:border-polish" />
+        </div>
+      </div>
 
-          <div className="space-y-1.5 pt-1">
-            <label className="text-xs font-bold text-text-main block">Lọc phạm vi xuất:</label>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <button type="button" onClick={() => setExportScope('translated')} className={`py-1.5 px-2 rounded-[2px] text-xs font-bold border cursor-pointer ${exportScope === 'translated' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>Chỉ chương đã dịch</button>
-              <button type="button" onClick={() => setExportScope('all')} className={`py-1.5 px-2 rounded-[2px] text-xs font-bold border cursor-pointer ${exportScope === 'all' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>Toàn bộ dự án</button>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="bg-draft/15 border border-draft/30 p-3 rounded-[2px] text-[10px] text-text-main leading-relaxed">• Mỗi chương trích một file `.jsonl` độc lập.<br />• Khớp sọc đối nghĩa Trung-Việt 100% làm học liệu huấn luyện tinh chỉnh AI.</div>
-      )}
+      <div className="space-y-1.5 pt-1">
+        <label className="text-xs font-bold text-text-main block">Lọc phạm vi xuất:</label>
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <button type="button" onClick={() => setExportScope('translated')} className={`py-1.5 px-2 rounded-[2px] text-xs font-bold border cursor-pointer ${exportScope === 'translated' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>Chỉ chương đã dịch</button>
+          <button type="button" onClick={() => setExportScope('all')} className={`py-1.5 px-2 rounded-[2px] text-xs font-bold border cursor-pointer ${exportScope === 'all' ? 'border-polish bg-polish/10 text-polish shadow-xs' : 'border-parchment-2 bg-ink text-text-muted hover:bg-parchment-2 hover:text-text-main'}`}>Toàn bộ dự án</button>
+        </div>
+      </div>
 
       {/* Giới hạn phân đoạn vùng chương xuất */}
       <div className="space-y-2.5 pt-3 border-t border-parchment-2">
@@ -153,12 +141,12 @@ export const ExportFilesPanel = React.memo(function ExportFilesPanel({
         type="button"
         variant="primary"
         size="md"
-        onClick={exportMode === 'align_jsonl' ? handleExportAlignJsonl : handleExportTxt}
+        onClick={handleExportTxt}
         disabled={isExportingTxt}
         icon={<Download className="w-4 h-4 text-white" />}
         className="w-full py-2.5 glow-polish"
       >
-        {isExportingTxt ? "Đang xử lý kết xuất..." : exportMode === 'align_jsonl' ? "Bắt đầu gióng hàng & tải .JSONL" : "Bắt đầu xuất tải tệp .TXT sỉ"}
+        {isExportingTxt ? "Đang xử lý kết xuất..." : "Bắt đầu xuất tải tệp .TXT sỉ"}
       </Button>
     </div>
   );

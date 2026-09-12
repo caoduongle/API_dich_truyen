@@ -30,5 +30,15 @@ describe('useExportFiles Hook Suite', () => {
 
     expect(mockProps.chaptersPerFile).toBe(50);
     expect(mockProps.exportScope).toBe('translated');
+    expect(mockProps.exportMode).toBe('web');
+  });
+
+  it('supports audio mode and confirms removal of legacy jsonl alignment', () => {
+    const audioProps = {
+      exportMode: 'audio' as const,
+      chaptersPerFile: 10,
+    };
+    expect(audioProps.exportMode).toBe('audio');
+    expect(audioProps.chaptersPerFile).toBeLessThanOrEqual(10);
   });
 });

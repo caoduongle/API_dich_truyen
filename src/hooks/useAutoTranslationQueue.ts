@@ -32,7 +32,7 @@ export interface UseAutoTranslationQueueProps {
   // Export configs
   chaptersPerFile: number;
   exportScope: 'all' | 'translated';
-  exportMode: 'web' | 'audio' | 'align_jsonl';
+  exportMode: 'web' | 'audio';
   exportRangeEnabled: boolean;
   exportRangeStart: number;
   exportRangeEnd: number;

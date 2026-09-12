@@ -74,7 +74,7 @@ export default function AutoTranslator({
   // Export configs
   const [chaptersPerFile, setChaptersPerFile] = useState<number>(10);
   const [exportScope, setExportScope] = useState<'all' | 'translated'>('translated');
-  const [exportMode, setExportMode] = useState<'web' | 'audio' | 'align_jsonl'>('web');
+  const [exportMode, setExportMode] = useState<'web' | 'audio'>('web');
 
   // Modal and Widget visibility (UI states)
   const [isDiffModalOpen, setIsDiffModalOpen] = useState<boolean>(false);
@@ -132,7 +132,6 @@ export default function AutoTranslator({
     handleToggleProcessing,
     handleStopTranslation,
     handleExportTxt,
-    handleExportAlignJsonl,
     handleApplyGlossaryToAllChapters,
     handleResetQueue,
     handleAutoExtractGlossary,
@@ -183,7 +182,7 @@ export default function AutoTranslator({
     addLog: addZuminovelLog,
   });
 
-  const handleExportModeChange = (mode: 'web' | 'audio' | 'align_jsonl') => {
+  const handleExportModeChange = (mode: 'web' | 'audio') => {
     setExportMode(mode);
     if (mode === 'audio' && chaptersPerFile > 10) {
       setChaptersPerFile(10);
@@ -352,7 +351,6 @@ export default function AutoTranslator({
             setExportScope={setExportScope}
             isExportingTxt={isExportingTxt}
             handleExportTxt={handleExportTxt}
-            handleExportAlignJsonl={handleExportAlignJsonl}
             exportRangeEnabled={exportRange.enabled}
             setExportRangeEnabled={exportRange.setEnabled}
             exportRangeStart={exportRange.start}

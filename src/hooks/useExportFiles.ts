@@ -1,20 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import JSZip from 'jszip';
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
-import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
+import { getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../context/NotificationContext';
-import { alignChapterDirect } from '../services/directGlossaryEngine';
-import { buildExportFileContent } from '../utils/exportFormatter';
+import { buildExportFileContent, formatExportTxtFileName } from '../utils/exportFormatter';
 
 export interface UseExportFilesProps {
   activeProject: StoryProject;
   chaptersPerFile: number;
   exportScope: 'all' | 'translated';
-  exportMode: 'web' | 'audio' | 'align_jsonl';
-  apiKeys: string[];
-  selectedModel: string;
+  exportMode: 'web' | 'audio';
+  apiKeys?: string[];
+  selectedModel?: string;
 
   // Shared state updater
   addLog: (message: string, type?: LogEntry['type']) => void;
@@ -82,6 +81,8 @@ export function useExportFiles({
 
       const dbChapters = await getChaptersByProjectFromDB(proj.id);
       const chaptersMap = new Map(dbChapters.map(c => [c.id, c]));
+      const chapterIndexMap = new Map(allChapters.map((c, idx) => [c.id, idx + 1]));
+      const getChapterIndex = (chapId: string) => chapterIndexMap.get(chapId) || 1;
 
       const chaptersChunks: ChapterMetadata[][] = [];
       const maxLimit = exportMode === 'web' ? 20 : 10;
@@ -90,7 +91,7 @@ export function useExportFiles({
         chaptersChunks.push(chaptersToExport.slice(i, i + cap));
       }
 
-      const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
+      const sanitize = (str: string) => (str || 'Truyen').replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
       const cleanTitle = sanitize(proj.title);
 
       const zip = new JSZip();
@@ -100,8 +101,8 @@ export function useExportFiles({
         const validChunk = chunkMeta.map(meta => chaptersMap.get(meta.id)).filter((c): c is Chapter => !!c);
         if (validChunk.length === 0) continue;
 
-        const formattedInputs = validChunk.map((chap, idx) => ({
-          index: chunkIdx * cap + idx + 1,
+        const formattedInputs = validChunk.map((chap) => ({
+          index: getChapterIndex(chap.id),
           chapterTitle: chap.title,
           sourceText: chap.sourceText,
           translatedText: chap.polishedTranslation || chap.rawTranslation || "",
@@ -111,11 +112,15 @@ export function useExportFiles({
 
         const firstChapter = validChunk[0];
         const lastChapter = validChunk[validChunk.length - 1];
-        const startName = sanitize(firstChapter.title);
-        const endName = sanitize(lastChapter.title);
+        const startIndex = getChapterIndex(firstChapter.id);
+        const endIndex = getChapterIndex(lastChapter.id);
 
-        const suffix = exportMode === 'audio' ? '_AUDIO' : '_WEB';
-        const filename = `${cleanTitle}_[${startName}]_den_[${endName}]${suffix}.txt`;
+        const filename = formatExportTxtFileName({
+          projectTitle: proj.title,
+          startIndex,
+          endIndex,
+          mode: exportMode,
+        });
         zip.file(filename, fileContent);
       }
 
@@ -133,107 +138,8 @@ export function useExportFiles({
     }
   }, [chaptersPerFile, exportScope, exportMode, addLog, exportRangeEnabled, exportRangeStart, exportRangeEnd]);
 
-  const handleExportAlignJsonl = useCallback(async () => {
-    setIsExportingTxt(true);
-    addLog(`BẮT ĐẦU QUY TRÌNH GIÓNG HÀNG SONG NGỮ TRUNG - VIỆT (HUẤN LUYỆN JSONL)...`, "info");
-    try {
-      const proj = projectRef.current;
-      const allChapters = proj.chapters || [];
-      if (allChapters.length === 0) {
-        showToast({ message: "Bộ truyện chưa có chương nào để xuất!", type: 'warning' });
-        setIsExportingTxt(false);
-        return;
-      }
-      let chaptersToExport = allChapters.filter(c => c.status === 'completed' || c.status === 'in_progress');
-      if (exportRangeEnabled) {
-        const startIdx = Math.max(0, exportRangeStart - 1);
-        const endIdx = Math.min(allChapters.length, exportRangeEnd);
-        const allowedIds = new Set(allChapters.slice(startIdx, endIdx).map(c => c.id));
-        chaptersToExport = chaptersToExport.filter(c => allowedIds.has(c.id));
-      }
-
-      if (chaptersToExport.length === 0) {
-        showToast({
-          message: exportRangeEnabled
-            ? "Không tìm thấy chương nào trong phạm vi đã chọn thỏa điều kiện lọc!"
-            : "Không tìm thấy chương truyện nào đã được dịch thuật để gióng hàng!",
-          type: 'warning'
-        });
-        setIsExportingTxt(false);
-        return;
-      }
-
-      const dbChapters = await getChaptersByProjectFromDB(proj.id);
-      const chaptersMap = new Map(dbChapters.map(c => [c.id, c]));
-      const generatedFiles: Array<{ filename: string; content: string }> = [];
-
-      for (let i = 0; i < chaptersToExport.length; i++) {
-        const chapMeta = chaptersToExport[i];
-        const chap = chaptersMap.get(chapMeta.id);
-        if (!chap) continue;
-        addLog(`--------------------------------------------------`, 'info');
-        addLog(`[Gióng hàng ${i + 1}/${chaptersToExport.length}] Phân tích gióng câu bằng AI: ${chap.title}...`, 'gemini');
-
-        const translatedText = (chap.polishedTranslation || chap.rawTranslation || "").trim();
-        try {
-          const data = await alignChapterDirect({
-            sourceText: chap.sourceText,
-            translatedText: translatedText,
-            apiKeys,
-            model: selectedModel
-          });
-
-          const jsonlLines = data.jsonlLines || [];
-          if (jsonlLines.length === 0) continue;
-
-          const fileContent = jsonlLines.join('\n') + '\n';
-          const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
-          const cleanTitle = sanitize(proj.title);
-          const cleanChapTitle = sanitize(chap.title);
-          const filename = `${cleanTitle}_[${cleanChapTitle}]_ALIGN_FT.jsonl`;
-
-          generatedFiles.push({ filename, content: fileContent });
-          addLog(`Gióng hàng thành công chương: ${chap.title}`, 'success');
-        } catch (chapErr: any) {
-          addLog(`Thất bại tại chương "${chap.title}": ${chapErr.message || chapErr}`, 'error');
-        }
-      }
-
-      if (generatedFiles.length === 0) {
-        showToast({ message: "Không có dữ liệu gióng hàng nào được tạo ra!", type: 'warning' });
-      } else if (generatedFiles.length === 1) {
-        const single = generatedFiles[0];
-        const blob = new Blob([single.content], { type: "application/x-jsonlines;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        triggerDownload(url, single.filename);
-        URL.revokeObjectURL(url);
-        addLog(`Xuất bản thành công tệp học liệu: ${single.filename}`, 'success');
-      } else {
-        addLog(`Đang nén ${generatedFiles.length} tệp học liệu thành file .ZIP...`, 'info');
-        const zip = new JSZip();
-        for (const file of generatedFiles) {
-          zip.file(file.filename, file.content);
-        }
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(zipBlob);
-        const sanitize = (str: string) => str.replace(/[\s\/:*?"<>|\\#%@;=]+/g, '_').substring(0, 30);
-        const zipName = `${sanitize(proj.title)}_ALIGN_FT_${generatedFiles.length}chaps.zip`;
-        triggerDownload(url, zipName);
-        URL.revokeObjectURL(url);
-        addLog(`Xuất bản thành công gói học liệu dạng ZIP: ${zipName}`, 'success');
-      }
-
-      addLog("HOÀN TẤT QUY TRÌNH SẢN XUẤT HỌC LIỆU GIÓNG HÀNG FINE-TUNE!", "success");
-    } catch (error: any) {
-      addLog(`Lỗi hệ thống gióng hàng sỉ: ${error.message || error}`, "error");
-    } finally {
-      setIsExportingTxt(false);
-    }
-  }, [apiKeys, selectedModel, addLog, exportRangeEnabled, exportRangeStart, exportRangeEnd]);
-
   return {
     isExportingTxt,
     handleExportTxt,
-    handleExportAlignJsonl,
   };
 }
