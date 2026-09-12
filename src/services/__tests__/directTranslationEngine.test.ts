@@ -509,4 +509,91 @@ describe('src/services/directTranslationEngine.ts', () => {
     expect(res.rawTranslation).toContain('Sở Phong vận chuyển Cửu Trọng Lôi Đao');
     expect(res.rawTranslation).toContain('Phù văn bí ẩn');
   });
+
+  describe('Feature 125: Polish Truncation Prevention and Paragraph Parity Integration', () => {
+    it('detects truncation when LLM returns only partial chapter and recovers via Divide & Conquer', async () => {
+      const p1 = 'Tô Bạch đang mặc quần áo bỗng khựng lại, đoạn cười cười cũng không để tâm lắm. Hòa thượng và Gia Thố chỉ liếc nhìn rồi không nói gì thêm.';
+      const p2 = 'Ở trong Thế giới câu chuyện, sơ sẩy ngộ sát một người vốn chẳng phải chuyện to tát gì, điều duy nhất đáng tiếc là thiếu đi một kẻ có thể dùng để hỏi chuyện.';
+      const p3 = 'Cả Gia Thố lẫn Hòa thượng đều không phải là kẻ cổ hủ giả nhân giả nghĩa, chẳng có tâm trạng nhàn rỗi đâu mà đi thương thiên bi người.';
+      const p4 = 'Đúng lúc cả ba người đã mặc xong quần áo chuẩn bị lên kế hoạch hành động tiếp theo, đầu thôn bỗng truyền tới tiếng người lao xao náo loạn.';
+      const p5 = 'Tô Bạch đứng dựa lưng vào tường, Hòa thượng quỳ một gối xuống đất quan sát tình hình bên ngoài qua khe cửa hẹp.';
+
+      const source = `Chương 92: Cởi sạch\n\n${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`;
+      const raw = `Chương 92: Cởi sạch\n\n${p1}\n\n${p2}\n\n${p3}\n\n${p4}\n\n${p5}`;
+
+      let callCount = 0;
+      const retryEvents: any[] = [];
+
+      vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+        callCount++;
+        if (callCount === 1) {
+          // Lượt 1: AI trả về bản chuốt văn bị cắt cụt đuôi (chỉ có 2 đoạn đầu tiên, ngắn hơn 50% bản thô)
+          return {
+            text: JSON.stringify({
+              polishedTranslation: `Chương 92: Cởi sạch\n\n${p1} Biên tập mượt mà.\n\n${p2} Biên tập mượt mà.`,
+            }),
+            successKeyIndex: 0,
+          };
+        }
+        // Các lượt chia nhỏ sau đó: trả về từng phần đầy đủ
+        return {
+          text: JSON.stringify({
+            polishedTranslation: args.prompt.includes(p1) || args.prompt.includes(p2)
+              ? `Chương 92: Cởi sạch\n\n${p1} Chuốt mịn.\n\n${p2} Chuốt mịn.\n\n${p3} Chuốt mịn.`
+              : `${p4} Chuốt mịn.\n\n${p5} Chuốt mịn.`,
+          }),
+          successKeyIndex: 0,
+        };
+      });
+
+      const res = await polishTranslationDirect({
+        sourceText: source,
+        rawTranslation: raw,
+        genre: 'Đô Thị',
+        tone: 'Hồi hộp',
+        glossary: [],
+        apiKeys: ['KEY_1'],
+        onSplitRetry: (info) => {
+          retryEvents.push(info);
+        },
+      });
+
+      expect(callCount).toBeGreaterThan(1);
+      expect(retryEvents.some(e => e.stage === 'polish')).toBe(true);
+      expect(res.polishedTranslation).toContain('Chương 92: Cởi sạch');
+      expect(res.polishedTranslation).toContain(p1);
+      expect(res.polishedTranslation).toContain(p5);
+    });
+
+    it('pre-splits long chapters before calling polish API when token count exceeds 1800', async () => {
+      // Create a long text with > 1800 estimated tokens
+      const longParagraph = 'Đây là một đoạn văn bản tương đối dài nhằm kiểm tra thuật toán tiền phân đoạn trong quá trình chuốt văn phong của hệ thống dịch thuật AI trực tiếp.';
+      const longSource = Array(35).fill(longParagraph).join('\n\n');
+      const longRaw = Array(35).fill(longParagraph).join('\n\n');
+
+      let callCount = 0;
+      vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+        callCount++;
+        return {
+          text: JSON.stringify({
+            polishedTranslation: 'Đoạn văn đã được chuốt mịn mượt mà thành công.',
+          }),
+          successKeyIndex: 0,
+        };
+      });
+
+      const res = await polishTranslationDirect({
+        sourceText: `Chương 1: Mở Đầu\n\n${longSource}`,
+        rawTranslation: `Chương 1: Mở Đầu\n\n${longRaw}`,
+        genre: 'Tiên Hiệp',
+        tone: 'Trang nghiêm',
+        glossary: [],
+        apiKeys: ['KEY_1'],
+      });
+
+      // Since the text is > 1800 tokens, it should have pre-split into at least 2 chunks
+      expect(callCount).toBeGreaterThanOrEqual(2);
+      expect(res.polishedTranslation).toContain('Chương 1: Mở Đầu');
+    });
+  });
 });

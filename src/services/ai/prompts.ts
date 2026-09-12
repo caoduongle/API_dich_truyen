@@ -116,7 +116,7 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
     "Bạn là hệ thống dịch thuật AI cao cấp chuyên dịch truyện chữ Trung Quốc sang tiếng Việt.\n" +
     "Nhiệm vụ của bạn là thực hiện dịch thô Giai đoạn 1 (Translation Draft 1) từ đoạn văn bản tiếng Trung được cung cấp.\n" +
     "YÊU CẦU QUAN TRỌNG NHẤT:\n" +
-    "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN (PARAGRAPH BREAKS): Mỗi đoạn văn của nguyên tác tiếng Trung PHẢI tương ứng với một đoạn văn trong bản dịch tiếng Việt, ngăn cách nhau bằng dòng trống (\\n\\n). TUYỆT ĐỐI KHÔNG nén các đoạn văn lại thành một khối văn bản duy nhất. Tiêu đề chương PHẢI đứng riêng biệt trên dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
+    "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN 1-1 (PARAGRAPH BREAKS): Bản gốc có bao nhiêu đoạn văn/dòng thoại thì bản dịch PHẢI có bấy nhiêu đoạn văn tương ứng, ngăn cách nhau bằng đúng 2 dấu xuống dòng (\\n\\n). TUYỆT ĐỐI KHÔNG gộp các đoạn văn ngắn hoặc lời thoại nhân vật vào đoạn văn tự sự xung quanh. Tiêu đề chương PHẢI đứng riêng biệt trên dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
     "2. Tôn trọng Tuyệt đối các từ khóa, thực thể và đại từ trong bảng Từ điển (Glossary) được cung cấp. Nếu một từ Trung Quốc xuất hiện trong Glossary, bạn PHẢI dịch chính xác bằng từ tiếng Việt tương ứng.\n" +
     "3. Dịch chính xác nghĩa đơn và bối cảnh câu chữ. Phân biệt rõ ràng người nam là 'hắn/y/chàng', người nữ là 'nàng/cô/y', người già là 'lão', v.v. dựa trên giới tính quy định.\n" +
     "4. Bản dịch thô này cần đủ sát nghĩa gốc chữ Trung, cấu trúc dễ hiểu, không bỏ sót bất kỳ chi tiết hay câu văn nào.\n" +
@@ -279,10 +279,10 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
         `CHỈ ĐẠO TRỌNG TÂM LƯỢT NÀY: ${strategy.directive}\n`
       : "Nhiệm vụ của bạn là thực hiện chuốt mịn văn phong (Translation Polishing Phase 2) cho bản dịch thô tiếng Việt dựa trên văn bản tiếng Trung đối chiếu.\n") +
     "QUY ĐỊNH BẮT BUỘC:\n" +
-    "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN (PARAGRAPH BREAKS): Mỗi đoạn văn của bản gốc PHẢI tương ứng với một đoạn văn trong bản dịch, ngăn cách nhau bằng dòng trống (\\n\\n). TUYỆT ĐỐI KHÔNG nén các đoạn văn lại thành một khối văn bản duy nhất. Tiêu đề chương PHẢI đứng riêng biệt trên một dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
-    "2. Diễn đạt mượt mà thuần Việt, loại bỏ hoàn toàn cấu trúc câu 'sượng', ngữ pháp dịch máy thô cứng (convert/quick translator vibe).\n" +
-    "3. Giữ đúng sắc thái, đại từ nhân xưng phù hợp thể loại và tông giọng được yêu cầu.\n" +
-    "4. Tuyệt đối không được bỏ sót câu văn, đoạn văn, tình tiết hoặc lời thoại nhân vật nào so với bản gốc.\n" +
+    "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN 1-1 (PARAGRAPH BREAKS): Bản gốc và bản dịch thô có bao nhiêu đoạn văn/dòng thoại thì bản dịch biên tập PHẢI có bấy nhiêu đoạn tương ứng, ngăn cách nhau bằng đúng 2 dấu xuống dòng (\\n\\n). TUYỆT ĐỐI KHÔNG gộp các đoạn văn ngắn hoặc lời thoại nhân vật vào đoạn tự sự xung quanh. Tiêu đề chương PHẢI đứng riêng biệt trên một dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
+    "2. TUYỆT ĐỐI KHÔNG CẮT CỤT HOẶC TÓM TẮT: Không được lược bỏ bất kỳ câu văn, đoạn văn, chi tiết hay lời thoại nào ở giữa hoặc cuối chương so với bản dịch thô. Độ dài và nội dung bản chuốt văn PHẢI truyền tải trọn vẹn 100% bản dịch thô.\n" +
+    "3. Diễn đạt mượt mà thuần Việt, loại bỏ hoàn toàn cấu trúc câu 'sượng', ngữ pháp dịch máy thô cứng (convert/quick translator vibe).\n" +
+    "4. Giữ đúng sắc thái, đại từ nhân xưng phù hợp thể loại và tông giọng được yêu cầu.\n" +
     "5. Tôn trọng triệt để các thuật ngữ trong Từ điển riêng đã được định nghĩa.\n" +
     "6. Khi sử dụng thuật ngữ từ ngoặc vuông [Tên_Việt], hãy viết KHÔNG có ngoặc vuông trong bản dịch cuối cùng (ví dụ: [Philomena] → viết 'Philomena').\n" +
     `7. Phong cách phù hợp thể loại: ${getGenreStyleGuide(genre)}` +

@@ -9,6 +9,8 @@ import {
   separateChapterTitleAndBody,
   ensureChapterTitlePreserved,
   validateTranslationOutput,
+  validatePolishIntegrity,
+  validateParagraphParity,
   splitTextAdaptively,
   estimateTokenCount,
   getPolishStrategyForRound,
@@ -409,7 +411,9 @@ export function isAdaptiveSplitRetryableError(err: any): boolean {
     msg.includes('phản hồi rỗng') ||
     msg.includes('SAFETY') ||
     msg.includes('kết quả trả về trống') ||
-    msg.includes('UNTRANSLATED_CHINESE_LEFTOVER')
+    msg.includes('UNTRANSLATED_CHINESE_LEFTOVER') ||
+    msg.includes('POLISH_TRUNCATION_DETECTED') ||
+    msg.includes('PARAGRAPH_STRUCTURE_DIVERGENCE')
   );
 }
 
@@ -484,6 +488,8 @@ async function callPolishDirectCore(
 
   finalPolishedTranslation = ensureChapterTitlePreserved(rawTranslation, finalPolishedTranslation);
   validateTranslationOutput(finalPolishedTranslation);
+  validatePolishIntegrity(rawTranslation, finalPolishedTranslation);
+  validateParagraphParity(sourceText, finalPolishedTranslation);
 
   const discoveredEntities = isExtractionEnabled && Array.isArray(parsed?.discoveredEntities)
     ? validateAndSnapBackEntities(parsed.discoveredEntities, sourceText)
@@ -497,13 +503,63 @@ async function callPolishDirectCore(
 }
 
 /**
- * Chuốt văn phong phân đoạn thích ứng đệ quy (Divide & Conquer) khi gặp phản hồi rỗng hoặc bộ lọc an toàn
+ * Chuốt văn phong phân đoạn thích ứng đệ quy (Divide & Conquer) khi gặp phản hồi rỗng, bộ lọc an toàn, cắt cụt hoặc lệch cấu trúc
  */
 async function polishWithContentSplitDirect(
   params: DirectPolishTranslationParams,
-  depth = 0
+  depth = 0,
+  isPreSplit = false
 ): Promise<DirectPolishTranslationResult> {
   const { sourceText, rawTranslation, apiKeys, startKeyIndex = 0 } = params;
+
+  // Tiền phân đoạn (Pre-split) nếu văn bản dài (> 1500 token tiếng Trung hoặc > 1800 token tiếng Việt) ở lượt gọi đầu
+  if (depth === 0 && !isPreSplit && (estimateTokenCount(sourceText) > 1500 || estimateTokenCount(rawTranslation) > 1800)) {
+    const sourceParts = splitTextAdaptively(sourceText, 2);
+    const rawParts = splitTextAdaptively(rawTranslation, sourceParts.length);
+
+    if (sourceParts.length > 1 && rawParts.length > 1) {
+      const polishedChunks: string[] = [];
+      let currentKeyIdx = startKeyIndex;
+      const discoveredEntitiesAll: any[] = [];
+      let anyPartial = false;
+
+      for (let i = 0; i < sourceParts.length; i++) {
+        const srcPart = sourceParts[i];
+        const rawPart = rawParts[i] || rawParts[rawParts.length - 1] || '';
+        const staggeredKey = Array.isArray(apiKeys) && apiKeys.length > 0
+          ? (currentKeyIdx + i) % apiKeys.length
+          : currentKeyIdx;
+
+        const res = await polishWithContentSplitDirect(
+          {
+            ...params,
+            sourceText: srcPart,
+            rawTranslation: rawPart,
+            startKeyIndex: staggeredKey,
+          },
+          0,
+          true
+        );
+
+        polishedChunks.push(res.polishedTranslation);
+        currentKeyIdx = res.successKeyIndex ?? staggeredKey;
+        if (res.isPartial) anyPartial = true;
+        if (Array.isArray(res.discoveredEntities)) {
+          discoveredEntitiesAll.push(...res.discoveredEntities);
+        }
+      }
+
+      const combined = polishedChunks.map((c) => c.trim()).filter(Boolean).join('\n\n').trim();
+      const formatted = ensureChapterTitlePreserved(rawTranslation, combined);
+
+      return {
+        polishedTranslation: formatted,
+        discoveredEntities: discoveredEntitiesAll,
+        successKeyIndex: currentKeyIdx,
+        isPartial: anyPartial,
+      };
+    }
+  }
 
   try {
     return await callPolishDirectCore(params);
@@ -538,7 +594,7 @@ async function polishWithContentSplitDirect(
       stage: 'polish',
       depth,
       partsCount: sourceParts.length,
-      reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
+      reason: error?.message || 'POLISH_TRUNCATION_DETECTED',
       tier: 'split',
     });
 
@@ -556,7 +612,8 @@ async function polishWithContentSplitDirect(
               rawTranslation: matchingRawPart,
               startKeyIndex: staggeredKeyIndex,
             },
-            depth + 1
+            depth + 1,
+            true
           );
         } catch (partErr: any) {
           if (isAdaptiveSplitRetryableError(partErr)) {
@@ -573,7 +630,7 @@ async function polishWithContentSplitDirect(
     );
 
     const hasPartial = results.some((r) => r.isPartial);
-    const combinedPolished = results.map((r) => r.polishedTranslation).join('\n\n').trim();
+    const combinedPolished = results.map((r) => r.polishedTranslation.trim()).filter(Boolean).join('\n\n').trim();
     const combinedEntities = results.flatMap((r) => r.discoveredEntities || []);
     const lastSuccessKey = results.findLast((r) => !r.isPartial)?.successKeyIndex ?? results[results.length - 1].successKeyIndex;
 

@@ -84,6 +84,97 @@ export function validateTranslationOutput(text: string, minLength: number = 50, 
 }
 
 /**
+ * Đếm số lượng đoạn văn hợp lệ trong văn bản.
+ * Mỗi khối văn bản không rỗng được phân tách bởi ít nhất một ký tự xuống dòng (\n+) được tính là 1 đoạn.
+ */
+export function countParagraphs(text: string): number {
+  if (!text || typeof text !== 'string') return 0;
+  return text.split(/\r?\n+/).map(p => p.trim()).filter(Boolean).length;
+}
+
+/**
+ * Kiểm định tính toàn vẹn và chống cắt cụt của bản chuốt văn GĐ2 so với bản dịch thô GĐ1.
+ *
+ * @param rawText - Bản dịch thô gốc GĐ1 dùng làm mốc so sánh
+ * @param polishedText - Bản chuốt văn GĐ2 do AI tạo ra
+ * @param minRawLength - Chiều dài tối thiểu của bản thô để bắt đầu áp dụng kiểm tra tỉ lệ (mặc định: 300)
+ * @param minRatio - Tỉ lệ độ dài tối thiểu được chấp nhận (mặc định: 0.80 = 80%)
+ *
+ * @throws Error("POLISH_TRUNCATION_DETECTED: ...") nếu độ dài hoặc số đoạn bị sụt giảm bất thường
+ */
+export function validatePolishIntegrity(
+  rawText: string,
+  polishedText: string,
+  minRawLength: number = 300,
+  minRatio: number = 0.80
+): void {
+  if (!polishedText || typeof polishedText !== 'string' || polishedText.trim() === '') {
+    throw new Error("Không nhận được phản hồi chuốt văn từ AI (kết quả trả về trống).");
+  }
+
+  const cleanRaw = (rawText || '').trim();
+  const cleanPolished = polishedText.trim();
+
+  // Nếu bản thô quá ngắn (< minRawLength), bỏ qua kiểm tra cắt cụt để tránh báo động giả
+  if (cleanRaw.length < minRawLength) {
+    return;
+  }
+
+  // 1. Kiểm tra tỉ lệ độ dài ký tự
+  const lengthRatio = cleanPolished.length / cleanRaw.length;
+  if (lengthRatio < minRatio) {
+    throw new Error(
+      `POLISH_TRUNCATION_DETECTED: Bản chuốt văn bị hụt ký tự bất thường (${cleanPolished.length}/${cleanRaw.length} ký tự, đạt ${(lengthRatio * 100).toFixed(1)}% < ${(minRatio * 100)}%), nghi ngờ AI đã cắt cụt hoặc tóm tắt nửa sau chương.`
+    );
+  }
+
+  // 2. Kiểm tra tỉ lệ số lượng đoạn văn (nếu bản thô có từ 5 đoạn trở lên)
+  const rawParagraphs = countParagraphs(cleanRaw);
+  const polishedParagraphs = countParagraphs(cleanPolished);
+  if (rawParagraphs >= 5) {
+    const paragraphRatio = polishedParagraphs / rawParagraphs;
+    if (paragraphRatio < 0.75) {
+      throw new Error(
+        `POLISH_TRUNCATION_DETECTED: Bản chuốt văn bị thiếu hụt đoạn văn bất thường (${polishedParagraphs}/${rawParagraphs} đoạn, đạt ${(paragraphRatio * 100).toFixed(1)}% < 75%), nghi ngờ AI gộp đoạn quá mức hoặc bỏ sót đoạn kết.`
+      );
+    }
+  }
+}
+
+/**
+ * Kiểm định độ lệch số lượng đoạn văn giữa 2 bản văn bản.
+ *
+ * @param referenceText - Văn bản mốc (Bản gốc hoặc Bản thô)
+ * @param targetText - Văn bản cần kiểm tra (Bản thô hoặc Bản chuốt)
+ * @param maxDivergenceRatio - Tỉ lệ lệch đoạn tối đa cho phép (mặc định: 0.20 = 20%)
+ * @param minParagraphs - Số đoạn tối thiểu của bản mốc để áp dụng kiểm tra (mặc định: 5)
+ *
+ * @throws Error("PARAGRAPH_STRUCTURE_DIVERGENCE: ...") nếu số đoạn văn bị lệch vượt ngưỡng
+ */
+export function validateParagraphParity(
+  referenceText: string,
+  targetText: string,
+  maxDivergenceRatio: number = 0.20,
+  minParagraphs: number = 5
+): void {
+  if (!referenceText || !targetText) return;
+
+  const refParagraphs = countParagraphs(referenceText);
+  const targetParagraphs = countParagraphs(targetText);
+
+  if (refParagraphs < minParagraphs) return;
+
+  const diff = Math.abs(refParagraphs - targetParagraphs);
+  const divergenceRatio = diff / refParagraphs;
+
+  if (divergenceRatio > maxDivergenceRatio) {
+    throw new Error(
+      `PARAGRAPH_STRUCTURE_DIVERGENCE: Cấu trúc đoạn văn bản dịch bị lệch đáng kể (${targetParagraphs} đoạn so với ${refParagraphs} đoạn mốc, lệch ${(divergenceRatio * 100).toFixed(1)}% > ${(maxDivergenceRatio * 100)}%).`
+    );
+  }
+}
+
+/**
  * Tự động phát hiện và tách dòng nếu tiêu đề chương bị dính liền với câu văn mở đầu
  */
 export function separateChapterTitleAndBody(text: string): string {

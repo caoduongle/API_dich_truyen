@@ -13,6 +13,9 @@ import {
   getPolishStrategyForRound,
   calculateTextSimilarity,
   isTextConverged,
+  countParagraphs,
+  validatePolishIntegrity,
+  validateParagraphParity,
 } from '../text';
 import {
   buildRawTranslationPayload,
@@ -206,6 +209,90 @@ describe('Tiered Polish Strategy & Convergence Detection (Feature 111)', () => {
       expect(res.similarity).toBeLessThan(0.3);
       expect(res.isConverged).toBe(false);
       expect(res.diffPercentage).toBeGreaterThan(70);
+    });
+  });
+});
+
+describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
+  describe('countParagraphs', () => {
+    it('returns 0 for empty or whitespace text', () => {
+      expect(countParagraphs('')).toBe(0);
+      expect(countParagraphs('   \n\n  \t  ')).toBe(0);
+    });
+
+    it('accurately counts paragraphs separated by single or multiple newlines', () => {
+      const text = 'Đoạn 1.\n\nĐoạn 2.\nĐoạn 3.\n\n\nĐoạn 4.';
+      expect(countParagraphs(text)).toBe(4);
+    });
+
+    it('ignores leading and trailing blank lines', () => {
+      const text = '\n\n\nĐoạn 1.\n\nĐoạn 2.\n\n\n';
+      expect(countParagraphs(text)).toBe(2);
+    });
+  });
+
+  describe('validatePolishIntegrity', () => {
+    it('throws error when polished translation is empty', () => {
+      expect(() => validatePolishIntegrity('Đoạn văn thô hợp lệ.', '')).toThrow(/kết quả trả về trống/);
+      expect(() => validatePolishIntegrity('Đoạn văn thô hợp lệ.', '   ')).toThrow(/kết quả trả về trống/);
+    });
+
+    it('bypasses ratio checks on short raw texts (< 300 characters)', () => {
+      const shortRaw = 'Chương 1: Tiêu Đề\n\nThông báo ngắn của tác giả về lịch ra chương mới.';
+      const shortPolished = 'Chương 1: Tiêu Đề\n\nThông báo.';
+      expect(() => validatePolishIntegrity(shortRaw, shortPolished, 300, 0.80)).not.toThrow();
+    });
+
+    it('throws POLISH_TRUNCATION_DETECTED when polished text length drops below 80% of raw length', () => {
+      const p1 = 'Sở Phong đứng trên đỉnh núi cao lộng gió nhìn về phương xa, tâm trạng vô cùng trầm mặc trước phong cảnh tráng lệ của đất trời bao la vô tận nơi đây.';
+      const p2 = 'Bên dưới chân núi, sóng biển cuồn cuộn vỗ bờ như sấm rền vang vọng khắp không gian, khiến cho lòng người không khỏi dâng lên cảm giác cô liêu.';
+      const p3 = 'Hắn hít sâu một hơi linh khí thanh thuần, ánh mắt dần trở nên kiên định, bắt đầu vận chuyển huyền công trong cơ thể theo lộ tuyến đã định sẵn.';
+      const rawText = `${p1}\n\n${p2}\n\n${p3}`;
+      // Truncated polish: only keeps first paragraph (~33% length)
+      const truncatedPolished = p1;
+
+      expect(() => validatePolishIntegrity(rawText, truncatedPolished, 200, 0.80)).toThrow(/POLISH_TRUNCATION_DETECTED/);
+    });
+
+    it('throws POLISH_TRUNCATION_DETECTED when polished text drops below 75% of raw paragraphs', () => {
+      const p = 'Đây là một đoạn văn bản tiếng Việt mẫu với độ dài tương đối để kiểm tra số lượng đoạn văn bản.';
+      const rawText = Array(10).fill(p).join('\n\n'); // 10 paragraphs
+      // Polished has normal length but AI collapsed 10 paragraphs into 4 paragraphs
+      const collapsedPolished = Array(4).fill(p + ' ' + p + ' ' + p).join('\n\n');
+
+      expect(() => validatePolishIntegrity(rawText, collapsedPolished, 200, 0.80)).toThrow(/POLISH_TRUNCATION_DETECTED/);
+    });
+
+    it('passes when polished text maintains healthy length and paragraph count', () => {
+      const p = 'Sở Phong đứng trên đỉnh núi cao lộng gió nhìn về phương xa, tâm trạng vô cùng trầm mặc trước phong cảnh tráng lệ.';
+      const rawText = Array(6).fill(p).join('\n\n');
+      const polishedText = Array(6).fill(p + ' Rất mượt mà và bay bổng.').join('\n\n');
+
+      expect(() => validatePolishIntegrity(rawText, polishedText, 200, 0.80)).not.toThrow();
+    });
+  });
+
+  describe('validateParagraphParity', () => {
+    it('does not throw when reference text has fewer than minParagraphs (e.g. < 5)', () => {
+      const ref = 'Đoạn 1.\n\nĐoạn 2.\n\nĐoạn 3.';
+      const target = 'Đoạn 1.\n\nĐoạn 2 gộp Đoạn 3.';
+      expect(() => validateParagraphParity(ref, target, 0.20, 5)).not.toThrow();
+    });
+
+    it('throws PARAGRAPH_STRUCTURE_DIVERGENCE when paragraph divergence exceeds 20%', () => {
+      const p = 'Đoạn văn tiêu chuẩn để đo lường cấu trúc phân đoạn.';
+      const ref = Array(10).fill(p).join('\n\n'); // 10 paragraphs
+      const target = Array(7).fill(p).join('\n\n'); // 7 paragraphs: 3/10 = 30% divergence > 20%
+
+      expect(() => validateParagraphParity(ref, target, 0.20, 5)).toThrow(/PARAGRAPH_STRUCTURE_DIVERGENCE/);
+    });
+
+    it('passes when paragraph count is within 20% tolerance', () => {
+      const p = 'Đoạn văn tiêu chuẩn để đo lường cấu trúc phân đoạn.';
+      const ref = Array(10).fill(p).join('\n\n'); // 10 paragraphs
+      const target = Array(9).fill(p).join('\n\n'); // 9 paragraphs: 1/10 = 10% <= 20%
+
+      expect(() => validateParagraphParity(ref, target, 0.20, 5)).not.toThrow();
     });
   });
 });

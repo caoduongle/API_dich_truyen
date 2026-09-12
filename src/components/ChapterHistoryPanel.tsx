@@ -9,6 +9,7 @@ import { SkeletonBlock } from './common/Skeleton';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { EmptyState } from './ui/EmptyState';
+import { ParagraphMetricsBadge } from './workspace/ParagraphMetricsBadge';
 
 interface ChapterHistoryPanelProps {
   activeProject: StoryProject;
@@ -679,9 +680,12 @@ export default function ChapterHistoryPanel({
                     {/* Content panels */}
                     {historyViewTab === 'source' && (
                       <div className="space-y-1 p-4 rounded-md bg-ink border border-parchment-2 max-h-[420px] overflow-y-auto custom-scrollbar">
-                        <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider block mb-2">
-                          Văn bản tiếng Trung gốc
-                        </span>
+                        <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+                          <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider block">
+                            Văn bản tiếng Trung gốc
+                          </span>
+                          <ParagraphMetricsBadge text={chap.sourceText} />
+                        </div>
                         {chap.sourceText ? (
                           <p className="text-sm font-serif leading-relaxed text-text-main whitespace-pre-wrap">
                             {chap.sourceText}
@@ -693,9 +697,12 @@ export default function ChapterHistoryPanel({
                     )}
                     {historyViewTab === 'raw' && (
                       <div className="space-y-1 p-4 rounded-md bg-draft/10 border border-draft/30 max-h-[420px] overflow-y-auto custom-scrollbar">
-                        <span className="text-[10px] font-bold text-draft uppercase tracking-wider block mb-2">
-                          Bản dịch thô (Giai đoạn 1)
-                        </span>
+                        <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+                          <span className="text-[10px] font-bold text-draft uppercase tracking-wider block">
+                            Bản dịch thô (Giai đoạn 1)
+                          </span>
+                          <ParagraphMetricsBadge text={chap.rawTranslation} referenceText={chap.sourceText} />
+                        </div>
                         {chap.rawTranslation ? (
                           <p className="text-sm font-sans leading-relaxed text-text-main whitespace-pre-wrap">
                             {chap.rawTranslation}
@@ -707,9 +714,12 @@ export default function ChapterHistoryPanel({
                     )}
                     {historyViewTab === 'polished' && (
                       <div className="space-y-1 p-4 rounded-md bg-parchment-2 border border-polish/30 max-h-[420px] overflow-y-auto custom-scrollbar">
-                        <span className="text-[10px] font-bold text-polish uppercase tracking-wider block mb-2">
-                          Bản dịch biên tập (Giai đoạn 2)
-                        </span>
+                        <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+                          <span className="text-[10px] font-bold text-polish uppercase tracking-wider block">
+                            Bản dịch biên tập (Giai đoạn 2)
+                          </span>
+                          <ParagraphMetricsBadge text={chap.polishedTranslation} referenceText={chap.rawTranslation || chap.sourceText} />
+                        </div>
                         {chap.polishedTranslation ? (
                           <p className="text-sm font-sans leading-relaxed text-text-main whitespace-pre-wrap">
                             {chap.polishedTranslation}

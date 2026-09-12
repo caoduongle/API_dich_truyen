@@ -18,6 +18,7 @@ import { Badge } from '../ui/Badge';
 import { Kbd } from '../ui/Kbd';
 import { CollaboratorPresenceBar } from './CollaboratorPresenceBar';
 import { CRDTSyncStatus, UserPresence } from '../../types/crdt';
+import { ParagraphMetricsBadge } from '../workspace/ParagraphMetricsBadge';
 
 export interface BilingualEditorProps {
   sourceText: string;
@@ -196,12 +197,15 @@ export const BilingualEditor = React.memo(function BilingualEditor({
               <span>Nguyên Tác Chữ Hán</span>
             </h3>
 
-            <ChapterSelectorToolbar
-              untranslatedChapters={untranslatedChapters}
-              onLoadChapterById={handleLoadChapterById}
-              onLoadExample={handleLoadExample}
-              sourceText={sourceText}
-            />
+            <div className="flex items-center gap-2">
+              <ParagraphMetricsBadge text={sourceText} />
+              <ChapterSelectorToolbar
+                untranslatedChapters={untranslatedChapters}
+                onLoadChapterById={handleLoadChapterById}
+                onLoadExample={handleLoadExample}
+                sourceText={sourceText}
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -418,11 +422,14 @@ export const BilingualEditor = React.memo(function BilingualEditor({
             {activeStage === 'raw' ? (
               // RAW TRANSLATION WORKING SPACE
               <div className="space-y-2 animate-fadeIn">
-                <div className="flex items-center justify-between text-[11px] text-text-muted bg-ink p-2 rounded-[2px] border border-parchment-2">
-                  <span className="font-semibold text-text-muted flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-draft" />
-                    Bản dịch thô GĐ 1 (Hỗ trợ sửa đổi trực tiếp)
-                  </span>
+                <div className="flex items-center justify-between text-[11px] text-text-muted bg-ink p-2 rounded-[2px] border border-parchment-2 flex-wrap gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-text-muted flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-draft" />
+                      Bản dịch thô GĐ 1 (Hỗ trợ sửa đổi trực tiếp)
+                    </span>
+                    <ParagraphMetricsBadge text={rawTranslation} referenceText={sourceText} />
+                  </div>
                   <button
                     onClick={() => handleCopyText(rawTranslation, 'raw')}
                     className="flex items-center gap-1 text-text-muted hover:text-text-main transition-colors shrink-0 cursor-pointer bg-parchment hover:bg-parchment-2 px-2.5 py-0.5 rounded-[2px] border border-parchment-2 text-[10px]"
@@ -492,11 +499,14 @@ export const BilingualEditor = React.memo(function BilingualEditor({
             ) : (
               // POLISHED TRANSLATION WORKING SPACE
               <div className="space-y-2 animate-fadeIn">
-                <div className="flex items-center justify-between text-[11px] text-text-muted bg-ink p-2 rounded-[2px] border border-parchment-2">
-                  <span className="font-semibold text-text-main flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-polish animate-pulse" />
-                    Biên tập GĐ 2 (Văn phong thuần Việt chu sa)
-                  </span>
+                <div className="flex items-center justify-between text-[11px] text-text-muted bg-ink p-2 rounded-[2px] border border-parchment-2 flex-wrap gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-text-main flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-polish animate-pulse" />
+                      Biên tập GĐ 2 (Văn phong thuần Việt chu sa)
+                    </span>
+                    <ParagraphMetricsBadge text={polishedTranslation} referenceText={rawTranslation || sourceText} />
+                  </div>
                   <button
                     onClick={() => handleCopyText(polishedTranslation, 'polished')}
                     className="flex items-center gap-1 text-text-muted hover:text-text-main transition-colors shrink-0 cursor-pointer bg-parchment hover:bg-parchment-2 px-2.5 py-0.5 rounded-[2px] border border-parchment-2 text-[10px]"
