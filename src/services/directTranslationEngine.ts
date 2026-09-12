@@ -21,6 +21,7 @@ export interface SplitRetryEventInfo {
   depth: number;
   partsCount: number;
   reason: string;
+  tier?: 'split' | 'line-by-line' | 'sino-fallback';
 }
 
 export interface DirectRawTranslationParams {
@@ -35,6 +36,7 @@ export interface DirectRawTranslationParams {
   enableSegmentTranslation?: boolean;
   signal?: AbortSignal;
   onSplitRetry?: (info: SplitRetryEventInfo) => void;
+  isRetry?: boolean;
 }
 
 export interface DirectRawTranslationResult {
@@ -113,6 +115,7 @@ async function callRawDirectCore(
     description,
     enableSegmentTranslation,
     signal,
+    isRetry,
   } = params;
 
   if (!text || !text.trim()) {
@@ -154,6 +157,7 @@ async function callRawDirectCore(
     tone,
     description,
     glossary,
+    isRetry,
   });
 
   const response = await callGeminiDirect({
@@ -195,16 +199,48 @@ async function callRawDirectCore(
 }
 
 /**
+ * Tầng 3 Cứu nguy: Thay thế các thuật ngữ và chữ Hán bằng bản dịch từ điển hoặc phiên âm Hán-Việt
+ */
+export function fallbackSinoVietnameseLine(
+  line: string,
+  glossary: GlossaryItem[] = []
+): string {
+  let result = line;
+  if (Array.isArray(glossary) && glossary.length > 0) {
+    const sorted = [...glossary].sort((a, b) => (b.chinese || '').length - (a.chinese || '').length);
+    for (const g of sorted) {
+      if (!g.chinese || !g.chinese.trim()) continue;
+      const mainZh = g.chinese.trim();
+      const vi = (g.vietnamese || g.pinyin || '').trim();
+      if (vi) {
+        result = result.replaceAll(mainZh, vi);
+      }
+      if (Array.isArray(g.variants)) {
+        for (const v of g.variants) {
+          if (v && v.trim()) {
+            result = result.replaceAll(v.trim(), vi);
+          }
+        }
+      }
+    }
+  }
+  // Loại bỏ các thẻ ngoặc vuông [Tên_Việt] nếu còn sót
+  result = result.replace(/\[([^\]]+)\]/g, '$1');
+  return result;
+}
+
+/**
  * Dịch thô phân đoạn thích ứng đệ quy (Divide & Conquer) khi gặp phản hồi rỗng, bộ lọc an toàn hoặc sót chữ Hán
  */
 async function rawWithContentSplitDirect(
   params: DirectRawTranslationParams,
-  depth = 0
+  retryDepth = 0,
+  isPreSplit = false
 ): Promise<DirectRawTranslationResult> {
   const { text, apiKeys, startKeyIndex = 0, onSplitRetry } = params;
 
-  // Nếu văn bản ban đầu quá dài (> 2000 token) tại depth 0, phân đoạn thích ứng trước
-  if (depth === 0 && estimateTokenCount(text) > 2000) {
+  // Nếu văn bản ban đầu quá dài (> 2000 token) tại retryDepth 0 và chưa pre-split, phân đoạn thích ứng trước
+  if (retryDepth === 0 && !isPreSplit && estimateTokenCount(text) > 2000) {
     const chunks = splitTextAdaptively(text, 2);
     if (chunks.length > 1) {
       const translatedChunks: string[] = [];
@@ -223,7 +259,8 @@ async function rawWithContentSplitDirect(
             text: chunk,
             startKeyIndex: staggeredKey,
           },
-          depth + 1
+          0,
+          true
         );
         translatedChunks.push(res.rawTranslation);
         currentKeyIdx = res.successKeyIndex;
@@ -247,56 +284,112 @@ async function rawWithContentSplitDirect(
       throw error;
     }
 
-    if (depth >= 2) {
-      // Đạt giới hạn đệ quy tối đa, ném lỗi chẩn đoán
-      throw error;
-    }
+    // Tier 1: Thử lại phân đoạn thích ứng đệ quy nếu chưa chạm trần retryDepth 2
+    if (retryDepth < 2) {
+      const partsCount = retryDepth >= 1 ? 3 : 2;
+      const chunks = splitTextAdaptively(text, partsCount);
 
-    const partsCount = depth >= 1 ? 3 : 2;
-    const chunks = splitTextAdaptively(text, partsCount);
+      if (chunks.length > 1) {
+        onSplitRetry?.({
+          stage: 'raw',
+          depth: retryDepth,
+          partsCount: chunks.length,
+          reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
+          tier: 'split',
+        });
 
-    if (chunks.length <= 1) {
-      throw error;
-    }
+        const translatedChunks: string[] = [];
+        let currentKeyIdx = startKeyIndex;
+        const discoveredEntitiesAll: any[] = [];
 
-    onSplitRetry?.({
-      stage: 'raw',
-      depth,
-      partsCount: chunks.length,
-      reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
-    });
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
+            ? (currentKeyIdx + i) % apiKeys.length
+            : currentKeyIdx;
 
-    const translatedChunks: string[] = [];
-    let currentKeyIdx = startKeyIndex;
-    const discoveredEntitiesAll: any[] = [];
+          const res = await rawWithContentSplitDirect(
+            {
+              ...params,
+              text: chunk,
+              startKeyIndex: staggeredKeyIndex,
+              isRetry: true,
+            },
+            retryDepth + 1,
+            true
+          );
 
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
-        ? (currentKeyIdx + i) % apiKeys.length
-        : currentKeyIdx;
+          translatedChunks.push(res.rawTranslation);
+          currentKeyIdx = res.successKeyIndex;
+          if (Array.isArray(res.discoveredEntities)) {
+            discoveredEntitiesAll.push(...res.discoveredEntities);
+          }
+        }
 
-      const res = await rawWithContentSplitDirect(
-        {
-          ...params,
-          text: chunk,
-          startKeyIndex: staggeredKeyIndex,
-        },
-        depth + 1
-      );
-
-      translatedChunks.push(res.rawTranslation);
-      currentKeyIdx = res.successKeyIndex;
-      if (Array.isArray(res.discoveredEntities)) {
-        discoveredEntitiesAll.push(...res.discoveredEntities);
+        return {
+          rawTranslation: separateChapterTitleAndBody(translatedChunks.join('\n\n').trim()),
+          discoveredEntities: discoveredEntitiesAll,
+          successKeyIndex: currentKeyIdx,
+        };
       }
     }
 
-    return {
-      rawTranslation: separateChapterTitleAndBody(translatedChunks.join('\n\n').trim()),
-      discoveredEntities: discoveredEntitiesAll,
-      successKeyIndex: currentKeyIdx,
-    };
+    // Tier 2: Dịch phân rã từng dòng (Line-by-Line Fallback) khi chạm trần phân đoạn hoặc không thể chia nhỏ thêm
+    onSplitRetry?.({
+      stage: 'raw',
+      depth: retryDepth,
+      partsCount: 1,
+      reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
+      tier: 'line-by-line',
+    });
+
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      const lineTranslations: string[] = [];
+      let currentKeyIdx = startKeyIndex;
+      const discoveredEntitiesAll: any[] = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const staggeredKey = Array.isArray(apiKeys) && apiKeys.length > 0
+          ? (currentKeyIdx + i) % apiKeys.length
+          : currentKeyIdx;
+
+        try {
+          const lineRes = await callRawDirectCore({
+            ...params,
+            text: line,
+            startKeyIndex: staggeredKey,
+            isRetry: true,
+            enableSegmentTranslation: false,
+          });
+          lineTranslations.push(lineRes.rawTranslation);
+          currentKeyIdx = lineRes.successKeyIndex;
+          if (Array.isArray(lineRes.discoveredEntities)) {
+            discoveredEntitiesAll.push(...lineRes.discoveredEntities);
+          }
+        } catch (lineErr: any) {
+          // Tier 3: Phiên âm Hán-Việt & từ điển dự phòng cho dòng ngoan cố
+          onSplitRetry?.({
+            stage: 'raw',
+            depth: retryDepth,
+            partsCount: 1,
+            reason: lineErr?.message || 'SINO_FALLBACK_RESCUE',
+            tier: 'sino-fallback',
+          });
+          const rescuedLine = fallbackSinoVietnameseLine(line, params.glossary);
+          lineTranslations.push(rescuedLine);
+        }
+      }
+
+      return {
+        rawTranslation: separateChapterTitleAndBody(lineTranslations.join('\n\n').trim()),
+        discoveredEntities: discoveredEntitiesAll,
+        successKeyIndex: currentKeyIdx,
+      };
+    }
+
+    throw error;
   }
 }
 
@@ -446,6 +539,7 @@ async function polishWithContentSplitDirect(
       depth,
       partsCount: sourceParts.length,
       reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
+      tier: 'split',
     });
 
     const results = await Promise.all(

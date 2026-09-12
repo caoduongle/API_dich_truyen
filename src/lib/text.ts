@@ -78,7 +78,7 @@ export function validateTranslationOutput(text: string, minLength: number = 50, 
   }
   const trimmed = text.trim();
   const ratio = calculateChineseCharRatio(trimmed);
-  if (trimmed.length >= minLength && ratio > maxRatio) {
+  if ((trimmed.length >= minLength && ratio > maxRatio) || (trimmed.length >= 10 && ratio > 0.30)) {
     throw new Error(`UNTRANSLATED_CHINESE_LEFTOVER: Bản dịch chứa tỉ lệ chữ Hán bất thường (${(ratio * 100).toFixed(1)}% > ${(maxRatio * 100)}%), nghi ngờ AI chưa dịch.`);
   }
 }

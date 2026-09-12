@@ -5,6 +5,7 @@ import {
   polishTranslationDirect,
   qaCritiqueDirect,
   rewriteSentenceDirect,
+  fallbackSinoVietnameseLine,
 } from '../directTranslationEngine';
 
 describe('src/services/directTranslationEngine.ts', () => {
@@ -357,5 +358,155 @@ describe('src/services/directTranslationEngine.ts', () => {
     expect(retryEvents[0].reason).toContain('UNTRANSLATED_CHINESE_LEFTOVER');
     expect(res.polishedTranslation).toContain('Chương 1: Khởi Đầu');
     expect(res.polishedTranslation).toContain('Đoạn văn đã chuốt mịn màng thuần Việt');
+  });
+
+  it('US1: long-text pre-split (>2000 tokens) decouples retryDepth so sub-chunks get full 2-level retry budget', async () => {
+    let callCount = 0;
+    const retryEvents: any[] = [];
+    const paragraph = '楚风站在荒凉的大地上，注视着远方升起的奇异烟雾，心中充满了对未知世界的疑惑与警惕。'.repeat(3);
+    const longSource = `第一章 恐怖广播\n\n` + Array.from({ length: 25 }, (_, i) => `${paragraph} Đoạn ${i + 1}`).join('\n\n');
+
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async () => {
+      callCount++;
+      // Call 1 (first sub-chunk): returns Chinese untranslated error
+      if (callCount === 1) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: `Chương 1: Khởi Đầu\n\n${longSource.slice(0, 500)}`,
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      // Call 2 (sub-chunk split retry level 0): fails again to trigger level 1 retry
+      if (callCount === 2) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: `Chương 1: Khởi Đầu\n\n${longSource.slice(0, 300)}`,
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      if (callCount === 3) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: `Chương 1: Khởi Đầu\n\nBản dịch thô tiếng Việt sạch chữ Hán cho phần 3.`,
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      // Subsequent calls succeed with clean Vietnamese
+      return {
+        text: JSON.stringify({
+          rawTranslation: `Bản dịch thô tiếng Việt sạch chữ Hán cho phần ${callCount}.`,
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await translateRawDirect({
+      text: longSource,
+      genre: 'Kinh Dị',
+      tone: 'U ám ly kỳ',
+      glossary: [],
+      apiKeys: ['KEY_1', 'KEY_2'],
+      onSplitRetry: (info) => {
+        retryEvents.push(info);
+      },
+    });
+
+    expect(callCount).toBeGreaterThan(2);
+    expect(retryEvents.length).toBeGreaterThanOrEqual(2);
+    expect(retryEvents.some(e => e.depth === 0)).toBe(true);
+    expect(retryEvents.some(e => e.depth === 1)).toBe(true);
+    expect(res.rawTranslation).toContain('Chương 1: Khởi Đầu');
+    expect(res.rawTranslation).toContain('Bản dịch thô tiếng Việt sạch chữ Hán');
+  });
+
+  it('US2: fallbackSinoVietnameseLine replaces glossary terms, variants and strips brackets', () => {
+    const glossary: any[] = [
+      { id: '1', chinese: '楚风', vietnamese: 'Sở Phong', pinyin: 'Sở Phong', type: 'character', note: 'Nhân vật' },
+      { id: '2', chinese: '九重雷刀', variants: ['九重刀'], vietnamese: 'Cửu Trọng Lôi Đao', pinyin: 'Cửu Trọng Lôi Đao', type: 'term', note: 'Chiêu thức' },
+    ];
+    const input = '楚风施展[九重刀]，破空斩下。';
+    const output = fallbackSinoVietnameseLine(input, glossary);
+    expect(output).toBe('Sở Phong施展Cửu Trọng Lôi Đao，破空斩下。');
+  });
+
+  it('US2: triggers Tier 2 line-by-line and Tier 3 Sino-Vietnamese rescue when retryDepth reaches 2 without crashing chapter', async () => {
+    let callCount = 0;
+    const retryEvents: any[] = [];
+    const p1 = '楚风运转九重雷刀，狂暴的雷霆刀芒划破长空，带着毁天灭地的气势破空斩下。';
+    const p2 = '大地剧烈震颤，四周尘土飞扬，地面被撕裂开一道深不见底的巨大沟壑。';
+    const p3 = '神秘符文闪耀着奇异的光芒。';
+    const source = `第一章 绝境\n\n${p1}\n\n${p2}\n\n${p3}`;
+
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      callCount++;
+      const prompt = args.prompt || '';
+      const textBlock = prompt.split('--- VĂN BẢN TIẾNG TRUNG GỐC ---')[1] || prompt;
+      // Single line with '神秘符文': fails validateTranslationOutput with Chinese leftover (>30% ratio)
+      if (textBlock.includes('神秘符文') && !textBlock.includes('楚风运转') && !textBlock.includes('大地剧烈')) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: '神秘符文闪耀着奇异的光芒。', // 100% Chinese, length 13 >= 10
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      // Single line with '第一章 绝境': succeeds
+      if (textBlock.includes('第一章 绝境') && !textBlock.includes('楚风运转') && !textBlock.includes('大地剧烈')) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: 'Chương 1: Tuyệt Cảnh',
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      // Single line with '楚风运转': succeeds
+      if (textBlock.includes('楚风运转') && !textBlock.includes('大地剧烈') && !textBlock.includes('神秘符文')) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: 'Sở Phong vận chuyển Cửu Trọng Lôi Đao, chém thẳng xuống hư không.',
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      // Single line with '大地剧烈': succeeds
+      if (textBlock.includes('大地剧烈') && !textBlock.includes('楚风运转') && !textBlock.includes('神秘符文')) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: 'Mặt đất chấn động dữ dội, bụi bay mù mịt khắp bốn phía.',
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      // Multi-line chunks: return untranslated Chinese to exhaust split retries to Tier 2
+      return {
+        text: JSON.stringify({
+          rawTranslation: `${p1}\n\n${p2}\n\n${p3}`,
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await translateRawDirect({
+      text: source,
+      genre: 'Tiên Hiệp',
+      tone: 'Trang nghiêm',
+      glossary: [
+        { id: '1', chinese: '神秘符文', vietnamese: 'Phù văn bí ẩn', pinyin: 'Thần Bí Phù Văn', type: 'term', note: 'Phù văn' },
+      ],
+      apiKeys: ['KEY_1'],
+      onSplitRetry: (info) => {
+        retryEvents.push(info);
+      },
+    });
+
+    expect(retryEvents.some(e => e.tier === 'split')).toBe(true);
+    expect(retryEvents.some(e => e.tier === 'line-by-line')).toBe(true);
+    expect(retryEvents.some(e => e.tier === 'sino-fallback')).toBe(true);
+    expect(res.rawTranslation).toContain('Chương 1: Tuyệt Cảnh');
+    expect(res.rawTranslation).toContain('Sở Phong vận chuyển Cửu Trọng Lôi Đao');
+    expect(res.rawTranslation).toContain('Phù văn bí ẩn');
   });
 });

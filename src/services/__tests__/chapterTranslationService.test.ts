@@ -452,5 +452,70 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
       expect(res.updatedChapter?.rawTranslation).toContain('đã cứu nguy thành công');
       expect(res.updatedChapter?.polishedTranslation).toContain('đã cứu nguy thành công');
     });
+
+    it('US3: outputs tier-specific diagnostic logs for line-by-line and sino-fallback tiers', async () => {
+      const directRawSpy = vi.spyOn(directEngine, 'translateRawDirect').mockImplementation(async (params) => {
+        // Trigger split event
+        params.onSplitRetry?.({
+          stage: 'raw',
+          depth: 0,
+          partsCount: 2,
+          reason: 'UNTRANSLATED_CHINESE_LEFTOVER: Bản dịch chứa tỉ lệ chữ Hán bất thường',
+          tier: 'split',
+        });
+        // Trigger line-by-line event
+        params.onSplitRetry?.({
+          stage: 'raw',
+          depth: 2,
+          partsCount: 1,
+          reason: 'UNTRANSLATED_CHINESE_LEFTOVER: Bản dịch chứa tỉ lệ chữ Hán bất thường',
+          tier: 'line-by-line',
+        });
+        // Trigger sino-fallback event
+        params.onSplitRetry?.({
+          stage: 'raw',
+          depth: 2,
+          partsCount: 1,
+          reason: 'SINO_FALLBACK_RESCUE',
+          tier: 'sino-fallback',
+        });
+        return {
+          rawTranslation: 'Bản dịch thô đã cứu nguy thành công qua đa tầng.',
+          discoveredEntities: [],
+          successKeyIndex: 0,
+        };
+      });
+
+      vi.spyOn(directEngine, 'polishTranslationDirect').mockResolvedValue({
+        polishedTranslation: 'Bản chuốt mượt mà.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+
+      const logs: string[] = [];
+      const res = await executeSingleChapterTranslation({
+        chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+        glossarySnapshot: [],
+        signal: new AbortController().signal,
+        logPrefix: '[Test-Tiers]',
+        startKeyIndex: 0,
+        projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+        apiKeys: ['AQ_USER_KEY_123'],
+        selectedModel: 'gemini-2.5-flash',
+        polishCycles: 1,
+        autoTranslateMode: 'from_scratch',
+        additionalInstructions: '',
+        isExtractionDuringTranslationEnabled: false,
+        enableAiQaCritique: false,
+        enableSegmentTranslation: false,
+        addLog: (msg) => logs.push(msg),
+      });
+
+      expect(res.success).toBe(true);
+      expect(directRawSpy).toHaveBeenCalled();
+      expect(logs.some((l) => l.includes('[Cứu nguy GĐ1]') && l.includes('phân đoạn thích ứng cấp 1'))).toBe(true);
+      expect(logs.some((l) => l.includes('[Cứu nguy GĐ1 - Dịch từng dòng]') && l.includes('dịch phân rã từng dòng'))).toBe(true);
+      expect(logs.some((l) => l.includes('[Cứu nguy GĐ1 - Phiên âm dự phòng]') && l.includes('phiên âm Hán-Việt & từ điển dự phòng'))).toBe(true);
+    });
   });
 });

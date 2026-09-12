@@ -24,6 +24,7 @@ export interface BuildRawTranslationPromptParams {
   tone: string;
   description?: string;
   glossary?: GlossaryEntry[];
+  isRetry?: boolean;
 }
 
 export interface BuildPolishTranslationPromptParams {
@@ -52,7 +53,7 @@ export interface BuildQaCritiquePromptParams {
  * Xây dựng payload prompt và schema cho Giai đoạn 1: Dịch thô + Trích xuất thực thể
  */
 export function buildRawTranslationPayload(params: BuildRawTranslationPromptParams) {
-  const { text, genre, tone, description, glossary = [] } = params;
+  const { text, genre, tone, description, glossary = [], isRetry } = params;
 
   let glossaryStr = "";
   if (Array.isArray(glossary) && glossary.length > 0) {
@@ -110,7 +111,7 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
     }
   }
 
-  const systemInstruction =
+  let systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "Bạn là hệ thống dịch thuật AI cao cấp chuyên dịch truyện chữ Trung Quốc sang tiếng Việt.\n" +
     "Nhiệm vụ của bạn là thực hiện dịch thô Giai đoạn 1 (Translation Draft 1) từ đoạn văn bản tiếng Trung được cung cấp.\n" +
@@ -128,6 +129,29 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
     "8. Khi sử dụng thuật ngữ từ ngoặc vuông [Tên_Việt] trong văn bản đánh dấu, hãy viết KHÔNG có ngoặc vuông trong bản dịch cuối cùng. Ví dụ: [Philomena] → viết 'Philomena', KHÔNG viết '[Philomena]'." +
     (description && description.trim() ? `\n9. BẮT BUỘC TUÂN THỦ nguyên tắc xưng hô và phong cách dịch đặc biệt của truyện: ${description.trim()}` : "");
 
+  if (isRetry) {
+    systemInstruction +=
+      "\n\n⚠️ CẢNH BÁO QUAN TRỌNG: Lượt dịch trước bị lỗi do để sót chữ Hán chưa dịch. Trong lượt dịch này, bạn BẮT BUỘC PHẢI DỊCH 100% SANG TIẾNG VIỆT HOẶC PHIÊN ÂM HÁN-VIỆT. TUYỆT ĐỐI KHÔNG COPY NGUYÊN VĂN BẤT KỲ CÂU TỪ CHỮ HÁN NÀO.";
+  }
+
+  const hasBrackets = /\[[^\]]+\]/.test(text);
+  let textPromptBlock = "";
+  if (hasBrackets) {
+    textPromptBlock = `--- VĂN BẢN TIẾNG TRUNG (ĐÃ ĐÁNH DẤU TỪ ĐIỂN) ---
+(Các tên đã được thay sẵn trong ngoặc vuông [Tên_Việt]. Bắt buộc dùng đúng tên này khi dịch)
+${substitutedText}`;
+  } else if (substitutedText !== text) {
+    textPromptBlock = `--- VĂN BẢN TIẾNG TRUNG GỐC ---
+${text}
+
+--- VĂN BẢN TIẾNG TRUNG ĐÃ ĐÁNH DẤU TỪ ĐIỂN ---
+(Các tên đã được thay sẵn trong ngoặc vuông [Tên_Việt]. Bắt buộc dùng đúng tên này khi dịch)
+${substitutedText}`;
+  } else {
+    textPromptBlock = `--- VĂN BẢN TIẾNG TRUNG GỐC ---
+${text}`;
+  }
+
   const prompt = `--- THÔNG TIN TRUYỆN ---
 Thể loại: ${genre || "Tiên Hiệp"}
 Tông giọng: ${tone || "Trang nghiêm cổ kính"}
@@ -136,12 +160,7 @@ ${description && description.trim() ? `Nguyên tắc dịch thuật & Quy tắc 
 --- TỪ ĐIỂN TÊN NHÂN VẬT & THUẬT NGỮ (ĐÃ CÓ - BẮT BUỘC TUÂN THỦ) ---
 ${glossaryStr}
 
---- VĂN BẢN TIẾNG TRUNG GỐC ---
-${text}
-
---- VĂN BẢN TIẾNG TRUNG ĐÃ ĐÁNH DẤU TỪ ĐIỂN ---
-(Các tên đã được thay sẵn trong ngoặc vuông [Tên_Việt]. Bắt buộc dùng đúng tên này khi dịch)
-${substitutedText}`;
+${textPromptBlock}`;
 
   const schema = {
     type: "OBJECT",

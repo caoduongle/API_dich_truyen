@@ -52,6 +52,29 @@ describe('AI Prompts Construction Pipeline', () => {
       expect(payload.prompt).toContain('(Không có từ điển tùy chọn');
       expect(payload.prompt).not.toContain('Nguyên tắc dịch thuật & Quy tắc xưng hô từ cẩm nang:');
     });
+
+    it('injects prompt reinforcement directive when isRetry is true', () => {
+      const payload = buildRawTranslationPayload({
+        text: '罗峰拔出影刃。',
+        genre: 'Tiên Hiệp',
+        tone: 'Hào hùng',
+        isRetry: true,
+      });
+
+      expect(payload.systemInstruction).toContain('⚠️ CẢNH BÁO QUAN TRỌNG: Lượt dịch trước bị lỗi do để sót chữ Hán chưa dịch');
+      expect(payload.systemInstruction).toContain('TUYỆT ĐỐI KHÔNG COPY NGUYÊN VĂN BẤT KỲ CÂU TỪ CHỮ HÁN NÀO');
+    });
+
+    it('deduplicates text section when text already has glossary brackets', () => {
+      const payload = buildRawTranslationPayload({
+        text: '[La Phong] 拔出影刃。',
+        genre: 'Tiên Hiệp',
+        tone: 'Hào hùng',
+      });
+
+      expect(payload.prompt).toContain('--- VĂN BẢN TIẾNG TRUNG (ĐÃ ĐÁNH DẤU TỪ ĐIỂN) ---');
+      expect(payload.prompt).not.toContain('--- VĂN BẢN TIẾNG TRUNG GỐC ---');
+    });
   });
 
   describe('buildPolishTranslationPayload (Phase 2)', () => {

@@ -159,10 +159,23 @@ export async function executeSingleChapterTranslation({
             : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY')
             ? 'Vi phạm bộ lọc an toàn'
             : 'Phản hồi rỗng';
-          addLog(
-            `${logPrefix} [Cứu nguy GĐ1] Phát hiện sự cố (${reasonSummary}). Tự động kích hoạt phân đoạn thích ứng cấp ${info.depth + 1} (chia ${info.partsCount} phần) để dịch lại...`,
-            'warn'
-          );
+
+          if (info.tier === 'line-by-line') {
+            addLog(
+              `${logPrefix} [Cứu nguy GĐ1 - Dịch từng dòng] Phát hiện sự cố (${reasonSummary}). Tự động kích hoạt dịch phân rã từng dòng để cô lập đoạn lỗi...`,
+              'warn'
+            );
+          } else if (info.tier === 'sino-fallback') {
+            addLog(
+              `${logPrefix} [Cứu nguy GĐ1 - Phiên âm dự phòng] Kích hoạt phiên âm Hán-Việt & từ điển dự phòng cho câu khó để bảo toàn chương...`,
+              'warn'
+            );
+          } else {
+            addLog(
+              `${logPrefix} [Cứu nguy GĐ1] Phát hiện sự cố (${reasonSummary}). Tự động kích hoạt phân đoạn thích ứng cấp ${info.depth + 1} (chia ${info.partsCount} phần) để dịch lại...`,
+              'warn'
+            );
+          }
         },
       });
     } catch (err: any) {
