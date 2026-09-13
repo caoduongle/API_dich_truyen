@@ -107,8 +107,8 @@ flowchart TD
 
 ### 1. Cài đặt Dependencies
 ```bash
-git clone <repo-url>
-cd <repo-folder>
+git clone https://github.com/caoduongle/API_dich_truyen
+cd API_dich_truyen
 npm install
 ```
 
