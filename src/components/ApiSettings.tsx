@@ -21,6 +21,7 @@ import { ModelSummaryCard } from './api-settings/ModelSummaryCard';
 import { KeyListSection } from './api-settings/KeyListSection';
 import { CustomModelSection } from './api-settings/CustomModelSection';
 import { TranslationQualitySection } from './api-settings/TranslationQualitySection';
+import { StorageUsageSection } from './api-settings/StorageUsageSection';
 
 export interface ApiSettingsProps {
   apiKeys: string[];
@@ -370,6 +371,9 @@ export default function ApiSettings({
               rememberKeys={rememberKeys}
               onToggleRememberKeys={onToggleRememberKeys}
             />
+
+            {/* Storage Usage (IndexedDB) */}
+            <StorageUsageSection />
           </div>
         )}
       </div>

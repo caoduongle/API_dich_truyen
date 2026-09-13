@@ -4,6 +4,7 @@ import { StoryProject, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../context/NotificationContext';
+import { escapeHtml } from '../lib/text';
 
 export function useEpubExport() {
   const { showToast } = useNotifications();
@@ -89,21 +90,21 @@ p {
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <title>${proj.title}</title>
+  <title>${escapeHtml(proj.title)}</title>
   <link rel="stylesheet" href="style.css" type="text/css"/>
 </head>
 <body>
   <div style="text-align: center; margin-top: 25%;">
-    <h1 style="border: none; margin-bottom: 0.2em; font-size: 2.2em;">${proj.title}</h1>
-    <p class="author" style="font-size: 1.2em; margin-top: 0.5em;">Tác giả: ${proj.author || "Khuyết Danh"}</p>
+    <h1 style="border: none; margin-bottom: 0.2em; font-size: 2.2em;">${escapeHtml(proj.title)}</h1>
+    <p class="author" style="font-size: 1.2em; margin-top: 0.5em;">Tác giả: ${escapeHtml(proj.author || "Khuyết Danh")}</p>
     <div style="margin-top: 10%; font-size: 0.9em; color: #555;">
-      <p style="text-align: center; text-indent: 0;">Thể loại: ${proj.genre || "Chưa phân loại"}</p>
-      <p style="text-align: center; text-indent: 0;">Tông giọng dịch: ${proj.tone || "Chuẩn"}</p>
+      <p style="text-align: center; text-indent: 0;">Thể loại: ${escapeHtml(proj.genre || "Chưa phân loại")}</p>
+      <p style="text-align: center; text-indent: 0;">Tông giọng dịch: ${escapeHtml(proj.tone || "Chuẩn")}</p>
     </div>
     ${proj.description ? `
     <div class="description">
       <h3 style="margin-top:0; font-size: 1.1em; color: #333;">Giới thiệu tác phẩm:</h3>
-      <p style="text-indent: 0; text-align: left;">${proj.description.replace(/\n+/g, '<br/>')}</p>
+      <p style="text-indent: 0; text-align: left;">${escapeHtml(proj.description).replace(/\n+/g, '<br/>')}</p>
     </div>` : ''}
   </div>
 </body>
@@ -123,17 +124,17 @@ p {
         
         const textContent = chap.polishedTranslation || chap.rawTranslation || "Chưa dịch";
         const paragraphs = textContent.split(/\r?\n/).map(p => p.trim()).filter(p => p.length > 0);
-        const pTags = paragraphs.map(p => `<p>${p}</p>`).join('\n  ');
+        const pTags = paragraphs.map(p => `<p>${escapeHtml(p)}</p>`).join('\n  ');
 
         const chapHtml = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <title>${chap.title}</title>
+  <title>${escapeHtml(chap.title)}</title>
   <link rel="stylesheet" href="style.css" type="text/css"/>
 </head>
 <body>
-  <h1>${chap.title}</h1>
+  <h1>${escapeHtml(chap.title)}</h1>
   ${pTags}
 </body>
 </html>`;
@@ -141,9 +142,9 @@ p {
         zip.file(`OEBPS/${filename}`, chapHtml);
         manifestItems.push(`<item id="${chapId}" href="${filename}" media-type="application/xhtml+xml"/>`);
         spineItems.push(`<itemref idref="${chapId}"/>`);
-        navLinks.push(`<li><a href="${filename}">${chap.title}</a></li>`);
+        navLinks.push(`<li><a href="${filename}">${escapeHtml(chap.title)}</a></li>`);
         ncxPoints.push(`<navPoint id="navPoint-${chapId}" playOrder="${idx + 2}">
-          <navLabel><text>${chap.title}</text></navLabel>
+          <navLabel><text>${escapeHtml(chap.title)}</text></navLabel>
           <content src="${filename}"/>
         </navPoint>`);
       });
@@ -176,7 +177,7 @@ p {
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
   <docTitle>
-    <text>${proj.title}</text>
+    <text>${escapeHtml(proj.title)}</text>
   </docTitle>
   <navMap>
     ${ncxPoints.join('\n    ')}
@@ -188,12 +189,12 @@ p {
       const opfXml = `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>${proj.title}</dc:title>
-    <dc:creator>${proj.author || "Khuyết Danh"}</dc:creator>
+    <dc:title>${escapeHtml(proj.title)}</dc:title>
+    <dc:creator>${escapeHtml(proj.author || "Khuyết Danh")}</dc:creator>
     <dc:identifier id="bookid">urn:uuid:${proj.id}</dc:identifier>
     <dc:language>vi</dc:language>
     <dc:date>${new Date().toISOString()}</dc:date>
-    <dc:description>${proj.description || ""}</dc:description>
+    <dc:description>${escapeHtml(proj.description || "")}</dc:description>
   </metadata>
   <manifest>
     <item id="style" href="style.css" media-type="text/css"/>

@@ -7,6 +7,10 @@ export function cleanChineseText(text: string): string {
   if (!text) return "";
   let cleaned = text;
 
+  // 0. Remove invisible anti-scraping characters:
+  // \u200B (Zero-Width Space), \uFEFF (BOM), \u200D (Zero-Width Joiner), \u200C (Zero-Width Non-Joiner)
+  cleaned = cleaned.replace(/[\u200B\uFEFF\u200D\u200C]/g, "");
+
   // 1. Remove HTML tags and HTML entities
   cleaned = cleaned.replace(/<[^>]+>/g, "");
   cleaned = cleaned.replace(/&nbsp;/g, " ");
@@ -83,7 +87,7 @@ export function cleanChineseText(text: string): string {
     }
   }
 
-  return finalLines.join("\n").trim();
+  return finalLines.join("\n").trim().normalize('NFC');
 }
 
 /**

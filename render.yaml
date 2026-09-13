@@ -61,9 +61,17 @@ services:
         value: max-age=31536000; includeSubDomains; preload
 
       # 8. Chính sách an ninh nội dung (Content-Security-Policy)
-      # - Nâng cấp tự động mọi request HTTP thành HTTPS (upgrade-insecure-requests)
-      # - Giữ 'unsafe-inline' cho script-src/style-src để Google Auth & Picker hoạt động
-      # - Đã cấp phép connect-src cho Gemini, Google APIs và https://zuminovel.com để đăng chương
+      # - Tự động nâng cấp mọi request HTTP thành HTTPS (upgrade-insecure-requests).
+      # - script-src: Đã loại bỏ hoàn toàn 'unsafe-inline' sau khi kiểm chứng thực nghiệm qua 4 luồng
+      #   (tải trang/JSON-LD, GIS Auth, Google Picker, Custom Theme); chỉ cấp quyền cho 'self' và
+      #   các endpoint SDK chính thức của Google (apis.google.com, accounts.google.com).
+      # - style-src: Bắt buộc giữ lại 'unsafe-inline' vì 3 lý do thực nghiệm đã xác thực qua DevTools:
+      #   1) Core App React sử dụng inline style attributes động (bảng màu CustomThemeModal, thanh tiến
+      #      trình, chiều cao virtual scroll list) không thể gắn hash tĩnh;
+      #   2) Google Identity Services (accounts.google.com/gsi/client) tự động chèn thẻ <style> động;
+      #   3) Google Drive Picker (gapi.load) tự động chèn thẻ <style> động khi khởi tạo giao diện.
+      # - connect-src: Đã loại bỏ hoàn toàn ws: và wss: (Zero-Backend); cấp phép cho Gemini AI, Google Drive,
+      #   và https://zuminovel.com phục vụ đăng chương.
       - path: /*
         name: Content-Security-Policy
-        value: "upgrade-insecure-requests; default-src 'self'; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: *.googleusercontent.com; connect-src 'self' https://generativelanguage.googleapis.com https://*.googleapis.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com https://zuminovel.com; frame-src https://drive.google.com https://docs.google.com https://accounts.google.com https://content.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+        value: "upgrade-insecure-requests; default-src 'self'; script-src 'self' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: *.googleusercontent.com; connect-src 'self' https://generativelanguage.googleapis.com https://*.googleapis.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com https://zuminovel.com; frame-src https://drive.google.com https://docs.google.com https://accounts.google.com https://content.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"

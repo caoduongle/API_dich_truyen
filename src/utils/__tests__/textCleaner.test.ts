@@ -19,6 +19,21 @@ describe('textCleaner - Chinese Text Cleaning & Chapter Title Separation', () =>
       expect(cleaned).not.toContain('uukanshu');
       expect(cleaned).not.toContain('最新章节：');
     });
+
+    it('should strip invisible anti-scraping zero-width characters', () => {
+      const input = '第一\u200B章\uFEFF：\u200C修\u200D仙';
+      const cleaned = cleanChineseText(input);
+      expect(cleaned).toBe('第一章：修仙');
+      expect(cleaned).not.toMatch(/[\u200B\uFEFF\u200D\u200C]/);
+    });
+
+    it('should normalize output string to Unicode NFC', () => {
+      // Decomposed form NFD: "e" + combining acute accent "\u0301" -> NFC "\u00E9"
+      const nfdText = '第\u200B一章\ne\u0301';
+      const cleaned = cleanChineseText(nfdText);
+      expect(cleaned).toBe('第一章\né');
+      expect(cleaned).toBe(cleaned.normalize('NFC'));
+    });
   });
 
   describe('separateChapterTitleAndBody', () => {

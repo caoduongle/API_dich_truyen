@@ -25,6 +25,21 @@ export function sanitizePromptInput(text: string): string {
   return withoutZeroWidth.replace(/[\u{E0000}-\u{E007F}]/gu, "");
 }
 
+/**
+ * Escape 5 ký tự đặc biệt HTML/XML chuẩn (&, <, >, ", ') theo thứ tự bắt buộc:
+ * & phải được escape đầu tiên để tránh double-escaping.
+ * Dùng chung cho EPUB export, ZumiNovel publishing, và DiffModal highlight.
+ */
+export function escapeHtml(text: string): string {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export const CHINESE_CHAR_REGEX = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g;
 export const CHAPTER_TITLE_REGEX = /^(?:Chương|Chapter|Hồi|Quyển|Tập|Thứ\s+\d+\s*chương|第\s*[\d零一二三四五六七八九十百千万]+\s*[章节回卷])/iu;
 /**

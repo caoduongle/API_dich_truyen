@@ -16,6 +16,7 @@ import {
   countParagraphs,
   validatePolishIntegrity,
   validateParagraphParity,
+  escapeHtml,
 } from '../text';
 import {
   buildRawTranslationPayload,
@@ -27,6 +28,16 @@ describe('shared/text.ts utilities', () => {
   it('sanitizes zero-width and invisible prompt injection characters', () => {
     const dirty = 'Hello\u200BWorld\uFEFFTest\u200E';
     expect(sanitizePromptInput(dirty)).toBe('HelloWorldTest');
+  });
+
+  it('escapes 5 special HTML/XML characters in deterministic order (&, <, >, ", \')', () => {
+    expect(escapeHtml('Tom & Jerry <cartoon> "funny" \'quote\'')).toBe(
+      'Tom &amp; Jerry &lt;cartoon&gt; &quot;funny&quot; &#39;quote&#39;'
+    );
+    expect(escapeHtml('&lt;')).toBe('&amp;lt;');
+    expect(escapeHtml('')).toBe('');
+    expect(escapeHtml(null as any)).toBe('');
+    expect(escapeHtml(undefined as any)).toBe('');
   });
 
   it('accurately counts Chinese characters and ratios', () => {

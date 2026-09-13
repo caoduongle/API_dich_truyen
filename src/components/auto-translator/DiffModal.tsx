@@ -4,6 +4,7 @@ import { Chapter, GlossaryItem } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { escapeHtml } from '../../lib/text';
 
 export interface DiffModalProps {
   chapters: Chapter[];
@@ -55,15 +56,6 @@ export const DiffModal = React.memo(function DiffModal({
   }, [diffModalChapterIndex]);
 
   if (processedChapters.length === 0 || !chap) return null;
-
-  const escapeHtml = (text: string): string => {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  };
 
   const buildHighlightedHtml = (text: string) => {
     let result = escapeHtml(text);

@@ -8,6 +8,7 @@ import { saveChapterToDB } from './db';
 import { formatChapterForWeb } from '../utils/exportFormatter';
 import { zuminovelRestClient } from './zuminovel/zuminovelRestClient';
 import { ZuminovelCreateChapterPayload, ZuminovelUpdateChapterPayload } from '../types/zuminovel';
+import { escapeHtml } from '../lib/text';
 
 export interface ZuminovelPublishOverrides {
   isVIP?: boolean;
@@ -15,17 +16,6 @@ export interface ZuminovelPublishOverrides {
   isAdult?: boolean;
   volume?: string;
   volumeOrder?: number;
-}
-
-// ZumiNovel yêu cầu content là HTML bọc thẻ <p> — escape 5 ký tự đặc biệt HTML
-// chuẩn trước khi bọc, tránh nội dung dịch chứa dấu < > & làm hỏng cấu trúc HTML.
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 /**
