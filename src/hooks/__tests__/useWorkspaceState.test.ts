@@ -21,6 +21,7 @@ vi.mock('../useChapterCRDT', () => ({
     collaborators: [],
     updateRawTranslation: vi.fn(),
     updatePolishedTranslation: vi.fn(),
+    updateMetadata: vi.fn(),
     applyRemoteDiff: vi.fn(),
   }),
 }));

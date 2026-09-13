@@ -225,7 +225,7 @@ export function useWorkspaceState({
   const handleRawTranslationChange = useCallback(
     (newVal: string) => {
       setRawTranslation(newVal);
-      crdt.updateRawTranslation(newVal);
+      crdt.updateRawTranslation?.(newVal);
     },
     [crdt]
   );
@@ -233,7 +233,29 @@ export function useWorkspaceState({
   const handlePolishedTranslationChange = useCallback(
     (newVal: string) => {
       setPolishedTranslation(newVal);
-      crdt.updatePolishedTranslation(newVal);
+      crdt.updatePolishedTranslation?.(newVal);
+    },
+    [crdt]
+  );
+
+  const handleSourceTextChange = useCallback(
+    (newTextOrUpdater: string | ((prev: string) => string)) => {
+      setSourceText((prev) => {
+        const nextVal = typeof newTextOrUpdater === 'function' ? newTextOrUpdater(prev) : newTextOrUpdater;
+        crdt.updateMetadata?.({ sourceText: nextVal });
+        return nextVal;
+      });
+    },
+    [crdt]
+  );
+
+  const handleChapterTitleChange = useCallback(
+    (newTitleOrUpdater: string | ((prev: string) => string)) => {
+      setChapterTitle((prev) => {
+        const nextVal = typeof newTitleOrUpdater === 'function' ? newTitleOrUpdater(prev) : newTitleOrUpdater;
+        crdt.updateMetadata?.({ title: nextVal });
+        return nextVal;
+      });
     },
     [crdt]
   );
@@ -306,9 +328,25 @@ export function useWorkspaceState({
       setErrorMessage(null);
       setAutoDiscoveredTerms([]);
       setQaIssues(loadedChapter.qaIssues || []);
+
+      // Đồng bộ thông tin chương đã nạp sang CRDT session
+      crdt.updateMetadata?.({
+        title: loadedChapter.title,
+        sourceText: loadedChapter.sourceText,
+        status: loadedChapter.status,
+        paragraphs: loadedChapter.paragraphs,
+        translatedLines: loadedChapter.translatedLines,
+      });
+      if (loadedChapter.rawTranslation) {
+        crdt.updateRawTranslation?.(loadedChapter.rawTranslation);
+      }
+      if (loadedChapter.polishedTranslation) {
+        crdt.updatePolishedTranslation?.(loadedChapter.polishedTranslation);
+      }
+
       onClearLoadedChapter?.();
     }
-  }, [loadedChapter]);
+  }, [loadedChapter, crdt]);
 
   const handleOpenEditModal = useCallback(() => {
     setEditTitle(activeProject.title);
@@ -582,7 +620,8 @@ export function useWorkspaceState({
         enableSegmentTranslation
       });
 
-      setRawTranslation(data.rawTranslation || "");
+      handleRawTranslationChange(data.rawTranslation || "");
+      crdt.updateMetadata?.({ sourceText, title: chapterTitle });
 
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
@@ -686,7 +725,8 @@ export function useWorkspaceState({
       });
 
       const polishedResult = data.polishedTranslation || "";
-      setPolishedTranslation(polishedResult);
+      handlePolishedTranslationChange(polishedResult);
+      crdt.updateMetadata?.({ sourceText, title: chapterTitle });
 
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
@@ -1015,9 +1055,24 @@ export function useWorkspaceState({
         setSelectedSuggestions({});
         setErrorMessage(null);
         setAutoDiscoveredTerms([]);
+
+        // T013: Đồng bộ metadata và các bản dịch vào CRDT
+        crdt.updateMetadata?.({
+          title: selectedChap.title,
+          sourceText: selectedChap.sourceText,
+          status: selectedChap.status,
+          paragraphs: selectedChap.paragraphs,
+          translatedLines: selectedChap.translatedLines,
+        });
+        if (selectedChap.rawTranslation) {
+          crdt.updateRawTranslation?.(selectedChap.rawTranslation);
+        }
+        if (selectedChap.polishedTranslation) {
+          crdt.updatePolishedTranslation?.(selectedChap.polishedTranslation);
+        }
       }
     }
-  }, [activeProject]);
+  }, [activeProject, crdt]);
 
   const visibleGlossary = useMemo(() => {
     let list = activeProject.glossary;
@@ -1048,7 +1103,7 @@ export function useWorkspaceState({
     setActiveChapterIndex,
     currentChapterId,
     sourceText,
-    setSourceText,
+    setSourceText: handleSourceTextChange,
     originalSourceText,
     setOriginalSourceText,
     isGlossaryApplied,
@@ -1062,7 +1117,7 @@ export function useWorkspaceState({
     additionalInstructions,
     setAdditionalInstructions: handleAdditionalInstructionsChange,
     chapterTitle,
-    setChapterTitle,
+    setChapterTitle: handleChapterTitleChange,
     qaIssues,
     hakoIssues,
     isCheckingQa,

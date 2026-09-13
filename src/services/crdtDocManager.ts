@@ -321,8 +321,16 @@ export function mergeChapterCrdt({
     projectId: localChapter.projectId || remoteChapter.projectId || projectId,
     sourceText: localChapter.sourceText || remoteChapter.sourceText || snapshot.sourceText || '',
     processedSourceText: localChapter.processedSourceText || remoteChapter.processedSourceText,
-    rawTranslation: snapshot.rawTranslation ?? localChapter.rawTranslation ?? remoteChapter.rawTranslation,
-    polishedTranslation: snapshot.polishedTranslation ?? localChapter.polishedTranslation ?? remoteChapter.polishedTranslation,
+    rawTranslation:
+      (snapshot.rawTranslation && snapshot.rawTranslation.trim()) ||
+      localChapter.rawTranslation ||
+      remoteChapter.rawTranslation ||
+      '',
+    polishedTranslation:
+      (snapshot.polishedTranslation && snapshot.polishedTranslation.trim()) ||
+      localChapter.polishedTranslation ||
+      remoteChapter.polishedTranslation ||
+      '',
     paragraphs: snapshot.paragraphs && snapshot.paragraphs.length > 0
       ? snapshot.paragraphs
       : (localChapter.paragraphs?.length ? localChapter.paragraphs : remoteChapter.paragraphs || []),

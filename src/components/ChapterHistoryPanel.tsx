@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
 import { StoryProject, Chapter, ChapterMetadata } from '../types';
-import { History, BookOpen, Clock, Trash2, RotateCcw, ArrowRight, FileX, Sparkles } from 'lucide-react';
+import {
+  History,
+  BookOpen,
+  Clock,
+  Trash2,
+  RotateCcw,
+  ArrowRight,
+  FileX,
+  Sparkles,
+  AlertTriangle,
+  FilePlus2,
+  X,
+} from 'lucide-react';
 import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { useNotifications } from './NotificationSystem';
 import { useVirtualList } from '../hooks/useVirtualList';
@@ -10,6 +22,13 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { EmptyState } from './ui/EmptyState';
 import { ParagraphMetricsBadge } from './workspace/ParagraphMetricsBadge';
+
+/**
+ * Kiểm tra xem chương có bị thiếu văn bản gốc tiếng Trung hay không
+ */
+export function isChapterMissingSource(chap: Partial<Chapter>): boolean {
+  return !chap.sourceText || chap.sourceText.trim().length === 0;
+}
 
 interface ChapterHistoryPanelProps {
   activeProject: StoryProject;
@@ -92,6 +111,8 @@ export default function ChapterHistoryPanel({
   const [selectedChapterDetails, setSelectedChapterDetails] = useState<Chapter | null>(null);
   const [historyViewTab, setHistoryViewTab] = useState<'source' | 'raw' | 'polished'>('polished');
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
+  const [recoveryModalChap, setRecoveryModalChap] = useState<Chapter | null>(null);
+  const [recoverySourceInput, setRecoverySourceInput] = useState('');
 
   const { visibleItems, totalHeight, onScroll } = useVirtualList<ChapterMetadata>({
     items: chapters,
@@ -343,6 +364,35 @@ export default function ChapterHistoryPanel({
     showToast({ message: `Đã chuyển bản biên tập thành bản dịch thô thành công.`, type: 'success' });
   };
 
+  const handleSaveRecoveredSource = async () => {
+    if (!recoveryModalChap) return;
+    const trimmedSource = recoverySourceInput.trim();
+    if (!trimmedSource) {
+      showToast({ message: 'Vui lòng nhập nội dung bản gốc tiếng Trung.', type: 'warning' });
+      return;
+    }
+
+    const paragraphs = trimmedSource.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    const updatedChap: Chapter = {
+      ...recoveryModalChap,
+      sourceText: trimmedSource,
+      paragraphs: paragraphs.length > 0 ? paragraphs : recoveryModalChap.paragraphs,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await saveChapterToDB(updatedChap);
+    setSelectedChapterDetails(updatedChap);
+    setHistoryViewTab('source');
+    setRecoveryModalChap(null);
+    setRecoverySourceInput('');
+
+    const updatedChaptersMeta = activeProject.chapters.map((c) =>
+      c.id === updatedChap.id ? { ...c, updatedAt: updatedChap.updatedAt } : c
+    );
+    onUpdateProject({ ...activeProject, chapters: updatedChaptersMeta });
+    showToast({ message: `Đã khôi phục bản gốc cho chương "${updatedChap.title}" thành công.`, type: 'success' });
+  };
+
   return (
     <div id="history-chapters-section" className="space-y-6 text-text-main">
       <div>
@@ -572,12 +622,36 @@ export default function ChapterHistoryPanel({
                     {/* Header */}
                     <div className="border-b border-parchment-2 pb-3 flex justify-between items-start">
                       <div>
-                        <h3 className="text-base font-display font-bold text-text-main">{chap.title}</h3>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base font-display font-bold text-text-main">{chap.title}</h3>
+                          {isChapterMissingSource(chap) && (
+                            <Badge tone="warning" className="flex items-center gap-1 text-[10px]">
+                              <AlertTriangle className="w-3 h-3 text-warning" />
+                              Thiếu bản gốc
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-text-muted">
                           Lưu trữ lúc: {new Date(chap.createdAt).toLocaleString('vi-VN')}
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
+                        {isChapterMissingSource(chap) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setRecoveryModalChap(chap);
+                              setRecoverySourceInput('');
+                            }}
+                            icon={<FilePlus2 className="w-3.5 h-3.5 text-polish" />}
+                            className="text-polish border-polish/40 hover:bg-polish/10"
+                            title="Bổ sung bản gốc tiếng Trung mà không ảnh hưởng bản dịch hiện có"
+                          >
+                            Bổ sung bản gốc
+                          </Button>
+                        )}
+
                         {chap.status !== 'not_started' && (
                           <Button
                             variant="outline"
@@ -651,7 +725,7 @@ export default function ChapterHistoryPanel({
                     <div role="tablist" aria-label="Phiên bản văn bản chương" className="flex gap-1 bg-ink rounded-[2px] p-1 w-fit border border-parchment-2">
                       {(
                         [
-                          { key: 'source', label: 'Bản gốc', available: !!chap.sourceText },
+                          { key: 'source', label: 'Bản gốc', available: true },
                           { key: 'raw', label: 'Dịch thô', available: !!chap.rawTranslation },
                           { key: 'polished', label: 'Dịch biên tập', available: !!chap.polishedTranslation },
                         ] as const
@@ -672,7 +746,11 @@ export default function ChapterHistoryPanel({
                           }`}
                         >
                           {label}
-                          {!available && <span className="ml-1 text-[10px] font-normal text-text-muted">(trống)</span>}
+                          {key === 'source' && isChapterMissingSource(chap) ? (
+                            <span className="ml-1 text-[10px] font-normal text-warning">(thiếu)</span>
+                          ) : !available ? (
+                            <span className="ml-1 text-[10px] font-normal text-text-muted">(trống)</span>
+                          ) : null}
                         </button>
                       ))}
                     </div>
@@ -691,7 +769,25 @@ export default function ChapterHistoryPanel({
                             {chap.sourceText}
                           </p>
                         ) : (
-                          <p className="text-sm text-text-muted italic">Không có dữ liệu.</p>
+                          <div className="p-4 rounded-[3px] border border-amber-500/30 bg-amber-500/10 text-xs space-y-2">
+                            <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                              <AlertTriangle className="w-4 h-4" />
+                              Chương này hiện chưa có bản gốc tiếng Trung
+                            </div>
+                            <p className="text-text-muted">
+                              Bạn có thể bổ sung lại nội dung tiếng Trung gốc. Bản dịch biên tập và dịch thô hiện có sẽ được giữ nguyên 100%.
+                            </p>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={() => {
+                                setRecoveryModalChap(chap);
+                                setRecoverySourceInput('');
+                              }}
+                            >
+                              Bổ sung bản gốc ngay
+                            </Button>
+                          </div>
                         )}
                       </div>
                     )}
@@ -738,6 +834,68 @@ export default function ChapterHistoryPanel({
                 <p className="text-sm">Chọn một chương bên trái để xem nội dung</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {recoveryModalChap && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="recovery-modal-title"
+          className="fixed inset-0 bg-ink/80 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in"
+        >
+          <div className="bg-parchment border border-parchment-2 rounded-md max-w-2xl w-full p-6 space-y-4 shadow-xl">
+            <div className="flex items-start justify-between border-b border-parchment-2 pb-3">
+              <div>
+                <h3 id="recovery-modal-title" className="text-base font-display font-bold text-text-main flex items-center gap-2">
+                  <FilePlus2 className="w-4 h-4 text-polish" />
+                  Bổ sung / Khôi phục bản gốc tiếng Trung
+                </h3>
+                <p className="text-xs text-text-muted mt-1">
+                  Chương: <strong className="text-text-main">{recoveryModalChap.title}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRecoveryModalChap(null)}
+                className="text-text-muted hover:text-text-main p-1 rounded cursor-pointer"
+                aria-label="Đóng modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs text-text-muted">
+                Dán nội dung chữ Hán gốc vào ô bên dưới. Thao tác này sẽ phục hồi bản gốc và tự động phân chia đoạn (paragraphs) mà hoàn toàn KHÔNG làm thay đổi bản dịch biên tập đã có.
+              </p>
+              <textarea
+                value={recoverySourceInput}
+                onChange={(e) => setRecoverySourceInput(e.target.value)}
+                placeholder="Dán nội dung chữ Hán tại đây..."
+                rows={8}
+                className="w-full bg-ink border border-parchment-2 rounded-[2px] p-3 text-sm font-serif text-text-main custom-scrollbar resize-none focus:outline-none focus:border-polish"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-parchment-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setRecoveryModalChap(null)}
+              >
+                Hủy
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSaveRecoveredSource}
+                disabled={!recoverySourceInput.trim()}
+              >
+                Lưu bản gốc
+              </Button>
+            </div>
           </div>
         </div>
       )}

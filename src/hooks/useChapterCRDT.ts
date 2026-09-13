@@ -9,7 +9,7 @@ import {
   readChapterFromYDoc,
   exportDocUpdate,
 } from '../services/crdtDocManager';
-import { saveChapterToDB, saveCrdtState } from '../services/db';
+import { getChapterFromDB, saveChapterToDB, saveCrdtState } from '../services/db';
 
 export interface UseChapterCRDTOptions {
   projectId: string;
@@ -51,18 +51,40 @@ export function useChapterCRDT({
         try {
           const snapshot = readChapterFromYDoc(doc, chapId);
           if (snapshot.id && (snapshot.rawTranslation || snapshot.polishedTranslation)) {
+            const existing = await getChapterFromDB(chapId);
             const updatedAt = snapshot.updatedAt || new Date().toISOString();
+            const sourceText =
+              (snapshot.sourceText && snapshot.sourceText.trim()) ||
+              (existing?.sourceText && existing.sourceText.trim()) ||
+              '';
+            const rawTranslation =
+              (snapshot.rawTranslation && snapshot.rawTranslation.trim()) ||
+              existing?.rawTranslation ||
+              '';
+            const polishedTranslation =
+              (snapshot.polishedTranslation && snapshot.polishedTranslation.trim()) ||
+              existing?.polishedTranslation ||
+              '';
+            const paragraphs =
+              snapshot.paragraphs && snapshot.paragraphs.length > 0
+                ? snapshot.paragraphs
+                : (existing?.paragraphs?.length ? existing.paragraphs : []);
+            const translatedLines =
+              snapshot.translatedLines && snapshot.translatedLines.length > 0
+                ? snapshot.translatedLines
+                : (existing?.translatedLines?.length ? existing.translatedLines : []);
+
             await saveChapterToDB({
               id: chapId,
-              projectId,
-              title: snapshot.title || '',
-              status: snapshot.status || 'in_progress',
-              rawTranslation: snapshot.rawTranslation || '',
-              polishedTranslation: snapshot.polishedTranslation || '',
-              sourceText: snapshot.sourceText || '',
-              paragraphs: snapshot.paragraphs || [],
-              translatedLines: snapshot.translatedLines || [],
-              createdAt: snapshot.createdAt || new Date().toISOString(),
+              projectId: existing?.projectId || projectId,
+              title: snapshot.title || existing?.title || '',
+              status: snapshot.status || existing?.status || 'in_progress',
+              rawTranslation,
+              polishedTranslation,
+              sourceText,
+              paragraphs,
+              translatedLines,
+              createdAt: existing?.createdAt || snapshot.createdAt || new Date().toISOString(),
               updatedAt,
             });
 
@@ -87,6 +109,8 @@ export function useChapterCRDT({
       return;
     }
 
+    let isCancelled = false;
+
     // 1. Tạo hoặc lấy Y.Doc nội bộ cho chương này
     const session = createChapterYDoc(projectId, chapterId, initialChapter || undefined);
     const doc = session.doc;
@@ -105,6 +129,44 @@ export function useChapterCRDT({
       }
     }
 
+    // 2b. Khởi tạo bất đồng bộ từ IndexedDB nếu initialChapter không được cung cấp hoặc thiếu dữ liệu bản gốc
+    if (!initialChapter || !initialChapter.sourceText) {
+      getChapterFromDB(chapterId)
+        .then((storedChapter) => {
+          if (isCancelled || !storedChapter || !docRef.current) return;
+          doc.transact(() => {
+            const raw = doc.getText('rawTranslation');
+            const polished = doc.getText('polishedTranslation');
+            const meta = doc.getMap('metadata');
+
+            if (storedChapter.rawTranslation && raw.length === 0) {
+              raw.insert(0, storedChapter.rawTranslation);
+            }
+            if (storedChapter.polishedTranslation && polished.length === 0) {
+              polished.insert(0, storedChapter.polishedTranslation);
+            }
+            if (storedChapter.sourceText && !meta.get('sourceText')) {
+              meta.set('sourceText', storedChapter.sourceText);
+            }
+            if (storedChapter.title && !meta.get('title')) {
+              meta.set('title', storedChapter.title);
+            }
+            if (storedChapter.status && !meta.get('status')) {
+              meta.set('status', storedChapter.status);
+            }
+            if (storedChapter.paragraphs && !meta.get('paragraphs')) {
+              meta.set('paragraphs', storedChapter.paragraphs);
+            }
+            if (storedChapter.translatedLines && !meta.get('translatedLines')) {
+              meta.set('translatedLines', storedChapter.translatedLines);
+            }
+          }, 'hydration');
+        })
+        .catch((err) => {
+          console.warn('[useChapterCRDT] Hydration error from IndexedDB:', err);
+        });
+    }
+
     // 3. Lắng nghe cập nhật Y.Doc để đồng bộ giao diện & db.ts
     const handleDocUpdate = (_update: Uint8Array, origin: any) => {
       if (origin !== 'local-keystroke') {
@@ -116,6 +178,7 @@ export function useChapterCRDT({
     doc.on('update', handleDocUpdate);
 
     return () => {
+      isCancelled = true;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
@@ -151,6 +214,7 @@ export function useChapterCRDT({
         const map = metadataMapRef.current!;
         if (fields.title !== undefined) map.set('title', fields.title);
         if (fields.status !== undefined) map.set('status', fields.status);
+        if (fields.sourceText !== undefined) map.set('sourceText', fields.sourceText);
         if (fields.paragraphs !== undefined) map.set('paragraphs', fields.paragraphs);
         if (fields.translatedLines !== undefined) map.set('translatedLines', fields.translatedLines);
         map.set('updatedAt', new Date().toISOString());

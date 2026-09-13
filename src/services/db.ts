@@ -288,15 +288,56 @@ export const getChapterFromDB = async (id: string): Promise<Chapter | null> => {
   }
 };
 
+/**
+ * Trộn thông tin chương một cách an toàn nhằm ngăn chặn tình trạng ghi đè chuỗi rỗng
+ * làm mất bản gốc (sourceText), dịch thô (rawTranslation) hoặc đoạn văn (paragraphs) đã có từ trước.
+ */
+export const mergeSafeguardChapter = (existing: Chapter | undefined, incoming: Chapter): Chapter => {
+  if (!existing) return incoming;
+
+  const incomingSourceEmpty = !incoming.sourceText || incoming.sourceText.trim() === '';
+  const existingSourcePresent = Boolean(existing.sourceText && existing.sourceText.trim() !== '');
+
+  const incomingRawEmpty = incoming.rawTranslation === undefined || incoming.rawTranslation.trim() === '';
+  const existingRawPresent = Boolean(existing.rawTranslation && existing.rawTranslation.trim() !== '');
+
+  const needsSourceGuard = incomingSourceEmpty && existingSourcePresent;
+  const needsRawGuard = incomingRawEmpty && existingRawPresent;
+
+  if (needsSourceGuard || needsRawGuard) {
+    console.warn(
+      `[saveChapterToDB] Safeguard triggered for chapter ${incoming.id}: preserving non-empty existing fields (sourceText: ${needsSourceGuard}, rawTranslation: ${needsRawGuard}).`
+    );
+    return {
+      ...incoming,
+      sourceText: needsSourceGuard ? existing.sourceText : incoming.sourceText,
+      rawTranslation: needsRawGuard ? existing.rawTranslation : incoming.rawTranslation,
+      paragraphs:
+        needsSourceGuard && (!incoming.paragraphs || incoming.paragraphs.length === 0)
+          ? existing.paragraphs
+          : incoming.paragraphs,
+    };
+  }
+
+  return incoming;
+};
+
 export const saveChapterToDB = async (chapter: Chapter): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(CHAPTERS_STORE, 'readwrite');
       const store = transaction.objectStore(CHAPTERS_STORE);
-      const request = store.put(chapter);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      const getRequest = store.get(chapter.id);
+
+      getRequest.onerror = () => reject(getRequest.error);
+      getRequest.onsuccess = () => {
+        const existing = getRequest.result as Chapter | undefined;
+        const chapterToSave = mergeSafeguardChapter(existing, chapter);
+        const putRequest = store.put(chapterToSave);
+        putRequest.onerror = () => reject(putRequest.error);
+        putRequest.onsuccess = () => resolve();
+      };
     });
   }, 3, 100, 'saveChapterToDB');
 };
@@ -304,6 +345,7 @@ export const saveChapterToDB = async (chapter: Chapter): Promise<void> => {
 /**
  * Lưu danh sách chương vào IndexedDB (critical path trong quá trình dịch hàng loạt).
  * Tích hợp cơ chế retry tự động khi gặp lock cạnh tranh giữa các worker/tab.
+ * Đảm bảo các trường sourceText và rawTranslation không bị xóa bởi mảng ghi đè rỗng.
  */
 export const saveChaptersToDB = async (chapters: Chapter[]): Promise<void> => {
   if (!chapters || chapters.length === 0) return;
@@ -314,8 +356,15 @@ export const saveChaptersToDB = async (chapters: Chapter[]): Promise<void> => {
       const store = transaction.objectStore(CHAPTERS_STORE);
       transaction.onerror = () => reject(transaction.error);
       transaction.oncomplete = () => resolve();
+
       for (const chap of chapters) {
-        store.put(chap);
+        const getReq = store.get(chap.id);
+        getReq.onerror = () => reject(getReq.error);
+        getReq.onsuccess = () => {
+          const existing = getReq.result as Chapter | undefined;
+          const chapterToSave = mergeSafeguardChapter(existing, chap);
+          store.put(chapterToSave);
+        };
       }
     });
   }, 3, 150, 'saveChaptersToDB');
