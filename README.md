@@ -28,11 +28,6 @@ Hệ thống dịch thuật tiểu thuyết Trung - Việt ứng dụng công ng
 - **Giai đoạn 3 (Kiểm duyệt QA AI)**: Đối chiếu nguyên tác và bản dịch phát hiện lỗi bỏ sót, thêm thắt, hoặc lặp câu.
 
 ### 🧠 3. Quản lý Danh mục & Vòng đời Mô hình AI (Model Lifecycle)
-- **Mô hình Khuyên dùng**:
-  - `gemini-2.5-flash`: Cân bằng tối ưu giữa tốc độ, văn phong và chi phí (Mặc định).
-  - `gemini-2.5-pro`: Suy luận nâng cao cho các đoạn văn cổ trang, ẩn dụ phức tạp.
-  - `gemini-3.1-flash-lite`: Tối ưu hóa độ trễ cực thấp cho dịch nhanh và tra cứu.
-  - `gemma-4-31b-it`: Mô hình mã nguồn mở thế hệ mới.
 - **Cơ chế Khám phá SWR (Stale-While-Revalidate)**: Tải danh mục mô hình từ bộ đệm tức thì (< 5ms), revalidate ngầm trực tiếp với Google Generative Language API và bảo toàn stale cache khi có sự cố.
 - **Tự động Chuyển đổi Mô hình Hết hạn**: Tự động chuyển các model cũ (`gemini-1.5-flash`, `gemini-1.5-pro`...) sang model kế thừa tương đương.
 
