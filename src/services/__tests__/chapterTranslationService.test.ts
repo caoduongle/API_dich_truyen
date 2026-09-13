@@ -517,5 +517,69 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
       expect(logs.some((l) => l.includes('[Cứu nguy GĐ1 - Dịch từng dòng]') && l.includes('dịch phân rã từng dòng'))).toBe(true);
       expect(logs.some((l) => l.includes('[Cứu nguy GĐ1 - Phiên âm dự phòng]') && l.includes('phiên âm Hán-Việt & từ điển dự phòng'))).toBe(true);
     });
+
+    it('preserves code === "ALL_KEYS_EXHAUSTED" when raw translation throws quota exhaustion', async () => {
+      const quotaErr = new Error('Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED).');
+      (quotaErr as any).code = 'ALL_KEYS_EXHAUSTED';
+      vi.spyOn(directEngine, 'translateRawDirect').mockRejectedValue(quotaErr);
+
+      await expect(
+        executeSingleChapterTranslation({
+          chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+          glossarySnapshot: [],
+          signal: new AbortController().signal,
+          logPrefix: '[Test-Quota]',
+          startKeyIndex: 0,
+          projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+          apiKeys: ['AQ_USER_KEY_123'],
+          selectedModel: 'gemini-2.5-flash',
+          polishCycles: 1,
+          autoTranslateMode: 'from_scratch',
+          additionalInstructions: '',
+          isExtractionDuringTranslationEnabled: false,
+          enableAiQaCritique: false,
+          enableSegmentTranslation: false,
+          addLog: () => {},
+        })
+      ).rejects.toMatchObject({
+        code: 'ALL_KEYS_EXHAUSTED',
+        isOverload: true,
+      });
+    });
+
+    it('preserves code === "ALL_KEYS_EXHAUSTED" when polish phase throws quota exhaustion', async () => {
+      vi.spyOn(directEngine, 'translateRawDirect').mockResolvedValue({
+        rawTranslation: 'Bản dịch thô thành công.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+
+      const quotaErr = new Error('Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED).');
+      (quotaErr as any).code = 'ALL_KEYS_EXHAUSTED';
+      vi.spyOn(directEngine, 'polishTranslationDirect').mockRejectedValue(quotaErr);
+
+      await expect(
+        executeSingleChapterTranslation({
+          chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+          glossarySnapshot: [],
+          signal: new AbortController().signal,
+          logPrefix: '[Test-Polish-Quota]',
+          startKeyIndex: 0,
+          projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+          apiKeys: ['AQ_USER_KEY_123'],
+          selectedModel: 'gemini-2.5-flash',
+          polishCycles: 1,
+          autoTranslateMode: 'from_scratch',
+          additionalInstructions: '',
+          isExtractionDuringTranslationEnabled: false,
+          enableAiQaCritique: false,
+          enableSegmentTranslation: false,
+          addLog: () => {},
+        })
+      ).rejects.toMatchObject({
+        code: 'ALL_KEYS_EXHAUSTED',
+        isOverload: true,
+      });
+    });
   });
 });

@@ -7,6 +7,8 @@ import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
 import { executeSingleChapterTranslation, SingleChapterResult } from '../services/chapterTranslationService';
 import { getDynamicPacingInterval, isTpmNearLimit } from '../utils/modelRegistry';
+import { localQuotaTracker } from '../services/localQuotaTracker';
+import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 
 
 
@@ -264,8 +266,15 @@ export function useTranslationProcess({
       };
 
       // ── Stagger API key cho từng chương trong lô ──
+      const cleanKeys = (paramsRef.current.apiKeys || []).filter((k: any) => typeof k === 'string' && k.trim().length > 0);
+      if (cleanKeys.length > 0) {
+        const healthyIdx = localQuotaTracker.findNextAvailableKeyIndex(cleanKeys, currentApiKeyIndexRef.current, getStoredCustomLimits());
+        if (healthyIdx !== -1) {
+          currentApiKeyIndexRef.current = healthyIdx;
+        }
+      }
       const baseKeyIndex = currentApiKeyIndexRef.current;
-      const keyCount = paramsRef.current.apiKeys?.length || 1;
+      const keyCount = cleanKeys.length || 1;
 
       // ── Tạo AbortController cho từng chương ──
       const batchControllers = new Map<string, AbortController>();
@@ -384,8 +393,15 @@ export function useTranslationProcess({
             continue;
           }
 
-          if (errMsg.startsWith("ALL_KEYS_EXHAUSTED")) {
+          const isAllKeysExhausted =
+            (err as any)?.code === 'ALL_KEYS_EXHAUSTED' ||
+            errMsg.includes('Toàn bộ API Key đã hết hạn mức') ||
+            errMsg.includes('ALL_KEYS_EXHAUSTED');
+
+          if (isAllKeysExhausted) {
             allKeysExhausted = true;
+            batchFailedIds.push(chapterId);
+            addLog(`Dừng tiến trình tại chương "${chapTitle}" do toàn bộ API Key đã cạn kiệt hạn mức quota.`, 'error');
             continue;
           }
 
@@ -409,8 +425,14 @@ export function useTranslationProcess({
         }
       }
 
-      // ── Cập nhật key index ──
-      currentApiKeyIndexRef.current = lastSuccessKeyIndex;
+      // ── Cập nhật key index: Tịnh tiến sang key kế tiếp để xoay vòng đều giữa các key ──
+      if (cleanKeys.length > 0) {
+        const nextCandidate = batchSuccessCount > 0
+          ? (lastSuccessKeyIndex + 1) % cleanKeys.length
+          : (baseKeyIndex + batchSize) % cleanKeys.length;
+        const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(cleanKeys, nextCandidate, getStoredCustomLimits());
+        currentApiKeyIndexRef.current = nextHealthy !== -1 ? nextHealthy : nextCandidate;
+      }
 
       // ── Merge delta vào fresh projectRef.current ──
       const freshProj = projectRef.current;
@@ -507,11 +529,16 @@ export function useTranslationProcess({
       return;
     }
 
-    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
-    if (!hasValidKeys) {
+    const cleanKeys = (apiKeys || []).filter((k) => typeof k === 'string' && k.trim().length > 0);
+    if (cleanKeys.length === 0) {
       showToast({ message: "Vui lòng thêm ít nhất một Gemini API Key cá nhân trong Cấu hình AI để bắt đầu dịch!", type: 'error' });
       addLog("LỖI: Chưa cấu hình API Key cá nhân. Bắt buộc cần có key để thực hiện dịch thuật.", "error");
       return;
+    }
+
+    const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(cleanKeys, currentApiKeyIndexRef.current, getStoredCustomLimits());
+    if (nextHealthy !== -1) {
+      currentApiKeyIndexRef.current = nextHealthy;
     }
 
     let queue = chaptersQueue;
@@ -620,6 +647,14 @@ export function useTranslationProcess({
 
     addLog(`Chuẩn bị dịch lại ${failedChaps.length} chương lỗi...`, 'info');
     
+    // Tự động quét và chọn key khả dụng kế tiếp để tránh kẹt lại ở key vừa gây lỗi
+    const cleanKeys = (paramsRef.current.apiKeys || []).filter((k: any) => typeof k === 'string' && k.trim().length > 0);
+    if (cleanKeys.length > 0) {
+      const nextCandidate = (currentApiKeyIndexRef.current + 1) % cleanKeys.length;
+      const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(cleanKeys, nextCandidate, getStoredCustomLimits());
+      currentApiKeyIndexRef.current = nextHealthy !== -1 ? nextHealthy : 0;
+    }
+
     setChaptersQueue(failedChaps);
     setCurrentChapterIndex(0);
     setProcessedCount(0);
@@ -640,7 +675,7 @@ export function useTranslationProcess({
 
     addLog(`BẮT ĐẦU DỊCH LẠI CÁC CHƯƠNG LỖI | Mô hình: '${selectedModel}'`, 'success');
     runTranslationLoop(failedChaps, 0);
-  }, [runTranslationLoop, onUpdateProject, selectedModel, addLog, setAutoDiscoveredBatch, setLogs]);
+  }, [runTranslationLoop, onUpdateProject, selectedModel, addLog, setAutoDiscoveredBatch, setLogs, currentApiKeyIndexRef]);
 
   return {
     isProcessing,

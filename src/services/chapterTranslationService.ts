@@ -179,8 +179,17 @@ export async function executeSingleChapterTranslation({
         },
       });
     } catch (err: any) {
+      if (err?.name === 'AbortError' || (err instanceof DOMException && err.name === 'AbortError')) {
+        throw err;
+      }
+      const isAllKeysExhausted =
+        err?.code === 'ALL_KEYS_EXHAUSTED' ||
+        (typeof err?.message === 'string' && err.message.includes('Toàn bộ API Key đã hết hạn mức'));
       const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
-      throw Object.assign(new Error(err?.message || 'Lỗi dịch thô từ hệ thống AI trực tiếp.'), { isOverload });
+      throw Object.assign(new Error(err?.message || 'Lỗi dịch thô từ hệ thống AI trực tiếp.'), {
+        isOverload,
+        code: isAllKeysExhausted ? 'ALL_KEYS_EXHAUSTED' : err?.code,
+      });
     }
 
     firstDraft = rawData.rawTranslation || '';
@@ -306,9 +315,18 @@ export async function executeSingleChapterTranslation({
       if (err?.name === 'AbortError' || (err instanceof DOMException && err.name === 'AbortError')) {
         throw err;
       }
+      const isAllKeysExhausted =
+        err?.code === 'ALL_KEYS_EXHAUSTED' ||
+        (typeof err?.message === 'string' && err.message.includes('Toàn bộ API Key đã hết hạn mức'));
       const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
-      if (isOverload) {
-        throw Object.assign(new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (err?.message || 'Lỗi không xác định')), { isOverload });
+      if (isAllKeysExhausted || isOverload) {
+        throw Object.assign(
+          new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (err?.message || 'Lỗi không xác định')),
+          {
+            isOverload,
+            code: isAllKeysExhausted ? 'ALL_KEYS_EXHAUSTED' : err?.code,
+          }
+        );
       }
 
       // Xử lý cứu nguy khi AI gặp sự cố phản hồi rỗng / bộ lọc không thể khắc phục
