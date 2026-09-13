@@ -8,6 +8,7 @@ import {
   generateIssueFingerprint,
   normalizeIssueSnippet,
   reconcileIssuesWithDecisions,
+  isSnippetStillPresentInContent,
 } from '../hakoQualityEngine';
 import { QualityReviewSession, QualityIssue } from '../../types/hakoChecker';
 
@@ -610,6 +611,62 @@ describe('hakoQualityEngine Unit Tests', () => {
 
       expect(result.reconciledIssues.find((i) => i.id === 'chap2-issue')).toBeDefined();
       expect(result.reconciledIssues.find((i) => i.id === 'chap1-issue')?.decision).toBe('dismissed');
+    });
+
+    it('[US3] does NOT convert confirmed issue to resolved if chaptersContentMap still contains the snippet', () => {
+      const oldIssue = createSampleIssue({
+        id: 'old-confirmed',
+        chapterId: 'chap1',
+        decision: 'confirmed',
+        category: 'mistranslation',
+        vietnameseSnippet: 'cộng thêm tên xui xẻo bỏ mạng đầu tiên',
+      });
+      // Lần quét mới (AI) không phát hiện lỗi này, nhưng bản dịch tiếng Việt vẫn còn nguyên đoạn vi phạm
+      const chaptersContentMap = new Map<string, string>([
+        ['chap1', 'Đoạn văn này có chứa cộng thêm tên xui xẻo bỏ mạng đầu tiên mà dịch giả chưa hề sửa.'],
+      ]);
+
+      const result = reconcileIssuesWithDecisions([oldIssue], [], ['chap1'], chaptersContentMap);
+
+      expect(result.reconciledIssues.length).toBe(1);
+      expect(result.reconciledIssues[0].id).toBe('old-confirmed');
+      // Phải giữ nguyên confirmed, KHÔNG được chuyển thành resolved
+      expect(result.reconciledIssues[0].decision).toBe('confirmed');
+      expect(result.diffSummary.unresolvedCount).toBe(1);
+      expect(result.diffSummary.resolvedCount).toBe(0);
+    });
+
+    it('[US3] converts confirmed issue to resolved when chaptersContentMap proves the snippet was removed/fixed', () => {
+      const oldIssue = createSampleIssue({
+        id: 'old-confirmed',
+        chapterId: 'chap1',
+        decision: 'confirmed',
+        category: 'mistranslation',
+        vietnameseSnippet: 'cộng thêm tên xui xẻo bỏ mạng đầu tiên',
+      });
+      // Dịch giả đã sửa thành: "cộng thêm thính giả bị giết đầu tiên"
+      const chaptersContentMap = new Map<string, string>([
+        ['chap1', 'Đoạn văn này đã được dịch giả sửa thành cộng thêm thính giả bị giết đầu tiên chuẩn xác.'],
+      ]);
+
+      const result = reconcileIssuesWithDecisions([oldIssue], [], ['chap1'], chaptersContentMap);
+
+      expect(result.reconciledIssues.length).toBe(1);
+      expect(result.reconciledIssues[0].id).toBe('old-confirmed');
+      expect(result.reconciledIssues[0].decision).toBe('resolved');
+      expect(result.diffSummary.resolvedCount).toBe(1);
+    });
+  });
+
+  describe('isSnippetStillPresentInContent', () => {
+    it('detects CJK characters for raw_leak category', () => {
+      expect(isSnippetStillPresentInContent('raw_leak', 'Chứa 龙涎草 chưa dịch', 'Có một cây 龙涎草 ở đây')).toBe(true);
+      expect(isSnippetStillPresentInContent('raw_leak', 'Chứa 龙涎草 chưa dịch', 'Đã dịch thành Long Diên Thảo')).toBe(false);
+    });
+
+    it('detects text phrases regardless of quotes and whitespace', () => {
+      expect(isSnippetStillPresentInContent('mistranslation', '"cộng thêm tên xui xẻo bỏ mạng đầu tiên"', 'Đoạn văn cộng thêm tên xui xẻo bỏ mạng đầu tiên')).toBe(true);
+      expect(isSnippetStillPresentInContent('mistranslation', '"cộng thêm tên xui xẻo bỏ mạng đầu tiên"', 'Đã sửa hoàn toàn')).toBe(false);
     });
   });
 });

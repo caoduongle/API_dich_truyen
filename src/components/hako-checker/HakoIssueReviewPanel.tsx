@@ -44,6 +44,7 @@ import { cn } from '../../lib/cn';
 export interface HakoIssueReviewPanelProps {
   issues: QualityIssue[];
   chapters: Record<string, ProjectReviewChapter>;
+  selectedChapterIds?: (string | number)[];
   onDecisionChange: (issueId: string, decision: QualityIssueDecision, note?: string) => void;
   onBatchDecisionChange?: (issueIds: string[], decision: QualityIssueDecision) => void;
   onOpenExportModal: () => void;
@@ -65,6 +66,7 @@ export const BATCH_CONFIRM_THRESHOLD = 5;
 export function HakoIssueReviewPanel({
   issues,
   chapters,
+  selectedChapterIds = [],
   onDecisionChange,
   onBatchDecisionChange,
   onOpenExportModal,
@@ -81,28 +83,45 @@ export function HakoIssueReviewPanel({
     notifications = null;
   }
 
+  const selectedChapterIdSet = useMemo(() => {
+    return new Set((selectedChapterIds || []).map(String));
+  }, [selectedChapterIds]);
+
+  const hasSelectedChapters = selectedChapterIdSet.size > 0;
+  const defaultChapterFilter = hasSelectedChapters ? 'selected' : 'all';
+
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterDecision, setFilterDecision] = useState<string>('all');
-  const [filterChapterId, setFilterChapterId] = useState<string>('all');
+  const [filterChapterId, setFilterChapterId] = useState<string>(defaultChapterFilter);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [confirmBatch, setConfirmBatch] = useState<BatchConfirmState | null>(null);
 
   const PAGE_SIZE = 20;
 
-  // Stats calculation
+  // Stats calculation (tính theo tập issues nằm trong phạm vi chương hiện tại)
   const stats = useMemo(() => {
-    const total = issues.length;
-    const confirmed = issues.filter((i) => i.decision === 'confirmed').length;
-    const resolved = issues.filter((i) => i.decision === 'resolved').length;
-    const reviewNeeded = issues.filter((i) => i.decision === 'review_needed').length;
-    const dismissed = issues.filter((i) => i.decision === 'dismissed').length;
-    const pending = issues.filter((i) => i.decision === 'pending').length;
+    const scopedIssues = issues.filter((issue) => {
+      if (filterChapterId === 'selected') {
+        return selectedChapterIdSet.has(String(issue.chapterId));
+      }
+      if (filterChapterId !== 'all') {
+        return String(issue.chapterId) === filterChapterId;
+      }
+      return true;
+    });
 
-    const critical = issues.filter((i) => i.severity === 'critical').length;
-    const major = issues.filter((i) => i.severity === 'major').length;
-    const minor = issues.filter((i) => i.severity === 'minor').length;
-    const warning = issues.filter((i) => i.severity === 'warning').length;
+    const total = scopedIssues.length;
+    const confirmed = scopedIssues.filter((i) => i.decision === 'confirmed').length;
+    const resolved = scopedIssues.filter((i) => i.decision === 'resolved').length;
+    const reviewNeeded = scopedIssues.filter((i) => i.decision === 'review_needed').length;
+    const dismissed = scopedIssues.filter((i) => i.decision === 'dismissed').length;
+    const pending = scopedIssues.filter((i) => i.decision === 'pending').length;
+
+    const critical = scopedIssues.filter((i) => i.severity === 'critical').length;
+    const major = scopedIssues.filter((i) => i.severity === 'major').length;
+    const minor = scopedIssues.filter((i) => i.severity === 'minor').length;
+    const warning = scopedIssues.filter((i) => i.severity === 'warning').length;
 
     return {
       total,
@@ -116,7 +135,7 @@ export function HakoIssueReviewPanel({
       minor,
       warning,
     };
-  }, [issues]);
+  }, [issues, filterChapterId, selectedChapterIdSet]);
 
   // Filtered issues list
   const filteredIssues = useMemo(() => {
@@ -124,10 +143,14 @@ export function HakoIssueReviewPanel({
       if (filterSeverity !== 'all' && issue.severity !== filterSeverity) return false;
       if (filterCategory !== 'all' && issue.category !== filterCategory) return false;
       if (filterDecision !== 'all' && issue.decision !== filterDecision) return false;
-      if (filterChapterId !== 'all' && issue.chapterId !== filterChapterId) return false;
+      if (filterChapterId === 'selected') {
+        if (!selectedChapterIdSet.has(String(issue.chapterId))) return false;
+      } else if (filterChapterId !== 'all') {
+        if (String(issue.chapterId) !== filterChapterId) return false;
+      }
       return true;
     });
-  }, [issues, filterSeverity, filterCategory, filterDecision, filterChapterId]);
+  }, [issues, filterSeverity, filterCategory, filterDecision, filterChapterId, selectedChapterIdSet]);
 
   // Pagination calculations (PAGE_SIZE = 20)
   const totalPages = Math.max(1, Math.ceil(filteredIssues.length / PAGE_SIZE));
@@ -164,7 +187,11 @@ export function HakoIssueReviewPanel({
   // Danh sách các chương phát hiện có lỗi kèm số lượng lỗi
   const chaptersWithIssues = useMemo(() => {
     const map = new Map<string, { id: string; number: number; title: string; issueCount: number }>();
-    issues.forEach((issue) => {
+    const targetIssues = filterChapterId === 'selected'
+      ? issues.filter((i) => selectedChapterIdSet.has(String(i.chapterId)))
+      : issues;
+
+    targetIssues.forEach((issue) => {
       const existing = map.get(issue.chapterId);
       if (existing) {
         existing.issueCount += 1;
@@ -178,7 +205,7 @@ export function HakoIssueReviewPanel({
       }
     });
     return Array.from(map.values()).sort((a, b) => a.number - b.number);
-  }, [issues]);
+  }, [issues, filterChapterId, selectedChapterIdSet]);
 
   // Batch action execution helper with undo toast notification
   const executeBatchMutation = (action: 'confirmed' | 'dismissed', ids: string[]) => {
@@ -484,13 +511,21 @@ export function HakoIssueReviewPanel({
             </select>
 
             {/* Chapter Filter */}
-            {chapterOptions.length > 1 && (
+            {(chapterOptions.length > 1 || hasSelectedChapters) && (
               <select
                 value={filterChapterId}
                 onChange={(e) => setFilterChapterId(e.target.value)}
-                className="bg-ink border border-parchment-2 rounded-[2px] px-2 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer max-w-[200px] truncate"
+                data-testid="chapter-filter-select"
+                className="bg-ink border border-parchment-2 rounded-[2px] px-2 py-1 text-xs text-text-main focus:outline-none focus:border-polish cursor-pointer max-w-[220px] truncate"
               >
-                <option value="all">Tất cả các chương ({chapterOptions.length})</option>
+                {hasSelectedChapters && (
+                  <option value="selected">
+                    {`Các chương đang chọn (${selectedChapterIdSet.size})`}
+                  </option>
+                )}
+                <option value="all">
+                  {`Toàn bộ phiên (${chapterOptions.length} chương có lỗi)`}
+                </option>
                 {chapterOptions.map((ch) => (
                   <option key={ch.id} value={ch.id}>
                     {ch.title}
@@ -503,14 +538,14 @@ export function HakoIssueReviewPanel({
             {(filterSeverity !== 'all' ||
               filterCategory !== 'all' ||
               filterDecision !== 'all' ||
-              filterChapterId !== 'all') && (
+              filterChapterId !== defaultChapterFilter) && (
               <button
                 type="button"
                 onClick={() => {
                   setFilterSeverity('all');
                   setFilterCategory('all');
                   setFilterDecision('all');
-                  setFilterChapterId('all');
+                  setFilterChapterId(defaultChapterFilter);
                 }}
                 className="text-[11px] text-polish hover:underline cursor-pointer ml-1"
               >
@@ -551,13 +586,25 @@ export function HakoIssueReviewPanel({
           <EmptyState
             title="Không tìm thấy lỗi nào phù hợp"
             description={
-              issues.length === 0
+              filterChapterId === 'selected' && issues.length > 0
+                ? `Không phát hiện lỗi nào trong các chương đang chọn (hoặc các chương này chưa được quét). Đang có ${issues.length} lỗi ở các chương khác trong dự án.`
+                : issues.length === 0
                 ? "Không phát hiện lỗi chất lượng nào trên các chương đã chọn. Bản dịch đạt chuẩn xuất sắc!"
                 : "Không có lỗi nào khớp với bộ lọc hiện tại. Thử xóa hoặc thay đổi bộ lọc."
             }
             icon={<CheckCheck className="w-10 h-10 text-polish" />}
             action={
-              issues.length > 0 ? (
+              filterChapterId === 'selected' && issues.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setFilterChapterId('all')}
+                  className="text-xs"
+                >
+                  {`Xem tất cả ${issues.length} lỗi trong phiên`}
+                </Button>
+              ) : issues.length > 0 ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -566,7 +613,7 @@ export function HakoIssueReviewPanel({
                     setFilterSeverity('all');
                     setFilterCategory('all');
                     setFilterDecision('all');
-                    setFilterChapterId('all');
+                    setFilterChapterId(defaultChapterFilter);
                   }}
                   className="text-xs"
                 >

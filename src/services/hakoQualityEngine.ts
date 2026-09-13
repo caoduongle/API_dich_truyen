@@ -57,12 +57,45 @@ export function generateIssueFingerprint(
 }
 
 /**
+ * Kiểm tra xem đoạn văn bản vi phạm (snippet) còn tồn tại trong nội dung chương hay không
+ */
+export function isSnippetStillPresentInContent(
+  category: QualityIssueCategory,
+  snippet: string,
+  content: string
+): boolean {
+  if (!content || !snippet) return false;
+  const lowerContent = content.toLowerCase();
+
+  if (category === 'raw_leak') {
+    const cjkMatches = snippet.match(/[\u4e00-\u9fa5\u3040-\u30ff]/g);
+    if (cjkMatches && cjkMatches.length > 0) {
+      return cjkMatches.some((cjk) => content.includes(cjk));
+    }
+  }
+
+  // Loại bỏ dấu ngoặc kép, khoảng trắng thừa và dấu chấm lửng
+  const cleaned = snippet
+    .replace(/^["'“”„«]+|["'“”»]+$/g, '')
+    .trim()
+    .replace(/\.{2,}$/, '')
+    .trim()
+    .toLowerCase();
+
+  if (cleaned.length < 3) return false;
+  // So khớp tối đa 50 ký tự đầu tiên của snippet
+  const searchChunk = cleaned.slice(0, 50);
+  return lowerContent.includes(searchChunk);
+}
+
+/**
  * Hòa giải danh sách lỗi mới quét được với các quyết định kiểm định đã có trong phiên
  */
 export function reconcileIssuesWithDecisions(
   previousIssues: QualityIssue[],
   scannedIssues: QualityIssue[],
-  scannedChapterIds: string[]
+  scannedChapterIds: string[],
+  chaptersContentMap?: Map<string, string> | Record<string, string>
 ): IssueReconciliationResult {
   const scannedChapterIdSet = new Set(scannedChapterIds.map(String));
 
@@ -135,14 +168,32 @@ export function reconcileIssuesWithDecisions(
   for (const prev of activePreviousIssues) {
     if (!matchedPrevIds.has(prev.id)) {
       if (prev.decision === 'confirmed' || prev.decision === 'review_needed') {
-        // Người dùng đã sửa bản dịch khiến lỗi biến mất -> chuyển sang resolved
-        resolvedCount++;
-        resolvedIssues.push({
-          ...prev,
-          decision: 'resolved',
-          resolvedAt: new Date().toISOString(),
-          isNew: false,
-        });
+        const currentContent = chaptersContentMap
+          ? chaptersContentMap instanceof Map
+            ? chaptersContentMap.get(String(prev.chapterId))
+            : (chaptersContentMap as Record<string, string>)[String(prev.chapterId)]
+          : undefined;
+
+        // Nếu có cung cấp content và đoạn vi phạm vẫn còn trong văn bản -> chưa sửa, không được chuyển sang resolved
+        const isStillInContent =
+          typeof currentContent === 'string'
+            ? isSnippetStillPresentInContent(prev.category, prev.vietnameseSnippet, currentContent)
+            : false;
+
+        if (isStillInContent) {
+          // Bảo lưu quyết định của moderator vì vi phạm vẫn tồn tại trong văn bản
+          if (prev.decision === 'confirmed') unresolvedCount++;
+          resolvedIssues.push(prev);
+        } else {
+          // Người dùng đã sửa bản dịch khiến lỗi biến mất -> chuyển sang resolved
+          resolvedCount++;
+          resolvedIssues.push({
+            ...prev,
+            decision: 'resolved',
+            resolvedAt: new Date().toISOString(),
+            isNew: false,
+          });
+        }
       } else if (prev.decision === 'resolved') {
         // Đã resolved từ trước và vẫn không xuất hiện lại
         resolvedIssues.push(prev);

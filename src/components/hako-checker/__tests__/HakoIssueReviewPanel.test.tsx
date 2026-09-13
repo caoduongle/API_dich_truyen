@@ -425,5 +425,118 @@ describe('HakoIssueReviewPanel Batch Action Confirmation & Undo Guard', () => {
       expect(html).toContain('Đã khắc phục');
       expect(html).toContain('Mới');
     });
+
+    describe('[US1] Scope Filtering by selectedChapterIds', () => {
+      const multiChapterIssues: QualityIssue[] = [
+        {
+          ...createMockIssues(1)[0],
+          id: 'issue-chap-1',
+          chapterId: 'chap-1',
+          chapterTitle: 'Chương 1',
+          vietnameseSnippet: 'Lỗi chương 1 đặc biệt',
+        },
+        {
+          ...createMockIssues(1)[0],
+          id: 'issue-chap-2',
+          chapterId: 'chap-2',
+          chapterTitle: 'Chương 2',
+          vietnameseSnippet: 'Lỗi chương 2 đặc biệt',
+        },
+      ];
+
+      it('filters issues to only selectedChapterIds by default', () => {
+        const html = renderToString(
+          <HakoIssueReviewPanel
+            issues={multiChapterIssues}
+            chapters={mockChapters}
+            selectedChapterIds={['chap-1']}
+            onDecisionChange={vi.fn()}
+            onOpenExportModal={vi.fn()}
+            onReanalyze={vi.fn()}
+            isAnalyzing={false}
+          />
+        );
+
+        expect(html).toContain('Lỗi chương 1 đặc biệt');
+        expect(html).not.toContain('Lỗi chương 2 đặc biệt');
+        expect(html).toContain('Các chương đang chọn (1)');
+      });
+
+      it('hides unselected chapter issues when switching selection to chap-2', () => {
+        const html = renderToString(
+          <HakoIssueReviewPanel
+            issues={multiChapterIssues}
+            chapters={mockChapters}
+            selectedChapterIds={['chap-2']}
+            onDecisionChange={vi.fn()}
+            onOpenExportModal={vi.fn()}
+            onReanalyze={vi.fn()}
+            isAnalyzing={false}
+          />
+        );
+
+        expect(html).toContain('Lỗi chương 2 đặc biệt');
+        expect(html).not.toContain('Lỗi chương 1 đặc biệt');
+      });
+
+      it('shows empty state with helpful message when selected chapter has no issues', () => {
+        const html = renderToString(
+          <HakoIssueReviewPanel
+            issues={multiChapterIssues}
+            chapters={mockChapters}
+            selectedChapterIds={['chap-999']}
+            onDecisionChange={vi.fn()}
+            onOpenExportModal={vi.fn()}
+            onReanalyze={vi.fn()}
+            isAnalyzing={false}
+          />
+        );
+
+        expect(html).toContain('Không tìm thấy lỗi nào phù hợp');
+        expect(html).toContain('Không phát hiện lỗi nào trong các chương đang chọn');
+        expect(html).toContain('Xem tất cả 2 lỗi trong phiên');
+      });
+    });
+
+    describe('[US2] HakoIssueCard Decision Button States & Tooltips', () => {
+      it('renders active style and toggle tooltip for confirmed issue', () => {
+        const confirmedIssue = createMockIssues(1, 'confirmed')[0];
+        const html = renderToString(
+          <HakoIssueCard
+            issue={confirmedIssue}
+            onDecisionChange={vi.fn()}
+          />
+        );
+
+        expect(html).toContain('Bỏ xác nhận lỗi (quay lại Chờ duyệt)');
+        expect(html).toContain('Đã xác nhận lỗi');
+      });
+
+      it('renders active style and toggle tooltip for dismissed issue', () => {
+        const dismissedIssue = createMockIssues(1, 'dismissed')[0];
+        const html = renderToString(
+          <HakoIssueCard
+            issue={dismissedIssue}
+            onDecisionChange={vi.fn()}
+          />
+        );
+
+        expect(html).toContain('Hủy bỏ qua (quay lại Chờ duyệt)');
+        expect(html).toContain('Đã bỏ qua');
+      });
+
+      it('renders active style and toggle tooltip for review_needed issue', () => {
+        const reviewIssue = createMockIssues(1, 'review_needed')[0];
+        const html = renderToString(
+          <HakoIssueCard
+            issue={reviewIssue}
+            onDecisionChange={vi.fn()}
+          />
+        );
+
+        expect(html).toContain('Hủy đánh dấu xem lại (quay lại Chờ duyệt)');
+        expect(html).toContain('Cần xem lại');
+      });
+    });
   });
 });

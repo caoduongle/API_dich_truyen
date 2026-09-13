@@ -239,10 +239,17 @@ export function HakoCheckerWorkspace({
 
         // BƯỚC 3: Hòa giải với quyết định cũ và lưu tăng dần vào IndexedDB ngay sau khi xong chương này
         const scannedChaptersSoFar = jitChapters.slice(0, i + 1).map((c) => c.chapterId);
+        const chaptersContentMap = new Map<string, string>();
+        jitChapters.slice(0, i + 1).forEach((c) => {
+          if (c.vietnameseContent) {
+            chaptersContentMap.set(c.chapterId, c.vietnameseContent);
+          }
+        });
         const { reconciledIssues, diffSummary: currentDiff } = reconcileIssuesWithDecisions(
           previousSessionIssues,
           allDetectedIssues,
-          scannedChaptersSoFar
+          scannedChaptersSoFar,
+          chaptersContentMap
         );
 
         const isLastChapter = i === jitChapters.length - 1;
@@ -271,10 +278,17 @@ export function HakoCheckerWorkspace({
       // Đảm bảo không mất kết quả: hòa giải issues đã tích lũy và lưu lại với trạng thái 'partial'
       try {
         const scannedChaptersSoFar = jitChapters.slice(0, Math.max(1, processedIndex + 1)).map((c) => c.chapterId);
+        const chaptersContentMap = new Map<string, string>();
+        jitChapters.slice(0, Math.max(1, processedIndex + 1)).forEach((c) => {
+          if (c.vietnameseContent) {
+            chaptersContentMap.set(c.chapterId, c.vietnameseContent);
+          }
+        });
         const { reconciledIssues, diffSummary: partialDiff } = reconcileIssuesWithDecisions(
           previousSessionIssues,
           allDetectedIssues,
-          scannedChaptersSoFar
+          scannedChaptersSoFar,
+          chaptersContentMap
         );
         await updateSessionChaptersAndIssues(updatedChaptersRecord, reconciledIssues, 'partial');
         setDiffSummary(partialDiff);
@@ -459,6 +473,7 @@ export function HakoCheckerWorkspace({
           <HakoIssueReviewPanel
             issues={session.issues}
             chapters={session.chapters}
+            selectedChapterIds={session?.selectedChapterIds || []}
             onDecisionChange={updateIssueDecision}
             onBatchDecisionChange={updateMultipleIssueDecisions}
             onOpenExportModal={() => setIsExportModalOpen(true)}

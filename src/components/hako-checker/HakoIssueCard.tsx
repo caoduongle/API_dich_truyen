@@ -348,10 +348,23 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
             type="button"
             variant={issue.decision === 'dismissed' ? 'secondary' : 'ghost'}
             size="sm"
-            onClick={() => onDecisionChange(issue.id, 'dismissed', noteText)}
+            onClick={() =>
+              onDecisionChange(
+                issue.id,
+                issue.decision === 'dismissed' ? 'pending' : 'dismissed',
+                noteText
+              )
+            }
             icon={<X className="w-3.5 h-3.5" />}
-            className="text-xs h-7.5 px-2.5"
-            title="Bác bỏ hoặc bỏ qua lỗi này"
+            className={cn(
+              'text-xs h-7.5 px-2.5',
+              issue.decision === 'dismissed' && 'bg-ink/80 text-text-muted border border-parchment-2 font-medium'
+            )}
+            title={
+              issue.decision === 'dismissed'
+                ? 'Hủy bỏ qua (quay lại Chờ duyệt)'
+                : 'Bác bỏ hoặc bỏ qua lỗi này'
+            }
           >
             Bác bỏ
           </Button>
@@ -360,10 +373,23 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
             type="button"
             variant={issue.decision === 'review_needed' ? 'secondary' : 'ghost'}
             size="sm"
-            onClick={() => onDecisionChange(issue.id, 'review_needed', noteText)}
+            onClick={() =>
+              onDecisionChange(
+                issue.id,
+                issue.decision === 'review_needed' ? 'pending' : 'review_needed',
+                noteText
+              )
+            }
             icon={<HelpCircle className="w-3.5 h-3.5 text-warning" />}
-            className="text-xs h-7.5 px-2.5"
-            title="Đánh dấu cần hội ý thêm"
+            className={cn(
+              'text-xs h-7.5 px-2.5',
+              issue.decision === 'review_needed' && 'text-amber-300 bg-amber-950/40 border border-amber-800/60 font-medium'
+            )}
+            title={
+              issue.decision === 'review_needed'
+                ? 'Hủy đánh dấu xem lại (quay lại Chờ duyệt)'
+                : 'Đánh dấu cần hội ý thêm'
+            }
           >
             Cần xem lại
           </Button>
@@ -372,10 +398,23 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
             type="button"
             variant={issue.decision === 'confirmed' ? 'primary' : 'outline'}
             size="sm"
-            onClick={() => onDecisionChange(issue.id, 'confirmed', noteText)}
+            onClick={() =>
+              onDecisionChange(
+                issue.id,
+                issue.decision === 'confirmed' ? 'pending' : 'confirmed',
+                noteText
+              )
+            }
             icon={<Check className="w-3.5 h-3.5" />}
-            className="text-xs h-7.5 px-3 font-semibold"
-            title="Xác nhận đây là lỗi cần dịch giả sửa"
+            className={cn(
+              'text-xs h-7.5 px-3 font-semibold',
+              issue.decision === 'confirmed' && 'shadow-xs'
+            )}
+            title={
+              issue.decision === 'confirmed'
+                ? 'Bỏ xác nhận lỗi (quay lại Chờ duyệt)'
+                : 'Xác nhận đây là lỗi cần dịch giả sửa'
+            }
           >
             Xác nhận lỗi
           </Button>
