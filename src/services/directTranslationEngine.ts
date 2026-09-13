@@ -286,9 +286,9 @@ async function rawWithContentSplitDirect(
       throw error;
     }
 
-    // Tier 1: Thử lại phân đoạn thích ứng đệ quy nếu chưa chạm trần retryDepth 2
-    if (retryDepth < 2) {
-      const partsCount = retryDepth >= 1 ? 3 : 2;
+    // Thử lại phân đoạn thích ứng đệ quy nhị phân thuần túy (partsCount = 2) nếu chưa chạm trần retryDepth 4
+    if (retryDepth < 4) {
+      const partsCount = 2;
       const chunks = splitTextAdaptively(text, partsCount);
 
       if (chunks.length > 1) {
@@ -336,62 +336,22 @@ async function rawWithContentSplitDirect(
       }
     }
 
-    // Tier 2: Dịch phân rã từng dòng (Line-by-Line Fallback) khi chạm trần phân đoạn hoặc không thể chia nhỏ thêm
+    // Khi chạm trần đệ quy (retryDepth >= 4) hoặc không thể chia đôi thêm:
+    // Cứu nguy phân đoạn trực tiếp bằng phiên âm Hán-Việt kết hợp từ điển (loại bỏ hoàn toàn phân rã từng dòng)
     onSplitRetry?.({
       stage: 'raw',
       depth: retryDepth,
       partsCount: 1,
-      reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
-      tier: 'line-by-line',
+      reason: error?.message || 'SINO_FALLBACK_RESCUE',
+      tier: 'sino-fallback',
     });
 
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (lines.length > 0) {
-      const lineTranslations: string[] = [];
-      let currentKeyIdx = startKeyIndex;
-      const discoveredEntitiesAll: any[] = [];
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const staggeredKey = Array.isArray(apiKeys) && apiKeys.length > 0
-          ? (currentKeyIdx + i) % apiKeys.length
-          : currentKeyIdx;
-
-        try {
-          const lineRes = await callRawDirectCore({
-            ...params,
-            text: line,
-            startKeyIndex: staggeredKey,
-            isRetry: true,
-            enableSegmentTranslation: false,
-          });
-          lineTranslations.push(lineRes.rawTranslation);
-          currentKeyIdx = lineRes.successKeyIndex;
-          if (Array.isArray(lineRes.discoveredEntities)) {
-            discoveredEntitiesAll.push(...lineRes.discoveredEntities);
-          }
-        } catch (lineErr: any) {
-          // Tier 3: Phiên âm Hán-Việt & từ điển dự phòng cho dòng ngoan cố
-          onSplitRetry?.({
-            stage: 'raw',
-            depth: retryDepth,
-            partsCount: 1,
-            reason: lineErr?.message || 'SINO_FALLBACK_RESCUE',
-            tier: 'sino-fallback',
-          });
-          const rescuedLine = fallbackSinoVietnameseLine(line, params.glossary);
-          lineTranslations.push(rescuedLine);
-        }
-      }
-
-      return {
-        rawTranslation: separateChapterTitleAndBody(lineTranslations.join('\n\n').trim()),
-        discoveredEntities: discoveredEntitiesAll,
-        successKeyIndex: currentKeyIdx,
-      };
-    }
-
-    throw error;
+    const rescuedText = fallbackSinoVietnameseLine(text, params.glossary);
+    return {
+      rawTranslation: separateChapterTitleAndBody(rescuedText.trim()),
+      discoveredEntities: [],
+      successKeyIndex: startKeyIndex,
+    };
   }
 }
 
@@ -568,7 +528,7 @@ async function polishWithContentSplitDirect(
       throw error;
     }
 
-    if (depth >= 2) {
+    if (depth >= 4) {
       return {
         polishedTranslation: rawTranslation,
         discoveredEntities: [],
@@ -577,7 +537,7 @@ async function polishWithContentSplitDirect(
       };
     }
 
-    const partsCount = depth >= 1 ? 3 : 2;
+    const partsCount = 2;
     const sourceParts = splitTextAdaptively(sourceText, partsCount);
     const rawParts = splitTextAdaptively(rawTranslation, sourceParts.length);
 

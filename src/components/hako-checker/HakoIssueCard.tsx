@@ -33,10 +33,15 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../lib/cn';
 
+export interface OpenInTranslatorOptions {
+  snippet?: string;
+  issueId?: string;
+}
+
 export interface HakoIssueCardProps {
   issue: QualityIssue;
   onDecisionChange: (issueId: string, decision: QualityIssueDecision, note?: string) => void;
-  onOpenInTranslator?: (chapterId: string) => void;
+  onOpenInTranslator?: (chapterId: string, options?: OpenInTranslatorOptions) => void;
 }
 
 const CATEGORY_NAMES: Record<QualityIssueCategory, string> = {
@@ -51,6 +56,17 @@ const CATEGORY_NAMES: Record<QualityIssueCategory, string> = {
   hallucination: 'Dịch thừa / Bịa nghĩa',
   other: 'Lỗi biên tập khác',
 };
+
+export function handleOpenInTranslatorClick(
+  issue: QualityIssue,
+  onOpenInTranslator?: (chapterId: string, options?: OpenInTranslatorOptions) => void
+) {
+  if (!onOpenInTranslator) return;
+  onOpenInTranslator(issue.chapterId, {
+    snippet: issue.vietnameseSnippet,
+    issueId: issue.id,
+  });
+}
 
 export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: HakoIssueCardProps) {
   const [isEditingNote, setIsEditingNote] = useState(!!issue.moderatorNote);
@@ -327,7 +343,7 @@ export function HakoIssueCard({ issue, onDecisionChange, onOpenInTranslator }: H
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => onOpenInTranslator(issue.chapterId)}
+              onClick={() => handleOpenInTranslatorClick(issue, onOpenInTranslator)}
               icon={<ExternalLink className="w-3 h-3" />}
               className="text-[11px] h-7.5 px-2.5 font-medium"
               title={`Mở chương #${issue.chapterNumber} trong Bàn Dịch để sửa`}

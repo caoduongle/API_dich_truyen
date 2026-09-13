@@ -32,7 +32,7 @@ import {
   ProjectReviewChapter,
   ReauditDiffSummary,
 } from '../../types/hakoChecker';
-import { HakoIssueCard } from './HakoIssueCard';
+import { HakoIssueCard, OpenInTranslatorOptions } from './HakoIssueCard';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { EmptyState } from '../ui/EmptyState';
@@ -50,7 +50,7 @@ export interface HakoIssueReviewPanelProps {
   onOpenExportModal: () => void;
   onReanalyze: () => void;
   isAnalyzing: boolean;
-  onOpenInTranslator?: (chapterId: string) => void;
+  onOpenInTranslator?: (chapterId: string, options?: OpenInTranslatorOptions) => void;
   diffSummary?: ReauditDiffSummary | null;
   onDismissDiffSummary?: () => void;
 }

@@ -2,6 +2,65 @@
  * Tiện ích định vị, cuộn và bôi chọn (native selection) đoạn trích trong phần tử HTMLTextAreaElement.
  */
 
+export interface TextareaMatchLocation {
+  start: number;
+  end: number;
+}
+
+/**
+ * Tìm vị trí bắt đầu và kết thúc của snippet trong văn bản với cơ chế chuẩn hóa thông minh:
+ * 1. Exact match
+ * 2. Lược bỏ dấu ngoặc kép ("...", “...”, '...'), dấu ngoặc «...», và dấu ba chấm (...)
+ * 3. Chuẩn hóa khoảng trắng liên tiếp và so khớp đoạn đầu
+ */
+export function findSnippetLocationInText(
+  fullText: string,
+  targetText: string | null | undefined
+): TextareaMatchLocation | null {
+  if (!fullText || !targetText || targetText.trim() === '') {
+    return null;
+  }
+
+  // 1. So khớp chính xác 100%
+  const exactIndex = fullText.indexOf(targetText);
+  if (exactIndex !== -1) {
+    return { start: exactIndex, end: exactIndex + targetText.length };
+  }
+
+  // 2. Lược bỏ dấu ngoặc kép và dấu chấm lửng bao quanh nhiều lớp
+  let trimmedSnippet = targetText.trim();
+  let prev = '';
+  while (trimmedSnippet !== prev) {
+    prev = trimmedSnippet;
+    trimmedSnippet = trimmedSnippet
+      .replace(/^["'“”„«\s]+/, '')
+      .replace(/["'“”»\s]+$/, '')
+      .replace(/\.{2,}$|…+$/, '')
+      .trim();
+  }
+
+  if (trimmedSnippet.length >= 3) {
+    const trimmedIndex = fullText.indexOf(trimmedSnippet);
+    if (trimmedIndex !== -1) {
+      return { start: trimmedIndex, end: trimmedIndex + trimmedSnippet.length };
+    }
+  }
+
+  // 3. Chuẩn hóa khoảng trắng / so khớp đoạn đầu nếu snippet dài
+  if (trimmedSnippet.length >= 10) {
+    const headChunk = trimmedSnippet.slice(0, 35).trim();
+    if (headChunk.length >= 6) {
+      const headIndex = fullText.indexOf(headChunk);
+      if (headIndex !== -1) {
+        const approxLength = Math.min(trimmedSnippet.length, fullText.length - headIndex);
+        return { start: headIndex, end: headIndex + approxLength };
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Định vị đoạn văn bản trong textarea, cuộn mượt và bôi chọn đoạn khớp.
  *
@@ -17,12 +76,12 @@ export function scrollAndSelectInTextarea(
     return false;
   }
 
-  const start = textareaEl.value.indexOf(targetText);
-  if (start === -1) {
+  const match = findSnippetLocationInText(textareaEl.value, targetText);
+  if (!match) {
     return false;
   }
 
-  const end = start + targetText.length;
+  const { start, end } = match;
 
   // 1. Focus và bôi chọn đoạn văn bản khớp
   try {

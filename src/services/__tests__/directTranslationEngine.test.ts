@@ -432,7 +432,7 @@ describe('src/services/directTranslationEngine.ts', () => {
     expect(output).toBe('Sở Phong施展Cửu Trọng Lôi Đao，破空斩下。');
   });
 
-  it('US2: triggers Tier 2 line-by-line and Tier 3 Sino-Vietnamese rescue when retryDepth reaches 2 without crashing chapter', async () => {
+  it('US2: triggers Tier 3 Sino-Vietnamese rescue directly when retryDepth reaches 4 without line-by-line fallback', async () => {
     let callCount = 0;
     const retryEvents: any[] = [];
     const p1 = '楚风运转九重雷刀，狂暴的雷霆刀芒划破长空，带着毁天灭地的气势破空斩下。';
@@ -444,17 +444,25 @@ describe('src/services/directTranslationEngine.ts', () => {
       callCount++;
       const prompt = args.prompt || '';
       const textBlock = prompt.split('--- VĂN BẢN TIẾNG TRUNG GỐC ---')[1] || prompt;
-      // Single line with '神秘符文': fails validateTranslationOutput with Chinese leftover (>30% ratio)
-      if (textBlock.includes('神秘符文') && !textBlock.includes('楚风运转') && !textBlock.includes('大地剧烈')) {
+      // Chunks containing '神秘符文': always return untranslated Chinese to reach depth 4
+      if (textBlock.includes('神秘符文')) {
         return {
           text: JSON.stringify({
-            rawTranslation: '神秘符文闪耀着奇异的光芒。', // 100% Chinese, length 13 >= 10
+            rawTranslation: textBlock, // untranslated Chinese
           }),
           successKeyIndex: 0,
         };
       }
-      // Single line with '第一章 绝境': succeeds
-      if (textBlock.includes('第一章 绝境') && !textBlock.includes('楚风运转') && !textBlock.includes('大地剧烈')) {
+      // Other chunks succeed
+      if (textBlock.includes('第一章 绝境') && textBlock.includes('楚风运转')) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: 'Chương 1: Tuyệt Cảnh\n\nSở Phong vận chuyển Cửu Trọng Lôi Đao, chém thẳng xuống hư không.\n\nMặt đất chấn động dữ dội, bụi bay mù mịt khắp bốn phía.',
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      if (textBlock.includes('第一章 绝境')) {
         return {
           text: JSON.stringify({
             rawTranslation: 'Chương 1: Tuyệt Cảnh',
@@ -462,8 +470,7 @@ describe('src/services/directTranslationEngine.ts', () => {
           successKeyIndex: 0,
         };
       }
-      // Single line with '楚风运转': succeeds
-      if (textBlock.includes('楚风运转') && !textBlock.includes('大地剧烈') && !textBlock.includes('神秘符文')) {
+      if (textBlock.includes('楚风运转')) {
         return {
           text: JSON.stringify({
             rawTranslation: 'Sở Phong vận chuyển Cửu Trọng Lôi Đao, chém thẳng xuống hư không.',
@@ -471,8 +478,7 @@ describe('src/services/directTranslationEngine.ts', () => {
           successKeyIndex: 0,
         };
       }
-      // Single line with '大地剧烈': succeeds
-      if (textBlock.includes('大地剧烈') && !textBlock.includes('楚风运转') && !textBlock.includes('神秘符文')) {
+      if (textBlock.includes('大地剧烈')) {
         return {
           text: JSON.stringify({
             rawTranslation: 'Mặt đất chấn động dữ dội, bụi bay mù mịt khắp bốn phía.',
@@ -480,10 +486,9 @@ describe('src/services/directTranslationEngine.ts', () => {
           successKeyIndex: 0,
         };
       }
-      // Multi-line chunks: return untranslated Chinese to exhaust split retries to Tier 2
       return {
         text: JSON.stringify({
-          rawTranslation: `${p1}\n\n${p2}\n\n${p3}`,
+          rawTranslation: 'Bản dịch thành công',
         }),
         successKeyIndex: 0,
       };
@@ -503,11 +508,155 @@ describe('src/services/directTranslationEngine.ts', () => {
     });
 
     expect(retryEvents.some(e => e.tier === 'split')).toBe(true);
-    expect(retryEvents.some(e => e.tier === 'line-by-line')).toBe(true);
+    // Line-by-line fallback is completely removed
+    expect(retryEvents.some(e => e.tier === 'line-by-line')).toBe(false);
+    // Sino-fallback rescue is triggered directly for the stubborn chunk
     expect(retryEvents.some(e => e.tier === 'sino-fallback')).toBe(true);
     expect(res.rawTranslation).toContain('Chương 1: Tuyệt Cảnh');
     expect(res.rawTranslation).toContain('Sở Phong vận chuyển Cửu Trọng Lôi Đao');
     expect(res.rawTranslation).toContain('Phù văn bí ẩn');
+  });
+
+  it('Feature 132 US1: isolates sub-branch recursion so successful chunks are not re-translated and in-order assembly is preserved', async () => {
+    const p1 = '第一段：天地玄黄，宇宙洪荒。';
+    const p2 = '第二段：日月盈昃，辰宿列张。';
+    const p3 = '第三段：寒来暑往，秋收冬藏。';
+    const p4 = '第四段：闰余成岁，律吕调阳。';
+    const source = `${p1}\n\n${p2}\n\n${p3}\n\n${p4}`;
+
+    const apiCalls: string[] = [];
+    const retryEvents: any[] = [];
+
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      const prompt = args.prompt || '';
+      const textBlock = (prompt.split('--- VĂN BẢN TIẾNG TRUNG GỐC ---')[1] || prompt).trim();
+      apiCalls.push(textBlock);
+
+      // Whole text (depth 0): fail with untranslated Chinese error
+      if (textBlock.includes('第一段') && textBlock.includes('第四段')) {
+        return {
+          text: JSON.stringify({ rawTranslation: source }), // untranslated
+          successKeyIndex: 0,
+        };
+      }
+
+      // Left branch (p1 + p2): succeeds immediately!
+      if (textBlock.includes('第一段') && textBlock.includes('第二段') && !textBlock.includes('第三段')) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: 'Đoạn 1: Trời đất huyền hoàng, vũ trụ hồng hoang.\n\nĐoạn 2: Nhật nguyệt đầy vơi, sao giăng chòm sáng.',
+          }),
+          successKeyIndex: 0,
+        };
+      }
+
+      // Right branch (p3 + p4): fails on first try
+      if (textBlock.includes('第三段') && textBlock.includes('第四段') && !textBlock.includes('第一段')) {
+        return {
+          text: JSON.stringify({ rawTranslation: `${p3}\n\n${p4}` }), // untranslated
+          successKeyIndex: 0,
+        };
+      }
+
+      // Sub-branch Right 1 (p3 only): succeeds
+      if (textBlock.includes('第三段') && !textBlock.includes('第四段')) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: 'Đoạn 3: Lạnh đến hè qua, thu thu đông tàng.',
+          }),
+          successKeyIndex: 0,
+        };
+      }
+
+      // Sub-branch Right 2 (p4 only): succeeds
+      if (textBlock.includes('第四段') && !textBlock.includes('第三段')) {
+        return {
+          text: JSON.stringify({
+            rawTranslation: 'Đoạn 4: Nhuận sinh thêm năm, luật lữ điều dương.',
+          }),
+          successKeyIndex: 0,
+        };
+      }
+
+      return {
+        text: JSON.stringify({ rawTranslation: textBlock }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await translateRawDirect({
+      text: source,
+      genre: 'Cổ đại',
+      tone: 'Hùng tráng',
+      glossary: [],
+      apiKeys: ['KEY_1'],
+      onSplitRetry: (info) => {
+        retryEvents.push(info);
+      },
+    });
+
+    // Verify retryEvents: partsCount is always 2 for split
+    expect(retryEvents.length).toBeGreaterThan(0);
+    expect(retryEvents.every(e => e.tier !== 'line-by-line')).toBe(true);
+    const splitEvents = retryEvents.filter(e => e.tier === 'split');
+    expect(splitEvents.every(e => e.partsCount === 2)).toBe(true);
+
+    // Verify left branch (p1 + p2) was only called ONCE and not re-executed when right branch retried
+    const leftBranchCalls = apiCalls.filter(c => c.includes('第一段') && c.includes('第二段') && !c.includes('第三段'));
+    expect(leftBranchCalls).toHaveLength(1);
+
+    // Verify in-order assembly
+    expect(res.rawTranslation).toContain('Đoạn 1: Trời đất huyền hoàng');
+    expect(res.rawTranslation).toContain('Đoạn 2: Nhật nguyệt đầy vơi');
+    expect(res.rawTranslation).toContain('Đoạn 3: Lạnh đến hè qua');
+    expect(res.rawTranslation).toContain('Đoạn 4: Nhuận sinh thêm năm');
+
+    const idx1 = res.rawTranslation.indexOf('Đoạn 1');
+    const idx2 = res.rawTranslation.indexOf('Đoạn 2');
+    const idx3 = res.rawTranslation.indexOf('Đoạn 3');
+    const idx4 = res.rawTranslation.indexOf('Đoạn 4');
+    expect(idx1).toBeLessThan(idx2);
+    expect(idx2).toBeLessThan(idx3);
+    expect(idx3).toBeLessThan(idx4);
+  });
+
+  it('Feature 132 US1 & US3: splits up to depth 4 with binary division (partsCount = 2) and records telemetry', async () => {
+    const text = '第一句。第二句。第三句。第四句。第五句。第六句。第七句。第八句。第九句。第十句。';
+    const retryEvents: any[] = [];
+
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async () => {
+      // Always fail with untranslated Chinese to trigger splits up to depth 4
+      return {
+        text: JSON.stringify({ rawTranslation: text }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const res = await translateRawDirect({
+      text,
+      genre: 'Tiên Hiệp',
+      tone: 'Trang nghiêm',
+      glossary: [{ id: '1', chinese: '第一句', vietnamese: 'Câu thứ nhất', pinyin: '', type: 'term', note: '' }],
+      apiKeys: ['KEY_1'],
+      onSplitRetry: (info) => {
+        retryEvents.push(info);
+      },
+    });
+
+    // Check split events
+    const splitEvents = retryEvents.filter(e => e.tier === 'split');
+    expect(splitEvents.length).toBeGreaterThan(0);
+    // Every split event must have partsCount === 2
+    expect(splitEvents.every(e => e.partsCount === 2)).toBe(true);
+    // Depths observed should include 0
+    const depths = splitEvents.map(e => e.depth);
+    expect(depths).toContain(0);
+    // No line-by-line events
+    expect(retryEvents.some(e => e.tier === 'line-by-line')).toBe(false);
+    // Final rescue was sino-fallback
+    expect(retryEvents.some(e => e.tier === 'sino-fallback')).toBe(true);
+    // Glossary applied in rescue
+    expect(res.rawTranslation).toContain('Câu thứ nhất');
   });
 
   describe('Feature 125: Polish Truncation Prevention and Paragraph Parity Integration', () => {

@@ -181,4 +181,49 @@ describe('scrollAndSelectInTextarea Utility Suite', () => {
       expect(textarea.scrollTop).toBe(63);
     });
   });
+
+  describe('Smart Snippet Normalization & Quote Trimming', () => {
+    it('matches and selects snippet wrapped in ASCII double quotes when text has no quotes', () => {
+      const textarea = createMockTextarea(
+        'Món đồ nhỏ bạn gái tặng mà không vứt đi được, phiền chết đi được.'
+      );
+      // Snippet bọc trong ngoặc kép như trích dẫn AI
+      const snippetWithQuotes = '"Món đồ nhỏ bạn gái tặng mà không vứt đi được, phiền chết đi được."';
+
+      const result = scrollAndSelectInTextarea(textarea as unknown as HTMLTextAreaElement, snippetWithQuotes);
+
+      expect(result).toBe(true);
+      expect(textarea.selectionStart).toBe(0);
+      expect(textarea.selectionEnd).toBe(textarea.value.length);
+      expect(textarea.focus).toHaveBeenCalled();
+    });
+
+    it('matches and selects snippet wrapped in curly quotes (“...”) and trailing ellipsis', () => {
+      const textarea = createMockTextarea(
+        'Hắn bước vào đại điện. Tiêu Viêm thần sắc nghiêm nghị nhìn chung quanh.'
+      );
+      const snippet = '“Tiêu Viêm thần sắc nghiêm nghị”...';
+
+      const result = scrollAndSelectInTextarea(textarea as unknown as HTMLTextAreaElement, snippet);
+
+      expect(result).toBe(true);
+      expect(textarea.value.slice(textarea.selectionStart, textarea.selectionEnd)).toBe(
+        'Tiêu Viêm thần sắc nghiêm nghị'
+      );
+    });
+
+    it('matches snippet using head chunk matching when text has trailing differences', () => {
+      const textarea = createMockTextarea(
+        'Hắn bước vào đại điện. Món đồ nhỏ bạn gái tặng mà không vứt đi được, phiền thật đấy nhé.'
+      );
+      // Snippet hơi khác đoạn đuôi
+      const snippet = 'Món đồ nhỏ bạn gái tặng mà không vứt đi được, phiền chết đi được.';
+
+      const result = scrollAndSelectInTextarea(textarea as unknown as HTMLTextAreaElement, snippet);
+
+      expect(result).toBe(true);
+      expect(textarea.selectionStart).toBe(23);
+    });
+  });
 });
+

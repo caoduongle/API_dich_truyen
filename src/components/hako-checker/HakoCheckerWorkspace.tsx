@@ -34,11 +34,12 @@ import { HakoIssueReviewPanel } from './HakoIssueReviewPanel';
 import { HakoReportExportModal } from './HakoReportExportModal';
 import { Button } from '../ui/Button';
 import { ErrorBoundary } from '../ErrorBoundary';
+import { OpenInTranslatorOptions } from './HakoIssueCard';
 
 export interface HakoCheckerWorkspaceProps {
   apiKeys: string[];
   selectedModel?: string;
-  onOpenInTranslator?: (chapterId: string) => void;
+  onOpenInTranslator?: (chapterId: string, options?: OpenInTranslatorOptions) => void;
 }
 
 export function HakoCheckerWorkspace({

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   RefreshCw, Play, Sparkles, BookOpen, FileText, Copy, Check, Save, 
   ChevronRight, Edit3, Eraser
@@ -7,6 +7,7 @@ import { ChapterMetadata, GlossaryItem, StoryProject } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { cleanChineseText } from '../../utils/textCleaner';
 import { UnifiedAuditPanel } from './UnifiedAuditPanel';
+import { scrollAndSelectInTextarea, findSnippetLocationInText } from '../../utils/textareaHighlight';
 import type { QualityIssue } from '../../types/hakoChecker';
 import type { DirectQaCritiqueIssue } from '../../services/directTranslationEngine';
 import type { UnifiedAuditIssue } from '../../types/audit';
@@ -73,6 +74,8 @@ export interface BilingualEditorProps {
   crdtStatus?: CRDTSyncStatus;
   collaborators?: UserPresence[];
   onFieldFocus?: (field: 'raw' | 'polished' | 'idle') => void;
+  initialHighlightSnippet?: string | null;
+  onClearHighlightSnippet?: () => void;
 }
 
 export const BilingualEditor = React.memo(function BilingualEditor({
@@ -127,6 +130,8 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   crdtStatus,
   collaborators,
   onFieldFocus,
+  initialHighlightSnippet,
+  onClearHighlightSnippet,
 }: BilingualEditorProps) {
   const { showToast } = useNotifications();
   const rawTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -134,6 +139,67 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   const activeTextareaRef = activeStage === 'polished' ? polishedTextareaRef : rawTextareaRef;
   const [selectedTerm, setSelectedTerm] = useState('');
   const [selectedContext, setSelectedContext] = useState('');
+  const snippetHandledRef = useRef<string | null>(null);
+
+  // Auto-scroll & Highlight khi có initialHighlightSnippet truyền từ Hako Checker
+  useEffect(() => {
+    if (!initialHighlightSnippet || initialHighlightSnippet.trim() === '') {
+      snippetHandledRef.current = null;
+      return;
+    }
+
+    if (snippetHandledRef.current === initialHighlightSnippet) {
+      return;
+    }
+
+    // 1. Tự động xác định phân vùng dịch phù hợp: kiểm tra polished trước, sau đó raw
+    let targetStage: 'raw' | 'polished' = activeStage;
+    if (polishedTranslation && findSnippetLocationInText(polishedTranslation, initialHighlightSnippet)) {
+      targetStage = 'polished';
+    } else if (rawTranslation && findSnippetLocationInText(rawTranslation, initialHighlightSnippet)) {
+      targetStage = 'raw';
+    }
+
+    // Nếu cần chuyển stage, chuyển đổi trước và đợi render tiếp theo
+    if (targetStage !== activeStage) {
+      setActiveStage(targetStage);
+      return;
+    }
+
+    snippetHandledRef.current = initialHighlightSnippet;
+
+    // 2. Chờ DOM và textarea sẵn sàng rồi cuộn và bôi chọn
+    const timer = setTimeout(() => {
+      const targetRef = targetStage === 'polished' ? polishedTextareaRef : rawTextareaRef;
+      const success = scrollAndSelectInTextarea(targetRef.current, initialHighlightSnippet);
+
+      if (success) {
+        showToast({
+          message: 'Đã định vị đoạn lỗi trong bản dịch',
+          type: 'success',
+          duration: 4000,
+        });
+      } else {
+        showToast({
+          message: 'Không tìm thấy đoạn văn vi phạm trong bản dịch hiện tại, có thể nội dung đã được sửa.',
+          type: 'info',
+          duration: 6000,
+        });
+      }
+
+      onClearHighlightSnippet?.();
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [
+    initialHighlightSnippet,
+    activeStage,
+    polishedTranslation,
+    rawTranslation,
+    setActiveStage,
+    onClearHighlightSnippet,
+    showToast,
+  ]);
 
   // Hotkey bindings
   useHotkeys('ctrl+s', () => {

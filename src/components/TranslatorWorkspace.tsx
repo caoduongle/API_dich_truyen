@@ -17,6 +17,8 @@ export interface TranslatorWorkspaceProps {
   selectedModel: string;
   loadedChapter?: Chapter | null;
   onClearLoadedChapter?: () => void;
+  initialHighlightSnippet?: string | null;
+  onClearHighlightSnippet?: () => void;
   warningParagraphMismatch: boolean;
   enableAiQaCritique: boolean;
   enableSegmentTranslation: boolean;
@@ -29,6 +31,8 @@ export default function TranslatorWorkspace({
   selectedModel,
   loadedChapter,
   onClearLoadedChapter,
+  initialHighlightSnippet,
+  onClearHighlightSnippet,
   warningParagraphMismatch,
   enableAiQaCritique,
   enableSegmentTranslation,
@@ -182,6 +186,8 @@ export default function TranslatorWorkspace({
 
       {/* Visual Workspace Editor */}
       <BilingualEditor
+        initialHighlightSnippet={initialHighlightSnippet}
+        onClearHighlightSnippet={onClearHighlightSnippet}
         sourceText={sourceText}
         setSourceText={setSourceText}
         originalSourceText={originalSourceText}

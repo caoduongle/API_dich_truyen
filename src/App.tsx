@@ -31,6 +31,7 @@ function AppShell() {
   const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
   const [showCustomThemeModal, setShowCustomThemeModal] = useState(false);
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
+  const [pendingHighlightSnippet, setPendingHighlightSnippet] = useState<string | null>(null);
   const [isAutoTranslating, setIsAutoTranslating] = useState(false);
 
   useEffect(() => {
@@ -44,7 +45,7 @@ function AppShell() {
       if (VALID_TABS.includes(rawPath as TabType)) {
         setIsNotFound(false);
         setActiveTab(rawPath as TabType);
-        setVisitedTabs((prev) => new Set([...prev, rawPath]));
+        setVisitedTabs((prev) => (prev.has(rawPath) ? prev : new Set([...prev, rawPath])));
       } else {
         setIsNotFound(true);
       }
@@ -80,13 +81,17 @@ function AppShell() {
     switchTab('translate');
   }, [switchTab]);
 
-  const handleOpenChapterFromHakoChecker = useCallback(async (chapterId: string) => {
+  const handleOpenChapterFromHakoChecker = useCallback(async (
+    chapterId: string,
+    options?: { snippet?: string; issueId?: string }
+  ) => {
     try {
       const chapter = await getChapterFromDB(chapterId);
       if (!chapter) {
         showToast({ message: 'Không tìm thấy dữ liệu chương!', type: 'error' });
         return;
       }
+      setPendingHighlightSnippet(options?.snippet || null);
       handleGoToTranslate(chapter);
     } catch (err) {
       console.error('[AppShell] handleOpenChapterFromHakoChecker error:', err);
@@ -152,6 +157,8 @@ function AppShell() {
           activeTab={activeTab}
           visitedTabs={visitedTabs}
           loadedChapter={loadedChapter}
+          pendingHighlightSnippet={pendingHighlightSnippet}
+          onClearHighlightSnippet={() => setPendingHighlightSnippet(null)}
           currentMetaTitle={currentMeta.title}
           onSwitchTab={switchTab}
           onClearLoadedChapter={() => setLoadedChapter(null)}

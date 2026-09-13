@@ -27,18 +27,22 @@ export interface TabContentProps {
   activeTab: 'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker';
   visitedTabs: Set<string>;
   loadedChapter: Chapter | null;
+  pendingHighlightSnippet?: string | null;
+  onClearHighlightSnippet?: () => void;
   currentMetaTitle: string;
   onSwitchTab: (tab: 'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker') => void;
   onClearLoadedChapter: () => void;
   onAutoTranslateProcessingChange: (processing: boolean) => void;
   onGoToTranslate: (chapter?: Chapter) => void;
-  onOpenChapterFromHakoChecker: (chapterId: string) => void;
+  onOpenChapterFromHakoChecker: (chapterId: string, options?: { snippet?: string; issueId?: string }) => void;
 }
 
 export function TabContent({
   activeTab,
   visitedTabs,
   loadedChapter,
+  pendingHighlightSnippet,
+  onClearHighlightSnippet,
   currentMetaTitle,
   onSwitchTab,
   onClearLoadedChapter,
@@ -113,6 +117,8 @@ export function TabContent({
                     selectedModel={selectedModel}
                     loadedChapter={loadedChapter}
                     onClearLoadedChapter={onClearLoadedChapter}
+                    initialHighlightSnippet={pendingHighlightSnippet}
+                    onClearHighlightSnippet={onClearHighlightSnippet}
                     warningParagraphMismatch={warningParagraphMismatch}
                     enableAiQaCritique={enableAiQaCritique}
                     enableSegmentTranslation={enableSegmentTranslation}

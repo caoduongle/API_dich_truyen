@@ -453,7 +453,7 @@ export function splitTextAdaptively(text: string, partsCount: number = 2): strin
   if (!trimmed) return [];
 
   const totalTokens = estimateTokenCount(trimmed);
-  if (partsCount <= 1 || totalTokens < 60) return [trimmed];
+  if (partsCount <= 1 || totalTokens < 20) return [trimmed];
 
   // 1. Thử chia theo đoạn văn kép \n\n
   const doubleNewlineParagraphs = trimmed.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);

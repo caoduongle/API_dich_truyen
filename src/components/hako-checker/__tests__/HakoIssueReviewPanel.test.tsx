@@ -5,7 +5,7 @@ import {
   HakoIssueReviewPanel,
   BATCH_CONFIRM_THRESHOLD,
 } from '../HakoIssueReviewPanel';
-import { HakoIssueCard } from '../HakoIssueCard';
+import { HakoIssueCard, handleOpenInTranslatorClick } from '../HakoIssueCard';
 import { QualityIssue, QualityIssueDecision, ProjectReviewChapter } from '../../../types/hakoChecker';
 
 describe('HakoIssueReviewPanel Batch Action Confirmation & Undo Guard', () => {
@@ -353,6 +353,23 @@ describe('HakoIssueReviewPanel Batch Action Confirmation & Undo Guard', () => {
       );
 
       expect(html).not.toContain('Mở trong Bàn Dịch để sửa');
+    });
+
+    it('passes chapterId and options with snippet and issueId when "Mở trong Bàn Dịch để sửa" is clicked', () => {
+      const issue = createMockIssues(1)[0];
+      const onOpenInTranslator = vi.fn();
+
+      handleOpenInTranslatorClick(issue, onOpenInTranslator);
+
+      expect(onOpenInTranslator).toHaveBeenCalledWith(issue.chapterId, {
+        snippet: issue.vietnameseSnippet,
+        issueId: issue.id,
+      });
+    });
+
+    it('does nothing when onOpenInTranslator is not provided in handleOpenInTranslatorClick', () => {
+      const issue = createMockIssues(1)[0];
+      expect(() => handleOpenInTranslatorClick(issue, undefined)).not.toThrow();
     });
   });
 
