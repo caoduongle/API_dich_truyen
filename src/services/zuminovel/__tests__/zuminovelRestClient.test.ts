@@ -157,9 +157,26 @@ describe('ZuminovelRestClient', () => {
     });
   });
 
-  it('wraps a fetch-level failure (e.g. CORS block) as ZuminovelNetworkError, not ZuminovelApiError', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+  it('wraps a fetch-level failure as ZuminovelNetworkError with accurate diagnostic message', async () => {
+    const originalErr = new TypeError('Failed to fetch');
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(originalErr);
 
-    await expect(client.listNovels(apiKey)).rejects.toBeInstanceOf(ZuminovelNetworkError);
+    let caughtError: unknown;
+    try {
+      await client.listNovels(apiKey);
+    } catch (err) {
+      caughtError = err;
+    }
+
+    expect(caughtError).toBeInstanceOf(ZuminovelNetworkError);
+    const netErr = caughtError as ZuminovelNetworkError;
+    expect(netErr.name).toBe('ZuminovelNetworkError');
+    expect(netErr.message).toContain('Không kết nối được tới ZumiNovel');
+    expect(netErr.message).toContain('kết nối mạng, cài đặt DNS');
+    expect(netErr.message).toContain('chính sách bảo mật trình duyệt (CSP)');
+    // Must NOT contain misleading CORS proxy claims
+    expect(netErr.message).not.toContain('proxy');
+    expect(netErr.message).not.toContain('CORS');
+    expect(netErr.originalError).toBe(originalErr);
   });
 });

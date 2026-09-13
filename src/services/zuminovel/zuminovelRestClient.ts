@@ -35,20 +35,21 @@ export class ZuminovelApiError extends Error {
 }
 
 /**
- * Request KHÔNG nhận được response nào từ server (mất mạng, DNS lỗi, hoặc —
- * khả năng cao nhất trong app 100% client-side này — bị trình duyệt chặn ở
- * bước CORS preflight vì ZumiNovel không trả Access-Control-Allow-Origin cho
- * origin lạ). fetch() không phân biệt được các trường hợp này với nhau —
- * TypeError "Failed to fetch" là dấu hiệu chung cho tất cả.
+ * Request KHÔNG nhận được response nào từ server (mất mạng, lỗi DNS, tiện ích
+ * chặn quảng cáo/bảo vệ quyền riêng tư chặn request, hoặc vi phạm chính sách
+ * Content-Security-Policy).
+ *
+ * Lưu ý: ZumiNovel API hỗ trợ gọi trực tiếp từ trình duyệt (CORS chuẩn, không
+ * cần proxy). fetch() ném TypeError "Failed to fetch" khi tầng mạng hoặc chính sách
+ * bảo mật trình duyệt chặn request trước khi server kịp phản hồi.
  */
 export class ZuminovelNetworkError extends Error {
   public readonly originalError?: unknown;
 
   constructor(originalError?: unknown) {
     super(
-      'Không kết nối được tới ZumiNovel. Nếu mạng vẫn ổn và API Key đúng, nhiều khả năng ' +
-      'ZumiNovel chặn gọi API trực tiếp từ trình duyệt (CORS) — cần một proxy nhỏ phía server ' +
-      'để chuyển tiếp request này thay vì gọi thẳng.'
+      'Không kết nối được tới ZumiNovel. Vui lòng kiểm tra lại kết nối mạng, cài đặt DNS, ' +
+      'tiện ích chặn quảng cáo/bảo vệ quyền riêng tư, hoặc chính sách bảo mật trình duyệt (CSP).'
     );
     this.name = 'ZuminovelNetworkError';
     this.originalError = originalError;

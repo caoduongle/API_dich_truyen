@@ -1,29 +1,41 @@
-# Blueprint cấu hình triển khai Render Static Site cho Bản Thảo Chu Sa (Pure Client-Side SPA)
-# Tài liệu tham khảo: https://render.com/docs/static-sites & https://render.com/docs/static-site-headers
-
+# Blueprint triển khai Render Static Site cho Bản Thảo Chu Sa (Pure Client-Side SPA)
+version: "1"
 services:
   - type: web
     name: api-dich-truyen
     runtime: static
+    repo: https://github.com/caoduongle/API_dich_truyen
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
+    autoDeployTrigger: commit
+
+    # Quản lý biến môi trường (sync: false để giữ nguyên giá trị đã lưu an toàn trên Render)
+    envVars:
+      - key: VITE_GOOGLE_PICKER_API_KEY
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
+      - key: VITE_GOOGLE_APP_ID
+        sync: false
+
+    # SPA Rewrite Rule: Điều hướng toàn bộ Deep-link về /index.html để tránh lỗi 404 khi F5
     routes:
-      # SPA Rewrite Rule: Điều hướng toàn bộ yêu cầu URL sâu (Deep-link) về /index.html để client-side router xử lý
       - type: rewrite
         source: /*
         destination: /index.html
+
     headers:
       # 1. Chống MIME-sniffing
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
 
-      # 2. Ngăn chặn clickjacking bằng cách cấm nhúng iframe từ bên ngoài
+      # 2. Ngăn chặn clickjacking (chặn nhúng iframe từ bên ngoài)
       - path: /*
         name: X-Frame-Options
         value: DENY
 
-      # 3. Bảo vệ referrer khi chuyển hướng sang domain khác
+      # 3. Bảo vệ referrer khi điều hướng ra domain ngoài
       - path: /*
         name: Referrer-Policy
         value: strict-origin-when-cross-origin
@@ -33,17 +45,25 @@ services:
         name: Cross-Origin-Opener-Policy
         value: same-origin-allow-popups
 
-      # 5. Vô hiệu hóa các quyền thiết bị phần cứng không dùng trong ứng dụng
+      # 5. Ngăn chặn các website khác đọc trộm tài nguyên tĩnh (code/assets)
+      - path: /*
+        name: Cross-Origin-Resource-Policy
+        value: same-origin
+
+      # 6. Vô hiệu hóa các quyền phần cứng không dùng (bảo vệ thiết bị người dùng)
       - path: /*
         name: Permissions-Policy
-        value: camera=(), microphone=(), geolocation=()
+        value: camera=(), microphone=(), geolocation=(), payment=(), usb=(), screen-wake-lock=()
 
-      # 6. Bắt buộc kết nối an toàn HTTPS trong vòng 1 năm
+      # 7. Bắt buộc HTTPS trong 1 năm
       - path: /*
         name: Strict-Transport-Security
         value: max-age=31536000; includeSubDomains; preload
 
-      # 7. Chính sách an ninh nội dung (Content-Security-Policy)
+      # 8. Chính sách an ninh nội dung (Content-Security-Policy)
+      # - Nâng cấp tự động mọi request HTTP thành HTTPS (upgrade-insecure-requests)
+      # - Giữ 'unsafe-inline' cho script-src/style-src để Google Auth & Picker hoạt động
+      # - Đã cấp phép connect-src cho Gemini, Google APIs và https://zuminovel.com để đăng chương
       - path: /*
         name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https: *.googleusercontent.com; connect-src 'self' ws: wss: https://generativelanguage.googleapis.com https://*.googleapis.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com; frame-src https://drive.google.com https://docs.google.com https://accounts.google.com https://content.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+        value: "upgrade-insecure-requests; default-src 'self'; script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: *.googleusercontent.com; connect-src 'self' https://generativelanguage.googleapis.com https://*.googleapis.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com https://zuminovel.com; frame-src https://drive.google.com https://docs.google.com https://accounts.google.com https://content.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
