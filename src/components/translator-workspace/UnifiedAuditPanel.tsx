@@ -9,6 +9,8 @@ import {
   Zap,
   X,
   Check,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import type { QualityIssue } from '../../types/hakoChecker';
 import type { DirectQaCritiqueIssue, DirectRewriteSentenceParams } from '../../services/directTranslationEngine';
@@ -127,6 +129,17 @@ export function canTriggerAuditEnterAction(targetElement: Element | null): boole
   return true;
 }
 
+/** Ngưỡng ký tự để hiển thị nút Xem thêm / Thu gọn cho trích đoạn lỗi (Feature 133) */
+export const SNIPPET_EXPAND_THRESHOLD = 120;
+
+/**
+ * Kiểm tra xem một đoạn trích có vượt quá ngưỡng cần nút mở rộng hay không
+ */
+export function isSnippetExpandable(snippet?: string, threshold = SNIPPET_EXPAND_THRESHOLD): boolean {
+  if (!snippet) return false;
+  return snippet.length > threshold || snippet.includes('\n');
+}
+
 export function UnifiedAuditPanel({
   hakoIssues = [],
   qaIssues = [],
@@ -155,6 +168,22 @@ export function UnifiedAuditPanel({
   // Feature 105: Keyboard navigation focus index and card DOM references
   const [focusedIssueIndex, setFocusedIssueIndex] = useState<number>(0);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Feature 133: Quản lý trạng thái mở rộng trích đoạn dài cho từng thẻ lỗi
+  const [expandedSnippetIds, setExpandedSnippetIds] = useState<Set<string>>(new Set());
+
+  const toggleSnippetExpand = (issueId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setExpandedSnippetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+      return next;
+    });
+  };
 
   let notifications: ReturnType<typeof useNotifications> | null = null;
   try {
@@ -598,7 +627,7 @@ export function UnifiedAuditPanel({
           />
         ) : (
           /* Danh sách thẻ lỗi thu gọn (Compact Issue Cards) */
-          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1.5 scrollbar-thin">
             {filteredIssues.map((issue, index) => {
               const badge = getSeverityBadge(issue.severity);
               const isResolved = issue.status === 'resolved';
@@ -652,16 +681,51 @@ export function UnifiedAuditPanel({
                     {issue.title}
                   </p>
 
-                  <p className="text-[11px] text-text-muted leading-relaxed">
+                  <p className="text-[11px] text-text-muted leading-relaxed break-words whitespace-pre-wrap">
                     {issue.message}
                   </p>
 
-                  {issue.targetText && (
-                    <div className="bg-ink/80 border border-parchment-2 rounded-[2px] px-2 py-1 text-[11px] font-mono text-text-muted line-clamp-2">
-                      <span className="text-text-muted/60 mr-1 select-none">Trích đoạn:</span>
-                      <span className="text-text-main">{issue.targetText}</span>
-                    </div>
-                  )}
+                  {issue.targetText && (() => {
+                    const isExpanded = expandedSnippetIds.has(issue.id);
+                    const expandable = isSnippetExpandable(issue.targetText);
+
+                    return (
+                      <div
+                        data-testid={`audit-snippet-container-${index}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-ink/80 border border-parchment-2 rounded-[2px] px-2 py-1 text-[11px] font-mono text-text-muted select-text cursor-text"
+                      >
+                        <div className="flex items-start justify-between gap-1 mb-0.5">
+                          <span className="text-text-muted/60 select-none">Trích đoạn:</span>
+                          {expandable && (
+                            <button
+                              type="button"
+                              data-testid={`audit-snippet-toggle-${index}`}
+                              onClick={(e) => toggleSnippetExpand(issue.id, e)}
+                              className="text-[10px] text-polish hover:text-polish-hover flex items-center gap-0.5 font-sans font-medium select-none cursor-pointer focus:outline-none"
+                            >
+                              <span>{isExpanded ? 'Thu gọn' : 'Xem thêm'}</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <div
+                          className={cn(
+                            "text-text-main break-words whitespace-pre-wrap",
+                            isExpanded
+                              ? "max-h-none"
+                              : "max-h-24 overflow-y-auto pr-1 scrollbar-thin"
+                          )}
+                        >
+                          {issue.targetText}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Feature 104: AI Rewrite Preview */}
                   {hasPreview && (
@@ -669,7 +733,10 @@ export function UnifiedAuditPanel({
                       <p className="text-[10px] font-bold text-success uppercase tracking-wider">
                         Gợi ý viết lại từ AI
                       </p>
-                      <div className="text-[11px] text-text-main leading-relaxed bg-ink/60 rounded-[2px] px-2 py-1.5 font-mono">
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[11px] text-text-main leading-relaxed bg-ink/60 rounded-[2px] px-2 py-1.5 font-mono max-h-36 overflow-y-auto break-words whitespace-pre-wrap select-text cursor-text scrollbar-thin"
+                      >
                         {pendingPreviews[issue.id]}
                       </div>
                       <div className="flex items-center gap-1.5">

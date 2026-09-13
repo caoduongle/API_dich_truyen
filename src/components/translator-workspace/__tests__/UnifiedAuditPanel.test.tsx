@@ -7,6 +7,8 @@ import {
   getNextIssueIndex,
   getPrevIssueIndex,
   canTriggerAuditEnterAction,
+  SNIPPET_EXPAND_THRESHOLD,
+  isSnippetExpandable,
 } from '../UnifiedAuditPanel';
 import type { QualityIssue } from '../../../types/hakoChecker';
 import type { DirectQaCritiqueIssue } from '../../../services/directTranslationEngine';
@@ -672,4 +674,124 @@ describe('UnifiedAuditPanel Component Suite', () => {
       expect(html).toContain('Cần rà soát lại');
     });
   });
+
+  describe('Feature 133: Long Snippet Overflow, Scrolling & Expansion Support', () => {
+    it('correctly evaluates isSnippetExpandable helper with length and newline checks', () => {
+      expect(isSnippetExpandable(undefined)).toBe(false);
+      expect(isSnippetExpandable('')).toBe(false);
+      expect(isSnippetExpandable('Đoạn văn ngắn.')).toBe(false);
+
+      const exactly120 = 'a'.repeat(120);
+      expect(isSnippetExpandable(exactly120)).toBe(false);
+
+      const over120 = 'a'.repeat(121);
+      expect(isSnippetExpandable(over120)).toBe(true);
+
+      const shortWithNewline = 'Dòng 1\nDòng 2';
+      expect(isSnippetExpandable(shortWithNewline)).toBe(true);
+    });
+
+    it('renders snippet container with scrollable and selectable classes, and without line-clamp-2', () => {
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={mockHakoIssues}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      // Verify no line-clamp-2 is present anywhere
+      expect(html).not.toContain('line-clamp-2');
+
+      // Verify scrollable container and text selection classes
+      expect(html).toContain('max-h-24 overflow-y-auto pr-1 scrollbar-thin');
+      expect(html).toContain('select-text cursor-text');
+      expect(html).toContain('break-words whitespace-pre-wrap');
+    });
+
+    it('renders "Xem thêm" toggle button for long snippets exceeding 120 characters', () => {
+      const longSnippet = 'Đây là một đoạn văn bản trích đoạn rất dài dùng để kiểm định chất lượng bản dịch. ' +
+        'Nếu không có cơ chế cuộn hoặc mở rộng thì người dùng sẽ bị che chữ và không thể kéo lên kéo xuống xem toàn bộ nội dung được.';
+      expect(longSnippet.length).toBeGreaterThan(SNIPPET_EXPAND_THRESHOLD);
+
+      const issuesWithLongSnippet: QualityIssue[] = [
+        {
+          id: 'long-snippet-1',
+          chapterId: 'chap-1',
+          chapterTitle: 'Chương 1',
+          chapterNumber: 1,
+          category: 'mistranslation',
+          severity: 'major',
+          vietnameseSnippet: longSnippet,
+          explanation: 'Dịch sai nghĩa một đoạn dài',
+          decision: 'pending',
+          detectedBy: 'ai',
+          createdAt: '2026-09-10T12:00:00Z',
+        },
+      ];
+
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={issuesWithLongSnippet}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      expect(html).toContain('data-testid="audit-snippet-toggle-0"');
+      expect(html).toContain('Xem thêm');
+      expect(html).toContain(longSnippet);
+    });
+
+    it('does not render "Xem thêm" toggle button for short snippets without newlines', () => {
+      const shortSnippetIssues: QualityIssue[] = [
+        {
+          id: 'short-snippet-1',
+          chapterId: 'chap-1',
+          chapterTitle: 'Chương 1',
+          chapterNumber: 1,
+          category: 'other',
+          severity: 'minor',
+          vietnameseSnippet: 'Đoạn ngắn gọn.',
+          explanation: 'Lỗi nhỏ',
+          decision: 'pending',
+          detectedBy: 'heuristic',
+          createdAt: '2026-09-10T12:00:00Z',
+        },
+      ];
+
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={shortSnippetIssues}
+          qaIssues={[]}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      expect(html).not.toContain('data-testid="audit-snippet-toggle-0"');
+      expect(html).not.toContain('Xem thêm');
+      expect(html).toContain('Đoạn ngắn gọn.');
+    });
+
+    it('applies break-words and whitespace-pre-wrap to issue messages and sets list max height to max-h-[28rem]', () => {
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={mockHakoIssues}
+          qaIssues={mockQaIssues}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+        />
+      );
+
+      // Verify list container has max-h-[28rem]
+      expect(html).toContain('max-h-[28rem] overflow-y-auto pr-1.5 scrollbar-thin');
+
+      // Verify message paragraph has word wrap classes
+      expect(html).toContain('text-[11px] text-text-muted leading-relaxed break-words whitespace-pre-wrap');
+    });
+  });
 });
+
