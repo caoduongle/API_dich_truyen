@@ -1,245 +1,377 @@
-# Bản Thảo Chu Sa — AI Dịch Truyện Trung - Việt (Pure Client-Side SPA)
+# Bản Thảo Chu Sa
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-19.0-61dafb.svg)](https://react.dev/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4.0-38bdf8.svg)](https://tailwindcss.com/)
-[![Vite](https://img.shields.io/badge/Vite-6.2-646cff.svg)](https://vitejs.dev/)
-[![Vitest](https://img.shields.io/badge/Vitest-4.1-green.svg)](https://vitest.dev/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+**Ứng dụng dịch và biên tập truyện Trung - Việt bằng Gemini AI**
 
-Hệ thống dịch thuật tiểu thuyết Trung - Việt ứng dụng công nghệ **Google Gemini AI thế hệ mới**, tối ưu hóa ngữ cảnh kiếm hiệp, tiên hiệp, huyền huyễn với bộ nhớ thực thể và kiểm định văn phong Hako.
+Bản Thảo Chu Sa là một **Single-Page Application (SPA) chạy phía trình duyệt** dành cho quy trình dịch và biên tập tiểu thuyết Trung - Việt. Ứng dụng tập trung vào ba bước chính: **dịch thô → chuốt văn → kiểm tra chất lượng**.
 
-Ứng dụng được thiết kế theo kiến trúc **100% Thuần Client-Side (Pure Client-Side SPA / Zero Backend)**:
-- Biên dịch tĩnh bằng duy nhất `vite build`.
-- Deploy trực tiếp lên mọi nền tảng Static Hosting (Cloudflare Pages, Netlify, Vercel, GitHub Pages, S3/CDN, Nginx) mà **không cần chạy bất kỳ tiến trình Node.js nào lúc runtime**.
-- Bảo mật tuyệt đối: Mọi kết nối gọi API Gemini và Google Drive đều diễn ra trực tiếp từ trình duyệt người dùng.
+Dữ liệu dự án và chương được lưu cục bộ trong **IndexedDB**. Gemini được gọi trực tiếp từ trình duyệt bằng API key do người dùng cấu hình. Google Drive là lớp tùy chọn cho sao lưu, khôi phục và cộng tác.
+
+> **Kiến trúc runtime:** Pure Client-Side SPA / Zero Backend Runtime. Node.js chỉ cần cho development và build.
 
 ---
 
-## 🌟 Tính năng Cốt lõi
+## Tính năng chính
 
-### ⚡ 1. Dịch Trực Tiếp Độc Lập & Bảo Mật Tuyệt Đối (Direct Client-to-Gemini)
-- **100% Client-to-Gemini**: Toàn bộ yêu cầu AI (dịch thô, chuốt văn, trích xuất thực thể, phân tích thuật ngữ, QA critique) diễn ra trực tiếp giữa trình duyệt người dùng và Google Gemini REST API. Không qua máy chủ trung gian.
-- **Bảo Mật API Key Cực Cao**: API Key của người dùng được lưu tạm thời trong `sessionStorage` của trình duyệt hoặc mã hóa trong IndexedDB, không bao giờ gửi qua server bên thứ ba.
+### Dịch AI 3 giai đoạn
 
-### 🤖 2. Quy Trình Dịch AI 3 Giai Đoạn Chuyên Sâu
-- **Giai đoạn 1 (Dịch thô & Trích xuất)**: Dịch sát nghĩa, bảo toàn cấu trúc câu, tự động phân tích và trích xuất thực thể/danh từ riêng tiếng Trung.
-- **Giai đoạn 2 (Biên tập & Chuốt văn phong)**: Tự động tra cứu từ điển (Glossary) và chuốt lại văn phong thuần Việt theo từng thể loại truyện (Tiên Hiệp, Võ Hiệp, Huyền Huyễn, Ngôn Tình,...).
-- **Giai đoạn 3 (Kiểm duyệt QA AI)**: Đối chiếu nguyên tác và bản dịch phát hiện lỗi bỏ sót, thêm thắt, hoặc lặp câu.
+- **Dịch thô:** dịch nguyên tác Trung - Việt và trích xuất thực thể/thuật ngữ cần theo dõi.
+- **Chuốt văn:** biên tập bản dịch theo ngữ cảnh, thể loại, tone và glossary của dự án.
+- **QA Critique:** đối chiếu nguyên tác và bản dịch để tìm lỗi sai nghĩa, bỏ sót, bất nhất và các vấn đề cần biên tập.
 
-### 🧠 3. Quản lý Danh mục & Vòng đời Mô hình AI (Model Lifecycle)
-- **Cơ chế Khám phá SWR (Stale-While-Revalidate)**: Tải danh mục mô hình từ bộ đệm tức thì (< 5ms), revalidate ngầm trực tiếp với Google Generative Language API và bảo toàn stale cache khi có sự cố.
-- **Tự động Chuyển đổi Mô hình Hết hạn**: Tự động chuyển các model cũ (`gemini-1.5-flash`, `gemini-1.5-pro`...) sang model kế thừa tương đương.
+Pipeline được triển khai ở phía client trong `src/services/directTranslationEngine.ts` và `src/services/directGeminiClient.ts`.
 
-### ⚙️ 4. Điều phối Đa Khóa & Quản lý Hạn mức Trực Tiếp Client (Client Quota Tracker)
-- **Đồng hồ Reset RPD theo Múi giờ PST**: Tự động reset hạn mức ngày (RPD) vào đúng **00:00:00 PST** (`America/Los_Angeles`).
-- **Cửa sổ Trượt 60 Giây (Sliding RPM/TPM)**: Kiểm soát số lượt gọi và token tiêu thụ thời gian thực trên trình duyệt.
-- **Key Health & Circuit Breaker**: Theo dõi sức khỏe từng key (`Healthy`, `Degraded`, `Cooldown`, `QuotaExhausted`), tự động ngắt mạch Circuit Breaker khi lỗi liên tiếp và tự phục hồi sau thời gian chờ.
+### Quản lý nhiều Gemini API key
 
-### ☁️ 5. Đăng Nhập Google & Đồng Bộ / Cộng Tác Google Drive
-- **100% Client-Side OAuth 2.0 PKCE**: Tự sinh PKCE challenge và trao đổi token trực tiếp từ trình duyệt đến Google. Không dùng client secret, không lưu token trên server.
-- **Quyền Hạn Tối Thiểu (`drive.file`)**: Chỉ có quyền đọc/ghi thư mục `AI_Dich_Truyen_Data/` do ứng dụng tạo ra.
-- **Đồng Bộ Hai Chiều Linh Hoạt**: Sao lưu (Push) và khôi phục (Pull) toàn bộ truyện, chương và từ điển từ IndexedDB sang Google Drive để làm việc liên thiết bị.
-- **Chia Sẻ & Cộng Tác Nhóm**: Phân quyền thư mục dự án trên Drive, mở qua Google Picker API để cùng dịch từng chương độc lập với cơ chế chống ghi đè và giải quyết xung đột thông minh.
+Ứng dụng có `localQuotaTracker` để quản lý sử dụng API key phía client, bao gồm:
 
-### 🎨 6. Hệ Thống Chế Độ Màu Đọc & Biên Tập (Theme System)
-- **4 Chế Độ Màu Linh Hoạt**: Tối (Mực & Chu Sa - Mặc định), Sáng (Giấy Ngà `#F7F2E9`), Sepia (Bản Thảo Cũ `#F4ECD8`), và Tùy chỉnh (Custom Studio).
-- **Điểm Nhấn Đỏ Chu Sa Độc Bản (`#B8402C`)**: Duy trì bản sắc văn học cổ phong xuyên suốt mọi chế độ, đạt chuẩn tương phản WCAG 2.1 AA.
-- **Tự Động Nhận Diện & Chống Chớp (Zero FOUC)**: Nhận diện `prefers-color-scheme`, áp dụng tức thì qua script `theme-init.js`.
+- chọn key khả dụng;
+- theo dõi trạng thái key;
+- xoay vòng khi gặp lỗi tạm thời hoặc rate limit;
+- cooldown và circuit breaker;
+- thống kê request/token;
+- giới hạn sử dụng tùy chỉnh.
 
-### 🛡️ 7. Kiểm Định Chất Lượng Bản Dịch Cho Moderator (Hako Quality Checker)
-- **Nạp chương trực tiếp từ IndexedDB**: Liên kết `sourceText` và bản dịch, hoàn toàn offline.
-- **Phân Tích Lai Heuristic & AI Semantic**: Tự động phát hiện bất nhất tên riêng, sai xưng hô/giới tính, thuật ngữ lệch chuẩn, sót Hán tự/raw, lặp đoạn, sai nghĩa, bỏ sót.
-- **Duyệt Quyết Định & Xuất Báo Cáo**: Cho phép moderator xác nhận, yêu cầu xem lại hoặc bác bỏ từng lỗi, xuất báo cáo Markdown dạng cấu trúc gửi cho dịch giả trong 1 click.
+Đây là **client-side quota management**, không phải hệ thống quota chính thức của Google. Hạn mức thực tế vẫn do Gemini/Google áp dụng.
+
+### Lưu trữ cục bộ
+
+- **IndexedDB:** dự án, chương và dữ liệu biên tập.
+- **localStorage:** tùy chọn giao diện và một số cache phía client.
+- **sessionStorage:** thông tin runtime liên quan đến API key và quota state.
+- Schema IndexedDB có migration/versioning.
+- Các thao tác ghi có retry và safeguard để giảm nguy cơ snapshot rỗng ghi đè dữ liệu chương đã có.
+
+### CRDT / cộng tác
+
+Ứng dụng sử dụng **Yjs** và `y-indexeddb` cho dữ liệu cộng tác của chương.
+
+Mỗi chương có thể được quản lý bằng một `Y.Doc`; nội dung dịch sử dụng `Y.Text` và metadata sử dụng `Y.Map`. CRDT được kết hợp với lớp IndexedDB/Google Drive để hỗ trợ persistence, đồng bộ và xử lý xung đột.
+
+### Google Drive Sync & Collaboration
+
+Google Drive là tính năng tùy chọn, hỗ trợ:
+
+- Google OAuth và PKCE phía client;
+- sao lưu và khôi phục dự án;
+- đồng bộ hai chiều;
+- lưu dữ liệu theo project/chapter;
+- Google Picker cho luồng chia sẻ;
+- manifest và reconciliation;
+- dữ liệu CRDT cho các luồng cộng tác.
+
+Các module chính nằm trong `src/services/google-drive/` và `src/services/googleDriveSyncService.ts`.
+
+### Hako Quality Checker
+
+Hako Quality Checker kết hợp kiểm tra rule-based và AI để phát hiện các vấn đề như:
+
+- sót Hán tự/raw;
+- placeholder hoặc ghi chú dịch giả chưa xóa;
+- đoạn lặp;
+- bất nhất tên riêng/xưng hô;
+- thuật ngữ lệch chuẩn;
+- sai nghĩa hoặc bỏ sót.
+
+Kết quả có thể được xem lại, ghi nhận quyết định và liên kết ngược về chương cần sửa.
+
+### Công cụ biên tập
+
+- Glossary và quick term analysis
+- Tìm và thay thế
+- Highlight / jump-to-issue
+- Viết lại câu/đoạn mục tiêu bằng AI
+- Lịch sử chương
+- Xuất TXT/EPUB
+- Theme đọc và biên tập
+
+### Theme system
+
+Ứng dụng có 4 chế độ giao diện:
+
+- Tối
+- Sáng
+- Sepia
+- Tùy chỉnh
+
+Theme sử dụng CSS custom properties tập trung để các component dùng chung design tokens.
 
 ---
 
-## 🏛️ Sơ đồ Kiến trúc Thuần Client-Side (Zero Backend Architecture)
+## Kiến trúc
 
-```mermaid
-flowchart TD
-    subgraph BrowserRuntime ["Trình duyệt Người Dùng (Browser Client SPA)"]
-        subgraph Presentation ["Tầng Giao Diện (React 19 + Tailwind v4)"]
-            UI["Bàn Dịch Thuật / Bảng Quota / Cài Đặt"]
-            Theme["Theme Engine (Mực & Chu Sa)"]
-        end
-
-        subgraph LocalState ["Tầng Dữ Liệu Cục Bộ (Client Storage)"]
-            IDB[("IndexedDB: Projects, Chapters, Glossaries, HakoDB")]
-            LocalPrefs[("localStorage: UI Prefs & Model SWR Cache")]
-            SessionKeys[("sessionStorage: Ephemeral Gemini API Keys")]
-        end
-
-        subgraph ClientServices ["Tầng Dịch Vụ AI & Hạn Mức (Pure Client-Side)"]
-            DirectGemini["Direct Gemini Client (@google/genai)"]
-            QuotaTracker["Local Quota Tracker (PST Reset, Sliding Window, Circuit Breaker)"]
-            TransEngine["Direct Translation & Glossary Engines"]
-            CRDT["CRDT Document Manager (Local Yjs + IndexedDB)"]
-            DriveSync["Google Drive Sync Service (OAuth 2.0 PKCE)"]
-        end
-    end
-
-    subgraph ExternalCloud ["Dịch Vụ Đám Mây Trực Tiếp"]
-        GeminiAPI["Google Gemini REST API\n(generativelanguage.googleapis.com)"]
-        GoogleDrive["Google Drive & Identity API\n(oauth2 / drive.file / picker)"]
-        StaticCDN["Static Web Host / CDN\n(Cloudflare Pages / Vercel / Netlify / Nginx)"]
-    end
-
-    StaticCDN -.->|Tải static bundle HTML/JS/CSS| BrowserRuntime
-    UI <--> IDB
-    UI <--> LocalPrefs
-    UI <--> SessionKeys
-    UI --> TransEngine
-    TransEngine --> DirectGemini
-    DirectGemini <--> QuotaTracker
-    DirectGemini -->|HTTPS Direct Calls| GeminiAPI
-    DriveSync -->|OAuth PKCE & Drive REST| GoogleDrive
-    CRDT <--> IDB
+```text
+Browser
+│
+├── React 19 + TypeScript + Tailwind CSS v4
+│
+├── Presentation
+│   └── src/components/
+│
+├── Controller / State orchestration
+│   └── src/hooks/
+│
+├── Domain / Services
+│   ├── src/services/
+│   ├── src/lib/
+│   └── src/config/
+│
+├── Local persistence
+│   ├── IndexedDB
+│   ├── localStorage
+│   └── sessionStorage
+│
+├── AI
+│   └── Browser → Google Gemini API
+│
+└── Optional cloud sync
+    └── Browser → Google Drive API
 ```
 
+Ranh giới chính của codebase:
+
+```text
+components → UI / presentation
+hooks      → state orchestration
+services   → business logic, persistence, external APIs
+lib        → pure utilities / algorithms
+config     → constants and registries
+types      → domain types
+```
+
+Service không phụ thuộc component/hook; hook không phụ thuộc component. Chi tiết kiến trúc xem [`docs/architecture.md`](docs/architecture.md).
+
 ---
 
-## 🚀 Hướng dẫn Cài đặt & Khởi chạy
+## Công nghệ
 
-### Yêu cầu Tiên quyết
-- **Node.js**: Phiên bản 18.x hoặc 20.x+ (chỉ dùng để build code trong quá trình phát triển)
-- **Trình duyệt hiện đại**: Chrome, Edge, Firefox, Safari (hỗ trợ ES2022 và IndexedDB)
+| Thành phần | Công nghệ |
+|---|---|
+| UI | React 19 |
+| Ngôn ngữ | TypeScript 5.8 |
+| Build | Vite |
+| CSS | Tailwind CSS v4 |
+| AI | Google Gemini API / `@google/genai` |
+| Local database | IndexedDB |
+| Collaboration | Yjs / `y-indexeddb` |
+| Google sync | Google Drive API |
+| Icons | Lucide React |
+| Animation | Motion |
+| Chinese normalization | OpenCC |
+| Archive/export | JSZip |
+| Test | Vitest |
 
-### 1. Cài đặt Dependencies
+---
+
+## Yêu cầu
+
+- Node.js 18+; nên dùng bản LTS.
+- npm
+- Trình duyệt hiện đại có ES2022, IndexedDB và Web Crypto API.
+
+Node.js chỉ cần cho development/build; production có thể chạy dưới dạng static site.
+
+---
+
+## Cài đặt
+
 ```bash
-git clone https://github.com/caoduongle/API_dich_truyen
+git clone https://github.com/caoduongle/API_dich_truyen.git
 cd API_dich_truyen
 npm install
 ```
 
-### 2. Cấu hình Môi trường (Tùy chọn)
-Tạo file `.env` từ file mẫu:
+Tạo `.env` từ `.env.example` khi dùng Google Drive/Picker:
+
 ```bash
 cp .env.example .env
 ```
 
-Nội dung file `.env` (chỉ bao gồm cấu hình client-side):
+### Biến môi trường
+
 ```env
-# Đường dẫn cơ sở khi deploy vào thư mục con (Tùy chọn, mặc định: /)
+# Base path khi deploy vào subdirectory
 VITE_BASE_URL="/"
 
-# Cấu hình Google Drive Sync & Google Picker (Tùy chọn)
-VITE_GOOGLE_CLIENT_ID="your_client_id.apps.googleusercontent.com"
-VITE_GOOGLE_PICKER_API_KEY="your_picker_api_key"
-VITE_GOOGLE_APP_ID="123456789012"
+# Google OAuth Web Client ID
+VITE_GOOGLE_CLIENT_ID=""
+
+# Google Picker API key
+VITE_GOOGLE_PICKER_API_KEY=""
+
+# Google Cloud Project Number cho Google Picker
+VITE_GOOGLE_APP_ID=""
 ```
 
-### 3. Khởi chạy Ứng dụng
+Gemini API key cho dịch thuật được cấu hình từ giao diện ứng dụng; không bắt buộc đặt trong `.env`.
 
-#### Chế độ Phát triển (Development):
+---
+
+## Chạy local
+
+### Development
+
 ```bash
 npm run dev
 ```
-Truy cập giao diện Web tại: `http://localhost:5173` (hoặc cổng hiển thị trên terminal).
 
-#### Đóng gói Production (Static Build):
+Mặc định Vite sử dụng:
+
+```text
+http://localhost:5173
+```
+
+### Production build
+
 ```bash
 npm run build
 ```
-Lệnh trên sẽ chạy `tsc && vite build`, sinh ra duy nhất thư mục `dist/` chứa toàn bộ static assets.
 
-#### Xem trước Bản build (Preview):
+Script build hiện chạy `tsc && vite build` và tạo thư mục `dist/`.
+
+### Preview
+
 ```bash
 npm run preview
 ```
 
----
-
-## 🌐 Triển khai Lên Static Hosting (Deployment)
-
-Dự án có thể deploy lên bất kỳ static host nào mà **không cần server runtime**:
-
-- **Render (Static Site)**:
-  - Build command: `npm ci && npm run build`
-  - Publish directory: `dist`
-  - Đã tích hợp sẵn file Blueprint `render.yaml` tại thư mục gốc (cấu hình SPA rewrites `source: /*` -> `/index.html` và toàn bộ 7 HTTP security headers CSP, HSTS, X-Frame-Options, COOP, Permissions-Policy). *Lưu ý: Render Static Site chỉ nhận header/rewrite qua `render.yaml` hoặc Render Dashboard, không đọc `public/_headers`.*
-- **Cloudflare Pages**:
-  - Build command: `npm run build`
-  - Build output directory: `dist`
-  - Đã tích hợp sẵn file cấu hình `public/_headers` (bảo vệ CSP, COOP cho Google OAuth popup, HSTS).
-- **Vercel**:
-  - Build command: `npm run build`
-  - Output directory: `dist`
-  - Đã tích hợp sẵn file `vercel.json` (cấu hình SPA rewrites và HTTP security headers).
-- **Netlify**:
-  - Build command: `npm run build`
-  - Publish directory: `dist`
-- **Docker / Nginx**:
-  - Chạy `docker build -t ai-dich-truyen .` và `docker run -p 80:80 ai-dich-truyen` (sử dụng Dockerfile multi-stage đóng gói Nginx Alpine phục vụ thư mục `dist`).
-
----
-
-## 🧪 Quy chuẩn Kiểm thử & Quality Gates
+### Type check
 
 ```bash
-# 1. Kiểm tra Type & Cú pháp TypeScript (PHẢI sạch 0 lỗi)
 npm run lint
+```
 
-# 2. Chạy toàn bộ Test Suite với Vitest (PHẢI pass 100%)
+### Test
+
+```bash
 npm test
+```
 
-# 3. Đóng gói Production
+### Quality gate
+
+```bash
+npm run lint && npm test && npm run build
+```
+
+---
+
+## Deployment
+
+Repo hiện có cấu hình cho các hình thức static deployment sau.
+
+### Render
+
+Có `render.yaml` ở root cho Static Site, gồm SPA rewrite và security headers.
+
+```text
+Build command: npm run build
+Publish directory: dist
+```
+
+### Cloudflare Pages / Netlify
+
+`public/_headers` chứa cấu hình header dùng cho các nền tảng hỗ trợ `_headers`.
+
+```text
+Build command: npm run build
+Output / Publish directory: dist
+```
+
+### Vercel
+
+`vercel.json` cấu hình SPA rewrite và security headers.
+
+```text
+Build command: npm run build
+Output directory: dist
+```
+
+### Docker / Nginx
+
+Repo có `Dockerfile` multi-stage để build static assets và phục vụ bằng Nginx.
+
+```bash
+docker build -t ai-dich-truyen .
+docker run --rm -p 80:80 ai-dich-truyen
+```
+
+Khi bật Google OAuth/Picker, cần cấu hình đúng authorized origins, redirect settings và các thiết lập tương ứng trên Google Cloud Console.
+
+---
+
+## Bảo mật và quyền riêng tư
+
+Kiến trúc hiện tại giảm tối đa dữ liệu phải đi qua server ứng dụng:
+
+- Gemini API được gọi trực tiếp từ trình duyệt.
+- API key Gemini không được gửi tới backend của dự án.
+- Dữ liệu dự án/chương được lưu cục bộ trong IndexedDB.
+- Google Drive chỉ được sử dụng khi người dùng bật tính năng đồng bộ.
+- Deployment configs có CSP và các HTTP security headers.
+- Prompt input có các lớp xử lý/sanitization để giảm rủi ro prompt injection và dữ liệu điều khiển tàng hình.
+
+### Giới hạn bảo mật của kiến trúc client-side
+
+Client-side **không có nghĩa API key tuyệt đối an toàn**. Credential vẫn tồn tại trong môi trường trình duyệt và phải được bảo vệ cùng với thiết bị/origin chạy ứng dụng. Không nên sử dụng key có quyền hoặc hạn mức cao hơn nhu cầu thực tế.
+
+Xem [`SECURITY.md`](SECURITY.md) để biết chính sách báo cáo lỗ hổng và các nguyên tắc bảo mật của dự án.
+
+---
+
+## Cấu trúc thư mục
+
+```text
+.
+├── src/
+│   ├── components/              # UI / presentation
+│   ├── hooks/                   # state orchestration
+│   ├── context/                 # React contexts
+│   ├── config/                  # constants, models, metadata
+│   ├── i18n/                    # localization
+│   ├── lib/                     # pure utilities / algorithms
+│   ├── services/                # AI, DB, Drive, CRDT, translation
+│   │   └── google-drive/        # Drive REST and sync modules
+│   ├── utils/                   # application utilities
+│   └── types/                   # domain-specific types
+├── public/                      # static assets / hosting headers
+├── docs/                        # technical documentation
+├── specs/                       # feature specs and implementation records
+├── .agents/                     # project agent skills/rules
+├── .specify/                    # project constitution / Spec Kit data
+├── .env.example                 # environment template
+├── render.yaml                  # Render Static Site config
+├── vercel.json                  # Vercel rewrite / security headers
+├── Dockerfile                   # Nginx static image
+├── vite.config.ts               # Vite build config
+└── package.json
+```
+
+---
+
+## Tài liệu
+
+- [Kiến trúc hệ thống](docs/architecture.md)
+- [Quota, scheduling và key health](docs/quota-and-scheduling.md)
+- [Security Policy](SECURITY.md)
+- [LLM project context](public/llms.txt)
+
+> `docs/model-system.md` hiện chứa một số mô tả lịch sử về kiến trúc model cũ. Không dùng tài liệu này làm nguồn duy nhất để xác định kiến trúc runtime hiện tại; hãy ưu tiên source code và `docs/architecture.md`.
+
+---
+
+## Phát triển và đóng góp
+
+Khi thay đổi code, giữ đúng boundary giữa UI, state orchestration và business logic. Với thay đổi ảnh hưởng đến dữ liệu, đồng bộ hoặc AI pipeline, cần kiểm tra cả các test liên quan và regression của IndexedDB/CRDT/Google Drive.
+
+Trước khi merge:
+
+```bash
+npm run lint
+npm test
 npm run build
 ```
 
 ---
 
-## 📂 Cấu trúc Thư mục Dự án
+## License
 
-```text
-├── src/                                # Mã nguồn Client SPA (React 19 + TypeScript)
-│   ├── components/                     # Tầng View: UI Components
-│   │   ├── common/                     # Breadcrumbs, NotFoundPage, ThemeSwitcher...
-│   │   ├── google-sync/                # Google Drive Sync & Collaboration UI
-│   │   ├── hako-checker/               # Hako Quality Checker Panel & Reviewers
-│   │   ├── layout/                     # AppHeader, AppTabBar, TabContent, AppFooter, Modals
-│   │   ├── translator-workspace/       # Bàn dịch thuật song ngữ, Editor & thanh công cụ
-│   │   └── ui/                         # Atomic Primitives (Button, Badge, Seal, Kbd...)
-│   ├── config/                         # Tầng Configuration: Hằng số & Danh mục mô hình
-│   │   ├── constants.ts                # Hằng số toàn cục (hạn mức, timeout, buffer)
-│   │   ├── models.ts                   # Định nghĩa & registry mô hình AI
-│   │   └── tabMetadata.ts              # Danh mục tab & SEO metadata
-│   ├── context/                        # React Contexts (ThemeContext, ProjectContext, AIConfigContext)
-│   ├── hooks/                          # Tầng Controller: Custom Hooks & State Management
-│   ├── lib/                            # Thư viện thuật toán thuần (Pure Utilities)
-│   │   ├── cn.ts                       # Class merging utility
-│   │   ├── parser.ts                   # Phân tích cú pháp văn bản & chương truyện
-│   │   ├── sinoNormalize.ts            # Chuẩn hóa Hán-Việt & Phồn-Giản
-│   │   └── text.ts                     # Xử lý chuỗi, chunking & redaction bảo mật
-│   ├── services/                       # Tầng Model: Business Logic & Data Access
-│   │   ├── ai/                         # System prompts & prompt templates
-│   │   ├── db.ts                       # IndexedDB Service (Single Source of Truth)
-│   │   ├── directGeminiClient.ts       # Direct Gemini REST Client (@google/genai)
-│   │   ├── directTranslationEngine.ts  # 3-Phase Translation Engine Client-side
-│   │   ├── directGlossaryEngine.ts     # Glossary Engine Client-side
-│   │   ├── localQuotaTracker.ts        # Quota Tracker, Key Health & Circuit Breaker
-│   │   └── googleDriveSyncService.ts   # Google Drive Backup & Sync
-│   ├── utils/                          # Tiện ích bổ trợ (textCleaner, storageAudit...)
-│   └── types.ts                        # Type Definitions
-├── public/                             # Tài nguyên tĩnh & Header hosting (_headers, favicon...)
-├── docs/                               # Tài liệu kỹ thuật chi tiết
-│   ├── architecture.md                 # Kiến trúc tổng thể Zero Backend
-│   ├── model-system.md                 # Quản lý mô hình AI
-│   └── quota-and-scheduling.md         # Bộ theo dõi quota & xoay vòng key
-├── vercel.json                         # Cấu hình hosting Vercel & CSP
-├── vite.config.ts                      # Cấu hình Vite & Rollup Chunking
-└── package.json                        # Scripts & Dependencies
-```
-
----
-
-## 📚 Tài liệu Kỹ thuật Chuyên sâu
-
-- 📖 [Kiến trúc Tổng thể Zero Backend](docs/architecture.md)
-- ⚙️ [Bộ điều phối Hạn mức Quota & Sức khỏe Khóa API Client-side](docs/quota-and-scheduling.md)
-- 🧠 [Phân hệ Mô hình & Cơ chế SWR Discovery](docs/model-system.md)
-
----
-
-## 📄 Bản quyền
-Phát hành theo giấy phép MIT.
+Hiện repository chưa có file `LICENSE` ở root. Hãy bổ sung giấy phép rõ ràng trước khi phân phối project như một package mã nguồn mở.
