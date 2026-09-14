@@ -224,6 +224,33 @@ describe('scrollAndSelectInTextarea Utility Suite', () => {
       expect(result).toBe(true);
       expect(textarea.selectionStart).toBe(23);
     });
+
+    it('matches snippet with internal newlines or multiple whitespace in fullText', () => {
+      const textarea = createMockTextarea(
+        'hắn há hốc mồm thở ra một ngàn khói trắng,\ngương mặt đờ đẫn ngẩn ngơ.'
+      );
+      const snippet = '"hắn há hốc mồm thở ra một ngàn khói trắng, gương mặt đờ đẫn ngẩn ngơ."';
+
+      const result = scrollAndSelectInTextarea(textarea as unknown as HTMLTextAreaElement, snippet);
+
+      expect(result).toBe(true);
+      expect(textarea.selectionStart).toBe(0);
+      expect(textarea.selectionEnd).toBe(textarea.value.length);
+      expect(textarea.focus).toHaveBeenCalled();
+    });
+
+    it('matches snippet when fullText has multiple consecutive spaces', () => {
+      const textarea = createMockTextarea(
+        'Tiêu Viêm   nhìn kỹ   khói trắng bốc lên.'
+      );
+      const snippet = 'Tiêu Viêm nhìn kỹ khói trắng bốc lên.';
+
+      const result = scrollAndSelectInTextarea(textarea as unknown as HTMLTextAreaElement, snippet);
+
+      expect(result).toBe(true);
+      expect(textarea.selectionStart).toBe(0);
+      expect(textarea.selectionEnd).toBe(textarea.value.length);
+    });
   });
 });
 

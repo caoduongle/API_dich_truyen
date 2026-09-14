@@ -10,6 +10,8 @@ import { GlossarySidebar } from './translator-workspace/GlossarySidebar';
 import { SuggestionsDrawer } from './translator-workspace/SuggestionsDrawer';
 import { useWorkspaceState } from '../hooks/useWorkspaceState';
 
+import type { HighlightIntent } from '../types/audit';
+
 export interface TranslatorWorkspaceProps {
   activeProject: StoryProject;
   onUpdateProject: (updated: StoryProject) => void;
@@ -17,6 +19,8 @@ export interface TranslatorWorkspaceProps {
   selectedModel: string;
   loadedChapter?: Chapter | null;
   onClearLoadedChapter?: () => void;
+  highlightIntent?: HighlightIntent | null;
+  onClearHighlightIntent?: () => void;
   initialHighlightSnippet?: string | null;
   onClearHighlightSnippet?: () => void;
   warningParagraphMismatch: boolean;
@@ -31,6 +35,8 @@ export default function TranslatorWorkspace({
   selectedModel,
   loadedChapter,
   onClearLoadedChapter,
+  highlightIntent,
+  onClearHighlightIntent,
   initialHighlightSnippet,
   onClearHighlightSnippet,
   warningParagraphMismatch,
@@ -38,6 +44,7 @@ export default function TranslatorWorkspace({
   enableSegmentTranslation,
 }: TranslatorWorkspaceProps) {
   const {
+    currentChapterId,
     sourceText,
     setSourceText,
     originalSourceText,
@@ -186,6 +193,9 @@ export default function TranslatorWorkspace({
 
       {/* Visual Workspace Editor */}
       <BilingualEditor
+        highlightIntent={highlightIntent}
+        onClearHighlightIntent={onClearHighlightIntent}
+        currentChapterId={currentChapterId}
         initialHighlightSnippet={initialHighlightSnippet}
         onClearHighlightSnippet={onClearHighlightSnippet}
         sourceText={sourceText}

@@ -793,5 +793,38 @@ describe('UnifiedAuditPanel Component Suite', () => {
       expect(html).toContain('text-[11px] text-text-muted leading-relaxed break-words whitespace-pre-wrap');
     });
   });
+
+  describe('Feature 135: External Highlight Deep-Link & Focus Synchronization', () => {
+    it('accepts focusedIssueId prop and renders without errors', () => {
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={mockHakoIssues}
+          qaIssues={mockQaIssues}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+          focusedIssueId="hako-1"
+        />
+      );
+
+      expect(html).toContain('data-testid="audit-issue-card-0"');
+      expect(html).toContain('data-focused="true"');
+      expect(html).toContain('Kiếm khí 纵横 chấn động');
+    });
+
+    it('handles non-existent focusedIssueId gracefully without breaking rendering', () => {
+      const html = renderToString(
+        <UnifiedAuditPanel
+          hakoIssues={mockHakoIssues}
+          qaIssues={mockQaIssues}
+          isCheckingQa={false}
+          onRunAiQaCritique={vi.fn()}
+          focusedIssueId="non-existent-issue-id"
+        />
+      );
+
+      expect(html).toContain('data-testid="audit-issue-card-0"');
+      expect(html).toContain('Kiếm khí 纵横 chấn động');
+    });
+  });
 });
 

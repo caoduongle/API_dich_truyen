@@ -555,5 +555,39 @@ describe('HakoIssueReviewPanel Batch Action Confirmation & Undo Guard', () => {
         expect(html).toContain('Cần xem lại');
       });
     });
+
+    describe('[Feature 135] Open in Translator Delegation', () => {
+      it('handleOpenInTranslatorClick delegates chapterId, snippet, and issueId to callback', () => {
+        const mockIssue = createMockIssues(1)[0];
+        const onOpenInTranslator = vi.fn();
+
+        handleOpenInTranslatorClick(mockIssue, onOpenInTranslator);
+
+        expect(onOpenInTranslator).toHaveBeenCalledTimes(1);
+        expect(onOpenInTranslator).toHaveBeenCalledWith('chap-1', {
+          snippet: mockIssue.vietnameseSnippet,
+          issueId: mockIssue.id,
+        });
+      });
+
+      it('safely handles undefined onOpenInTranslator callback', () => {
+        const mockIssue = createMockIssues(1)[0];
+        expect(() => handleOpenInTranslatorClick(mockIssue, undefined)).not.toThrow();
+      });
+
+      it('renders "Mở trong Bàn Dịch để sửa" button when onOpenInTranslator is passed', () => {
+        const mockIssue = createMockIssues(1)[0];
+        const html = renderToString(
+          <HakoIssueCard
+            issue={mockIssue}
+            onDecisionChange={vi.fn()}
+            onOpenInTranslator={vi.fn()}
+          />
+        );
+
+        expect(html).toContain('Mở trong Bàn Dịch để sửa');
+        expect(html).toContain('Mở chương #1 trong Bàn Dịch để sửa');
+      });
+    });
   });
 });

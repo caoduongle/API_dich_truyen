@@ -65,3 +65,25 @@ export interface UnifiedAuditIssue {
   autoFixable: boolean;
   status: 'pending' | 'resolved' | 'ignored';
 }
+
+/**
+ * Tùy chọn truyền khi kích hoạt điều hướng mở chương trong Bàn Dịch
+ */
+export interface OpenInTranslatorOptions {
+  snippet?: string;
+  issueId?: string;
+}
+
+/**
+ * Yêu cầu định vị & bôi đen câu văn lỗi khi chuyển từ Kiểm Định Hako sang Bàn Dịch
+ */
+export interface HighlightIntent {
+  /** ID của chương truyện chứa đoạn lỗi cần mở */
+  chapterId: string;
+  /** Đoạn trích dẫn văn bản tiếng Việt làm bằng chứng vi phạm */
+  snippet: string;
+  /** ID của thẻ lỗi tương ứng trong bộ kiểm định (nếu có) */
+  issueId?: string;
+  /** Thời điểm tạo yêu cầu (ms) */
+  timestamp: number;
+}

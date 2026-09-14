@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useTransition } from 'react';
 import { Cpu } from 'lucide-react';
 import { Chapter } from './types';
+import type { HighlightIntent } from './types/audit';
 import { NotificationProvider, useNotifications } from './components/NotificationSystem';
 import { getChapterFromDB } from './services/db';
 import { AIConfigProvider, useAIConfigContext } from './context/AIConfigContext';
@@ -31,7 +32,7 @@ function AppShell() {
   const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
   const [showCustomThemeModal, setShowCustomThemeModal] = useState(false);
   const [loadedChapter, setLoadedChapter] = useState<Chapter | null>(null);
-  const [pendingHighlightSnippet, setPendingHighlightSnippet] = useState<string | null>(null);
+  const [pendingHighlightIntent, setPendingHighlightIntent] = useState<HighlightIntent | null>(null);
   const [isAutoTranslating, setIsAutoTranslating] = useState(false);
 
   useEffect(() => {
@@ -91,7 +92,16 @@ function AppShell() {
         showToast({ message: 'Không tìm thấy dữ liệu chương!', type: 'error' });
         return;
       }
-      setPendingHighlightSnippet(options?.snippet || null);
+      if (options?.snippet) {
+        setPendingHighlightIntent({
+          chapterId,
+          snippet: options.snippet,
+          issueId: options.issueId,
+          timestamp: Date.now(),
+        });
+      } else {
+        setPendingHighlightIntent(null);
+      }
       handleGoToTranslate(chapter);
     } catch (err) {
       console.error('[AppShell] handleOpenChapterFromHakoChecker error:', err);
@@ -157,8 +167,8 @@ function AppShell() {
           activeTab={activeTab}
           visitedTabs={visitedTabs}
           loadedChapter={loadedChapter}
-          pendingHighlightSnippet={pendingHighlightSnippet}
-          onClearHighlightSnippet={() => setPendingHighlightSnippet(null)}
+          pendingHighlightIntent={pendingHighlightIntent}
+          onClearHighlightIntent={() => setPendingHighlightIntent(null)}
           currentMetaTitle={currentMeta.title}
           onSwitchTab={switchTab}
           onClearLoadedChapter={() => setLoadedChapter(null)}

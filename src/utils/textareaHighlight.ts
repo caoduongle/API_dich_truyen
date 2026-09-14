@@ -46,7 +46,26 @@ export function findSnippetLocationInText(
     }
   }
 
-  // 3. Chuẩn hóa khoảng trắng / so khớp đoạn đầu nếu snippet dài
+  // 3. So khớp linh hoạt khoảng trắng / xuống dòng (Regex with \s+)
+  try {
+    const words = trimmedSnippet
+      .split(/\s+/)
+      .filter((w) => w.length > 0)
+      .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+    if (words.length > 0) {
+      const pattern = words.join('\\s+');
+      const regex = new RegExp(pattern, 'm');
+      const match = regex.exec(fullText);
+      if (match && typeof match.index === 'number') {
+        return { start: match.index, end: match.index + match[0].length };
+      }
+    }
+  } catch {
+    // Fallback nếu có lỗi regex
+  }
+
+  // 4. So khớp đoạn đầu nếu snippet dài
   if (trimmedSnippet.length >= 10) {
     const headChunk = trimmedSnippet.slice(0, 35).trim();
     if (headChunk.length >= 6) {

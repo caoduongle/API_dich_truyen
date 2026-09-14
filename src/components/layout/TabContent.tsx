@@ -23,10 +23,14 @@ const MemoHakoCheckerWorkspace = React.memo(HakoCheckerWorkspace);
 
 const EMPTY_PENDING_GLOSSARY: never[] = [];
 
+import type { HighlightIntent } from '../../types/audit';
+
 export interface TabContentProps {
   activeTab: 'translate' | 'auto-translate' | 'glossary' | 'history' | 'projects' | 'hako-checker';
   visitedTabs: Set<string>;
   loadedChapter: Chapter | null;
+  pendingHighlightIntent?: HighlightIntent | null;
+  onClearHighlightIntent?: () => void;
   pendingHighlightSnippet?: string | null;
   onClearHighlightSnippet?: () => void;
   currentMetaTitle: string;
@@ -41,6 +45,8 @@ export function TabContent({
   activeTab,
   visitedTabs,
   loadedChapter,
+  pendingHighlightIntent,
+  onClearHighlightIntent,
   pendingHighlightSnippet,
   onClearHighlightSnippet,
   currentMetaTitle,
@@ -117,8 +123,10 @@ export function TabContent({
                     selectedModel={selectedModel}
                     loadedChapter={loadedChapter}
                     onClearLoadedChapter={onClearLoadedChapter}
-                    initialHighlightSnippet={pendingHighlightSnippet}
-                    onClearHighlightSnippet={onClearHighlightSnippet}
+                    highlightIntent={pendingHighlightIntent}
+                    onClearHighlightIntent={onClearHighlightIntent}
+                    initialHighlightSnippet={pendingHighlightSnippet || pendingHighlightIntent?.snippet}
+                    onClearHighlightSnippet={onClearHighlightSnippet || onClearHighlightIntent}
                     warningParagraphMismatch={warningParagraphMismatch}
                     enableAiQaCritique={enableAiQaCritique}
                     enableSegmentTranslation={enableSegmentTranslation}

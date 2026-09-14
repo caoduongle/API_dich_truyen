@@ -33,10 +33,8 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../lib/cn';
 
-export interface OpenInTranslatorOptions {
-  snippet?: string;
-  issueId?: string;
-}
+import type { OpenInTranslatorOptions } from '../../types/audit';
+export type { OpenInTranslatorOptions };
 
 export interface HakoIssueCardProps {
   issue: QualityIssue;

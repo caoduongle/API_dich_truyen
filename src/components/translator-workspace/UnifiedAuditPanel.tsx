@@ -65,6 +65,8 @@ export interface UnifiedAuditPanelProps {
   tone?: string;
   /** Callback tùy chọn thay thế việc gọi trực tiếp rewriteSentenceDirect (Feature 104, testability) */
   onRewriteSentence?: (params: DirectRewriteSentenceParams) => Promise<string>;
+  /** ID của lỗi cần được focus/làm nổi bật tự động khi điều hướng từ bên ngoài (Feature 135) */
+  focusedIssueId?: string | null;
 }
 
 export type AuditFilterTab = 'all' | 'hako_rule' | 'ai_critique' | 'pending';
@@ -157,6 +159,7 @@ export function UnifiedAuditPanel({
   onRewriteSentence,
   genre,
   tone,
+  focusedIssueId,
 }: UnifiedAuditPanelProps) {
   const [activeTab, setActiveTab] = useState<AuditFilterTab>('all');
 
@@ -386,6 +389,33 @@ export function UnifiedAuditPanel({
       setFocusedIssueIndex((prev) => Math.max(0, Math.min(prev, filteredIssues.length - 1)));
     }
   }, [filteredIssues.length, activeTab]);
+
+  // Feature 135: Đồng bộ focusedIssueId khi mở từ Hako Checker hoặc nguồn ngoài
+  useEffect(() => {
+    if (!focusedIssueId) return;
+
+    // Tìm thẻ lỗi tương ứng
+    const targetIssue = unifiedIssues.find((i) => i.id === focusedIssueId);
+    if (!targetIssue) return;
+
+    // Chuyển tab sang 'all' nếu thẻ lỗi bị ẩn ở tab hiện tại
+    if (activeTab === 'hako_rule' && targetIssue.source !== 'hako_rule') {
+      setActiveTab('all');
+    } else if (activeTab === 'ai_critique' && targetIssue.source !== 'ai_critique') {
+      setActiveTab('all');
+    } else if (activeTab === 'pending' && targetIssue.status !== 'pending') {
+      setActiveTab('all');
+    }
+
+    const indexInFiltered = filteredIssues.findIndex((i) => i.id === focusedIssueId);
+    if (indexInFiltered !== -1) {
+      setFocusedIssueIndex(indexInFiltered);
+      const timer = setTimeout(() => {
+        cardRefs.current[indexInFiltered]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [focusedIssueId, filteredIssues, unifiedIssues, activeTab]);
 
   // Feature 105: Alt+J - Navigate to next issue
   useHotkeys('alt+j', () => {

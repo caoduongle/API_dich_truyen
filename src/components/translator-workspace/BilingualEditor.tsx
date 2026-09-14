@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   RefreshCw, Play, Sparkles, BookOpen, FileText, Copy, Check, Save, 
-  ChevronRight, Edit3, Eraser
+  ChevronRight, Edit3, Eraser, Search
 } from 'lucide-react';
 import { ChapterMetadata, GlossaryItem, StoryProject } from '../../types';
 import { useNotifications } from '../NotificationSystem';
@@ -10,8 +10,9 @@ import { UnifiedAuditPanel } from './UnifiedAuditPanel';
 import { scrollAndSelectInTextarea, findSnippetLocationInText } from '../../utils/textareaHighlight';
 import type { QualityIssue } from '../../types/hakoChecker';
 import type { DirectQaCritiqueIssue } from '../../services/directTranslationEngine';
-import type { UnifiedAuditIssue } from '../../types/audit';
+import type { UnifiedAuditIssue, HighlightIntent } from '../../types/audit';
 import { QuickAddTermModal } from './QuickAddTermModal';
+import { FindReplaceModal } from './FindReplaceModal';
 import { ChapterSelectorToolbar } from './ChapterSelectorToolbar';
 import { useHotkeys } from '../../hooks/useHotkeys';
 import { Button } from '../ui/Button';
@@ -76,6 +77,9 @@ export interface BilingualEditorProps {
   onFieldFocus?: (field: 'raw' | 'polished' | 'idle') => void;
   initialHighlightSnippet?: string | null;
   onClearHighlightSnippet?: () => void;
+  highlightIntent?: HighlightIntent | null;
+  onClearHighlightIntent?: () => void;
+  currentChapterId?: string | null;
 }
 
 export const BilingualEditor = React.memo(function BilingualEditor({
@@ -132,6 +136,9 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   onFieldFocus,
   initialHighlightSnippet,
   onClearHighlightSnippet,
+  highlightIntent,
+  onClearHighlightIntent,
+  currentChapterId,
 }: BilingualEditorProps) {
   const { showToast } = useNotifications();
   const rawTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -141,37 +148,48 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   const [selectedContext, setSelectedContext] = useState('');
   const snippetHandledRef = useRef<string | null>(null);
 
-  // Auto-scroll & Highlight khi có initialHighlightSnippet truyền từ Hako Checker
+  // Auto-scroll & Highlight khi có highlightIntent hoặc initialHighlightSnippet từ Hako Checker
   useEffect(() => {
-    if (!initialHighlightSnippet || initialHighlightSnippet.trim() === '') {
+    const effectiveSnippet = highlightIntent?.snippet || initialHighlightSnippet;
+    if (!effectiveSnippet || effectiveSnippet.trim() === '') {
       snippetHandledRef.current = null;
       return;
     }
 
-    if (snippetHandledRef.current === initialHighlightSnippet) {
+    const intentKey = highlightIntent
+      ? `${highlightIntent.chapterId}:${highlightIntent.timestamp || 0}:${highlightIntent.snippet}`
+      : effectiveSnippet;
+
+    if (snippetHandledRef.current === intentKey) {
+      return;
+    }
+
+    // Nếu có highlightIntent chỉ định chapterId cụ thể, phải kiên nhẫn đợi chapter đó nạp xong vào state
+    if (highlightIntent?.chapterId && currentChapterId !== highlightIntent.chapterId) {
       return;
     }
 
     // 1. Tự động xác định phân vùng dịch phù hợp: kiểm tra polished trước, sau đó raw
     let targetStage: 'raw' | 'polished' = activeStage;
-    if (polishedTranslation && findSnippetLocationInText(polishedTranslation, initialHighlightSnippet)) {
+    if (polishedTranslation && findSnippetLocationInText(polishedTranslation, effectiveSnippet)) {
       targetStage = 'polished';
-    } else if (rawTranslation && findSnippetLocationInText(rawTranslation, initialHighlightSnippet)) {
+    } else if (rawTranslation && findSnippetLocationInText(rawTranslation, effectiveSnippet)) {
       targetStage = 'raw';
     }
 
-    // Nếu cần chuyển stage, chuyển đổi trước và đợi render tiếp theo
+    // Nếu cần chuyển stage, chuyển đổi trước và đợi render tiếp theo để textarea DOM mount
     if (targetStage !== activeStage) {
       setActiveStage(targetStage);
       return;
     }
 
-    snippetHandledRef.current = initialHighlightSnippet;
+    // Đánh dấu intentKey đã được tiếp nhận xử lý
+    snippetHandledRef.current = intentKey;
 
     // 2. Chờ DOM và textarea sẵn sàng rồi cuộn và bôi chọn
     const timer = setTimeout(() => {
       const targetRef = targetStage === 'polished' ? polishedTextareaRef : rawTextareaRef;
-      const success = scrollAndSelectInTextarea(targetRef.current, initialHighlightSnippet);
+      const success = scrollAndSelectInTextarea(targetRef.current, effectiveSnippet);
 
       if (success) {
         showToast({
@@ -187,19 +205,38 @@ export const BilingualEditor = React.memo(function BilingualEditor({
         });
       }
 
+      onClearHighlightIntent?.();
       onClearHighlightSnippet?.();
     }, 100);
 
     return () => clearTimeout(timer);
   }, [
+    highlightIntent,
     initialHighlightSnippet,
+    currentChapterId,
     activeStage,
     polishedTranslation,
     rawTranslation,
     setActiveStage,
+    onClearHighlightIntent,
     onClearHighlightSnippet,
     showToast,
   ]);
+
+  // Find and Replace state and controls
+  const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
+  const [findReplaceInitialTerm, setFindReplaceInitialTerm] = useState('');
+
+  const handleOpenFindReplace = useCallback(() => {
+    const activeEl = activeStage === 'polished' ? polishedTextareaRef.current : rawTextareaRef.current;
+    if (activeEl && activeEl.selectionStart !== activeEl.selectionEnd) {
+      const selected = activeEl.value.substring(activeEl.selectionStart, activeEl.selectionEnd).trim();
+      if (selected) {
+        setFindReplaceInitialTerm(selected);
+      }
+    }
+    setIsFindReplaceOpen(true);
+  }, [activeStage]);
 
   // Hotkey bindings
   useHotkeys('ctrl+s', () => {
@@ -214,6 +251,16 @@ export const BilingualEditor = React.memo(function BilingualEditor({
     } else if (activeStage === 'polished' && !isPolishing && rawTranslation) {
       handlePolishTranslation();
     }
+  });
+
+  useHotkeys('ctrl+h', (e) => {
+    e?.preventDefault();
+    handleOpenFindReplace();
+  });
+
+  useHotkeys('ctrl+f', (e) => {
+    e?.preventDefault();
+    handleOpenFindReplace();
   });
 
   const handleTextareaSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
@@ -483,6 +530,7 @@ export const BilingualEditor = React.memo(function BilingualEditor({
               selectedModel={selectedModel}
               genre={activeProject.genre}
               tone={activeProject.tone}
+              focusedIssueId={highlightIntent?.issueId}
             />
 
             {activeStage === 'raw' ? (
@@ -496,13 +544,25 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                     </span>
                     <ParagraphMetricsBadge text={rawTranslation} referenceText={sourceText} />
                   </div>
-                  <button
-                    onClick={() => handleCopyText(rawTranslation, 'raw')}
-                    className="flex items-center gap-1 text-text-muted hover:text-text-main transition-colors shrink-0 cursor-pointer bg-parchment hover:bg-parchment-2 px-2.5 py-0.5 rounded-[2px] border border-parchment-2 text-[10px]"
-                  >
-                    {copiedRaw ? <Check className="w-3 h-3 text-polish" /> : <Copy className="w-3 h-3" />}
-                    {copiedRaw ? 'Đã chép' : 'Sao chép'}
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      id="btn-find-replace-raw"
+                      type="button"
+                      onClick={handleOpenFindReplace}
+                      title="Tìm và thay thế văn bản trong bản dịch thô (Ctrl+H)"
+                      className="flex items-center gap-1 text-text-muted hover:text-text-main transition-colors shrink-0 cursor-pointer bg-parchment hover:bg-parchment-2 px-2.5 py-0.5 rounded-[2px] border border-parchment-2 text-[10px]"
+                    >
+                      <Search className="w-3 h-3 text-draft" />
+                      Tìm & Thay thế
+                    </button>
+                    <button
+                      onClick={() => handleCopyText(rawTranslation, 'raw')}
+                      className="flex items-center gap-1 text-text-muted hover:text-text-main transition-colors shrink-0 cursor-pointer bg-parchment hover:bg-parchment-2 px-2.5 py-0.5 rounded-[2px] border border-parchment-2 text-[10px]"
+                    >
+                      {copiedRaw ? <Check className="w-3 h-3 text-polish" /> : <Copy className="w-3 h-3" />}
+                      {copiedRaw ? 'Đã chép' : 'Sao chép'}
+                    </button>
+                  </div>
                 </div>
 
                 <textarea
@@ -573,13 +633,25 @@ export const BilingualEditor = React.memo(function BilingualEditor({
                     </span>
                     <ParagraphMetricsBadge text={polishedTranslation} referenceText={rawTranslation || sourceText} />
                   </div>
-                  <button
-                    onClick={() => handleCopyText(polishedTranslation, 'polished')}
-                    className="flex items-center gap-1 text-text-muted hover:text-text-main transition-colors shrink-0 cursor-pointer bg-parchment hover:bg-parchment-2 px-2.5 py-0.5 rounded-[2px] border border-parchment-2 text-[10px]"
-                  >
-                    {copiedPolished ? <Check className="w-3 h-3 text-polish" /> : <Copy className="w-3 h-3" />}
-                    {copiedPolished ? 'Đã chép' : 'Sao chép'}
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      id="btn-find-replace-polished"
+                      type="button"
+                      onClick={handleOpenFindReplace}
+                      title="Tìm và thay thế văn bản trong bản biên tập (Ctrl+H)"
+                      className="flex items-center gap-1 text-text-muted hover:text-text-main transition-colors shrink-0 cursor-pointer bg-parchment hover:bg-parchment-2 px-2.5 py-0.5 rounded-[2px] border border-parchment-2 text-[10px]"
+                    >
+                      <Search className="w-3 h-3 text-polish" />
+                      Tìm & Thay thế
+                    </button>
+                    <button
+                      onClick={() => handleCopyText(polishedTranslation, 'polished')}
+                      className="flex items-center gap-1 text-text-muted hover:text-text-main transition-colors shrink-0 cursor-pointer bg-parchment hover:bg-parchment-2 px-2.5 py-0.5 rounded-[2px] border border-parchment-2 text-[10px]"
+                    >
+                      {copiedPolished ? <Check className="w-3 h-3 text-polish" /> : <Copy className="w-3 h-3" />}
+                      {copiedPolished ? 'Đã chép' : 'Sao chép'}
+                    </button>
+                  </div>
                 </div>
 
                 <textarea
@@ -665,6 +737,17 @@ export const BilingualEditor = React.memo(function BilingualEditor({
           </Button>
         </div>
       </div>
+
+      {/* Hộp thoại Tìm và Thay thế */}
+      <FindReplaceModal
+        isOpen={isFindReplaceOpen}
+        onClose={() => setIsFindReplaceOpen(false)}
+        targetText={activeStage === 'polished' ? polishedTranslation : rawTranslation}
+        onTextChange={activeStage === 'polished' ? setPolishedTranslation : setRawTranslation}
+        textareaRef={activeTextareaRef}
+        initialSearchTerm={findReplaceInitialTerm}
+        stageLabel={activeStage === 'polished' ? 'Biên tập (2)' : 'Dịch thô (1)'}
+      />
     </div>
   );
 });
