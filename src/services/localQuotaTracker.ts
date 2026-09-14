@@ -13,6 +13,7 @@ import type {
   CustomLimit,
 } from '../types/quota';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
+import { classifyGeminiError } from './gemini/geminiErrorClassifier';
 
 export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
 
@@ -25,10 +26,16 @@ export interface KeyHealthResult {
   isCustomLimitReached?: boolean;
 }
 
-export interface CallLogEntry {
+export interface CallAttemptEntry {
+  timestamp: number;
+}
+
+export interface CallTokenEntry {
   timestamp: number;
   tokens: number;
 }
+
+export type CallLogEntry = CallTokenEntry;
 
 export interface InternalModelStats {
   requestsTotal: number;
@@ -38,7 +45,8 @@ export interface InternalModelStats {
   tokensTotal: number;
   tokensToday: number;
   totalLatencyMs: number;
-  recentCalls: CallLogEntry[];
+  recentAttempts: CallAttemptEntry[];
+  recentTokens: CallTokenEntry[];
   lastResetDay: string;
 }
 
@@ -51,7 +59,8 @@ export interface InternalKeyStats {
   consecutiveErrors: number;
   tokensTotal: number;
   tokensToday: number;
-  recentCalls: CallLogEntry[];
+  recentAttempts: CallAttemptEntry[];
+  recentTokens: CallTokenEntry[];
   byModel: Map<string, InternalModelStats>;
   lastResetDay: string;
   lastRequestTimestamp?: number;
@@ -74,6 +83,43 @@ export function getDayInLosAngeles(timestamp: number = Date.now()): string {
     return formatter.format(new Date(timestamp));
   } catch {
     return new Date(timestamp).toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * Tính toán chính xác thời điểm 00:00:00.000 ngày kế tiếp theo múi giờ America/Los_Angeles (PST/PDT)
+ */
+export function getNextPstMidnight(now: number = Date.now()): number {
+  const currentDay = getDayInLosAngeles(now);
+  const [year, month, day] = currentDay.split('-').map(Number);
+
+  // Chọn mốc 12:00 UTC của ngày kế tiếp làm điểm neo (luôn rơi vào buổi sáng ngày kế tiếp tại Los Angeles)
+  const nextDateUtc = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0, 0));
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hourCycle: 'h23',
+    });
+
+    const parts = formatter.formatToParts(nextDateUtc);
+    let hour = 0;
+    let minute = 0;
+    let second = 0;
+    for (const part of parts) {
+      if (part.type === 'hour') hour = Number(part.value);
+      if (part.type === 'minute') minute = Number(part.value);
+      if (part.type === 'second') second = Number(part.value);
+    }
+
+    const elapsedSinceMidnightMs = (hour * 3600 + minute * 60 + second) * 1000;
+    return nextDateUtc.getTime() - elapsedSinceMidnightMs;
+  } catch {
+    // Dự phòng khi môi trường không hỗ trợ timezone America/Los_Angeles (mặc định PST UTC-8)
+    return Date.UTC(year, month - 1, day + 1, 8, 0, 0, 0);
   }
 }
 
@@ -152,13 +198,15 @@ class LocalQuotaTracker {
             for (const [mName, mStats] of Object.entries<any>(item.byModel)) {
               byModelMap.set(mName, {
                 ...mStats,
-                recentCalls: [],
+                recentAttempts: [],
+                recentTokens: [],
               });
             }
           }
           this.keyStatsMap.set(item.keyHash, {
             ...item,
-            recentCalls: [],
+            recentAttempts: [],
+            recentTokens: [],
             byModel: byModelMap,
             healthState: item.healthState === 'AuthFailed' ? 'AuthFailed' : 'Healthy',
             circuitBreakerStatus: 'Closed',
@@ -230,7 +278,8 @@ class LocalQuotaTracker {
         consecutiveErrors: 0,
         tokensTotal: 0,
         tokensToday: 0,
-        recentCalls: [],
+        recentAttempts: [],
+        recentTokens: [],
         byModel: new Map(),
         lastResetDay: currentDay,
         healthState: 'Healthy',
@@ -271,7 +320,8 @@ class LocalQuotaTracker {
         tokensTotal: 0,
         tokensToday: 0,
         totalLatencyMs: 0,
-        recentCalls: [],
+        recentAttempts: [],
+        recentTokens: [],
         lastResetDay: currentDay,
       };
       keyStats.byModel.set(model, mStats);
@@ -323,10 +373,12 @@ class LocalQuotaTracker {
     keyStats.requestsTotal++;
     keyStats.requestsToday++;
     keyStats.lastRequestTimestamp = now;
+    keyStats.recentAttempts.push({ timestamp: now });
 
     const mStats = this.getOrCreateModelStats(keyStats, model, now);
     mStats.requestsTotal++;
     mStats.requestsToday++;
+    mStats.recentAttempts.push({ timestamp: now });
 
     this.saveToStorage();
   }
@@ -354,7 +406,7 @@ class LocalQuotaTracker {
     keyStats.tokensToday += totalTokens;
     keyStats.consecutiveErrors = 0;
     keyStats.consecutiveSuccesses++;
-    keyStats.recentCalls.push({ timestamp: now, tokens: totalTokens });
+    keyStats.recentTokens.push({ timestamp: now, tokens: totalTokens });
 
     // Cập nhật trạng thái Circuit Breaker
     if (keyStats.circuitBreakerStatus === 'HalfOpen' && keyStats.consecutiveSuccesses >= 2) {
@@ -371,7 +423,7 @@ class LocalQuotaTracker {
     mStats.tokensTotal += totalTokens;
     mStats.tokensToday += totalTokens;
     mStats.totalLatencyMs += latencyMs;
-    mStats.recentCalls.push({ timestamp: now, tokens: totalTokens });
+    mStats.recentTokens.push({ timestamp: now, tokens: totalTokens });
 
     this.saveToStorage();
   }
@@ -385,6 +437,8 @@ class LocalQuotaTracker {
     error: {
       status?: number;
       message?: string;
+      details?: unknown[];
+      rawResponse?: any;
       isRateLimit?: boolean;
       isAuthError?: boolean;
       isOverload?: boolean;
@@ -407,25 +461,27 @@ class LocalQuotaTracker {
     mStats.errorsToday++;
 
     const msg = error.message || '';
-    if (error.isAuthError || error.status === 401 || error.status === 403) {
+    const classified = classifyGeminiError(
+      error.status || 0,
+      error.rawResponse || { error: { message: msg, details: error.details, status: error.isRateLimit ? 'RESOURCE_EXHAUSTED' : undefined } }
+    );
+
+    if (error.isAuthError || classified.category === 'AUTH_FAILURE') {
       keyStats.healthState = 'AuthFailed';
       keyStats.circuitBreakerStatus = 'Open';
       keyStats.cooldownUntil = Number.MAX_SAFE_INTEGER;
       keyStats.transitionReason = `401/403: API key không hợp lệ hoặc bị từ chối (${msg.slice(0, 80)})`;
-    } else if (error.isRateLimit || error.status === 429) {
-      if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('daily') || msg.toLowerCase().includes('exhausted')) {
-        keyStats.healthState = 'QuotaExhausted';
-        keyStats.circuitBreakerStatus = 'Open';
-        // Tạm dừng đến 00:00 PST ngày hôm sau (khoảng vài giờ)
-        keyStats.cooldownUntil = now + 4 * 3600 * 1000;
-        keyStats.transitionReason = '429: Hạn mức ngày đã hết (RPD Quota Exhausted)';
-      } else {
-        keyStats.healthState = 'RateLimited';
-        keyStats.circuitBreakerStatus = 'Open';
-        keyStats.cooldownUntil = now + 45 * 1000; // 45 giây cooldown cho RPM/TPM
-        keyStats.transitionReason = '429: Đã chạm giới hạn tốc độ (RPM/TPM Rate Limit)';
-      }
-    } else if (error.isOverload || error.status === 503 || error.status === 500) {
+    } else if (classified.category === 'QUOTA_EXHAUSTED_RPD') {
+      keyStats.healthState = 'QuotaExhausted';
+      keyStats.circuitBreakerStatus = 'Open';
+      keyStats.cooldownUntil = getNextPstMidnight(now);
+      keyStats.transitionReason = '429: Hạn mức ngày đã hết (RPD Quota Exhausted)';
+    } else if (error.isRateLimit || classified.category === 'RATE_LIMIT_RPM') {
+      keyStats.healthState = 'RateLimited';
+      keyStats.circuitBreakerStatus = 'Open';
+      keyStats.cooldownUntil = now + 45 * 1000; // 45 giây cooldown cho RPM/TPM
+      keyStats.transitionReason = '429: Đã chạm giới hạn tốc độ (RPM/TPM Rate Limit)';
+    } else if (error.isOverload || classified.category === 'SERVICE_OVERLOAD') {
       keyStats.healthState = 'Cooldown';
       keyStats.circuitBreakerStatus = 'Open';
       keyStats.cooldownUntil = now + 15 * 1000; // 15 giây cooldown
@@ -587,16 +643,18 @@ class LocalQuotaTracker {
       const limit = effectiveLimits ? effectiveLimits[stats.keyHash] : undefined;
       const health = this.getKeyHealth(key, now, limit);
 
-      // Lọc các cuộc gọi trong 60 giây gần nhất để tính RPM & TPM
-      stats.recentCalls = stats.recentCalls.filter((c) => c.timestamp > minuteThreshold);
-      const requestsThisMinute = stats.recentCalls.length;
-      const tokensThisMinute = stats.recentCalls.reduce((acc, c) => acc + c.tokens, 0);
+      // Lọc các cuộc gọi trong 60 giây gần nhất để tính RPM (attempts) & TPM (tokens)
+      stats.recentAttempts = stats.recentAttempts.filter((c) => c.timestamp > minuteThreshold);
+      stats.recentTokens = stats.recentTokens.filter((c) => c.timestamp > minuteThreshold);
+      const requestsThisMinute = stats.recentAttempts.length;
+      const tokensThisMinute = stats.recentTokens.reduce((acc, c) => acc + c.tokens, 0);
 
       const byModelSnapshot: Record<string, ModelUsageStats> = {};
       for (const [mName, mStats] of stats.byModel.entries()) {
-        mStats.recentCalls = mStats.recentCalls.filter((c) => c.timestamp > minuteThreshold);
-        const mRpm = mStats.recentCalls.length;
-        const mTpm = mStats.recentCalls.reduce((acc, c) => acc + c.tokens, 0);
+        mStats.recentAttempts = mStats.recentAttempts.filter((c) => c.timestamp > minuteThreshold);
+        mStats.recentTokens = mStats.recentTokens.filter((c) => c.timestamp > minuteThreshold);
+        const mRpm = mStats.recentAttempts.length;
+        const mTpm = mStats.recentTokens.reduce((acc, c) => acc + c.tokens, 0);
 
         byModelSnapshot[mName] = {
           requestsTotal: mStats.requestsTotal,

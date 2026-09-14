@@ -4,7 +4,6 @@ import { Chapter, GlossaryItem } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
-import { escapeHtml } from '../../lib/text';
 
 export interface DiffModalProps {
   chapters: Chapter[];
@@ -12,6 +11,43 @@ export interface DiffModalProps {
   diffModalChapterIndex: number;
   setDiffModalChapterIndex: (n: number) => void;
   onClose: () => void;
+}
+
+/**
+ * An toàn kết xuất văn bản kèm highlight các thuật ngữ từ điển dưới dạng React nodes,
+ * loại bỏ hoàn toàn nguy cơ XSS từ dangerouslySetInnerHTML.
+ */
+export function renderHighlightedText(text: string, glossary: GlossaryItem[]): React.ReactNode {
+  if (!text) return null;
+  const terms = glossary
+    .map(i => i.vietnamese?.trim())
+    .filter((v): v is string => !!v && v.length > 0);
+
+  if (terms.length === 0) {
+    return text;
+  }
+
+  // Khử trùng lặp và sắp xếp theo độ dài giảm dần để ưu tiên cụm từ dài trước
+  const uniqueTerms = Array.from(new Set(terms)).sort((a, b) => b.length - a.length);
+  const escapedTerms = uniqueTerms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const regex = new RegExp(`(${escapedTerms.join('|')})`, 'g');
+
+  const parts = text.split(regex);
+  const termSet = new Set(uniqueTerms);
+
+  return parts.map((part, index) => {
+    if (termSet.has(part)) {
+      return (
+        <mark
+          key={index}
+          className="bg-polish/20 text-polish border border-polish/40 rounded-[2px] px-1 font-bold"
+        >
+          {part}
+        </mark>
+      );
+    }
+    return part;
+  });
 }
 
 export const DiffModal = React.memo(function DiffModal({
@@ -56,27 +92,6 @@ export const DiffModal = React.memo(function DiffModal({
   }, [diffModalChapterIndex]);
 
   if (processedChapters.length === 0 || !chap) return null;
-
-  const buildHighlightedHtml = (text: string) => {
-    let result = escapeHtml(text);
-    const sorted = [...glossary]
-      .filter(i => i.vietnamese)
-      .sort((a, b) => (b.vietnamese?.length || 0) - (a.vietnamese?.length || 0));
-    const nonce = Math.random().toString(36).substring(2, 10);
-    const placeholder: Record<string, string> = {};
-    sorted.forEach((item, idx) => {
-      if (!item.vietnamese) return;
-      const escapedVietnamese = escapeHtml(item.vietnamese);
-      const regexEscaped = escapedVietnamese.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const key = `⟦HL_${nonce}_${idx}⟧`;
-      result = result.replace(new RegExp(regexEscaped, 'g'), key);
-      placeholder[key] = `<mark class="bg-polish/20 text-polish border border-polish/40 rounded-[2px] px-1 font-bold">${escapedVietnamese}</mark>`;
-    });
-    Object.entries(placeholder).forEach(([k, v]) => {
-      result = result.replace(new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), v);
-    });
-    return result;
-  };
 
   return (
     <Modal
@@ -168,8 +183,9 @@ export const DiffModal = React.memo(function DiffModal({
             ref={diffRightScrollRef}
             onScroll={handleDiffRightScroll}
             className="flex-1 overflow-y-auto p-4 text-xs text-text-main font-sans leading-relaxed whitespace-pre-wrap break-words"
-            dangerouslySetInnerHTML={{ __html: buildHighlightedHtml(chap.processedSourceText || '') }}
-          />
+          >
+            {renderHighlightedText(chap.processedSourceText || '', glossary)}
+          </div>
         </div>
       </div>
     </Modal>

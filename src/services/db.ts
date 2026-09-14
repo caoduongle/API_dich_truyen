@@ -8,8 +8,16 @@ import {
   migrateLegacyProjects,
 } from './dbMigration';
 import { STORAGE_CONFIG } from '../config/constants';
+import {
+  StorageResult,
+  StorageError,
+  StorageErrorCode,
+  createStorageSuccess,
+  createStorageError,
+} from './storageResult';
 
 export { PROJECTS_STORE, CHAPTERS_STORE, CRDT_STATES_STORE };
+export type { StorageResult, StorageError, StorageErrorCode };
 
 const { DB_NAME, DB_VERSION, NEAR_LIMIT_PERCENT, NEAR_LIMIT_MIN_BYTES } = STORAGE_CONFIG;
 
@@ -125,7 +133,37 @@ export const initDB = (): Promise<IDBDatabase> => {
   });
 };
 
-export const getProjectsFromDB = async (): Promise<StoryProject[]> => {
+export function resetDBInstanceForTesting(): void {
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+    } catch (_) {}
+  }
+  dbInstance = null;
+}
+
+export function classifyStorageError(err: any): { code: StorageErrorCode; message: string } {
+  const name = err?.name || '';
+  const message = err?.message || String(err);
+  if (name === 'QuotaExceededError') {
+    return { code: 'QUOTA_EXCEEDED', message: 'Dung lượng lưu trữ IndexedDB đã đầy.' };
+  }
+  if (name === 'SecurityError' || name === 'InvalidStateError' || message.includes('blocked') || message.includes('denied') || message.includes('Permission')) {
+    return { code: 'STORAGE_BLOCKED', message: 'Truy cập IndexedDB bị từ chối hoặc bị khóa.' };
+  }
+  if (name === 'VersionError') {
+    return { code: 'VERSION_ERROR', message: 'Lỗi xung đột phiên bản cơ sở dữ liệu IndexedDB.' };
+  }
+  if (name === 'AbortError') {
+    return { code: 'TRANSACTION_ABORTED', message: 'Giao tác lưu trữ bị hủy bỏ.' };
+  }
+  return { code: 'UNKNOWN_ERROR', message: `Lỗi IndexedDB: ${message}` };
+}
+
+/**
+ * Lấy toàn bộ danh sách dự án kèm thông tin trạng thái lỗi chi tiết (StorageResult)
+ */
+export const getProjectsResultFromDB = async (): Promise<StorageResult<StoryProject[]>> => {
   try {
     const db = await initDB();
     const rawProjects = await new Promise<any[]>((resolve, reject) => {
@@ -136,21 +174,41 @@ export const getProjectsFromDB = async (): Promise<StoryProject[]> => {
       request.onsuccess = () => resolve(request.result || []);
     });
 
-    return await migrateLegacyProjects(rawProjects, db);
-  } catch (err) {
+    const migrated = await migrateLegacyProjects(rawProjects, db);
+    return createStorageSuccess(migrated);
+  } catch (err: any) {
     console.error('IndexedDB Get All Projects Error:', err);
-    return [];
+    const classified = classifyStorageError(err);
+    return createStorageError(classified.code, classified.message, err);
   }
 };
 
-export const getProjectFromDB = async (projectId: string): Promise<StoryProject | null> => {
+/**
+ * Lấy thông tin một dự án theo ID kèm trạng thái lỗi chi tiết (StorageResult)
+ */
+export const getProjectResultFromDB = async (projectId: string): Promise<StorageResult<StoryProject | null>> => {
   try {
-    const projects = await getProjectsFromDB();
-    return projects.find((p) => p.id === projectId) || null;
-  } catch (err) {
+    const projectsRes = await getProjectsResultFromDB();
+    if (!projectsRes.ok) {
+      return projectsRes;
+    }
+    const project = projectsRes.data.find((p) => p.id === projectId) || null;
+    return createStorageSuccess(project);
+  } catch (err: any) {
     console.error('IndexedDB Get Project Error:', err);
-    return null;
+    const classified = classifyStorageError(err);
+    return createStorageError(classified.code, classified.message, err);
   }
+};
+
+export const getProjectsFromDB = async (): Promise<StoryProject[]> => {
+  const res = await getProjectsResultFromDB();
+  return res.ok ? res.data : [];
+};
+
+export const getProjectFromDB = async (projectId: string): Promise<StoryProject | null> => {
+  const res = await getProjectResultFromDB(projectId);
+  return res.ok ? res.data : null;
 };
 
 export const saveProjectToDB = async (project: StoryProject): Promise<void> => {

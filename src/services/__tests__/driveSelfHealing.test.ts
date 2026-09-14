@@ -151,6 +151,50 @@ describe('Google Drive Folder Self-Healing and Error Recovery', () => {
       expect(folderId).toBe('new_recreated_root_456');
       expect((client as any).cachedFolderId).toBe('new_recreated_root_456');
     });
+
+    it('reuses inflight promise when called concurrently (single-flight lock)', async () => {
+      const client = new DriveRestClient();
+      let fetchCallCount = 0;
+
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string, opts?: any) => {
+        fetchCallCount++;
+        await new Promise((r) => setTimeout(r, 20));
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ files: [{ id: 'single_flight_folder_999' }] }),
+        };
+      });
+
+      const [res1, res2] = await Promise.all([
+        client.ensureAppFolder('test_token'),
+        client.ensureAppFolder('test_token'),
+      ]);
+
+      expect(res1).toBe('single_flight_folder_999');
+      expect(res2).toBe('single_flight_folder_999');
+      expect(fetchCallCount).toBe(1);
+    });
+
+    it('invalidates cache when access token changes (user identity change)', async () => {
+      const client = new DriveRestClient();
+      (client as any).cachedFolderId = 'user_a_folder';
+      (client as any).cachedToken = 'user_a_token';
+
+      let searched = false;
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+        searched = true;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ files: [{ id: 'user_b_folder' }] }),
+        };
+      });
+
+      const res = await client.ensureAppFolder('user_b_token');
+      expect(res).toBe('user_b_folder');
+      expect(searched).toBe(true);
+    });
   });
 
   describe('DriveGranularSync.syncGranularProject Self-Healing (T004 & T005)', () => {

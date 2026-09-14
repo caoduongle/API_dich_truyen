@@ -7,6 +7,14 @@ export const MANIFEST_FILE_NAME = 'manifest.json';
 
 export class DriveRestClient {
   private cachedFolderId: string | null = null;
+  private cachedToken: string | null = null;
+  private inflightEnsureFolderPromise: Promise<string> | null = null;
+
+  public clearCache(): void {
+    this.cachedFolderId = null;
+    this.cachedToken = null;
+    this.inflightEnsureFolderPromise = null;
+  }
 
   /**
    * Kiểm tra 1 folder/file ID có còn tồn tại và truy cập được không.
@@ -29,8 +37,14 @@ export class DriveRestClient {
 
   /**
    * Đảm bảo thư mục lưu trữ của ứng dụng tồn tại trên Google Drive
+   * (Có single-flight promise lock chống race condition và cache gắn theo token người dùng)
    */
   public async ensureAppFolder(accessToken: string): Promise<string> {
+    if (this.cachedToken && this.cachedToken !== accessToken) {
+      this.cachedFolderId = null;
+    }
+    this.cachedToken = accessToken;
+
     if (this.cachedFolderId) {
       const exists = await this.fileExists(accessToken, this.cachedFolderId);
       if (exists) {
@@ -39,43 +53,56 @@ export class DriveRestClient {
       this.cachedFolderId = null;
     }
 
-    const query = `mimeType = 'application/vnd.google-apps.folder' and name = '${APP_FOLDER_NAME}' and trashed = false`;
-    const searchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(query)}&fields=files(id, name)&spaces=drive`;
-
-    const searchRes = await fetch(searchUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    if (!searchRes.ok) {
-      throw new Error(`Không thể tìm kiếm thư mục Drive (HTTP ${searchRes.status})`);
+    if (this.inflightEnsureFolderPromise) {
+      return this.inflightEnsureFolderPromise;
     }
 
-    const data = await searchRes.json();
-    if (data.files && data.files.length > 0) {
-      this.cachedFolderId = data.files[0].id;
-      return data.files[0].id;
-    }
+    this.inflightEnsureFolderPromise = (async () => {
+      try {
+        const query = `mimeType = 'application/vnd.google-apps.folder' and name = '${APP_FOLDER_NAME}' and trashed = false`;
+        const searchUrl = `${DRIVE_FILES_ENDPOINT}?q=${encodeURIComponent(query)}&fields=files(id, name, createdTime)&orderBy=createdTime&spaces=drive`;
 
-    // Nếu chưa có, tạo thư mục mới
-    const createRes = await fetch(DRIVE_FILES_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: APP_FOLDER_NAME,
-        mimeType: 'application/vnd.google-apps.folder',
-      }),
-    });
+        const searchRes = await fetch(searchUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
 
-    if (!createRes.ok) {
-      throw new Error(`Không thể tạo thư mục '${APP_FOLDER_NAME}' trên Drive (HTTP ${createRes.status})`);
-    }
+        if (!searchRes.ok) {
+          throw new Error(`Không thể tìm kiếm thư mục Drive (HTTP ${searchRes.status})`);
+        }
 
-    const created = await createRes.json();
-    this.cachedFolderId = created.id;
-    return created.id;
+        const data = await searchRes.json();
+        if (data.files && data.files.length > 0) {
+          const chosenFolder = data.files[0].id;
+          this.cachedFolderId = chosenFolder;
+          return chosenFolder;
+        }
+
+        // Nếu chưa có, tạo thư mục mới
+        const createRes = await fetch(DRIVE_FILES_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: APP_FOLDER_NAME,
+            mimeType: 'application/vnd.google-apps.folder',
+          }),
+        });
+
+        if (!createRes.ok) {
+          throw new Error(`Không thể tạo thư mục '${APP_FOLDER_NAME}' trên Drive (HTTP ${createRes.status})`);
+        }
+
+        const created = await createRes.json();
+        this.cachedFolderId = created.id;
+        return created.id;
+      } finally {
+        this.inflightEnsureFolderPromise = null;
+      }
+    })();
+
+    return this.inflightEnsureFolderPromise;
   }
 
   /**
