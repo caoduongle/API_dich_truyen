@@ -65,4 +65,43 @@ describe('splitBilingualAdaptively', () => {
     expect(chunks[0].sourceText).toBe('');
     expect(chunks[0].rawText).toBe('');
   });
+
+  it('supports object options parameter signature matching positional signature', () => {
+    const sourceText = '段落一\n\n段落二\n\n段落三\n\n段落四';
+    const rawText = 'Đoạn 1\n\nĐoạn 2\n\nĐoạn 3\n\nĐoạn 4';
+
+    const byPos = splitBilingualAdaptively(sourceText, rawText, 2);
+    const byOptions = splitBilingualAdaptively({
+      sourceText,
+      rawText,
+      targetParts: 2,
+    });
+
+    expect(byOptions).toEqual(byPos);
+    expect(byOptions).toHaveLength(2);
+    expect(byOptions[0].chunkIndex).toBe(0);
+    expect(byOptions[1].chunkIndex).toBe(1);
+  });
+
+  it('safeguards against empty chunks when paragraph counts differ significantly (10 CN vs 4 VN)', () => {
+    const sourceParas = Array.from({ length: 10 }, (_, i) => `中文段落 ${i + 1}`);
+    const rawParas = Array.from({ length: 4 }, (_, i) => `Đoạn tiếng Việt ${i + 1}`);
+
+    const chunks = splitBilingualAdaptively({
+      sourceText: sourceParas.join('\n\n'),
+      rawText: rawParas.join('\n\n'),
+      targetParts: 6, // Requested 6 parts, but Vietnamese only has 4 paragraphs
+    });
+
+    // Should clamp to 4 parts maximum to avoid producing empty chunks
+    expect(chunks.length).toBeLessThanOrEqual(4);
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+
+    for (const chunk of chunks) {
+      expect(chunk.sourceText.trim().length).toBeGreaterThan(0);
+      expect(chunk.rawText.trim().length).toBeGreaterThan(0);
+      expect(chunk.sourceParagraphRange.end).toBeGreaterThan(chunk.sourceParagraphRange.start);
+      expect(chunk.rawParagraphRange.end).toBeGreaterThan(chunk.rawParagraphRange.start);
+    }
+  });
 });

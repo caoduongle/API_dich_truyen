@@ -86,4 +86,47 @@ describe('geminiClient', () => {
     expect(res.successKeyIndex).toBe(1);
     expect(res.text).toBe('Success on Key 2');
   });
+
+  it('records failure exactly once on HTTP 429/403 errors (no double counting)', async () => {
+    const recordFailureSpy = vi.spyOn(localQuotaTracker, 'recordFailure');
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      json: async () => ({ error: { message: 'Resource exhausted', details: [{ reason: 'RATE_LIMIT_EXCEEDED' }] } }),
+    });
+
+    await expect(
+      callGemini({
+        apiKeys: ['SINGLE_KEY'],
+        prompt: 'Hello',
+      })
+    ).rejects.toThrow();
+
+    // Phải gọi recordFailure đúng 1 lần duy nhất cho lượt thử của SINGLE_KEY, không bị catch block gọi lặp lần 2
+    expect(recordFailureSpy).toHaveBeenCalledTimes(1);
+
+    const status = localQuotaTracker.getQuotaStatus(['SINGLE_KEY']);
+    expect(status.keys[0].errorsTotal).toBe(1);
+    expect(status.summary?.failedAttemptsTotal).toBe(1);
+  });
+
+  it('records failure exactly once on network fetch exception', async () => {
+    const recordFailureSpy = vi.spyOn(localQuotaTracker, 'recordFailure');
+
+    global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await expect(
+      callGemini({
+        apiKeys: ['NETWORK_FAIL_KEY'],
+        prompt: 'Hello',
+      })
+    ).rejects.toThrow();
+
+    expect(recordFailureSpy).toHaveBeenCalledTimes(1);
+
+    const status = localQuotaTracker.getQuotaStatus(['NETWORK_FAIL_KEY']);
+    expect(status.keys[0].errorsTotal).toBe(1);
+  });
 });

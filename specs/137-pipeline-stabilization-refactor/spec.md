@@ -30,6 +30,13 @@ Mục tiêu của đợt hoàn thiện này là đưa hệ thống đạt trạn
 
 ---
 
+## Clarifications
+
+### Session 2026-09-14
+- Q: Cơ chế đệ quy (Divide & Conquer) khi phân đoạn thích ứng dịch thô và chuốt văn có bị sửa đổi không? → A: Cơ chế đệ quy cốt lõi (tham số depth/retryDepth, ngưỡng sâu tối đa depth >= 4, luân chuyển key theo bậc, và xử lý fallback an toàn khi nhánh con lỗi) được BẢO TOÀN NGUYÊN VẸN 100%. Điểm duy nhất được nâng cấp theo yêu cầu P0 (US3) là: (1) Thuật toán cắt văn bản được chuyển từ chia độc lập sang `splitBilingualAdaptively` để ranh giới đoạn văn nguồn/thô luôn đồng bộ 1:1 khi truyền xuống các nhánh đệ quy con, và (2) Thay thế `Promise.all` không giới hạn bằng `mapWithConcurrencyLimit(chunks, 2, ...)` để khống chế tối đa 2 nhánh đệ quy con chạy song song tại một thời điểm, loại bỏ burst requests gây cạn hạn ngạch.
+
+---
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Giám sát Hạn ngạch Chuẩn xác & Phục hồi Hạn ngạch Theo Giờ Chuẩn (Priority: P0) 🎯 MVP

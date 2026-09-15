@@ -28,8 +28,8 @@ sequenceDiagram
     participant User as Người dùng (UI)
     participant Cache as SWR Cache (LocalStorage)
     participant Registry as ModelRegistry Client
-    participant Server as Express Server
-    participant Google as Google Gemini API
+    participant DirectClient as Client-Direct (directGeminiClient.ts)
+    participant Google as Google Gemini API (generativelanguage.googleapis.com)
 
     User->>Registry: Mở ứng dụng / Chọn Model
     Registry->>Cache: Đọc cache cục bộ
@@ -37,14 +37,14 @@ sequenceDiagram
     Registry-->>User: Render dropdown tức thì (Instant UI)
 
     alt Cache quá hạn TTL (1 giờ)
-        Registry->>Server: Kích hoạt revalidate ngầm (/api/list-models)
-        Server->>Google: GET /v1beta/models (In-flight Deduplicated)
-        Google-->>Server: Danh sách model mới nhất
-        Server-->>Registry: Trả về danh sách đã lọc & chuẩn hóa
+        Registry->>DirectClient: Kích hoạt revalidate ngầm (listModelsDirect)
+        DirectClient->>Google: GET /v1beta/models?key=... (Client Fetch)
+        Google-->>DirectClient: Danh sách model mới nhất
+        DirectClient-->>Registry: Trả về danh sách đã lọc & chuẩn hóa
         Registry->>Cache: Cập nhật cache mới kèm timestamp
         Registry-->>User: Cập nhật danh sách mới (nếu có thay đổi)
     else Google API gặp lỗi (429 / Mất mạng)
-        Server-->>Registry: Báo lỗi revalidation
+        DirectClient-->>Registry: Báo lỗi revalidation
         Registry->>Cache: Giữ nguyên Stale Cache (Zero-Wipe Fallback)
         Registry-->>User: Tiếp tục sử dụng model hiện có bình thường
     end
@@ -54,6 +54,7 @@ sequenceDiagram
 - **Thời gian sống (TTL)**: 1 giờ (`DISCOVERED_MODELS_TTL_MS = 3600000`).
 - **Khử trùng lặp In-Flight (Deduplication)**: Nếu có nhiều component cùng yêu cầu khám phá mô hình cùng lúc, chỉ có duy nhất 1 Promise được thực thi.
 - **Bảo toàn Stale Cache khi lỗi (Zero-Wipe)**: Khi Google API trả về lỗi 429 hoặc mất mạng, hệ thống **tuyệt đối không xóa** danh mục mô hình đã lưu mà tiếp tục dùng cache cũ.
+- **Client-Direct**: Hoạt động hoàn toàn trên trình duyệt người dùng, gọi trực tiếp endpoint `https://generativelanguage.googleapis.com/v1beta/models` mà không thông qua bất kỳ máy chủ backend nào.
 
 ---
 
@@ -80,5 +81,5 @@ export const SHUTDOWN_MODEL_MIGRATIONS: Record<string, { replacementId: string; 
 
 Người dùng có thể nhập các mô hình Fine-tuned (`tunedModels/...`) hoặc mô hình Preview riêng:
 1. Nhập Model ID trên giao diện Cấu hình AI.
-2. Hệ thống gọi endpoint `/api/verify-model` để xác minh API Key có quyền truy cập và mô hình có hỗ trợ phương thức `generateContent`.
-3. Khi xác minh thành công, mô hình được lưu vào danh sách tùy chỉnh và sẵn sàng để dịch.
+2. Hệ thống gọi phương thức `verifyModelDirect()` trong `src/services/modelVerificationService.ts` để xác minh API Key có quyền truy cập và mô hình có hỗ trợ phương thức `generateContent` trực tiếp từ trình duyệt.
+3. Khi xác minh thành công, mô hình được lưu vào danh sách tùy chỉnh trong `localStorage` và sẵn sàng để dịch.

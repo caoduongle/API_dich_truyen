@@ -1,6 +1,6 @@
 /**
- * Contract: Bilingual Split & Concurrency Control
- * Định nghĩa giao diện chia tách song ngữ đồng bộ ranh giới đoạn văn và điều phối lưu lượng
+ * Contract: Unified Bilingual Splitter
+ * Giao diện chuẩn hóa cho bộ phân đoạn song ngữ hỗ trợ cả dạng tham số vị trí và đối tượng cấu hình
  */
 
 export interface TranslationChunk {
@@ -26,16 +26,7 @@ export interface BilingualSplitOptions {
   maxTokensPerChunk?: number;
 }
 
-export interface ConcurrencyLimiterOptions {
-  maxConcurrency: number;
-}
-
 export interface IBilingualSplitter {
   splitBilingualAdaptively(options: BilingualSplitOptions): TranslationChunk[];
   splitBilingualAdaptively(sourceText: string, rawText: string, targetParts?: number): TranslationChunk[];
-  mapWithConcurrencyLimit<T, R>(
-    items: T[],
-    limit: number,
-    worker: (item: T, index: number) => Promise<R>
-  ): Promise<R[]>;
 }

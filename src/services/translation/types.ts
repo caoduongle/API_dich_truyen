@@ -20,6 +20,13 @@ export interface TranslationChunk {
   estimatedTokens: number;
 }
 
+export interface BilingualSplitOptions {
+  sourceText: string;
+  rawText: string;
+  targetParts?: number;
+  maxTokensPerChunk?: number;
+}
+
 export interface SplitRetryEventInfo {
   stage: 'raw' | 'polish';
   depth: number;

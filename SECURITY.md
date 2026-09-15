@@ -38,10 +38,10 @@ Vui lòng báo cáo an toàn theo một trong các kênh sau:
 
 ## Mô hình bảo mật Client-Side cốt lõi
 
-1. **Lưu trữ Cục bộ & Bảo vệ API Key (Zero-Server-Knowledge)**:
-   - Toàn bộ Khóa API (Gemini API Key) do người dùng cung cấp được lưu trữ hoàn toàn tại trình duyệt (`sessionStorage` / local state). Ứng dụng **hoàn toàn không có máy chủ trung gian**, do đó API key không bao giờ bị truyền tải qua bất kỳ bên thứ ba nào ngoài chính Google AI (`generativelanguage.googleapis.com`).
+1. **Kiến trúc Client-Direct & Lưu trữ Cục bộ (Không trung gian máy chủ)**:
+   - Toàn bộ Khóa API (Gemini API Key) do người dùng cung cấp được lưu trữ hoàn toàn tại bộ nhớ phiên trình duyệt (`sessionStorage`). Ứng dụng **hoàn toàn không có máy chủ trung gian**, do đó API key chỉ được truyền trực tiếp từ trình duyệt tới Google AI API (`generativelanguage.googleapis.com`).
    - Mọi thao tác kiểm tra tình trạng key, đo đạc quota và truy vấn danh sách model đều thực hiện Client-Direct qua `directGeminiClient.ts` và `modelVerificationService.ts`.
-   - Chuỗi API key được ẩn / mask trên giao diện người dùng và tự động làm sạch trong log console/chẩn đoán.
+   - Chuỗi API key được ẩn / mask trên giao diện người dùng và tự động làm sạch trong log console/chẩn đoán. Lưu ý: Người dùng cần chủ động bảo vệ thiết bị và kiểm soát các tiện ích mở rộng trình duyệt (browser extensions) có quyền truy cập bộ nhớ web.
 
 2. **Xác thực Google OAuth 2.0 PKCE từ Trình duyệt**:
    - Tính năng đồng bộ Google Drive sử dụng luồng OAuth 2.0 Authorization Code với PKCE (Proof Key for Code Exchange) hoặc Google Identity Services Token Client chạy trực tiếp trên trình duyệt.
@@ -56,9 +56,9 @@ Vui lòng báo cáo an toàn theo một trong các kênh sau:
    - Chỉ thị hệ thống của AI được bọc trong khung bảo vệ văn học nghiêm ngặt (`ANTI_INJECTION_DEFENSE_DIRECTIVE` & `LITERARY_TRANSLATION_FRAMING`), ngăn chặn mọi nỗ lực ghi đè prompt hoặc trích xuất quy tắc dịch thuật.
 
 5. **Chính sách bảo mật trình duyệt khắt khe (CSP via `vercel.json`)**:
-   - Ứng dụng triển khai chính sách `Content-Security-Policy` nghiêm ngặt:
+   - Ứng dụng triển khai chính sách `Content-Security-Policy` nghiêm ngặt, loại bỏ wildcard:
      - `default-src 'self'`
-     - `connect-src 'self' https://generativelanguage.googleapis.com https://*.googleapis.com https://accounts.google.com`
+     - `connect-src 'self' https://generativelanguage.googleapis.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://oauth2.googleapis.com https://apis.google.com https://zuminovel.com`
      - `frame-ancestors 'none'` ngăn chặn hoàn toàn tấn công Clickjacking
      - `object-src 'none'` ngăn chặn nhúng plugin Flash/Java nguy hiểm
      - Kích hoạt đầy đủ `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, và HSTS.

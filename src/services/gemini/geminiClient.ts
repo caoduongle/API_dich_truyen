@@ -39,6 +39,7 @@ export async function callGemini(
 
     const callStartTime = Date.now();
     localQuotaTracker.recordProviderAttempt(currentKey, modelName, callStartTime);
+    let attemptFailureRecorded = false;
 
     try {
       const response = await executeGeminiFetch(endpointUrl, currentKey, payload, options.signal);
@@ -57,6 +58,7 @@ export async function callGemini(
           isAuthError: classified.category === 'AUTH_FAILURE' || response.status === 401 || response.status === 403,
           isOverload: classified.category === 'SERVICE_OVERLOAD' || response.status === 503 || response.status === 500,
         });
+        attemptFailureRecorded = true;
 
         const isRateLimitOrOverload =
           classified.isRetryable &&
@@ -126,9 +128,12 @@ export async function callGemini(
       if (err.name === 'AbortError' || err.code === 'ALL_KEYS_EXHAUSTED') {
         throw err;
       }
-      localQuotaTracker.recordFailure(currentKey, modelName, {
-        message: err?.message,
-      });
+      if (!attemptFailureRecorded) {
+        localQuotaTracker.recordFailure(currentKey, modelName, {
+          message: err?.message,
+        });
+        attemptFailureRecorded = true;
+      }
       lastError = formatGeminiNetworkError(err);
       if (attemptsCount === rawKeys.length - 1) {
         throw lastError;

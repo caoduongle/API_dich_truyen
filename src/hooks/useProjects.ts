@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
 import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB, saveChapterToDB, deleteChapterFromDB, getChapterFromDB, getChaptersByProjectFromDB, deleteChaptersByProjectFromDB, saveChaptersToDB } from '../services/db';
+import { enqueueProjectSave } from '../services/projectStorageQueue';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
 
@@ -116,7 +117,7 @@ export function useProjects() {
     }, [projects, activeProjectId]);
 
     const handleUpdateProject = useCallback(async (updatedProj: StoryProject) => {
-        await saveProjectToDB(updatedProj);
+        await enqueueProjectSave(updatedProj);
         const normalizedProj = normalizeProject(updatedProj);
         setProjects(prev => prev.map(p => p.id === normalizedProj.id ? normalizedProj : p));
     }, [setProjects]);
@@ -217,7 +218,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            saveProjectToDB(updatedToSave);
+            enqueueProjectSave(updatedToSave);
         }
     }, [activeProjectId, setProjects]);
 
@@ -258,7 +259,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            saveProjectToDB(updatedToSave);
+            enqueueProjectSave(updatedToSave);
         }
     }, [activeProjectId, setProjects]);
 
@@ -279,7 +280,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            saveProjectToDB(updatedToSave);
+            enqueueProjectSave(updatedToSave);
         }
     }, [activeProjectId, setProjects]);
 
@@ -300,7 +301,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            saveProjectToDB(updatedToSave);
+            enqueueProjectSave(updatedToSave);
         }
     }, [activeProjectId, setProjects]);
 
@@ -334,7 +335,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            saveProjectToDB(updatedToSave);
+            enqueueProjectSave(updatedToSave);
         }
     }, [activeProjectId, setProjects]);
 
@@ -371,7 +372,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            await saveProjectToDB(updatedToSave);
+            await enqueueProjectSave(updatedToSave);
         }
 
         // 3. Show undoable toast
@@ -381,7 +382,7 @@ export function useProjects() {
             onUndo: async () => {
                 // Restore in IndexedDB
                 await saveChapterToDB(fullChapter);
-                await saveProjectToDB(activeProj);
+                await enqueueProjectSave(activeProj);
                 // Restore in React state
                 setProjects(oldProjects);
                 showToast({
@@ -408,7 +409,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            saveProjectToDB(updatedToSave);
+            enqueueProjectSave(updatedToSave);
         }
     }, [activeProjectId, setProjects]);
 
@@ -443,7 +444,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            saveProjectToDB(updatedToSave);
+            enqueueProjectSave(updatedToSave);
         }
     }, [activeProjectId, setProjects]);
 
@@ -466,7 +467,7 @@ export function useProjects() {
             return next;
         });
         if (updatedToSave) {
-            saveProjectToDB(updatedToSave);
+            enqueueProjectSave(updatedToSave);
         }
     }, [activeProjectId, setProjects]);
 
@@ -522,7 +523,7 @@ export function useProjects() {
         });
 
         if (updatedToSave) {
-            await saveProjectToDB(updatedToSave);
+            await enqueueProjectSave(updatedToSave);
         }
 
         // 3. Show undoable toast
@@ -537,7 +538,7 @@ export function useProjects() {
                 setProjects(oldProjects);
                 const oldProj = oldProjects.find(p => p.id === projectId);
                 if (oldProj) {
-                    await saveProjectToDB(oldProj);
+                    await enqueueProjectSave(oldProj);
                 }
                 showToast({
                     message: `Đã khôi phục hoàn chỉnh bản dịch cho ${count} chương.`,

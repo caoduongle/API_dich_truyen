@@ -135,25 +135,184 @@ export function maskApiKey(key: string): string {
   return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
 }
 
+const keyHashCache = new Map<string, string>();
+
+/**
+ * Thuật toán băm SHA-256 chuẩn mật mã học (FIPS 180-4) đồng bộ bằng JavaScript
+ * Hoạt động độc lập, không phụ thuộc thư viện ngoài, tương thích 100% với Node.js crypto và Web Crypto
+ */
+function sha256Sync(ascii: string): string {
+  const mathPow = Math.pow;
+  const maxWord = mathPow(2, 32);
+  let i = 0;
+  let j = 0;
+  let result = '';
+
+  const words: number[] = [];
+  let hash: number[] = [];
+  const k: number[] = [];
+  let primeCounter = 0;
+
+  const isComposite: Record<number, number> = {};
+  for (let candidate = 2; primeCounter < 64; candidate++) {
+    if (!isComposite[candidate]) {
+      for (i = 0; i < 313; i += candidate) {
+        isComposite[i] = candidate;
+      }
+      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+    }
+  }
+
+  hash = hash.slice(0, 8);
+
+  const utf8: number[] = [];
+  for (let n = 0; n < ascii.length; n++) {
+    let charCode = ascii.charCodeAt(n);
+    if (charCode < 0x80) {
+      utf8.push(charCode);
+    } else if (charCode < 0x800) {
+      utf8.push(0xc0 | (charCode >> 6), 0x80 | (charCode & 0x3f));
+    } else if (charCode < 0xd800 || charCode >= 0xe000) {
+      utf8.push(0xe0 | (charCode >> 12), 0x80 | ((charCode >> 6) & 0x3f), 0x80 | (charCode & 0x3f));
+    } else {
+      n++;
+      charCode = 0x10000 + (((charCode & 0x3ff) << 10) | (ascii.charCodeAt(n) & 0x3ff));
+      utf8.push(
+        0xf0 | (charCode >> 18),
+        0x80 | ((charCode >> 12) & 0x3f),
+        0x80 | ((charCode >> 6) & 0x3f),
+        0x80 | (charCode & 0x3f)
+      );
+    }
+  }
+
+  const byteLength = utf8.length;
+  utf8.push(0x80);
+  while ((utf8.length % 64) !== 56) {
+    utf8.push(0);
+  }
+  const bitLength = byteLength * 8;
+  const highBits = Math.floor(bitLength / maxWord);
+  const lowBits = bitLength >>> 0;
+  for (let b = 0; b < 4; b++) {
+    utf8.push((highBits >>> (24 - b * 8)) & 0xff);
+  }
+  for (let b = 0; b < 4; b++) {
+    utf8.push((lowBits >>> (24 - b * 8)) & 0xff);
+  }
+
+  for (i = 0; i < utf8.length; i += 4) {
+    words.push(
+      ((utf8[i] << 24) | (utf8[i + 1] << 16) | (utf8[i + 2] << 8) | utf8[i + 3]) >>> 0
+    );
+  }
+
+  for (j = 0; j < words.length; j += 16) {
+    const w = words.slice(j, j + 16);
+
+    for (i = 16; i < 64; i++) {
+      const s0 =
+        (((w[i - 15] >>> 7) | (w[i - 15] << 25)) ^
+          ((w[i - 15] >>> 18) | (w[i - 15] << 14)) ^
+          (w[i - 15] >>> 3)) >>>
+        0;
+      const s1 =
+        (((w[i - 2] >>> 17) | (w[i - 2] << 15)) ^
+          ((w[i - 2] >>> 19) | (w[i - 2] << 13)) ^
+          (w[i - 2] >>> 10)) >>>
+        0;
+      w[i] = (((w[i - 16] + s0) | 0) + ((w[i - 7] + s1) | 0)) >>> 0;
+    }
+
+    let a = hash[0];
+    let b = hash[1];
+    let c = hash[2];
+    let d = hash[3];
+    let e = hash[4];
+    let f = hash[5];
+    let g = hash[6];
+    let h = hash[7];
+
+    for (i = 0; i < 64; i++) {
+      const S1 = (((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))) >>> 0;
+      const ch = ((e & f) ^ (~e & g)) >>> 0;
+      const temp1 = (h + S1 + ch + k[i] + w[i]) >>> 0;
+      const S0 = (((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))) >>> 0;
+      const maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
+      const temp2 = (S0 + maj) >>> 0;
+
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temp1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) >>> 0;
+    }
+
+    hash[0] = (hash[0] + a) >>> 0;
+    hash[1] = (hash[1] + b) >>> 0;
+    hash[2] = (hash[2] + c) >>> 0;
+    hash[3] = (hash[3] + d) >>> 0;
+    hash[4] = (hash[4] + e) >>> 0;
+    hash[5] = (hash[5] + f) >>> 0;
+    hash[6] = (hash[6] + g) >>> 0;
+    hash[7] = (hash[7] + h) >>> 0;
+  }
+
+  for (i = 0; i < 8; i++) {
+    result += hash[i].toString(16).padStart(8, '0');
+  }
+  return result;
+}
+
 export function hashApiKey(key: string): string {
   if (!key) return '';
   const trimmed = key.trim();
   if (/^[0-9a-f]{64}$/.test(trimmed)) {
     return trimmed;
   }
+  const cached = keyHashCache.get(trimmed);
+  if (cached) {
+    return cached;
+  }
   if (typeof globalThis !== 'undefined' && (globalThis as any).process?.versions?.node) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const nodeCrypto = require('crypto');
-      return nodeCrypto.createHash('sha256').update(trimmed).digest('hex');
+      const digest = nodeCrypto.createHash('sha256').update(trimmed).digest('hex');
+      keyHashCache.set(trimmed, digest);
+      return digest;
     } catch {}
   }
-  let hash = 0;
-  for (let i = 0; i < trimmed.length; i++) {
-    hash = ((hash << 5) - hash) + trimmed.charCodeAt(i);
-    hash |= 0;
+  const digest = sha256Sync(trimmed);
+  keyHashCache.set(trimmed, digest);
+  return digest;
+}
+
+export async function hashApiKeyAsync(key: string): Promise<string> {
+  if (!key) return '';
+  const trimmed = key.trim();
+  if (/^[0-9a-f]{64}$/.test(trimmed)) {
+    return trimmed;
   }
-  return Math.abs(hash).toString(16).padStart(8, '0').repeat(8);
+  const cached = keyHashCache.get(trimmed);
+  if (cached) {
+    return cached;
+  }
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
+    try {
+      const msgUint8 = new TextEncoder().encode(trimmed);
+      const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', msgUint8);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+      keyHashCache.set(trimmed, hashHex);
+      return hashHex;
+    } catch {}
+  }
+  return hashApiKey(trimmed);
 }
 
 const STORAGE_KEY = 'gemini_local_quota_tracker_v1';
@@ -182,7 +341,7 @@ class LocalQuotaTracker {
     this.loadFromStorage();
   }
 
-  private loadFromStorage(): void {
+  private loadFromStorage(now: number = Date.now()): void {
     if (typeof sessionStorage === 'undefined') return;
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -192,25 +351,83 @@ class LocalQuotaTracker {
         this.summaryStats = { ...this.summaryStats, ...data.summaryStats };
       }
       if (Array.isArray(data.keyStats)) {
+        const currentDay = getDayInLosAngeles(now);
+
         for (const item of data.keyStats) {
+          const isDayChanged = Boolean(item.lastResetDay && item.lastResetDay !== currentDay);
+          const requestsToday = isDayChanged ? 0 : (item.requestsToday || 0);
+          const errorsToday = isDayChanged ? 0 : (item.errorsToday || 0);
+          const tokensToday = isDayChanged ? 0 : (item.tokensToday || 0);
+
           const byModelMap = new Map<string, InternalModelStats>();
           if (item.byModel && typeof item.byModel === 'object') {
             for (const [mName, mStats] of Object.entries<any>(item.byModel)) {
               byModelMap.set(mName, {
                 ...mStats,
+                requestsToday: isDayChanged ? 0 : (mStats.requestsToday || 0),
+                errorsToday: isDayChanged ? 0 : (mStats.errorsToday || 0),
+                tokensToday: isDayChanged ? 0 : (mStats.tokensToday || 0),
+                lastResetDay: isDayChanged ? currentDay : (mStats.lastResetDay || currentDay),
                 recentAttempts: [],
                 recentTokens: [],
               });
             }
           }
+
+          let healthState: KeyHealthState = 'Healthy';
+          let circuitBreakerStatus: CircuitBreakerStatus = 'Closed';
+          let cooldownUntil = 0;
+
+          if (item.healthState === 'AuthFailed') {
+            healthState = 'AuthFailed';
+            circuitBreakerStatus = 'Open';
+          } else if (isDayChanged) {
+            // Ngày mới PST: giải phóng QuotaExhausted về Healthy
+            healthState = 'Healthy';
+            circuitBreakerStatus = 'Closed';
+            cooldownUntil = 0;
+          } else {
+            // Cùng ngày PST: bảo toàn trạng thái nghỉ nếu cooldown chưa hết
+            if (item.healthState === 'QuotaExhausted') {
+              healthState = 'QuotaExhausted';
+              circuitBreakerStatus = item.circuitBreakerStatus || 'Open';
+              cooldownUntil = item.cooldownUntil && item.cooldownUntil > now ? item.cooldownUntil : getNextPstMidnight(now);
+            } else if (item.healthState === 'RateLimited' || item.healthState === 'Cooldown') {
+              if (item.cooldownUntil && item.cooldownUntil > now) {
+                healthState = item.healthState;
+                circuitBreakerStatus = item.circuitBreakerStatus || 'Open';
+                cooldownUntil = item.cooldownUntil;
+              } else {
+                healthState = 'Healthy';
+                circuitBreakerStatus = 'Closed';
+                cooldownUntil = 0;
+              }
+            } else if (item.healthState === 'Degraded') {
+              healthState = 'Degraded';
+              circuitBreakerStatus = item.circuitBreakerStatus || 'HalfOpen';
+              cooldownUntil = item.cooldownUntil && item.cooldownUntil > now ? item.cooldownUntil : 0;
+            } else {
+              healthState = 'Healthy';
+              circuitBreakerStatus = 'Closed';
+              cooldownUntil = 0;
+            }
+          }
+
           this.keyStatsMap.set(item.keyHash, {
             ...item,
+            requestsToday,
+            errorsToday,
+            tokensToday,
+            lastResetDay: isDayChanged ? currentDay : (item.lastResetDay || currentDay),
             recentAttempts: [],
             recentTokens: [],
             byModel: byModelMap,
-            healthState: item.healthState === 'AuthFailed' ? 'AuthFailed' : 'Healthy',
-            circuitBreakerStatus: 'Closed',
-            cooldownUntil: 0,
+            healthState,
+            circuitBreakerStatus,
+            cooldownUntil,
+            consecutiveErrors: isDayChanged ? 0 : (item.consecutiveErrors || 0),
+            consecutiveSuccesses: item.consecutiveSuccesses || 0,
+            lastTransitionAt: item.lastTransitionAt || now,
           });
         }
       }
@@ -242,11 +459,16 @@ class LocalQuotaTracker {
           requestsTotal: k.requestsTotal,
           requestsToday: k.requestsToday,
           errorsTotal: k.errorsTotal,
+          consecutiveErrors: k.consecutiveErrors,
+          consecutiveSuccesses: k.consecutiveSuccesses,
           tokensTotal: k.tokensTotal,
           tokensToday: k.tokensToday,
           lastResetDay: k.lastResetDay,
           healthState: k.healthState,
+          circuitBreakerStatus: k.circuitBreakerStatus,
+          cooldownUntil: k.cooldownUntil,
           transitionReason: k.transitionReason,
+          lastTransitionAt: k.lastTransitionAt,
           byModel: byModelObj,
         };
       });
@@ -539,10 +761,11 @@ class LocalQuotaTracker {
 
     // 3. Kiểm tra QuotaExhausted do upstream 429
     if (stats.healthState === 'QuotaExhausted') {
+      const remaining = stats.cooldownUntil > now ? Math.max(0, stats.cooldownUntil - now) : 0;
       return {
         state: 'QuotaExhausted',
         circuitBreaker: stats.circuitBreakerStatus,
-        cooldownRemainingMs: 0,
+        cooldownRemainingMs: remaining,
         transitionReason: stats.transitionReason,
         isAvailable: false,
         isCustomLimitReached: false,

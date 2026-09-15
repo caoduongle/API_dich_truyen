@@ -203,12 +203,20 @@ export const getProjectResultFromDB = async (projectId: string): Promise<Storage
 
 export const getProjectsFromDB = async (): Promise<StoryProject[]> => {
   const res = await getProjectsResultFromDB();
-  return res.ok ? res.data : [];
+  if (!res.ok) {
+    console.warn('[IndexedDB] getProjectsFromDB() thất bại do sự cố lưu trữ:', res.error.message);
+    return [];
+  }
+  return res.data;
 };
 
 export const getProjectFromDB = async (projectId: string): Promise<StoryProject | null> => {
   const res = await getProjectResultFromDB(projectId);
-  return res.ok ? res.data : null;
+  if (!res.ok) {
+    console.warn(`[IndexedDB] getProjectFromDB(${projectId}) thất bại do sự cố lưu trữ:`, res.error.message);
+    return null;
+  }
+  return res.data;
 };
 
 export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
@@ -330,20 +338,34 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
   }, 3, 150, 'deleteProjectFromDB');
 };
 
-export const getChapterFromDB = async (id: string): Promise<Chapter | null> => {
+/**
+ * Lấy nội dung một chương theo ID kèm trạng thái lỗi chi tiết (StorageResult)
+ */
+export const getChapterResultFromDB = async (id: string): Promise<StorageResult<Chapter | null>> => {
   try {
     const db = await initDB();
-    return new Promise((resolve, reject) => {
+    const chapter = await new Promise<Chapter | null>((resolve, reject) => {
       const transaction = db.transaction(CHAPTERS_STORE, 'readonly');
       const store = transaction.objectStore(CHAPTERS_STORE);
       const request = store.get(id);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result || null);
     });
-  } catch (err) {
-    console.error('IndexedDB Get Chapter Error:', err);
+    return createStorageSuccess(chapter);
+  } catch (err: any) {
+    console.error(`[IndexedDB] Get Chapter Result Error for ${id}:`, err);
+    const classified = classifyStorageError(err);
+    return createStorageError(classified.code, classified.message, err);
+  }
+};
+
+export const getChapterFromDB = async (id: string): Promise<Chapter | null> => {
+  const res = await getChapterResultFromDB(id);
+  if (!res.ok) {
+    console.warn(`[IndexedDB] getChapterFromDB(${id}) thất bại do sự cố lưu trữ:`, res.error.message);
     return null;
   }
+  return res.data;
 };
 
 /**

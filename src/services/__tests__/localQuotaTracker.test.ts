@@ -6,7 +6,25 @@ import {
 } from '../localQuotaTracker';
 
 describe('localQuotaTracker & getNextPstMidnight', () => {
+  let mockStorage: Record<string, string> = {};
+
   beforeEach(() => {
+    mockStorage = {};
+    globalThis.sessionStorage = {
+      getItem: (k: string) => mockStorage[k] || null,
+      setItem: (k: string, v: string) => {
+        mockStorage[k] = String(v);
+      },
+      removeItem: (k: string) => {
+        delete mockStorage[k];
+      },
+      clear: () => {
+        mockStorage = {};
+      },
+      length: 0,
+      key: (_i: number) => null,
+    } as any;
+
     localQuotaTracker.resetMetrics();
   });
 
@@ -119,6 +137,77 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
 
       // Verify that cooldown expires precisely at PST midnight, not fixed 4 hours
       expect(expectedMidnight - now).toBeGreaterThan(4 * 3600 * 1000);
+    });
+  });
+
+  describe('State Persistence across Reloads (sessionStorage)', () => {
+    const key = 'test-persistence-key-xyz';
+    const model = 'gemini-2.5-flash';
+
+    it('preserves QuotaExhausted healthState and cooldownUntil across reloads within same PST day', () => {
+      const now = Date.now();
+      localQuotaTracker.recordProviderAttempt(key, model, now);
+      localQuotaTracker.recordFailure(
+        key,
+        model,
+        { status: 429, message: 'Resource exhausted RPD daily quota exceeded' },
+        now
+      );
+
+      const healthBefore = localQuotaTracker.getKeyHealth(key, now);
+      expect(healthBefore.state).toBe('QuotaExhausted');
+
+      // Verify it was serialized to sessionStorage
+      const rawStored = sessionStorage.getItem('gemini_local_quota_tracker_v1');
+      expect(rawStored).toBeTruthy();
+      const parsed = JSON.parse(rawStored!);
+      expect(parsed.keyStats[0].healthState).toBe('QuotaExhausted');
+      expect(parsed.keyStats[0].cooldownUntil).toBeGreaterThan(now);
+
+      // Simulate page reload by creating a new LocalQuotaTracker or calling reload
+      (localQuotaTracker as any).loadFromStorage();
+      const healthAfter = localQuotaTracker.getKeyHealth(key, now);
+      expect(healthAfter.state).toBe('QuotaExhausted');
+      expect(healthAfter.isAvailable).toBe(false);
+      expect(healthAfter.cooldownRemainingMs).toBeGreaterThan(0);
+    });
+
+    it('preserves RateLimited cooldown when cooldown is still active upon reload', () => {
+      const now = Date.now();
+      localQuotaTracker.recordProviderAttempt(key, model, now);
+      localQuotaTracker.recordFailure(
+        key,
+        model,
+        { status: 429, isRateLimit: true, message: 'Rate limit RPM exceeded' },
+        now
+      );
+
+      const healthBefore = localQuotaTracker.getKeyHealth(key, now);
+      expect(healthBefore.state).toBe('RateLimited');
+
+      // Reload
+      (localQuotaTracker as any).loadFromStorage();
+      const healthAfter = localQuotaTracker.getKeyHealth(key, now + 1000);
+      expect(healthAfter.state).toBe('RateLimited');
+      expect(healthAfter.isAvailable).toBe(false);
+    });
+
+    it('recovers RateLimited to Healthy if cooldown expired while closed', () => {
+      const now = Date.now();
+      localQuotaTracker.recordProviderAttempt(key, model, now);
+      localQuotaTracker.recordFailure(
+        key,
+        model,
+        { status: 429, isRateLimit: true, message: 'Rate limit RPM exceeded' },
+        now
+      );
+
+      // Simulate reload 60 seconds later (cooldown was 45s)
+      const afterCooldown = now + 60 * 1000;
+      (localQuotaTracker as any).loadFromStorage(afterCooldown);
+      const healthAfter = localQuotaTracker.getKeyHealth(key, afterCooldown);
+      expect(healthAfter.state).toBe('Healthy');
+      expect(healthAfter.isAvailable).toBe(true);
     });
   });
 });

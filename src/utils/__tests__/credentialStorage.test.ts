@@ -148,7 +148,29 @@ describe('Credential Storage & Lifecycle Security', () => {
       expect(masked).toBe('AIzaSy...opqr');
       expect(masked).not.toContain('1234567890');
       expect(hashed).toHaveLength(64); // SHA-256 hex string
+      expect(hashed).toMatch(/^[0-9a-f]{64}$/);
       expect(hashed).not.toContain(rawKey);
+    });
+
+    it('hashApiKey should produce unique collision-resistant SHA-256 digests matching Node crypto', async () => {
+      const { hashApiKeyAsync } = await import('../../services/localQuotaTracker');
+      const crypto = await import('crypto');
+
+      const keyA = 'AIzaSyKeyAlpha123456789';
+      const keyB = 'AIzaSyKeyAlpha123456788'; // 1 character difference
+
+      const hashA = hashApiKey(keyA);
+      const hashB = hashApiKey(keyB);
+
+      expect(hashA).not.toBe(hashB);
+      expect(hashA).toMatch(/^[0-9a-f]{64}$/);
+      expect(hashB).toMatch(/^[0-9a-f]{64}$/);
+
+      const expectedA = crypto.createHash('sha256').update(keyA).digest('hex');
+      expect(hashA).toBe(expectedA);
+
+      const asyncHashA = await hashApiKeyAsync(keyA);
+      expect(asyncHashA).toBe(hashA);
     });
   });
 });
