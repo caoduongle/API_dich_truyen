@@ -140,6 +140,7 @@ export function resetDBInstanceForTesting(): void {
     } catch (_) {}
   }
   dbInstance = null;
+  projectWriteChains.clear();
 }
 
 export function classifyStorageError(err: any): { code: StorageErrorCode; message: string } {
@@ -219,7 +220,13 @@ export const getProjectFromDB = async (projectId: string): Promise<StoryProject 
   return res.data;
 };
 
-export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
+const projectWriteChains = new Map<string, Promise<void>>();
+
+export const resetProjectWriteChainsForTest = (): void => {
+  projectWriteChains.clear();
+};
+
+const executeSaveProjectToDB = async (project: StoryProject): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
 
@@ -267,6 +274,31 @@ export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
       projectsStore.put(projectToSave);
     });
   }, 3, 150, 'saveProjectToDB');
+};
+
+/**
+ * Lưu dữ liệu dự án vào IndexedDB kèm cơ chế tuần tự hóa ghi (Write Serialization Queue).
+ * Đảm bảo mọi lời gọi tới saveProjectToDB từ bất kỳ caller nào (UI hooks, Google Drive sync)
+ * đều được thực thi tuần tự theo từng projectId, loại bỏ triệt để tranh chấp dữ liệu (Race Condition).
+ */
+export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
+  if (!project || !project.id) {
+    return executeSaveProjectToDB(project);
+  }
+
+  const projectId = project.id;
+  const currentChain = projectWriteChains.get(projectId) || Promise.resolve();
+
+  const nextChain = currentChain
+    .catch(() => {
+      // Đảm bảo lỗi từ tác vụ ghi trước không làm tắc nghẽn tác vụ tiếp theo
+    })
+    .then(async () => {
+      await executeSaveProjectToDB(project);
+    });
+
+  projectWriteChains.set(projectId, nextChain);
+  return nextChain;
 };
 
 export const deleteProjectFromDB = async (id: string): Promise<void> => {

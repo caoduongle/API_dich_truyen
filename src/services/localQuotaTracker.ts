@@ -135,185 +135,19 @@ export function maskApiKey(key: string): string {
   return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
 }
 
-const keyHashCache = new Map<string, string>();
-
-/**
- * Thuật toán băm SHA-256 chuẩn mật mã học (FIPS 180-4) đồng bộ bằng JavaScript
- * Hoạt động độc lập, không phụ thuộc thư viện ngoài, tương thích 100% với Node.js crypto và Web Crypto
- */
-function sha256Sync(ascii: string): string {
-  const mathPow = Math.pow;
-  const maxWord = mathPow(2, 32);
-  let i = 0;
-  let j = 0;
-  let result = '';
-
-  const words: number[] = [];
-  let hash: number[] = [];
-  const k: number[] = [];
-  let primeCounter = 0;
-
-  const isComposite: Record<number, number> = {};
-  for (let candidate = 2; primeCounter < 64; candidate++) {
-    if (!isComposite[candidate]) {
-      for (i = 0; i < 313; i += candidate) {
-        isComposite[i] = candidate;
-      }
-      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
-      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
-    }
-  }
-
-  hash = hash.slice(0, 8);
-
-  const utf8: number[] = [];
-  for (let n = 0; n < ascii.length; n++) {
-    let charCode = ascii.charCodeAt(n);
-    if (charCode < 0x80) {
-      utf8.push(charCode);
-    } else if (charCode < 0x800) {
-      utf8.push(0xc0 | (charCode >> 6), 0x80 | (charCode & 0x3f));
-    } else if (charCode < 0xd800 || charCode >= 0xe000) {
-      utf8.push(0xe0 | (charCode >> 12), 0x80 | ((charCode >> 6) & 0x3f), 0x80 | (charCode & 0x3f));
-    } else {
-      n++;
-      charCode = 0x10000 + (((charCode & 0x3ff) << 10) | (ascii.charCodeAt(n) & 0x3ff));
-      utf8.push(
-        0xf0 | (charCode >> 18),
-        0x80 | ((charCode >> 12) & 0x3f),
-        0x80 | ((charCode >> 6) & 0x3f),
-        0x80 | (charCode & 0x3f)
-      );
-    }
-  }
-
-  const byteLength = utf8.length;
-  utf8.push(0x80);
-  while ((utf8.length % 64) !== 56) {
-    utf8.push(0);
-  }
-  const bitLength = byteLength * 8;
-  const highBits = Math.floor(bitLength / maxWord);
-  const lowBits = bitLength >>> 0;
-  for (let b = 0; b < 4; b++) {
-    utf8.push((highBits >>> (24 - b * 8)) & 0xff);
-  }
-  for (let b = 0; b < 4; b++) {
-    utf8.push((lowBits >>> (24 - b * 8)) & 0xff);
-  }
-
-  for (i = 0; i < utf8.length; i += 4) {
-    words.push(
-      ((utf8[i] << 24) | (utf8[i + 1] << 16) | (utf8[i + 2] << 8) | utf8[i + 3]) >>> 0
-    );
-  }
-
-  for (j = 0; j < words.length; j += 16) {
-    const w = words.slice(j, j + 16);
-
-    for (i = 16; i < 64; i++) {
-      const s0 =
-        (((w[i - 15] >>> 7) | (w[i - 15] << 25)) ^
-          ((w[i - 15] >>> 18) | (w[i - 15] << 14)) ^
-          (w[i - 15] >>> 3)) >>>
-        0;
-      const s1 =
-        (((w[i - 2] >>> 17) | (w[i - 2] << 15)) ^
-          ((w[i - 2] >>> 19) | (w[i - 2] << 13)) ^
-          (w[i - 2] >>> 10)) >>>
-        0;
-      w[i] = (((w[i - 16] + s0) | 0) + ((w[i - 7] + s1) | 0)) >>> 0;
-    }
-
-    let a = hash[0];
-    let b = hash[1];
-    let c = hash[2];
-    let d = hash[3];
-    let e = hash[4];
-    let f = hash[5];
-    let g = hash[6];
-    let h = hash[7];
-
-    for (i = 0; i < 64; i++) {
-      const S1 = (((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))) >>> 0;
-      const ch = ((e & f) ^ (~e & g)) >>> 0;
-      const temp1 = (h + S1 + ch + k[i] + w[i]) >>> 0;
-      const S0 = (((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))) >>> 0;
-      const maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
-      const temp2 = (S0 + maj) >>> 0;
-
-      h = g;
-      g = f;
-      f = e;
-      e = (d + temp1) >>> 0;
-      d = c;
-      c = b;
-      b = a;
-      a = (temp1 + temp2) >>> 0;
-    }
-
-    hash[0] = (hash[0] + a) >>> 0;
-    hash[1] = (hash[1] + b) >>> 0;
-    hash[2] = (hash[2] + c) >>> 0;
-    hash[3] = (hash[3] + d) >>> 0;
-    hash[4] = (hash[4] + e) >>> 0;
-    hash[5] = (hash[5] + f) >>> 0;
-    hash[6] = (hash[6] + g) >>> 0;
-    hash[7] = (hash[7] + h) >>> 0;
-  }
-
-  for (i = 0; i < 8; i++) {
-    result += hash[i].toString(16).padStart(8, '0');
-  }
-  return result;
-}
-
-export function hashApiKey(key: string): string {
-  if (!key) return '';
-  const trimmed = key.trim();
-  if (/^[0-9a-f]{64}$/.test(trimmed)) {
-    return trimmed;
-  }
-  const cached = keyHashCache.get(trimmed);
-  if (cached) {
-    return cached;
-  }
-  if (typeof globalThis !== 'undefined' && (globalThis as any).process?.versions?.node) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const nodeCrypto = require('crypto');
-      const digest = nodeCrypto.createHash('sha256').update(trimmed).digest('hex');
-      keyHashCache.set(trimmed, digest);
-      return digest;
-    } catch {}
-  }
-  const digest = sha256Sync(trimmed);
-  keyHashCache.set(trimmed, digest);
-  return digest;
-}
-
-export async function hashApiKeyAsync(key: string): Promise<string> {
-  if (!key) return '';
-  const trimmed = key.trim();
-  if (/^[0-9a-f]{64}$/.test(trimmed)) {
-    return trimmed;
-  }
-  const cached = keyHashCache.get(trimmed);
-  if (cached) {
-    return cached;
-  }
-  if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
-    try {
-      const msgUint8 = new TextEncoder().encode(trimmed);
-      const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', msgUint8);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-      keyHashCache.set(trimmed, hashHex);
-      return hashHex;
-    } catch {}
-  }
-  return hashApiKey(trimmed);
-}
+export {
+  keyHashCache,
+  legacyHashApiKey,
+  sha256Sync,
+  hashApiKey,
+  hashApiKeyAsync,
+} from '../utils/apiKeyHash';
+import {
+  hashApiKey,
+  legacyHashApiKey,
+  isLegacyHash,
+} from '../utils/apiKeyHash';
+import { migrateCustomLimits } from '../utils/customLimitsStorage';
 
 const STORAGE_KEY = 'gemini_local_quota_tracker_v1';
 
@@ -413,8 +247,14 @@ class LocalQuotaTracker {
             }
           }
 
-          this.keyStatsMap.set(item.keyHash, {
+          let keyHash = item.keyHash;
+          if (keyHash && !/^[0-9a-f]{64}$/.test(keyHash)) {
+            keyHash = hashApiKey(keyHash);
+          }
+
+          this.keyStatsMap.set(keyHash, {
             ...item,
+            keyHash,
             requestsToday,
             errorsToday,
             tokensToday,
@@ -490,6 +330,16 @@ class LocalQuotaTracker {
     const currentDay = getDayInLosAngeles(now);
 
     let stats = this.keyStatsMap.get(keyHash);
+    if (!stats) {
+      const legacyHash = legacyHashApiKey(key);
+      if (legacyHash && legacyHash !== keyHash && this.keyStatsMap.has(legacyHash)) {
+        stats = this.keyStatsMap.get(legacyHash)!;
+        stats.keyHash = keyHash;
+        stats.maskedKey = maskApiKey(key);
+        this.keyStatsMap.set(keyHash, stats);
+        this.keyStatsMap.delete(legacyHash);
+      }
+    }
     if (!stats) {
       stats = {
         keyHash,
@@ -584,6 +434,34 @@ class LocalQuotaTracker {
   }
 
   /**
+   * Bí danh cho recordLogicalStart tuân thủ hợp đồng IQuotaLifecycleTracker
+   */
+  public recordLogicalRequest(now: number = Date.now()): void {
+    this.recordLogicalStart(now);
+  }
+
+  /**
+   * Ghi nhận thất bại của một yêu cầu logic (Logical Request)
+   * Được gọi khi tất cả các lượt thử thất bại hoặc gặp lỗi nghiêm trọng
+   */
+  public recordLogicalFailure(now: number = Date.now()): void {
+    this.checkPstReset(now);
+    this.summaryStats.failedRequestsTotal++;
+    this.summaryStats.failedRequestsToday++;
+    this.saveToStorage();
+  }
+
+  /**
+   * Ghi nhận một hành vi thử lại (retry) hoặc xoay vòng sang khóa mới (key rotation)
+   */
+  public recordRetry(key?: string, now: number = Date.now()): void {
+    this.checkPstReset(now);
+    this.summaryStats.retriesTotal++;
+    this.summaryStats.retriesToday++;
+    this.saveToStorage();
+  }
+
+  /**
    * Ghi nhận một lần gọi tới API Google (provider attempt)
    */
   public recordProviderAttempt(key: string, model: string, now: number = Date.now()): void {
@@ -670,8 +548,6 @@ class LocalQuotaTracker {
     this.checkPstReset(now);
     this.summaryStats.failedAttemptsTotal++;
     this.summaryStats.failedAttemptsToday++;
-    this.summaryStats.retriesTotal++;
-    this.summaryStats.retriesToday++;
 
     const keyStats = this.getOrCreateKeyStats(key, now);
     keyStats.errorsTotal++;
@@ -811,6 +687,34 @@ class LocalQuotaTracker {
   }
 
   /**
+   * Di trú các mục thống kê khóa lưu trữ dưới mã băm cũ sang mã băm SHA-256 mới
+   */
+  public migrateLegacyKeyStats(keys: string[]): { migratedCount: number } {
+    const cleanKeys = Array.isArray(keys)
+      ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
+      : [];
+    let migratedCount = 0;
+    for (const rawKey of cleanKeys) {
+      const legacyHash = legacyHashApiKey(rawKey);
+      const newHash = hashApiKey(rawKey);
+      if (legacyHash && legacyHash !== newHash && this.keyStatsMap.has(legacyHash)) {
+        const stats = this.keyStatsMap.get(legacyHash)!;
+        if (!this.keyStatsMap.has(newHash)) {
+          stats.keyHash = newHash;
+          stats.maskedKey = maskApiKey(rawKey);
+          this.keyStatsMap.set(newHash, stats);
+        }
+        this.keyStatsMap.delete(legacyHash);
+        migratedCount++;
+      }
+    }
+    if (migratedCount > 0) {
+      this.saveToStorage();
+    }
+    return { migratedCount };
+  }
+
+  /**
    * Quét danh sách các keys bắt đầu từ startIndex để tìm key đầu tiên khả dụng (chưa chạm quota/cooldown)
    * Trả về -1 nếu toàn bộ keys đều không khả dụng.
    */
@@ -825,6 +729,9 @@ class LocalQuotaTracker {
       : [];
 
     if (cleanKeys.length === 0) return -1;
+
+    migrateCustomLimits(cleanKeys);
+    this.migrateLegacyKeyStats(cleanKeys);
 
     const effectiveLimits = customLimits || getStoredCustomLimits();
     const safeStart = startIndex >= 0 ? startIndex % cleanKeys.length : 0;
@@ -855,11 +762,17 @@ class LocalQuotaTracker {
     this.checkPstReset(now);
     const minuteThreshold = now - 60_000;
     const currentDay = getDayInLosAngeles(now);
-    const effectiveLimits = customLimits || getStoredCustomLimits();
 
     const cleanKeys = Array.isArray(keys)
       ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
       : [];
+
+    if (cleanKeys.length > 0) {
+      migrateCustomLimits(cleanKeys);
+      this.migrateLegacyKeyStats(cleanKeys);
+    }
+
+    const effectiveLimits = customLimits || getStoredCustomLimits();
 
     const snapshotKeys: KeyQuotaFullSnapshot[] = cleanKeys.map((key, idx) => {
       const stats = this.getOrCreateKeyStats(key, now);

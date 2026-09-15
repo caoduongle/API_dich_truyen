@@ -83,3 +83,46 @@ Người dùng có thể nhập các mô hình Fine-tuned (`tunedModels/...`) ho
 1. Nhập Model ID trên giao diện Cấu hình AI.
 2. Hệ thống gọi phương thức `verifyModelDirect()` trong `src/services/modelVerificationService.ts` để xác minh API Key có quyền truy cập và mô hình có hỗ trợ phương thức `generateContent` trực tiếp từ trình duyệt.
 3. Khi xác minh thành công, mô hình được lưu vào danh sách tùy chỉnh trong `localStorage` và sẵn sàng để dịch.
+
+---
+
+## 6. Quản lý Hạn mức & Chỉ số Vòng đời Yêu cầu (Request Lifecycle Metrics)
+
+Để bảo đảm tính minh bạch và độ tin cậy khi dịch các bộ truyện dài với nhiều khóa API xoay tua, hệ thống phân tách nghiêm ngặt giữa hai cấp độ: **Logical Request** (yêu cầu nghiệp vụ người dùng) và **Provider Attempt** (lần gọi API thực tế tới Google Gemini qua giao thức HTTP).
+
+```mermaid
+flowchart TD
+    A[Bắt đầu Yêu cầu Dịch / Chuốt / QA] -->|recordLogicalStart| B(Logical Request Active)
+    B --> C{Chọn API Key khả dụng}
+    C -->|Thử Key n| D[Gửi HTTP Request đến Gemini]
+    D -->|recordProviderAttempt| E{Kết quả phản hồi}
+    E -->|200 OK| F[recordSuccess]
+    F -->|Hoàn tất nghiệp vụ| G[recordLogicalSuccess]
+    E -->|429 Quota / RateLimit| H[recordFailure]
+    H --> I{Có thể Retry / Key khác?}
+    I -->|Có| J[recordRetry & Xoay Key mới] --> C
+    I -->|Hết Key / Terminal Error| K[recordLogicalFailure]
+    E -->|400 / 401 Auth Failed| L[recordFailure Key bị đánh dấu AuthFailed]
+    L --> M{Có Key dự phòng?}
+    M -->|Có| N[recordRetry & Xoay Key tiếp theo] --> C
+    M -->|Không còn Key nào| K
+```
+
+### Chi tiết các chỉ số vòng đời:
+
+1. **Cấp Logical Request (Nghiệp vụ dịch thuật)**:
+   - `logicalRequestsTotal` / `logicalRequestsToday`: Đếm số yêu cầu nghiệp vụ được bắt đầu.
+   - `successfulRequestsTotal` / `successfulRequestsToday`: Đếm số yêu cầu hoàn thành thành công và trả kết quả cho người dùng.
+   - `failedRequestsTotal` / `failedRequestsToday`: Đếm số yêu cầu thất bại hoàn toàn (không còn khóa nào khả dụng hoặc gặp lỗi không thể phục hồi).
+
+2. **Cấp Provider Attempt (Giao tiếp mạng HTTP)**:
+   - `providerAttemptsTotal` / `providerAttemptsToday`: Đếm từng lần phát request HTTP qua mạng tới Google endpoint.
+   - `successfulAttemptsTotal` / `successfulAttemptsToday`: Số lần gọi HTTP trả về mã 200 thành công.
+   - `failedAttemptsTotal` / `failedAttemptsToday`: Số lần gọi HTTP thất bại (429, 503, 401, timeout,...).
+
+3. **Chỉ số Xoay tua & Thử lại (Retries & Rotation)**:
+   - `retriesTotal` / `retriesToday`: Đếm chính xác số lần hệ thống quyết định thử lại hoặc xoay sang khóa API dự phòng. Tách biệt hoàn toàn khỏi `recordFailure()`, bảo đảm các lỗi xác thực chết (400, 401) hoặc lỗi không retry không làm tăng sai lệch chỉ số này.
+
+4. **Bảo mật Định danh Khóa & Chuẩn hóa Băm**:
+   - Sử dụng thuật toán SHA-256 (64 hex characters) để che giấu và theo dõi thống kê khóa API trực tiếp tại client.
+   - Tự động nhận diện và di trú cấu hình hạn mức tùy chỉnh (`customLimits`) và thống kê phiên (`sessionStorage`) từ mã băm 32-bit cũ sang SHA-256 mới mà không làm mất dữ liệu của người dùng.

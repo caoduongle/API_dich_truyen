@@ -13,6 +13,21 @@ import { initKeySchedule, isKeyAvailable, findNextKey } from './geminiKeySchedul
 export async function callGemini(
   options: DirectGeminiRequestOptions & { schema?: Record<string, any> }
 ): Promise<DirectGeminiResponse> {
+  localQuotaTracker.recordLogicalStart();
+
+  try {
+    return await executeLogicalGeminiCall(options);
+  } catch (err: any) {
+    if (err?.name !== 'AbortError') {
+      localQuotaTracker.recordLogicalFailure();
+    }
+    throw err;
+  }
+}
+
+async function executeLogicalGeminiCall(
+  options: DirectGeminiRequestOptions & { schema?: Record<string, any> }
+): Promise<DirectGeminiResponse> {
   const schedule = initKeySchedule(options.apiKeys || [], options.startKeyIndex);
   const { rawKeys, customLimits } = schedule;
   let { currentKeyIdx, attemptsCount } = schedule;
@@ -22,7 +37,6 @@ export async function callGemini(
   const payload = buildPayload({ ...options, model: modelName });
 
   let lastError: any = null;
-  localQuotaTracker.recordLogicalStart();
 
   while (attemptsCount < rawKeys.length) {
     const currentKey = rawKeys[currentKeyIdx];
@@ -81,6 +95,7 @@ export async function callGemini(
             }
             throw lastError;
           }
+          localQuotaTracker.recordRetry(currentKey);
           currentKeyIdx = nextIdx;
           attemptsCount++;
           continue;
@@ -89,6 +104,15 @@ export async function callGemini(
         if (attemptsCount === rawKeys.length - 1) {
           throw lastError;
         }
+        if (response.status === 400) {
+          throw lastError;
+        }
+        const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);
+        if (nextIdx === -1) {
+          throw lastError;
+        }
+        localQuotaTracker.recordRetry(currentKey);
+        currentKeyIdx = nextIdx;
         attemptsCount++;
         continue;
       }
@@ -142,6 +166,7 @@ export async function callGemini(
       if (nextIdx === -1) {
         throw lastError;
       }
+      localQuotaTracker.recordRetry(currentKey);
       currentKeyIdx = nextIdx;
       attemptsCount++;
     }

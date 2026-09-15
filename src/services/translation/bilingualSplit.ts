@@ -4,10 +4,12 @@
  * Bảo đảm 1:1 ngữ cảnh cho từng TranslationChunk
  */
 
-import { TranslationChunk, BilingualSplitOptions } from './types';
+import { TranslationChunk, BilingualSplitOptions, IBilingualSplitter } from './types';
 import { estimateTokenCount } from '../../lib/text';
+import { mapWithConcurrencyLimit } from '../../lib/concurrency';
 
-export type { BilingualSplitOptions };
+export type { BilingualSplitOptions, IBilingualSplitter };
+export { mapWithConcurrencyLimit };
 
 function extractParagraphs(text: string): string[] {
   if (!text) return [];
@@ -63,8 +65,10 @@ export function splitBilingualAdaptively(
 
   // If maxTokensPerChunk is set, compute targetParts to satisfy token limits
   const estSourceTokens = estimateTokenCount(cleanSource);
-  if (maxTokensPerChunk && maxTokensPerChunk > 0 && estSourceTokens > maxTokensPerChunk) {
-    targetParts = Math.max(targetParts, Math.ceil(estSourceTokens / maxTokensPerChunk));
+  const estRawTokens = estimateTokenCount(cleanRaw);
+  const maxTokens = Math.max(estSourceTokens, estRawTokens);
+  if (maxTokensPerChunk && maxTokensPerChunk > 0 && maxTokens > maxTokensPerChunk) {
+    targetParts = Math.max(targetParts, Math.ceil(maxTokens / maxTokensPerChunk));
   }
 
   if (!cleanSource || !cleanRaw || targetParts <= 1) {
@@ -142,3 +146,11 @@ export function splitBilingualAdaptively(
 
   return chunks;
 }
+
+/**
+ * Implementation mẫu tuân thủ hợp đồng IBilingualSplitter
+ */
+export const bilingualSplitter: IBilingualSplitter = {
+  splitBilingualAdaptively,
+  mapWithConcurrencyLimit,
+};

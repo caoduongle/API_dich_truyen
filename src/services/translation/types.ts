@@ -27,6 +27,16 @@ export interface BilingualSplitOptions {
   maxTokensPerChunk?: number;
 }
 
+export interface IBilingualSplitter {
+  splitBilingualAdaptively(options: BilingualSplitOptions): TranslationChunk[];
+  splitBilingualAdaptively(sourceText: string, rawText: string, targetParts?: number): TranslationChunk[];
+  mapWithConcurrencyLimit<T, R>(
+    items: T[],
+    limit: number,
+    worker: (item: T, index: number) => Promise<R>
+  ): Promise<R[]>;
+}
+
 export interface SplitRetryEventInfo {
   stage: 'raw' | 'polish';
   depth: number;

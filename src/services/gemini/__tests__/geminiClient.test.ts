@@ -129,4 +129,72 @@ describe('geminiClient', () => {
     const status = localQuotaTracker.getQuotaStatus(['NETWORK_FAIL_KEY']);
     expect(status.keys[0].errorsTotal).toBe(1);
   });
+
+  it('increments failedRequestsTotal when all keys fail in logical request', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: { message: 'Daily limit reached' } }),
+    });
+
+    await expect(
+      callGemini({
+        apiKeys: ['FAIL_KEY_1', 'FAIL_KEY_2'],
+        prompt: 'Hello',
+      })
+    ).rejects.toThrow();
+
+    const status = localQuotaTracker.getQuotaStatus(['FAIL_KEY_1', 'FAIL_KEY_2']);
+    expect(status.summary?.logicalRequestsTotal).toBe(1);
+    expect(status.summary?.failedRequestsTotal).toBe(1);
+    expect(status.summary?.failedRequestsToday).toBe(1);
+    expect(status.summary?.failedAttemptsTotal).toBe(2);
+  });
+
+  it('increments retriesTotal only when rotating/retrying, not on single unretryable error', async () => {
+    // 1. Single key fails with 401 Auth Failed -> Không có lần rotate/retry nào
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { message: 'API key not valid' } }),
+    });
+
+    await expect(
+      callGemini({
+        apiKeys: ['AUTH_FAIL_KEY'],
+        prompt: 'Hello',
+      })
+    ).rejects.toThrow();
+
+    let status = localQuotaTracker.getQuotaStatus(['AUTH_FAIL_KEY']);
+    expect(status.summary?.failedAttemptsTotal).toBe(1);
+    expect(status.summary?.retriesTotal).toBe(0); // Không rotate vì chỉ có 1 key
+
+    // 2. Hai keys: Key 1 bị 429 và rotate sang Key 2 thành công -> retriesTotal tăng 1
+    localQuotaTracker.resetMetrics();
+    global.fetch = vi.fn().mockImplementation(async (_url, init) => {
+      const key = init.headers['x-goog-api-key'];
+      if (key === 'ROTATE_1') {
+        return { ok: false, status: 429, json: async () => ({ error: { message: '429' } }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: 'Done' }], role: 'model' } }],
+        }),
+      };
+    });
+
+    const res = await callGemini({
+      apiKeys: ['ROTATE_1', 'ROTATE_2'],
+      prompt: 'Hello',
+    });
+
+    expect(res.text).toBe('Done');
+    status = localQuotaTracker.getQuotaStatus(['ROTATE_1', 'ROTATE_2']);
+    expect(status.summary?.retriesTotal).toBe(1);
+    expect(status.summary?.failedRequestsTotal).toBe(0); // Thành công nên failedRequestsTotal = 0
+    expect(status.summary?.successfulRequestsTotal).toBe(1);
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitBilingualAdaptively } from '../bilingualSplit';
+import { splitBilingualAdaptively, bilingualSplitter } from '../bilingualSplit';
 
 describe('splitBilingualAdaptively', () => {
   it('splits with exact 1:1 paragraph parity when paragraph counts match', () => {
@@ -103,5 +103,79 @@ describe('splitBilingualAdaptively', () => {
       expect(chunk.sourceParagraphRange.end).toBeGreaterThan(chunk.sourceParagraphRange.start);
       expect(chunk.rawParagraphRange.end).toBeGreaterThan(chunk.rawParagraphRange.start);
     }
+  });
+
+  describe('maxTokensPerChunk runtime support (User Story 5)', () => {
+    it('automatically increases chunk count to satisfy maxTokensPerChunk', () => {
+      // 8 paragraphs of moderate size
+      const sourceParas = Array.from(
+        { length: 8 },
+        (_, i) => `段落 ${i + 1}: 这是关于斗气大陆的一段非常详细的战斗描写，天地之间的能量在此刻剧烈震荡。`
+      );
+      const rawParas = Array.from(
+        { length: 8 },
+        (_, i) => `Đoạn ${i + 1}: Đây là một đoạn miêu tả chiến đấu vô cùng chi tiết về Đấu Khí đại lục, năng lượng giữa đất trời lúc này chấn động dữ dội.`
+      );
+
+      const sourceText = sourceParas.join('\n\n');
+      const rawText = rawParas.join('\n\n');
+
+      // Without maxTokensPerChunk, default targetParts is 2
+      const defaultChunks = splitBilingualAdaptively({
+        sourceText,
+        rawText,
+        targetParts: 2,
+      });
+      expect(defaultChunks).toHaveLength(2);
+
+      // With maxTokensPerChunk set to a small limit (e.g. 50 tokens), targetParts should scale up
+      const tokenLimitedChunks = splitBilingualAdaptively({
+        sourceText,
+        rawText,
+        targetParts: 2,
+        maxTokensPerChunk: 50,
+      });
+
+      // Target parts should increase beyond 2 to satisfy smaller token chunks
+      expect(tokenLimitedChunks.length).toBeGreaterThan(2);
+      expect(tokenLimitedChunks.length).toBeLessThanOrEqual(8);
+
+      // Every chunk must contain intact paragraphs
+      for (const chunk of tokenLimitedChunks) {
+        expect(chunk.sourceText.length).toBeGreaterThan(0);
+        expect(chunk.rawText.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('safeguards paragraph boundaries when maxTokensPerChunk is smaller than a single paragraph', () => {
+      const longSourcePara = '这是一段极长的段落，包含大量的汉字描述，字符数非常多，即使设置极低的token限制也不能将它在段落中间截断。';
+      const longRawPara = 'Đây là một đoạn văn cực kỳ dài chứa rất nhiều câu chữ mô tả, dù đặt giới hạn token cực thấp cũng không được cắt ngang giữa chừng.';
+
+      const chunks = splitBilingualAdaptively({
+        sourceText: `${longSourcePara}\n\n${longSourcePara}`,
+        rawText: `${longRawPara}\n\n${longRawPara}`,
+        maxTokensPerChunk: 5, // Ridiculously low token limit
+      });
+
+      // Exactly 2 paragraphs -> at most 2 chunks, never broken mid-paragraph
+      expect(chunks).toHaveLength(2);
+      expect(chunks[0].sourceText).toBe(longSourcePara);
+      expect(chunks[1].sourceText).toBe(longSourcePara);
+    });
+  });
+
+  describe('bilingualSplitter implementation and contract', () => {
+    it('satisfies the IBilingualSplitter contract and exposes working split and concurrency methods', async () => {
+      expect(typeof bilingualSplitter.splitBilingualAdaptively).toBe('function');
+      expect(typeof bilingualSplitter.mapWithConcurrencyLimit).toBe('function');
+
+      // Test splitBilingualAdaptively via instance
+      const chunks = bilingualSplitter.splitBilingualAdaptively('段落1\n\n段落2', 'Đoạn 1\n\nĐoạn 2', 2);
+      expect(chunks).toHaveLength(2);
+
+      // Test mapWithConcurrencyLimit via instance
+      const results = await bilingualSplitter.mapWithConcurrencyLimit([1, 2, 3], 2, async (item) => item * 10);
+      expect(results).toEqual([10, 20, 30]);
+    });
   });
 });

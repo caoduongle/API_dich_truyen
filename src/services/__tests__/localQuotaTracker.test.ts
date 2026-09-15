@@ -3,6 +3,8 @@ import {
   localQuotaTracker,
   getNextPstMidnight,
   getDayInLosAngeles,
+  legacyHashApiKey,
+  hashApiKey,
 } from '../localQuotaTracker';
 
 describe('localQuotaTracker & getNextPstMidnight', () => {
@@ -208,6 +210,163 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
       const healthAfter = localQuotaTracker.getKeyHealth(key, afterCooldown);
       expect(healthAfter.state).toBe('Healthy');
       expect(healthAfter.isAvailable).toBe(true);
+    });
+  });
+
+  describe('Logical Request Lifecycle & Retry Metrics', () => {
+    const key1 = 'test-key-metrics-1';
+    const model = 'gemini-2.5-flash';
+
+    it('records logical failure accurately without double counting', () => {
+      const now = Date.now();
+      localQuotaTracker.recordLogicalStart(now);
+      localQuotaTracker.recordProviderAttempt(key1, model, now);
+      localQuotaTracker.recordFailure(key1, model, { status: 429, message: 'Rate limit' }, now);
+
+      let status = localQuotaTracker.getQuotaStatus([key1], now);
+      expect(status.summary?.logicalRequestsTotal).toBe(1);
+      expect(status.summary?.failedAttemptsTotal).toBe(1);
+      expect(status.summary?.failedRequestsTotal).toBe(0); // Chưa ghi nhận failure cấp logical request
+
+      // Giờ kết thúc thất bại toàn bộ
+      localQuotaTracker.recordLogicalFailure(now);
+      status = localQuotaTracker.getQuotaStatus([key1], now);
+      expect(status.summary?.failedRequestsTotal).toBe(1);
+      expect(status.summary?.failedRequestsToday).toBe(1);
+    });
+
+    it('separates retriesTotal from recordFailure and increments retriesTotal only on recordRetry', () => {
+      const now = Date.now();
+      localQuotaTracker.recordLogicalStart(now);
+      localQuotaTracker.recordProviderAttempt(key1, model, now);
+
+      // Gặp lỗi 401 Auth Failed - không retry
+      localQuotaTracker.recordFailure(key1, model, { status: 401, message: 'API key invalid' }, now);
+      let status = localQuotaTracker.getQuotaStatus([key1], now);
+      expect(status.summary?.failedAttemptsTotal).toBe(1);
+      expect(status.summary?.retriesTotal).toBe(0); // Không được tăng khi gọi recordFailure
+
+      // Khi thực sự xoay tua key / retry
+      localQuotaTracker.recordRetry(key1, now);
+      status = localQuotaTracker.getQuotaStatus([key1], now);
+      expect(status.summary?.retriesTotal).toBe(1);
+      expect(status.summary?.retriesToday).toBe(1);
+    });
+  });
+
+  describe('SessionStorage Hash Migration & KeyStats Normalization', () => {
+    const rawKey = 'AIzaSyMigrateTestKey_1234567890';
+    const legacyHash = legacyHashApiKey(rawKey);
+    const standardSha256 = hashApiKey(rawKey);
+
+    it('normalizes raw or non-64 hex keyHash from sessionStorage during loadFromStorage', () => {
+      const now = Date.now();
+      const currentDay = getDayInLosAngeles(now);
+
+      // Pre-populate sessionStorage with a non-64 hex keyHash (e.g. raw key)
+      const rawStoredData = {
+        summaryStats: {
+          logicalRequestsTotal: 5,
+          logicalRequestsToday: 5,
+          successfulRequestsTotal: 5,
+          successfulRequestsToday: 5,
+          failedRequestsTotal: 0,
+          failedRequestsToday: 0,
+          retriesTotal: 0,
+          retriesToday: 0,
+          providerAttemptsTotal: 5,
+          providerAttemptsToday: 5,
+          successfulAttemptsTotal: 5,
+          successfulAttemptsToday: 5,
+          failedAttemptsTotal: 0,
+          failedAttemptsToday: 0,
+          lastResetDay: currentDay,
+        },
+        keyStats: [
+          {
+            keyHash: rawKey, // Not 64 hex!
+            maskedKey: 'AIzaSy...7890',
+            requestsTotal: 5,
+            requestsToday: 5,
+            errorsTotal: 0,
+            tokensTotal: 1000,
+            tokensToday: 1000,
+            byModel: {},
+            lastResetDay: currentDay,
+            healthState: 'Healthy',
+            circuitBreakerStatus: 'Closed',
+            cooldownUntil: 0,
+          },
+        ],
+      };
+
+      mockStorage['gemini_local_quota_tracker_v1'] = JSON.stringify(rawStoredData);
+
+      // Trigger load
+      (localQuotaTracker as any).loadFromStorage(now);
+
+      // Verify that the entry was normalized under standard SHA-256
+      const status = localQuotaTracker.getQuotaStatus([rawKey], now);
+      expect(status.keys).toHaveLength(1);
+      expect(status.keys[0].keyHash).toBe(standardSha256);
+      expect(status.keys[0].requestsTotal).toBe(5);
+    });
+
+    it('migrates legacy 32-bit hash keyStats to SHA-256 seamlessly without data loss', () => {
+      const now = Date.now();
+      const currentDay = getDayInLosAngeles(now);
+
+      // Pre-populate sessionStorage with a legacy hash entry
+      const rawStoredData = {
+        summaryStats: {
+          logicalRequestsTotal: 10,
+          logicalRequestsToday: 10,
+          successfulRequestsTotal: 8,
+          successfulRequestsToday: 8,
+          failedRequestsTotal: 2,
+          failedRequestsToday: 2,
+          retriesTotal: 2,
+          retriesToday: 2,
+          providerAttemptsTotal: 10,
+          providerAttemptsToday: 10,
+          successfulAttemptsTotal: 8,
+          successfulAttemptsToday: 8,
+          failedAttemptsTotal: 2,
+          failedAttemptsToday: 2,
+          lastResetDay: currentDay,
+        },
+        keyStats: [
+          {
+            keyHash: legacyHash,
+            maskedKey: 'AIzaSy...7890',
+            requestsTotal: 10,
+            requestsToday: 10,
+            errorsTotal: 2,
+            tokensTotal: 5000,
+            tokensToday: 5000,
+            byModel: {},
+            lastResetDay: currentDay,
+            healthState: 'Healthy',
+            circuitBreakerStatus: 'Closed',
+            cooldownUntil: 0,
+          },
+        ],
+      };
+
+      mockStorage['gemini_local_quota_tracker_v1'] = JSON.stringify(rawStoredData);
+      (localQuotaTracker as any).loadFromStorage(now);
+
+      // Accessing with raw key triggers migration
+      const status = localQuotaTracker.getQuotaStatus([rawKey], now);
+      expect(status.keys).toHaveLength(1);
+      expect(status.keys[0].keyHash).toBe(standardSha256);
+      expect(status.keys[0].requestsTotal).toBe(10);
+      expect(status.keys[0].errorsTotal).toBe(2);
+
+      // Check that internal map no longer has the legacy entry
+      const internalMap = (localQuotaTracker as any).keyStatsMap;
+      expect(internalMap.has(legacyHash)).toBe(false);
+      expect(internalMap.has(standardSha256)).toBe(true);
     });
   });
 });

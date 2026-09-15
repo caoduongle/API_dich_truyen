@@ -60,6 +60,34 @@ export interface LogicalSummaryStats {
   lastResetDay: string;
 }
 
+export interface IQuotaLifecycleTracker {
+  recordLogicalRequest(now?: number): void;
+  recordLogicalFailure(now?: number): void;
+  recordProviderAttempt(key: string, model: string, now?: number): void;
+  recordSuccess(
+    key: string,
+    model: string,
+    usage: { promptTokens: number; outputTokens: number; totalTokens: number },
+    latencyMs: number,
+    now?: number
+  ): void;
+  recordFailure(
+    key: string,
+    model: string,
+    error: {
+      status?: number;
+      message?: string;
+      details?: unknown[];
+      rawResponse?: any;
+      isRateLimit?: boolean;
+      isAuthError?: boolean;
+      isOverload?: boolean;
+    },
+    now?: number
+  ): void;
+  recordRetry(key?: string, now?: number): void;
+}
+
 export interface QuotaGroupDisplayItem {
   id: string;
   projectId?: string;

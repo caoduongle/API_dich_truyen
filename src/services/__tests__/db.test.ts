@@ -5,6 +5,7 @@ import {
   resetDBInstanceForTesting,
   getProjectsResultFromDB,
   getProjectResultFromDB,
+  saveProjectToDB,
 } from '../db';
 import { handleDBUpgrade } from '../dbMigration';
 
@@ -259,6 +260,55 @@ describe('IndexedDB Services & Storage Estimation', () => {
       if (singleNotFound.ok) {
         expect(singleNotFound.data).toBeNull();
       }
+    });
+
+    it('serializes concurrent saveProjectToDB calls per projectId in strict FIFO order', async () => {
+      resetDBInstanceForTesting();
+      const executionOrder: string[] = [];
+      const putMock = vi.fn().mockImplementation((val: any) => {
+        if (val && val.title) {
+          executionOrder.push(val.title);
+        }
+      });
+
+      const mockTransaction = {
+        objectStore: vi.fn(() => ({
+          put: putMock,
+        })),
+        set oncomplete(cb: any) {
+          setTimeout(() => cb(), 5);
+        },
+      };
+
+      const mockDB: any = {
+        transaction: vi.fn(() => mockTransaction),
+        onclose: null,
+        onversionchange: null,
+      };
+
+      vi.stubGlobal('indexedDB', {
+        open: vi.fn(() => {
+          const req: any = {
+            result: mockDB,
+            set onsuccess(cb: any) {
+              setTimeout(() => cb(), 0);
+            },
+          };
+          return req;
+        }),
+      });
+
+      const p1 = { id: 'proj_same', title: 'Write 1', chapters: [] } as any;
+      const p2 = { id: 'proj_same', title: 'Write 2', chapters: [] } as any;
+      const p3 = { id: 'proj_same', title: 'Write 3', chapters: [] } as any;
+
+      await Promise.all([
+        saveProjectToDB(p1),
+        saveProjectToDB(p2),
+        saveProjectToDB(p3),
+      ]);
+
+      expect(executionOrder).toEqual(['Write 1', 'Write 2', 'Write 3']);
     });
   });
 });
