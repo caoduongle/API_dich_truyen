@@ -162,6 +162,38 @@ describe('splitBilingualAdaptively', () => {
       expect(chunks[0].sourceText).toBe(longSourcePara);
       expect(chunks[1].sourceText).toBe(longSourcePara);
     });
+
+    it('T016 [US3] gom đoạn lũy kế token thông minh với đoạn văn dài ngắn lệch nhau (Greedy Accumulative Packing)', () => {
+      // Giả lập 6 đoạn văn với kích thước lệch nhau bằng chữ Hán (~1.35 tokens/kí tự)
+      const p0 = '汉'.repeat(150); // ~200 tokens
+      const p1 = '语'.repeat(200); // ~270 tokens
+      const p2 = '字'.repeat(1500); // ~2025 tokens -> Rất dài
+      const p3 = '文'.repeat(100); // ~135 tokens
+      const p4 = '学'.repeat(150); // ~200 tokens
+      const p5 = '书'.repeat(200); // ~270 tokens
+
+      const text = [p0, p1, p2, p3, p4, p5].join('\n\n');
+
+      const chunks = splitBilingualAdaptively({
+        sourceText: text,
+        rawText: text,
+        maxTokensPerChunk: 1000,
+      });
+
+      // Kì vọng:
+      // Chunk 0: p0 (~200) + p1 (~270) = 470 <= 1000. Đoạn tiếp theo p2(~2025) làm tổng > 1000 -> Cắt.
+      // Chunk 1: p2 (~2025) -> Bản thân > 1000 nhưng không cắt ngang -> Cắt ngay sau nó.
+      // Chunk 2: p3 (~135) + p4 (~200) + p5 (~270) = 605 <= 1000.
+      expect(chunks).toHaveLength(3);
+      
+      expect(chunks[0].sourceParagraphRange).toEqual({ start: 0, end: 2 });
+      expect(chunks[1].sourceParagraphRange).toEqual({ start: 2, end: 3 });
+      expect(chunks[2].sourceParagraphRange).toEqual({ start: 3, end: 6 });
+
+      expect(chunks[0].sourceText).toBe(`${p0}\n\n${p1}`);
+      expect(chunks[1].sourceText).toBe(p2);
+      expect(chunks[2].sourceText).toBe(`${p3}\n\n${p4}\n\n${p5}`);
+    });
   });
 
   describe('bilingualSplitter implementation and contract', () => {

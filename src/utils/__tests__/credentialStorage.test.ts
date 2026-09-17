@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { migrateAndLoadApiKeys } from '../../hooks/useAIConfig';
 import { sanitizeSecretString, sanitizeValue, redactApiKey } from '../../lib/text';
 import { maskApiKey, hashApiKey } from '../../services/localQuotaTracker';
+import { legacyHashApiKey } from '../apiKeyHash';
+import { CUSTOM_LIMITS_STORAGE_KEY } from '../customLimitsStorage';
 import { verifyStorageIntegrity } from '../storageAudit';
 
 describe('Credential Storage & Lifecycle Security', () => {
@@ -93,6 +95,28 @@ describe('Credential Storage & Lifecycle Security', () => {
       
       expect(keys).toEqual([]);
       expect(mockSessionStorage['gemini_api_keys']).toBeUndefined();
+    });
+
+    it('should automatically trigger migrateCustomLimits when loading valid API keys', () => {
+      const validKey = 'AIzaSyAutoMigrateKey123';
+      const legacyHash = legacyHashApiKey(validKey);
+      const newHash = hashApiKey(validKey);
+
+      // Setup legacy custom limit in localStorage
+      mockLocalStorage[CUSTOM_LIMITS_STORAGE_KEY] = JSON.stringify({
+        [legacyHash]: { maxRpd: 1234, maxRpm: 15 },
+      });
+
+      // Keys in localStorage ready to migrate
+      mockLocalStorage['gemini_api_keys'] = JSON.stringify([validKey]);
+
+      const keys = migrateAndLoadApiKeys();
+      expect(keys).toEqual([validKey]);
+
+      // Verify custom limits storage was migrated
+      const updatedLimits = JSON.parse(mockLocalStorage[CUSTOM_LIMITS_STORAGE_KEY]);
+      expect(updatedLimits[newHash]).toEqual({ maxRpd: 1234, maxRpm: 15 });
+      expect(updatedLimits[legacyHash]).toBeUndefined();
     });
   });
 

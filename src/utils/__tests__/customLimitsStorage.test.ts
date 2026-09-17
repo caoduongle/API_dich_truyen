@@ -129,5 +129,21 @@ describe('customLimitsStorage & Hash Migration', () => {
       const resultNonExistent = migrateCustomLimits(['AIzaSySomeUnrelatedKey_999999']);
       expect(resultNonExistent.migratedCount).toBe(0);
     });
+
+    it('should automatically trigger migrateCustomLimits when apiKeys are passed to getStoredCustomLimits', () => {
+      const key = 'AIzaSyAutoMigrateKey_444444444444';
+      const legacyHash = legacyHashApiKey(key);
+      const newHash = hashApiKey(key);
+
+      saveStoredCustomLimits({
+        [legacyHash]: { ...DEFAULT_CUSTOM_LIMIT, maxRpd: 150 },
+      });
+
+      // Calling getStoredCustomLimits with keys automatically migrates
+      const limits = getStoredCustomLimits([key]);
+
+      expect(limits[legacyHash]).toBeUndefined();
+      expect(limits[newHash]).toEqual({ ...DEFAULT_CUSTOM_LIMIT, maxRpd: 150 });
+    });
   });
 });

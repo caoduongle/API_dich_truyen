@@ -23,7 +23,8 @@ export function initKeySchedule(apiKeys: string[], startKeyIndex?: number): KeyS
     throw new Error('Không tìm thấy API Key nào. Vui lòng cấu hình API Key cá nhân trong phần Cấu hình AI.');
   }
 
-  const customLimits = getStoredCustomLimits();
+  // Tự động kích hoạt di trú cấu hình hạn mức từ mã băm cũ sang SHA-256 mới
+  const customLimits = getStoredCustomLimits(rawKeys);
   const startIdx = startKeyIndex && startKeyIndex >= 0 ? startKeyIndex % rawKeys.length : 0;
   const initialAvailableIdx = localQuotaTracker.findNextAvailableKeyIndex(rawKeys, startIdx, customLimits);
 

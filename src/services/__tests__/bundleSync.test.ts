@@ -39,6 +39,19 @@ vi.mock('../db', () => {
     saveCrdtStates: vi.fn(async (recs: any[]) => {
       for (const r of recs) mockCrdtStates[r.chapterId] = { ...r };
     }),
+    atomicSaveProjectBundle: vi.fn(async (p: StoryProject, chaps: Chapter[], crdt?: any[]) => {
+      mockProjects[p.id] = { ...p };
+      for (const c of chaps) {
+        const list = mockChapters[c.projectId || p.id] || [];
+        const idx = list.findIndex((x) => x.id === c.id);
+        if (idx >= 0) list[idx] = { ...c, projectId: p.id };
+        else list.push({ ...c, projectId: p.id });
+        mockChapters[c.projectId || p.id] = list;
+      }
+      if (crdt) {
+        for (const r of crdt) mockCrdtStates[r.chapterId] = { ...r };
+      }
+    }),
     __resetMockDb: (projects: Record<string, StoryProject>, chapters: Record<string, Chapter[]>, crdt: Record<string, any> = {}) => {
       mockProjects = { ...projects };
       mockChapters = { ...chapters };

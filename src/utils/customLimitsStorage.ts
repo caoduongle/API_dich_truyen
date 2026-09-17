@@ -14,8 +14,12 @@ let memoryFallback: Record<string, CustomLimit> = {};
 
 /**
  * Loads user-configured custom limits from localStorage safely with in-memory fallback.
+ * If apiKeys is provided, automatically triggers migration of any legacy hash entries.
  */
-export function getStoredCustomLimits(): Record<string, CustomLimit> {
+export function getStoredCustomLimits(apiKeys?: string[]): Record<string, CustomLimit> {
+  if (Array.isArray(apiKeys) && apiKeys.length > 0) {
+    migrateCustomLimits(apiKeys);
+  }
   if (typeof localStorage === 'undefined') {
     return memoryFallback;
   }

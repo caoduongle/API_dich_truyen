@@ -14,6 +14,7 @@ import {
   normalizeModelId,
   migrateModelSelection
 } from '../utils/modelRegistry';
+import { migrateCustomLimits } from '../utils/customLimitsStorage';
 
 
 /**
@@ -31,7 +32,11 @@ export function migrateAndLoadApiKeys(): string[] {
         if (sessionStored) {
             const parsed = JSON.parse(sessionStored);
             if (Array.isArray(parsed)) {
-                return parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0);
+                const keys = parsed.filter((k): k is string => typeof k === 'string' && k.trim().length > 0);
+                if (keys.length > 0) {
+                    migrateCustomLimits(keys);
+                    return keys;
+                }
             }
         }
     } catch (_) {
@@ -58,6 +63,7 @@ export function migrateAndLoadApiKeys(): string[] {
                             sessionStorage.setItem('gemini_api_keys', JSON.stringify(cleanKeys));
                         }
                     } catch (_) {}
+                    migrateCustomLimits(cleanKeys);
                     return cleanKeys;
                 }
             }
@@ -84,6 +90,7 @@ export function migrateAndLoadApiKeys(): string[] {
                             sessionStorage.setItem('gemini_api_keys', JSON.stringify(clean));
                         }
                     } catch (_) {}
+                    migrateCustomLimits(clean);
                     return clean;
                 }
             }

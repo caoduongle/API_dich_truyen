@@ -1,36 +1,33 @@
 /**
  * Project Storage Write Queue
- * Quản lý hàng đợi ghi tuần tự (FIFO) cho các thao tác lưu dự án vào IndexedDB
- * Ngăn chặn race condition khi người dùng thêm/sửa cẩm nang hoặc cập nhật nhanh liên tiếp
+ * Quản lý hàng đợi ghi tuần tự cho các thao tác lưu dự án vào IndexedDB.
+ * Ủy quyền trực tiếp tới saveProjectToDB (được tuần tự hóa per-projectId qua projectWriteChains trong db.ts).
  */
 
 import { StoryProject } from '../types';
-import { saveProjectToDB } from './db';
+import { saveProjectToDB, waitForProjectWrites, resetProjectWriteChainsForTest } from './db';
 
 let writeChain: Promise<void> = Promise.resolve();
 
 /**
  * Đưa tác vụ lưu dự án vào hàng đợi ghi tuần tự.
- * Đảm bảo các lần ghi vào IndexedDB được thực hiện nối tiếp nhau theo thứ tự gọi (FIFO).
+ * Ủy quyền trực tiếp tới saveProjectToDB để thống nhất với serialization queue của Drive sync.
  */
 export function enqueueProjectSave(project: StoryProject): Promise<void> {
+  const savePromise = saveProjectToDB(project);
   writeChain = writeChain
-    .catch(() => {
-      // Đảm bảo lỗi từ tác vụ ghi trước không làm đứt chuỗi cho các tác vụ ghi tiếp theo
-    })
-    .then(async () => {
-      await saveProjectToDB(project);
-    });
-
-  return writeChain;
+    .catch(() => {})
+    .then(() => savePromise)
+    .catch(() => {});
+  return savePromise;
 }
 
 /**
  * Chờ cho tất cả các tác vụ ghi trong hàng đợi hiện tại hoàn tất.
  * Phục vụ cho kiểm thử và đồng bộ trước khi đóng/chuyển trang.
  */
-export function waitForQueueIdle(): Promise<void> {
-  return writeChain.catch(() => {});
+export function waitForQueueIdle(projectId?: string): Promise<void> {
+  return Promise.all([writeChain.catch(() => {}), waitForProjectWrites(projectId)]).then(() => {});
 }
 
 /**
@@ -38,4 +35,5 @@ export function waitForQueueIdle(): Promise<void> {
  */
 export function resetProjectWriteQueueForTest(): void {
   writeChain = Promise.resolve();
+  resetProjectWriteChainsForTest();
 }

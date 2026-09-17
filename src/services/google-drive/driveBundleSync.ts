@@ -14,6 +14,7 @@ import {
   getCrdtState,
   saveCrdtState,
   saveCrdtStates,
+  atomicSaveProjectBundle,
 } from '../db';
 import {
   createChapterYDoc,
@@ -222,10 +223,6 @@ export class DriveBundleSync {
         }
       }
 
-      // Lưu tất cả chapters và CRDT states
-      await saveChaptersToDB(chaptersToSave);
-      await saveCrdtStates(crdtStatesToSave);
-
       // Cập nhật thông tin dự án
       const updatedChaptersMeta: ChapterMetadata[] = chaptersToSave.map((c) => ({
         id: c.id,
@@ -245,7 +242,8 @@ export class DriveBundleSync {
         updatedAt: new Date().toISOString(),
       };
 
-      await saveProjectToDB(mergedProject);
+      // Lưu nguyên tử toàn bộ chapters, CRDT states và project metadata trong 1 giao dịch duy nhất
+      await atomicSaveProjectBundle(mergedProject, chaptersToSave, crdtStatesToSave);
 
       onProgress?.({
         status: 'success',
@@ -332,9 +330,6 @@ export class DriveBundleSync {
       });
     }
 
-    await saveChaptersToDB(chaptersToSave);
-    await saveCrdtStates(crdtStatesToSave);
-
     const importedChaptersMeta: ChapterMetadata[] = chaptersToSave.map((c) => ({
       id: c.id,
       title: c.title,
@@ -352,7 +347,8 @@ export class DriveBundleSync {
       isOwner: false,
     };
 
-    await saveProjectToDB(importedProject);
+    // Lưu nguyên tử toàn bộ chapters, CRDT states và project metadata trong 1 giao dịch duy nhất
+    await atomicSaveProjectBundle(importedProject, chaptersToSave, crdtStatesToSave);
 
     onProgress?.({
       status: 'success',

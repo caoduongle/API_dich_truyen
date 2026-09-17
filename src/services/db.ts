@@ -19,6 +19,17 @@ import {
 export { PROJECTS_STORE, CHAPTERS_STORE, CRDT_STATES_STORE };
 export type { StorageResult, StorageError, StorageErrorCode };
 
+export interface CrdtBinaryStateItem {
+  chapterId: string;
+  state: Uint8Array;
+}
+
+export interface AtomicProjectBundleInput {
+  project: StoryProject;
+  chapters: Chapter[];
+  crdtStates?: CrdtBinaryStateItem[];
+}
+
 const { DB_NAME, DB_VERSION, NEAR_LIMIT_PERCENT, NEAR_LIMIT_MIN_BYTES } = STORAGE_CONFIG;
 
 let dbInstance: IDBDatabase | null = null;
@@ -299,6 +310,115 @@ export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
 
   projectWriteChains.set(projectId, nextChain);
   return nextChain;
+};
+
+const executeAtomicSaveProjectBundle = async (
+  project: StoryProject,
+  chapters: Chapter[],
+  crdtStates?: (CrdtBinaryStateItem | CrdtStateRecord)[]
+): Promise<void> => {
+  return withRetry(async () => {
+    const db = await initDB();
+    const crdtStoreName = db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains(CRDT_STATES_STORE)
+      ? CRDT_STATES_STORE
+      : (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains('crdt_docs') ? 'crdt_docs' : null);
+
+    const storesToLock = crdtStoreName
+      ? [PROJECTS_STORE, CHAPTERS_STORE, crdtStoreName]
+      : [PROJECTS_STORE, CHAPTERS_STORE];
+
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(storesToLock, 'readwrite');
+      const projectsStore = transaction.objectStore(PROJECTS_STORE);
+      const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
+      const crdtStore = crdtStoreName ? transaction.objectStore(crdtStoreName) : null;
+
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      transaction.oncomplete = () => resolve();
+
+      // 1. Lưu toàn bộ chapters
+      for (const chap of chapters) {
+        chaptersStore.put({
+          ...chap,
+          projectId: project.id,
+        });
+      }
+
+      // 2. Lưu trạng thái CRDT nếu có
+      if (crdtStore && crdtStates && crdtStates.length > 0) {
+        for (const item of crdtStates) {
+          const rec: CrdtStateRecord = {
+            chapterId: item.chapterId,
+            projectId: ('projectId' in item && item.projectId) ? item.projectId : project.id,
+            state: item.state,
+            updatedAt: ('updatedAt' in item && (item as any).updatedAt)
+              ? (item as any).updatedAt
+              : (project.updatedAt || new Date().toISOString()),
+          };
+          crdtStore.put(rec);
+        }
+      }
+
+      // 3. Chuẩn hóa chapter metadata và lưu project
+      const normalizedChaptersMeta: ChapterMetadata[] = chapters.map((c) => ({
+        id: c.id,
+        title: c.title,
+        status: c.status || 'not_started',
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+      }));
+
+      const projectToSave: StoryProject = {
+        ...project,
+        chapters: normalizedChaptersMeta,
+      };
+      projectsStore.put(projectToSave);
+    });
+  }, 3, 150, 'atomicSaveProjectBundle');
+};
+
+/**
+ * Lưu trữ nguyên tử metadata dự án, toàn bộ danh sách chương và trạng thái CRDT trong 1 IDBTransaction duy nhất.
+ * Xếp vào hàng đợi ghi tuần tự theo projectId để đảm bảo đồng bộ hoàn toàn với saveProjectToDB.
+ */
+export const atomicSaveProjectBundle = async (
+  project: StoryProject,
+  chapters: Chapter[],
+  crdtStates?: (CrdtBinaryStateItem | CrdtStateRecord)[]
+): Promise<void> => {
+  if (!project || !project.id) {
+    return executeAtomicSaveProjectBundle(project, chapters, crdtStates);
+  }
+
+  const projectId = project.id;
+  const currentChain = projectWriteChains.get(projectId) || Promise.resolve();
+
+  const nextChain = currentChain
+    .catch(() => {
+      // Đảm bảo lỗi từ tác vụ ghi trước không làm tắc nghẽn tác vụ tiếp theo
+    })
+    .then(async () => {
+      await executeAtomicSaveProjectBundle(project, chapters, crdtStates);
+    });
+
+  projectWriteChains.set(projectId, nextChain);
+  return nextChain;
+};
+
+/**
+ * Chờ cho tất cả tác vụ ghi dự án đang xử lý hoàn tất (hoặc cho một projectId cụ thể)
+ */
+export const waitForProjectWrites = async (projectId?: string): Promise<void> => {
+  if (projectId) {
+    const chain = projectWriteChains.get(projectId);
+    if (chain) {
+      await chain.catch(() => {});
+    }
+  } else {
+    const allChains = Array.from(projectWriteChains.values());
+    await Promise.all(allChains.map((c) => c.catch(() => {})));
+  }
 };
 
 export const deleteProjectFromDB = async (id: string): Promise<void> => {

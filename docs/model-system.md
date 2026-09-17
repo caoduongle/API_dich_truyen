@@ -125,4 +125,28 @@ flowchart TD
 
 4. **Bảo mật Định danh Khóa & Chuẩn hóa Băm**:
    - Sử dụng thuật toán SHA-256 (64 hex characters) để che giấu và theo dõi thống kê khóa API trực tiếp tại client.
-   - Tự động nhận diện và di trú cấu hình hạn mức tùy chỉnh (`customLimits`) và thống kê phiên (`sessionStorage`) từ mã băm 32-bit cũ sang SHA-256 mới mà không làm mất dữ liệu của người dùng.
+   - Tự động nhận diện và di trú cấu hình hạn mức tùy chỉnh (`customLimits`) và thống kê phiên (`sessionStorage`) từ mã băm 32-bit cũ sang SHA-256 mới mà không làm mất dữ liệu của người dùng khi tải khóa API tại `migrateAndLoadApiKeys()`.
+
+---
+
+## 7. Lưu trữ Đồng bộ Nguyên tử & Hàng Đợi Ghi Dự Án (Atomic Project Storage & Unified Queue)
+
+Để tránh xung đột ghi đè dữ liệu (race condition) và hiện tượng ghi chắp vá (partial-write) giữa giao diện người dùng và tiến trình đồng bộ Google Drive:
+
+1. **Hàng đợi tuần tự hóa duy nhất (`projectWriteChains`)**:
+   - Mọi thao tác lưu dự án từ UI (`projectStorageQueue.ts`) đều ủy quyền trực tiếp tới `saveProjectToDB()` trong `src/services/db.ts`.
+   - Các lệnh ghi cùng một `projectId` được tuần tự hóa nghiêm ngặt theo mô hình FIFO promise chain, giải quyết triệt để tình trạng phân tách thành 2 hàng đợi độc lập gây tranh chấp dữ liệu.
+2. **Giao dịch đa store nguyên tử (`atomicSaveProjectBundle`)**:
+   - Tiến trình kéo gói từ Google Drive (`pullBundle`, `initFromBundle`) gộp toàn bộ thao tác lưu `project`, danh sách `chapters`, và trạng thái CRDT (`crdt_states` / `crdt_docs`) vào trong một giao dịch `IDBTransaction` duy nhất `readwrite`.
+   - Nếu xảy ra lỗi hoặc ngoại lệ tại bất kỳ bước nào, toàn bộ giao dịch được tự động rollback, bảo đảm không xảy ra trạng thái cơ sở dữ liệu bị hỏng hoặc mất đồng bộ một phần.
+
+---
+
+## 8. Phân đoạn Song ngữ Thích ứng theo Ngân sách Token Thực tế (Greedy Accumulative Packing)
+
+Trong phân hệ chia tách văn bản song ngữ (`src/services/translation/bilingualSplit.ts`):
+1. **Thuật toán Greedy Accumulative Packing**:
+   - Thay vì chia đều cơ học theo số phần cố định khi cấu hình `maxTokensPerChunk`, hệ thống tính toán trọng số token thực tế của từng đoạn văn song ngữ (sử dụng SentencePiece BPE estimation) và gom lũy kế các đoạn liên tiếp cho tới khi đạt ngưỡng ngân sách token.
+   - Nếu một đoạn văn độc lập có kích thước vượt quá `maxTokensPerChunk`, đoạn văn đó được giữ nguyên vẹn trong một chunk riêng biệt để tuyệt đối không cắt vụn ranh giới câu hoặc làm mất ngữ cảnh dịch thuật.
+2. **Kẹp an toàn ranh giới song ngữ**:
+   - Tỷ lệ ánh xạ giữa đoạn văn bản nguồn (Trung) và văn bản dịch thô (Việt) được căn chỉnh tương ứng theo vị trí và độ dài, bảo đảm cấu trúc khối phân đoạn luôn tuân thủ giao thức `IBilingualTokenPackingSplitter`.

@@ -63,15 +63,11 @@ export function splitBilingualAdaptively(
   const cleanSource = (sourceText || '').trim();
   const cleanRaw = (rawText || '').trim();
 
-  // If maxTokensPerChunk is set, compute targetParts to satisfy token limits
   const estSourceTokens = estimateTokenCount(cleanSource);
   const estRawTokens = estimateTokenCount(cleanRaw);
   const maxTokens = Math.max(estSourceTokens, estRawTokens);
-  if (maxTokensPerChunk && maxTokensPerChunk > 0 && maxTokens > maxTokensPerChunk) {
-    targetParts = Math.max(targetParts, Math.ceil(maxTokens / maxTokensPerChunk));
-  }
 
-  if (!cleanSource || !cleanRaw || targetParts <= 1) {
+  if (!cleanSource || !cleanRaw) {
     return [
       {
         chunkIndex: 0,
@@ -102,7 +98,75 @@ export function splitBilingualAdaptively(
     ];
   }
 
-  // Số lượng phần bị giới hạn bởi số đoạn văn khả dụng của cả hai bên để tránh khối rỗng
+  // T017 & T018: Greedy Accumulative Packing theo trọng số token lũy kế
+  if (maxTokensPerChunk && maxTokensPerChunk > 0 && maxTokens > maxTokensPerChunk) {
+    const chunks: TranslationChunk[] = [];
+    let currentSrcStart = 0;
+    let currentRawStart = 0;
+    let currentTokens = 0;
+
+    for (let i = 0; i < sourceParas.length; i++) {
+      const srcSlice = sourceParas[i];
+      const nextRawEnd = (i === sourceParas.length - 1) 
+        ? rawParas.length 
+        : Math.round(((i + 1) * rawParas.length) / sourceParas.length);
+      
+      const rawSliceEnd = Math.max(currentRawStart, Math.min(nextRawEnd, rawParas.length));
+      const rawSlice = rawParas.slice(currentRawStart, rawSliceEnd).join('\n\n');
+      
+      const estSrc = estimateTokenCount(srcSlice);
+      const estRaw = estimateTokenCount(rawSlice);
+      const paraTokens = Math.max(estSrc, estRaw);
+
+      if (currentTokens + paraTokens > maxTokensPerChunk && currentSrcStart < i) {
+        // Cắt chunk trước đoạn văn `i`
+        const chunkSrcEnd = i;
+        const chunkRawEnd = currentRawStart;
+
+        const chunkSrcText = sourceParas.slice(currentSrcStart, chunkSrcEnd).join('\n\n');
+        const lastRawEnd = chunks.length === 0 ? 0 : chunks[chunks.length - 1].rawParagraphRange.end;
+        const chunkRawText = rawParas.slice(lastRawEnd, chunkRawEnd).join('\n\n');
+
+        chunks.push({
+          chunkIndex: chunks.length,
+          totalChunks: 0,
+          sourceText: chunkSrcText,
+          rawText: chunkRawText,
+          sourceParagraphRange: { start: currentSrcStart, end: chunkSrcEnd },
+          rawParagraphRange: { start: lastRawEnd, end: chunkRawEnd },
+          estimatedTokens: currentTokens,
+        });
+
+        currentSrcStart = i;
+        currentTokens = paraTokens;
+      } else {
+        currentTokens += paraTokens;
+      }
+      currentRawStart = rawSliceEnd;
+    }
+
+    // Đẩy chunk cuối cùng còn lại
+    if (currentSrcStart < sourceParas.length) {
+      const chunkSrcText = sourceParas.slice(currentSrcStart, sourceParas.length).join('\n\n');
+      const lastRawEnd = chunks.length === 0 ? 0 : chunks[chunks.length - 1].rawParagraphRange.end;
+      const chunkRawText = rawParas.slice(lastRawEnd, rawParas.length).join('\n\n');
+      
+      chunks.push({
+        chunkIndex: chunks.length,
+        totalChunks: 0,
+        sourceText: chunkSrcText,
+        rawText: chunkRawText,
+        sourceParagraphRange: { start: currentSrcStart, end: sourceParas.length },
+        rawParagraphRange: { start: lastRawEnd, end: rawParas.length },
+        estimatedTokens: currentTokens,
+      });
+    }
+
+    chunks.forEach(c => c.totalChunks = chunks.length);
+    return chunks;
+  }
+
+  // Fallback: Chia đều theo số phần cố định
   const parts = Math.max(1, Math.min(targetParts, sourceParas.length, rawParas.length));
   if (parts <= 1) {
     return [
