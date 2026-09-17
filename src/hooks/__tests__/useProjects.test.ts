@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useProjects } from '../useProjects';
 import { GlossaryItem } from '../../types';
 
+import * as db from '../../services/db';
+
+const mockShowToast = vi.fn();
+
 // Mock dependencies
 vi.mock('../../services/db', () => ({
     getProjectsFromDB: vi.fn(),
@@ -13,11 +17,15 @@ vi.mock('../../services/db', () => ({
     getChaptersByProjectFromDB: vi.fn(),
     deleteChaptersByProjectFromDB: vi.fn(),
     saveChaptersToDB: vi.fn(),
+    getCrdtStatesByProject: vi.fn(),
+    saveCrdtStates: vi.fn(),
+    getCrdtState: vi.fn(),
+    saveCrdtState: vi.fn(),
 }));
 
 vi.mock('../../context/NotificationContext', () => ({
     useNotifications: () => ({
-        showToast: vi.fn(),
+        showToast: mockShowToast,
     }),
 }));
 
@@ -119,5 +127,63 @@ describe('useProjects - State management hook', () => {
         expect(item2.vietnamese).toBe('updated_test2');
         expect(item1.note).toBe('new note 1');
         expect(item2.note).toBe('new note 2');
+    });
+
+    it('restores project, chapters, and CRDT states upon project delete undo (US7)', async () => {
+        const dummyProject = { id: 'proj_del', title: 'Delete Test', chapters: [], glossary: [] };
+        const dummyChapters = [{ id: 'c1', projectId: 'proj_del', title: 'C1' }];
+        const dummyCrdtStates = [{ chapterId: 'c1', projectId: 'proj_del', state: new Uint8Array([1]) }];
+
+        mockState.projects = [dummyProject];
+        refCurrent = mockState.projects;
+
+        vi.mocked(db.getChaptersByProjectFromDB).mockResolvedValue(dummyChapters as any);
+        vi.mocked(db.getCrdtStatesByProject).mockResolvedValue(dummyCrdtStates as any);
+
+        const hook = useProjects();
+        await hook.handleDeleteProject('proj_del');
+
+        expect(mockShowToast).toHaveBeenCalled();
+        const toastCall = mockShowToast.mock.calls[0][0];
+        expect(toastCall.onUndo).toBeDefined();
+
+        // Trigger undo callback
+        await toastCall.onUndo();
+
+        expect(db.saveProjectToDB).toHaveBeenCalledWith(dummyProject);
+        expect(db.saveChaptersToDB).toHaveBeenCalledWith(dummyChapters);
+        expect(db.saveCrdtStates).toHaveBeenCalledWith(dummyCrdtStates);
+    });
+
+    it('restores chapter and CRDT state upon single chapter delete undo (US7)', async () => {
+        const dummyProject = {
+            id: 'proj_1',
+            title: 'Test',
+            chapters: [{ id: 'chap_1', title: 'Chapter 1' }],
+            glossary: [],
+        };
+        const dummyChapter = { id: 'chap_1', projectId: 'proj_1', title: 'Chapter 1' };
+        const dummyCrdt = { chapterId: 'chap_1', projectId: 'proj_1', state: new Uint8Array([2]) };
+
+        mockState.projects = [dummyProject];
+        mockState.activeProjectId = 'proj_1';
+        refCurrent = mockState.projects;
+
+        vi.mocked(db.getChapterFromDB).mockResolvedValue(dummyChapter as any);
+        vi.mocked(db.getCrdtState).mockResolvedValue(dummyCrdt as any);
+
+        const hook = useProjects();
+        await hook.handleDeleteChapterHistory('chap_1');
+
+        expect(db.deleteChapterFromDB).toHaveBeenCalledWith('chap_1', 'proj_1');
+        expect(mockShowToast).toHaveBeenCalled();
+        const toastCall = mockShowToast.mock.calls[0][0];
+        expect(toastCall.onUndo).toBeDefined();
+
+        // Trigger undo callback
+        await toastCall.onUndo();
+
+        expect(db.saveChapterToDB).toHaveBeenCalledWith(dummyChapter);
+        expect(db.saveCrdtState).toHaveBeenCalledWith(dummyCrdt);
     });
 });

@@ -1,6 +1,20 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
-import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB, saveChapterToDB, deleteChapterFromDB, getChapterFromDB, getChaptersByProjectFromDB, deleteChaptersByProjectFromDB, saveChaptersToDB } from '../services/db';
+import {
+    getProjectsFromDB,
+    saveProjectToDB,
+    deleteProjectFromDB,
+    saveChapterToDB,
+    deleteChapterFromDB,
+    getChapterFromDB,
+    getChaptersByProjectFromDB,
+    deleteChaptersByProjectFromDB,
+    saveChaptersToDB,
+    getCrdtStatesByProject,
+    saveCrdtStates,
+    getCrdtState,
+    saveCrdtState,
+} from '../services/db';
 import { enqueueProjectSave, enqueueProjectDelete } from '../services/projectStorageQueue';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
@@ -131,8 +145,11 @@ export function useProjects() {
         const project = currentProjects.find(p => p.id === id);
         if (!project) return;
 
-        // 1. Load full chapter bodies for backup before deleting
-        const backedUpChapters = await getChaptersByProjectFromDB(id);
+        // 1. Load full chapter bodies and CRDT states for backup before deleting
+        const [backedUpChapters, backedUpCrdtStates] = await Promise.all([
+            getChaptersByProjectFromDB(id),
+            getCrdtStatesByProject(id),
+        ]);
 
         // 2. Perform DB deletion atomically (deletes project and its chapters)
         await enqueueProjectDelete(id);
@@ -156,6 +173,9 @@ export function useProjects() {
                 // Restore in IndexedDB
                 await saveProjectToDB(project);
                 await saveChaptersToDB(backedUpChapters);
+                if (backedUpCrdtStates && backedUpCrdtStates.length > 0) {
+                    await saveCrdtStates(backedUpCrdtStates);
+                }
                 // Restore in React state
                 setProjects(oldProjects);
                 setActiveProjectId(project.id);
@@ -347,12 +367,15 @@ export function useProjects() {
         const chapterMeta = activeProj.chapters.find(c => c.id === chapId);
         if (!chapterMeta) return;
 
-        // 1. Back up full chapter data
-        const fullChapter = await getChapterFromDB(chapId);
+        // 1. Back up full chapter data and CRDT state
+        const [fullChapter, backedUpCrdt] = await Promise.all([
+            getChapterFromDB(chapId),
+            getCrdtState(chapId),
+        ]);
         if (!fullChapter) return;
 
         // 2. Perform deletion
-        await deleteChapterFromDB(chapId);
+        await deleteChapterFromDB(chapId, activeProjectId || undefined);
 
         const oldProjects = [...currentProjects];
 
@@ -382,6 +405,9 @@ export function useProjects() {
             onUndo: async () => {
                 // Restore in IndexedDB
                 await saveChapterToDB(fullChapter);
+                if (backedUpCrdt) {
+                    await saveCrdtState(backedUpCrdt);
+                }
                 await enqueueProjectSave(activeProj);
                 // Restore in React state
                 setProjects(oldProjects);

@@ -3,16 +3,27 @@ import {
   saveProjectToDB,
   deleteProjectFromDB,
   deleteProjectCrdtDatabases,
+  deleteChapterCrdtDatabase,
+  deleteChapterFromDB,
+  getChapterFromDB,
+  getCrdtState,
+  getCrdtStatesByProject,
   saveChapterToDB,
   saveChaptersToDB,
   saveCrdtState,
   saveCrdtStates,
+  atomicSaveProjectBundle,
   waitForProjectWrites,
   resetProjectWriteChainsForTest,
   getProjectWriteChainsSizeForTest,
   resetDBInstanceForTesting,
   CrdtStateRecord,
 } from '../db';
+import {
+  registerCrdtPersistence,
+  getActivePersistenceCountForTest,
+  clearActivePersistencesForTest,
+} from '../crdtPersistenceRegistry';
 import {
   enqueueProjectSave,
   enqueueProjectDelete,
@@ -498,22 +509,93 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       expect(deletedDatabases).toContain('crdt_p_crdt_del_all_c2');
     });
 
-    it('sweeps lingering crdt_${projectId}_* databases discovered via indexedDB.databases()', async () => {
-      const project = createDummyProject('p_sweep', 'Sweep Project');
-      await saveProjectToDB(project);
-      const c1 = createDummyChapter('c1', 'p_sweep');
-      await saveChapterToDB(c1);
+    it('purges CRDT databases derived strictly from known project chapters without prefix collision with sibling projects (US2)', async () => {
+      // Project A: proj_100
+      const projectA = createDummyProject('proj_100', 'Project 100');
+      await saveProjectToDB(projectA);
+      const cA1 = createDummyChapter('c_100_1', 'proj_100');
+      await saveChapterToDB(cA1);
 
-      // Register active chapter DB + orphan DB from previous deleted session + other project DB
-      knownDatabases.add('crdt_p_sweep_c1');
-      knownDatabases.add('crdt_p_sweep_orphan_old');
-      knownDatabases.add('crdt_other_project_c99');
+      // Project B: proj_100_200 (starts with proj_100_)
+      const projectB = createDummyProject('proj_100_200', 'Project 100_200');
+      await saveProjectToDB(projectB);
+      const cB1 = createDummyChapter('c_200_1', 'proj_100_200');
+      await saveChapterToDB(cB1);
 
-      await deleteProjectFromDB('p_sweep');
+      knownDatabases.add('crdt_proj_100_c_100_1');
+      knownDatabases.add('crdt_proj_100_200_c_200_1');
 
-      expect(deletedDatabases).toContain('crdt_p_sweep_c1');
-      expect(deletedDatabases).toContain('crdt_p_sweep_orphan_old');
-      expect(deletedDatabases).not.toContain('crdt_other_project_c99');
+      // Delete only Project A
+      await deleteProjectFromDB('proj_100');
+
+      expect(deletedDatabases).toContain('crdt_proj_100_c_100_1');
+      // Sibling project sharing prefix MUST NOT be deleted!
+      expect(deletedDatabases).not.toContain('crdt_proj_100_200_c_200_1');
+      expect(knownDatabases.has('crdt_proj_100_200_c_200_1')).toBe(true);
+    });
+
+    it('destroys active in-memory persistence providers before deleting databases (US1)', async () => {
+      let providerDestroyed = false;
+      registerCrdtPersistence('crdt_p_persist_c1', {
+        destroy: vi.fn().mockImplementation(() => {
+          providerDestroyed = true;
+        }),
+      });
+
+      expect(getActivePersistenceCountForTest()).toBe(1);
+
+      await deleteProjectCrdtDatabases('p_persist', ['c1']);
+
+      expect(providerDestroyed).toBe(true);
+      expect(getActivePersistenceCountForTest()).toBe(0);
+      expect(deletedDatabases).toContain('crdt_p_persist_c1');
+    });
+
+    it('handles onblocked by waiting for onsuccess instead of resolving immediately (US1)', async () => {
+      let onblockedFired = false;
+      let resolved = false;
+
+      (indexedDB.deleteDatabase as any).mockImplementationOnce((name: string) => {
+        const req: any = { result: undefined, onsuccess: null, onerror: null, onblocked: null };
+        queueMicrotask(() => {
+          onblockedFired = true;
+          req.onblocked?.({ target: req });
+          setTimeout(() => {
+            deletedDatabases.push(name);
+            req.onsuccess?.({ target: req });
+          }, 30);
+        });
+        return req;
+      });
+
+      const promise = deleteProjectCrdtDatabases('p_blocked_test', ['chap_blocked']).then(() => {
+        resolved = true;
+      });
+
+      expect(resolved).toBe(false);
+      while (!onblockedFired) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(onblockedFired).toBe(true);
+      expect(resolved).toBe(false); // MUST NOT resolve on onblocked!
+
+      await promise;
+      expect(resolved).toBe(true);
+      expect(deletedDatabases).toContain('crdt_p_blocked_test_chap_blocked');
+    });
+
+    it('rejects when deleteDatabase errors out (US1)', async () => {
+      (indexedDB.deleteDatabase as any).mockImplementationOnce((_name: string) => {
+        const req: any = { result: undefined, onsuccess: null, onerror: null, onblocked: null, error: new Error('IDB delete error') };
+        setTimeout(() => {
+          req.onerror?.({ target: req });
+        }, 10);
+        return req;
+      });
+
+      await expect(
+        deleteProjectCrdtDatabases('p_error_test', ['chap_err'])
+      ).rejects.toThrow('IDB delete error');
     });
 
     it('deleteProjectCrdtDatabases works gracefully without indexedDB.databases()', async () => {
@@ -581,6 +663,88 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       await promise;
       expect(completed).toBe(true);
       expect(mockChapters.has('c_dur_1')).toBe(true);
+    });
+  });
+
+  describe('Feature 144 User Story 3: Complete CRDT Cleanup on Single Chapter Deletion', () => {
+    it('deletes from CHAPTERS_STORE, CRDT_STATES_STORE, and deletes dedicated CRDT DB', async () => {
+      const project = createDummyProject('p_single_chap_del', 'Single Chap Del Project');
+      await saveProjectToDB(project);
+
+      const chapter = createDummyChapter('c_to_delete', 'p_single_chap_del');
+      await saveChapterToDB(chapter);
+
+      await saveCrdtState({
+        chapterId: 'c_to_delete',
+        projectId: 'p_single_chap_del',
+        state: new Uint8Array([1, 2, 3]),
+        updatedAt: new Date().toISOString(),
+      });
+
+      knownDatabases.add('crdt_p_single_chap_del_c_to_delete');
+
+      expect(mockChapters.has('c_to_delete')).toBe(true);
+      expect(mockCrdtStates.has('c_to_delete')).toBe(true);
+
+      await deleteChapterFromDB('c_to_delete', 'p_single_chap_del');
+
+      expect(mockChapters.has('c_to_delete')).toBe(false);
+      expect(mockCrdtStates.has('c_to_delete')).toBe(false);
+      expect(deletedDatabases).toContain('crdt_p_single_chap_del_c_to_delete');
+    });
+  });
+
+  describe('Feature 144 User Story 4: Strict Fail-Closed Semantics for CRDT State Persistence', () => {
+    it('aborts saveCrdtState and writes 0 records when record lacks projectId', async () => {
+      const unparentedRecord: any = {
+        chapterId: 'crdt_no_proj',
+        state: new Uint8Array([1]),
+      };
+
+      await saveCrdtState(unparentedRecord);
+
+      expect(mockCrdtStates.has('crdt_no_proj')).toBe(false);
+    });
+
+    it('saveCrdtStates omits unparented records lacking projectId', async () => {
+      const project = createDummyProject('p_valid_crdt', 'Valid Parent');
+      await saveProjectToDB(project);
+
+      const validRecord: CrdtStateRecord = {
+        chapterId: 'crdt_valid_1',
+        projectId: 'p_valid_crdt',
+        state: new Uint8Array([1]),
+        updatedAt: new Date().toISOString(),
+      };
+      const invalidRecord: any = {
+        chapterId: 'crdt_invalid_1',
+        state: new Uint8Array([2]),
+      };
+
+      await saveCrdtStates([validRecord, invalidRecord]);
+
+      expect(mockCrdtStates.has('crdt_valid_1')).toBe(true);
+      expect(mockCrdtStates.has('crdt_invalid_1')).toBe(false);
+    });
+  });
+
+  describe('Feature 144 User Story 5: Project Boundary Validation in Atomic Bundle Saves', () => {
+    it('throws validation error when CRDT state item belongs to a different project', async () => {
+      const projectA = createDummyProject('proj_A', 'Project A');
+      const chapterA = createDummyChapter('chap_A_1', 'proj_A');
+
+      const foreignCrdtItem = {
+        chapterId: 'chap_A_1',
+        projectId: 'proj_B', // Different from proj_A!
+        state: new Uint8Array([1, 2]),
+      };
+
+      await expect(
+        atomicSaveProjectBundle(projectA, [chapterA], [foreignCrdtItem as any])
+      ).rejects.toThrow(/Mismatched projectId in CRDT state/);
+
+      expect(mockProjects.has('proj_A')).toBe(false);
+      expect(mockChapters.has('chap_A_1')).toBe(false);
     });
   });
 });

@@ -10,6 +10,7 @@ import {
   exportDocUpdate,
 } from '../services/crdtDocManager';
 import { getChapterFromDB, saveChapterToDB, saveCrdtState } from '../services/db';
+import { registerCrdtPersistence, unregisterCrdtPersistence } from '../services/crdtPersistenceRegistry';
 
 export interface UseChapterCRDTOptions {
   projectId: string;
@@ -120,10 +121,12 @@ export function useChapterCRDT({
     metadataMapRef.current = session.metadataMap;
 
     // 2. Kích hoạt session cache y-indexeddb
+    const persistenceDbName = `crdt_${projectId}_${chapterId}`;
     if (typeof window !== 'undefined') {
       try {
-        const idbProvider = new IndexeddbPersistence(`crdt_${projectId}_${chapterId}`, doc);
+        const idbProvider = new IndexeddbPersistence(persistenceDbName, doc);
         persistenceRef.current = idbProvider;
+        registerCrdtPersistence(persistenceDbName, idbProvider);
       } catch (e) {
         console.warn('[useChapterCRDT] IndexedDB Persistence không khả dụng:', e);
       }
@@ -184,6 +187,7 @@ export function useChapterCRDT({
       }
       doc.off('update', handleDocUpdate);
       if (persistenceRef.current) {
+        unregisterCrdtPersistence(persistenceDbName, persistenceRef.current);
         persistenceRef.current.destroy();
         persistenceRef.current = null;
       }

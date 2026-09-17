@@ -15,6 +15,10 @@ import {
   createStorageSuccess,
   createStorageError,
 } from './storageResult';
+import {
+  destroyCrdtPersistence,
+  destroyAllCrdtPersistencesForProject,
+} from './crdtPersistenceRegistry';
 
 export { PROJECTS_STORE, CHAPTERS_STORE, CRDT_STATES_STORE };
 export type { StorageResult, StorageError, StorageErrorCode, CrdtStateRecord };
@@ -255,15 +259,27 @@ export async function withProjectLock<T>(projectId: string, fn: () => Promise<T>
     navigator.locks &&
     typeof navigator.locks.request === 'function'
   ) {
-    return withRetry(
+    type LockOutcome<R> = { ok: true; value: R } | { ok: false; error: unknown };
+
+    const outcome = await withRetry(
       () =>
         navigator.locks.request(`project-lock-${projectId}`, async () => {
-          return fn();
+          try {
+            const value = await fn();
+            return { ok: true as const, value };
+          } catch (error) {
+            return { ok: false as const, error };
+          }
         }),
       3,
       50,
       `withProjectLock:${projectId}`
     );
+
+    if (!outcome.ok) {
+      throw outcome.error;
+    }
+    return outcome.value;
   }
   return fn();
 }
@@ -434,6 +450,15 @@ export const atomicSaveProjectBundle = async (
   chapters: Chapter[],
   crdtStates?: (CrdtBinaryStateItem | CrdtStateRecord)[]
 ): Promise<void> => {
+  if (project && project.id && crdtStates && crdtStates.length > 0) {
+    for (const item of crdtStates) {
+      if ('projectId' in item && item.projectId && item.projectId !== project.id) {
+        throw new Error(
+          `[atomicSaveProjectBundle] Mismatched projectId in CRDT state: chapter ${item.chapterId} has projectId "${item.projectId}" which does not match bundle projectId "${project.id}".`
+        );
+      }
+    }
+  }
   if (!project || !project.id) {
     return executeAtomicSaveProjectBundle(project, chapters, crdtStates);
   }
@@ -525,7 +550,21 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
           cursorRequest.onsuccess = (event) => {
             const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
             if (cursor) {
+              chapterIdsToDelete.push(String(cursor.primaryKey));
               crdtStore.delete(cursor.primaryKey);
+              cursor.continue();
+            }
+          };
+        } else if (typeof crdtStore.openCursor === 'function') {
+          const cursorRequest = crdtStore.openCursor();
+          cursorRequest.onerror = () => reject(cursorRequest.error);
+          cursorRequest.onsuccess = (event) => {
+            const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
+            if (cursor) {
+              if (cursor.value && cursor.value.projectId === id) {
+                chapterIdsToDelete.push(cursor.value.chapterId || String(cursor.primaryKey));
+                cursor.delete();
+              }
               cursor.continue();
             }
           };
@@ -536,9 +575,84 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
 };
 
 /**
+ * Trợ thủ xóa IndexedDB an toàn:
+ * - Chỉ resolve khi onsuccess fires (không resolve trên onblocked/onerror).
+ * - Trên onblocked: chờ onsuccess với bounded timeout 5000ms.
+ * - Trên onerror hoặc timeout: reject với lỗi.
+ */
+const executeDeleteDatabase = (dbName: string): Promise<void> => {
+  return new Promise<void>((resolve, reject) => {
+    try {
+      const req = indexedDB.deleteDatabase(dbName);
+      let isSettled = false;
+      let blockedTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        if (blockedTimer) {
+          clearTimeout(blockedTimer);
+          blockedTimer = null;
+        }
+      };
+
+      req.onsuccess = () => {
+        if (isSettled) return;
+        isSettled = true;
+        cleanup();
+        resolve();
+      };
+
+      req.onerror = () => {
+        if (isSettled) return;
+        isSettled = true;
+        cleanup();
+        reject(req.error || new Error(`IndexedDB deleteDatabase failed for "${dbName}"`));
+      };
+
+      req.onblocked = () => {
+        console.warn(
+          `[executeDeleteDatabase] Deletion blocked for database "${dbName}". Waiting for open connections to close...`
+        );
+        if (!blockedTimer) {
+          blockedTimer = setTimeout(() => {
+            if (isSettled) return;
+            isSettled = true;
+            reject(
+              new Error(`Timed out waiting for database "${dbName}" deletion (blocked by active connection)`)
+            );
+          }, 5000);
+        }
+      };
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+/**
+ * Xóa sạch database IndexedDB riêng do y-indexeddb tạo ra cho một chương cụ thể (crdt_${projectId}_${chapterId}).
+ */
+export const deleteChapterCrdtDatabase = async (
+  projectId: string,
+  chapterId: string
+): Promise<void> => {
+  if (!projectId || !chapterId || typeof indexedDB === 'undefined' || typeof indexedDB.deleteDatabase !== 'function') {
+    return;
+  }
+  const dbName = `crdt_${projectId}_${chapterId}`;
+  try {
+    await destroyCrdtPersistence(dbName);
+  } catch (err) {
+    console.warn(`[deleteChapterCrdtDatabase] Cảnh báo khi đóng active persistence cho ${dbName}:`, err);
+  }
+  await executeDeleteDatabase(dbName);
+};
+
+/**
  * Xóa sạch tất cả các database IndexedDB riêng do y-indexeddb tạo ra (crdt_${projectId}_${chapterId})
  * cho toàn bộ các chương của một dự án.
- * Đồng thời quét và dọn sạch các DB có tiền tố crdt_${projectId}_ qua indexedDB.databases() nếu môi trường hỗ trợ.
+ *
+ * Tuyệt đối không dùng prefix startsWith("crdt_" + projectId + "_") trên indexedDB.databases()
+ * để ngăn chặn xóa nhầm database của các dự án có chung tiền tố ID (ví dụ proj_123 và proj_123_456).
  */
 export const deleteProjectCrdtDatabases = async (
   projectId: string,
@@ -548,49 +662,85 @@ export const deleteProjectCrdtDatabases = async (
     return;
   }
 
-  const dbsToDelete = new Set<string>();
+  // 1. Đóng kết nối các active in-memory persistences trong session trước khi xóa database
+  try {
+    await destroyAllCrdtPersistencesForProject(projectId, knownChapterIds);
+  } catch (err) {
+    console.warn(`[deleteProjectCrdtDatabases] Cảnh báo khi đóng active persistence cho dự án ${projectId}:`, err);
+  }
 
-  // 1. Thêm các database theo danh sách chapterId đã biết
+  const allChapterIds = new Set<string>();
+
   if (knownChapterIds && knownChapterIds.length > 0) {
     for (const chapId of knownChapterIds) {
       if (chapId) {
-        dbsToDelete.add(`crdt_${projectId}_${chapId}`);
+        allChapterIds.add(chapId);
       }
     }
   }
 
-  // 2. Quét thêm bằng indexedDB.databases() nếu môi trường hỗ trợ để bắt cả các chapter mồ côi
-  if (typeof indexedDB.databases === 'function') {
-    try {
-      const dbs = await indexedDB.databases();
-      const prefix = `crdt_${projectId}_`;
-      if (Array.isArray(dbs)) {
-        for (const dbInfo of dbs) {
-          if (dbInfo && dbInfo.name && dbInfo.name.startsWith(prefix)) {
-            dbsToDelete.add(dbInfo.name);
-          }
+  // 2. Nếu không có knownChapterIds hoặc để đảm bảo quét sạch, tra cứu chapterIds từ IndexedDB
+  try {
+    const db = await initDB();
+    if (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function') {
+      if (db.objectStoreNames.contains(CHAPTERS_STORE)) {
+        const tx = db.transaction(CHAPTERS_STORE, 'readonly');
+        const store = tx.objectStore(CHAPTERS_STORE);
+        if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
+          const idx = store.index('projectId');
+          const cursorReq = idx.openKeyCursor(IDBKeyRange.only(projectId));
+          await new Promise<void>((res) => {
+            cursorReq.onsuccess = (ev) => {
+              const cursor = (ev.target as IDBRequest<IDBCursor | null>).result;
+              if (cursor) {
+                allChapterIds.add(String(cursor.primaryKey));
+                cursor.continue();
+              } else {
+                res();
+              }
+            };
+            cursorReq.onerror = () => res();
+          });
         }
       }
-    } catch (enumErr) {
-      console.warn(`[deleteProjectCrdtDatabases] Không thể liệt kê danh sách IndexedDB databases:`, enumErr);
+
+      if (db.objectStoreNames.contains(CRDT_STATES_STORE)) {
+        const tx = db.transaction(CRDT_STATES_STORE, 'readonly');
+        const store = tx.objectStore(CRDT_STATES_STORE);
+        if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
+          const idx = store.index('projectId');
+          const cursorReq = idx.openKeyCursor(IDBKeyRange.only(projectId));
+          await new Promise<void>((res) => {
+            cursorReq.onsuccess = (ev) => {
+              const cursor = (ev.target as IDBRequest<IDBCursor | null>).result;
+              if (cursor) {
+                allChapterIds.add(String(cursor.primaryKey));
+                cursor.continue();
+              } else {
+                res();
+              }
+            };
+            cursorReq.onerror = () => res();
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[deleteProjectCrdtDatabases] Không thể tra cứu thêm chapterIds từ DB:`, err);
+  }
+
+  // 3. Tạo danh sách các DB cần xóa chính xác tuyệt đối: crdt_${projectId}_${chapId}
+  const dbsToDelete = new Set<string>();
+  for (const chapId of allChapterIds) {
+    if (chapId) {
+      dbsToDelete.add(`crdt_${projectId}_${chapId}`);
     }
   }
 
-  // 3. Thực hiện xóa từng database
+  // 4. Thực hiện xóa từng database với xác nhận onsuccess nghiêm ngặt
   const deletePromises: Promise<void>[] = [];
   for (const dbName of dbsToDelete) {
-    deletePromises.push(
-      new Promise<void>((resolve) => {
-        try {
-          const req = indexedDB.deleteDatabase(dbName);
-          req.onsuccess = () => resolve();
-          req.onerror = () => resolve(); // Tiếp tục dọn các DB khác nếu một DB gặp lỗi
-          req.onblocked = () => resolve();
-        } catch {
-          resolve();
-        }
-      })
-    );
+    deletePromises.push(executeDeleteDatabase(dbName));
   }
 
   await Promise.all(deletePromises);
@@ -853,17 +1003,59 @@ export const saveChaptersToDB = async (chapters: Chapter[]): Promise<void> => {
   await Promise.all(tasks);
 };
 
-export const deleteChapterFromDB = async (id: string): Promise<void> => {
-  return withRetry(async () => {
-    const db = await initDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(CHAPTERS_STORE, 'readwrite');
-      const store = transaction.objectStore(CHAPTERS_STORE);
-      const request = store.delete(id);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
-    });
-  }, 3, 100, 'deleteChapterFromDB');
+export const deleteChapterFromDB = async (id: string, projectId?: string): Promise<void> => {
+  let resolvedProjectId = projectId;
+  if (!resolvedProjectId) {
+    try {
+      const stored = await getChapterFromDB(id);
+      resolvedProjectId = stored?.projectId;
+    } catch {
+      // Bỏ qua lỗi tra cứu
+    }
+  }
+
+  const executeDelete = async () => {
+    return withRetry(async () => {
+      const db = await initDB();
+      const hasCrdtStore = Boolean(
+        db.objectStoreNames &&
+        typeof db.objectStoreNames.contains === 'function' &&
+        db.objectStoreNames.contains(CRDT_STATES_STORE)
+      );
+      const storesToLock = hasCrdtStore ? [CHAPTERS_STORE, CRDT_STATES_STORE] : [CHAPTERS_STORE];
+
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(storesToLock, 'readwrite');
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+        transaction.oncomplete = () => resolve();
+
+        const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
+        const reqChap = chaptersStore.delete(id);
+        reqChap.onerror = () => reject(reqChap.error);
+
+        if (hasCrdtStore) {
+          const crdtStore = transaction.objectStore(CRDT_STATES_STORE);
+          const reqCrdt = crdtStore.delete(id);
+          reqCrdt.onerror = () => reject(reqCrdt.error);
+        }
+      });
+
+      // Sau khi transaction commit xong, dọn CRDT database vật lý của chính chapter đó
+      if (resolvedProjectId) {
+        try {
+          await deleteChapterCrdtDatabase(resolvedProjectId, id);
+        } catch (crdtErr) {
+          console.warn(`[deleteChapterFromDB] Cảnh báo khi dọn CRDT database cho chương ${id}:`, crdtErr);
+        }
+      }
+    }, 3, 100, 'deleteChapterFromDB');
+  };
+
+  if (resolvedProjectId) {
+    return enqueueProjectWrite(resolvedProjectId, executeDelete);
+  }
+  return executeDelete();
 };
 
 export const getChaptersByProjectFromDB = async (projectId: string): Promise<Chapter[]> => {
@@ -898,6 +1090,11 @@ const executeDeleteChaptersByProjectFromDB = async (projectId: string): Promise<
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(CHAPTERS_STORE, 'readwrite');
       const store = transaction.objectStore(CHAPTERS_STORE);
+
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      transaction.oncomplete = () => resolve();
+
       if (!store.indexNames.contains('projectId')) {
         resolve();
         return;
@@ -910,8 +1107,6 @@ const executeDeleteChaptersByProjectFromDB = async (projectId: string): Promise<
         if (cursor) {
           store.delete(cursor.primaryKey);
           cursor.continue();
-        } else {
-          resolve();
         }
       };
     });
@@ -942,6 +1137,36 @@ export const getCrdtState = async (chapterId: string): Promise<CrdtStateRecord |
   } catch (err) {
     console.error('IndexedDB Get CRDT State Error:', err);
     return null;
+  }
+};
+
+export const getCrdtStatesByProject = async (projectId: string): Promise<CrdtStateRecord[]> => {
+  if (!projectId) return [];
+  try {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) {
+      return [];
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(CRDT_STATES_STORE, 'readonly');
+      const store = transaction.objectStore(CRDT_STATES_STORE);
+      if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
+        const index = store.index('projectId');
+        const request = index.getAll(projectId);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result || []);
+      } else {
+        const request = store.getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const all: CrdtStateRecord[] = request.result || [];
+          resolve(all.filter((r) => r.projectId === projectId));
+        };
+      }
+    });
+  } catch (err) {
+    console.error('IndexedDB Get CRDT States By Project Error:', err);
+    return [];
   }
 };
 
@@ -996,6 +1221,12 @@ const executeSaveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
 };
 
 export const saveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
+  if (!record || !record.projectId) {
+    console.warn(
+      `[saveCrdtState] Bỏ qua lưu CRDT state cho chương ${record?.chapterId || 'unknown'}: thiếu parent projectId (Fail-closed orphan guard).`
+    );
+    return;
+  }
   const projectId = record.projectId;
   return enqueueProjectWrite(projectId, () => executeSaveCrdtState(record));
 };
@@ -1056,15 +1287,16 @@ export const saveCrdtStates = async (records: CrdtStateRecord[]): Promise<void> 
   if (!records || records.length === 0) return;
 
   const groups = new Map<string, CrdtStateRecord[]>();
-  const unassigned: CrdtStateRecord[] = [];
 
   for (const rec of records) {
-    if (rec.projectId) {
+    if (rec && rec.projectId) {
       const list = groups.get(rec.projectId) || [];
       list.push(rec);
       groups.set(rec.projectId, list);
     } else {
-      unassigned.push(rec);
+      console.warn(
+        `[saveCrdtStates] Bỏ qua lưu CRDT state cho chương ${rec?.chapterId || 'unknown'}: thiếu parent projectId (Fail-closed orphan guard).`
+      );
     }
   }
 
@@ -1072,10 +1304,6 @@ export const saveCrdtStates = async (records: CrdtStateRecord[]): Promise<void> 
 
   for (const [projectId, group] of groups.entries()) {
     tasks.push(enqueueProjectWrite(projectId, () => executeSaveCrdtStates(group, projectId)));
-  }
-
-  if (unassigned.length > 0) {
-    tasks.push(executeSaveCrdtStates(unassigned));
   }
 
   await Promise.all(tasks);

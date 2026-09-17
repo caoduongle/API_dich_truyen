@@ -145,5 +145,17 @@ describe('withProjectLock Web Locks Serialization & Fallback (User Story 3)', ()
       expect(result).toBe('recovered_after_retry');
       expect(attempts).toBe(2);
     });
+
+    it('executes callback exactly once and does NOT retry callback execution when callback itself throws an error (User Story 6)', async () => {
+      let callbackAttempts = 0;
+      await expect(
+        withProjectLock('p_no_callback_retry', async () => {
+          callbackAttempts++;
+          throw new Error('Application level business failure');
+        })
+      ).rejects.toThrow('Application level business failure');
+
+      expect(callbackAttempts).toBe(1);
+    });
   });
 });
