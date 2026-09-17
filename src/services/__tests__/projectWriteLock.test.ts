@@ -124,5 +124,26 @@ describe('withProjectLock Web Locks Serialization & Fallback (User Story 3)', ()
       expect(res).toBe('no_lock_needed');
       expect(requestedLocks).toHaveLength(0);
     });
+
+    it('retries lock acquisition when navigator.locks.request transiently rejects (User Story 4)', async () => {
+      let attempts = 0;
+      const failingMockLocks = {
+        request: vi.fn().mockImplementation(async (_name: string, callback: () => Promise<any>) => {
+          attempts++;
+          if (attempts === 1) {
+            throw new Error('Lock acquisition transient timeout');
+          }
+          return await callback();
+        }),
+      };
+
+      vi.stubGlobal('navigator', {
+        locks: failingMockLocks,
+      });
+
+      const result = await withProjectLock('p_transient_retry', async () => 'recovered_after_retry');
+      expect(result).toBe('recovered_after_retry');
+      expect(attempts).toBe(2);
+    });
   });
 });

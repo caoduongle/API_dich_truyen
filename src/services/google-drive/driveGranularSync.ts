@@ -365,7 +365,7 @@ export class DriveGranularSync {
           if (fileId) {
             try {
               const remoteChapterData = await client.downloadJsonFile<Chapter>(accessToken, fileId);
-              await saveChapterToDB(remoteChapterData);
+              await saveChapterToDB({ ...remoteChapterData, projectId });
               downloadedChapters++;
             } catch (pullErr: any) {
               failedPullCount++;
@@ -589,7 +589,7 @@ export class DriveGranularSync {
       if (fileId) {
         try {
           const chap = await client.downloadJsonFile<Chapter>(accessToken, fileId);
-          await saveChapterToDB(chap);
+          await saveChapterToDB({ ...chap, projectId: project.id });
         } catch (chapErr) {
           console.warn(`Không thể tải chương ${chapMeta.id}:`, chapErr);
         }

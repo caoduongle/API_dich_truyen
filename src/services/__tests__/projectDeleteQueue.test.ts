@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   saveProjectToDB,
   deleteProjectFromDB,
+  deleteProjectCrdtDatabases,
   saveChapterToDB,
   saveChaptersToDB,
   saveCrdtState,
@@ -25,6 +26,8 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
   const mockChapters = new Map<string, any>();
   const mockCrdtStates = new Map<string, any>();
   const executionOrder: string[] = [];
+  const deletedDatabases: string[] = [];
+  const knownDatabases = new Set<string>();
 
   beforeEach(() => {
     mockProjects.clear();
@@ -234,12 +237,25 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       },
     };
 
+    deletedDatabases.length = 0;
+    knownDatabases.clear();
+
     vi.stubGlobal('indexedDB', {
       open: () => {
         const req: any = { result: mockDB, onsuccess: null, onerror: null };
         setTimeout(() => req.onsuccess?.({ target: req }), 0);
         return req;
       },
+      deleteDatabase: vi.fn().mockImplementation((name: string) => {
+        deletedDatabases.push(name);
+        knownDatabases.delete(name);
+        const req: any = { result: undefined, onsuccess: null, onerror: null, onblocked: null };
+        setTimeout(() => req.onsuccess?.({ target: req }), 0);
+        return req;
+      }),
+      databases: vi.fn().mockImplementation(async () => {
+        return Array.from(knownDatabases).map((name) => ({ name }));
+      }),
     });
   });
 
@@ -247,6 +263,8 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
     resetDBInstanceForTesting();
     resetProjectWriteChainsForTest();
     resetProjectWriteQueueForTest();
+    deletedDatabases.length = 0;
+    knownDatabases.clear();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -459,5 +477,110 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
     await saveChapterToDB(partialChapter);
     expect(mockChapters.get('chap_resolve_1')?.title).toBe('Chương 1: Đã cập nhật tiêu đề');
     expect(getProjectWriteChainsSizeForTest()).toBe(0);
+  });
+
+  describe('User Story 1: CRDT Database Eradication on Project Deletion', () => {
+    it('deletes all chapter-specific crdt_${projectId}_${chapterId} databases for all chapters in the project', async () => {
+      const project = createDummyProject('p_crdt_del_all', 'CRDT Del Test');
+      await saveProjectToDB(project);
+
+      const c1 = createDummyChapter('c1', 'p_crdt_del_all');
+      const c2 = createDummyChapter('c2', 'p_crdt_del_all');
+      await saveChaptersToDB([c1, c2]);
+
+      // Simulate existing y-indexeddb databases for these chapters
+      knownDatabases.add('crdt_p_crdt_del_all_c1');
+      knownDatabases.add('crdt_p_crdt_del_all_c2');
+
+      await deleteProjectFromDB('p_crdt_del_all');
+
+      expect(deletedDatabases).toContain('crdt_p_crdt_del_all_c1');
+      expect(deletedDatabases).toContain('crdt_p_crdt_del_all_c2');
+    });
+
+    it('sweeps lingering crdt_${projectId}_* databases discovered via indexedDB.databases()', async () => {
+      const project = createDummyProject('p_sweep', 'Sweep Project');
+      await saveProjectToDB(project);
+      const c1 = createDummyChapter('c1', 'p_sweep');
+      await saveChapterToDB(c1);
+
+      // Register active chapter DB + orphan DB from previous deleted session + other project DB
+      knownDatabases.add('crdt_p_sweep_c1');
+      knownDatabases.add('crdt_p_sweep_orphan_old');
+      knownDatabases.add('crdt_other_project_c99');
+
+      await deleteProjectFromDB('p_sweep');
+
+      expect(deletedDatabases).toContain('crdt_p_sweep_c1');
+      expect(deletedDatabases).toContain('crdt_p_sweep_orphan_old');
+      expect(deletedDatabases).not.toContain('crdt_other_project_c99');
+    });
+
+    it('deleteProjectCrdtDatabases works gracefully without indexedDB.databases()', async () => {
+      // Temporarily remove databases function to simulate Firefox or environments without it
+      const originalDatabases = (indexedDB as any).databases;
+      delete (indexedDB as any).databases;
+
+      try {
+        await deleteProjectCrdtDatabases('p_firefox', ['chap_1', 'chap_2']);
+        expect(deletedDatabases).toContain('crdt_p_firefox_chap_1');
+        expect(deletedDatabases).toContain('crdt_p_firefox_chap_2');
+      } finally {
+        (indexedDB as any).databases = originalDatabases;
+      }
+    });
+  });
+
+  describe('User Story 2: Fail-Closed Orphan Guard for Unparented Chapters', () => {
+    it('aborts saveChapterToDB cleanly and writes 0 records when chapter lacks projectId and cannot be found in DB', async () => {
+      const orphanChapter: any = {
+        id: 'orphan_no_project_record',
+        title: 'Orphan Without Project',
+        sourceText: '原文',
+        rawTranslation: 'Thô',
+      };
+
+      await saveChapterToDB(orphanChapter);
+
+      expect(mockChapters.has('orphan_no_project_record')).toBe(false);
+      expect(getProjectWriteChainsSizeForTest()).toBe(0);
+    });
+
+    it('saveChaptersToDB omits unparented chapters lacking projectId without throwing', async () => {
+      const project = createDummyProject('p_parent_valid', 'Valid Parent');
+      await saveProjectToDB(project);
+
+      const validChapter = createDummyChapter('c_valid_1', 'p_parent_valid');
+      const orphanChapter: any = {
+        id: 'c_orphan_batch',
+        title: 'Orphan Batch Chapter',
+        sourceText: '原文',
+      };
+
+      await saveChaptersToDB([validChapter, orphanChapter]);
+
+      expect(mockChapters.has('c_valid_1')).toBe(true);
+      expect(mockChapters.has('c_orphan_batch')).toBe(false);
+      expect(getProjectWriteChainsSizeForTest()).toBe(0);
+    });
+  });
+
+  describe('User Story 3: Strict Transaction Durability (transaction.oncomplete)', () => {
+    it('saveChapterToDB resolves after transaction commits to disk', async () => {
+      const project = createDummyProject('p_durability', 'Durability Project');
+      await saveProjectToDB(project);
+
+      const chapter = createDummyChapter('c_dur_1', 'p_durability');
+      let completed = false;
+
+      const promise = saveChapterToDB(chapter).then(() => {
+        completed = true;
+      });
+
+      expect(completed).toBe(false);
+      await promise;
+      expect(completed).toBe(true);
+      expect(mockChapters.has('c_dur_1')).toBe(true);
+    });
   });
 });

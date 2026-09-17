@@ -255,9 +255,15 @@ export async function withProjectLock<T>(projectId: string, fn: () => Promise<T>
     navigator.locks &&
     typeof navigator.locks.request === 'function'
   ) {
-    return navigator.locks.request(`project-lock-${projectId}`, async () => {
-      return fn();
-    });
+    return withRetry(
+      () =>
+        navigator.locks.request(`project-lock-${projectId}`, async () => {
+          return fn();
+        }),
+      3,
+      50,
+      `withProjectLock:${projectId}`
+    );
   }
   return fn();
 }
@@ -452,6 +458,8 @@ export const waitForProjectWrites = async (projectId?: string): Promise<void> =>
 const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
+    const chapterIdsToDelete: string[] = [];
+
     return new Promise<void>((resolve, reject) => {
       const storesToLock = [PROJECTS_STORE, CHAPTERS_STORE];
       const crdtStoreName = (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains(CRDT_STATES_STORE))
@@ -467,12 +475,19 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
 
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
-      transaction.oncomplete = () => resolve();
+      transaction.oncomplete = async () => {
+        try {
+          await deleteProjectCrdtDatabases(id, chapterIdsToDelete);
+        } catch (crdtErr) {
+          console.warn(`[deleteProjectFromDB] Cảnh báo khi dọn CRDT databases cho dự án ${id}:`, crdtErr);
+        }
+        resolve();
+      };
 
       // 1. Xóa record project
       projectsStore.delete(id);
 
-      // 2. Xóa tất cả các chapters của project
+      // 2. Xóa tất cả các chapters của project và thu thập chapterId để dọn dẹp CRDT databases
       if (chaptersStore.indexNames && typeof chaptersStore.indexNames.contains === 'function' && chaptersStore.indexNames.contains('projectId')) {
         const index = chaptersStore.index('projectId');
         const cursorRequest = index.openKeyCursor(IDBKeyRange.only(id));
@@ -480,6 +495,7 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
         cursorRequest.onsuccess = (event) => {
           const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
           if (cursor) {
+            chapterIdsToDelete.push(String(cursor.primaryKey));
             chaptersStore.delete(cursor.primaryKey);
             cursor.continue();
           }
@@ -491,6 +507,7 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
           const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
           if (cursor) {
             if (cursor.value.projectId === id) {
+              chapterIdsToDelete.push(cursor.value.id || String(cursor.primaryKey));
               cursor.delete();
             }
             cursor.continue();
@@ -516,6 +533,67 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
       }
     });
   }, 3, 150, 'deleteProjectFromDB');
+};
+
+/**
+ * Xóa sạch tất cả các database IndexedDB riêng do y-indexeddb tạo ra (crdt_${projectId}_${chapterId})
+ * cho toàn bộ các chương của một dự án.
+ * Đồng thời quét và dọn sạch các DB có tiền tố crdt_${projectId}_ qua indexedDB.databases() nếu môi trường hỗ trợ.
+ */
+export const deleteProjectCrdtDatabases = async (
+  projectId: string,
+  knownChapterIds?: string[]
+): Promise<void> => {
+  if (!projectId || typeof indexedDB === 'undefined' || typeof indexedDB.deleteDatabase !== 'function') {
+    return;
+  }
+
+  const dbsToDelete = new Set<string>();
+
+  // 1. Thêm các database theo danh sách chapterId đã biết
+  if (knownChapterIds && knownChapterIds.length > 0) {
+    for (const chapId of knownChapterIds) {
+      if (chapId) {
+        dbsToDelete.add(`crdt_${projectId}_${chapId}`);
+      }
+    }
+  }
+
+  // 2. Quét thêm bằng indexedDB.databases() nếu môi trường hỗ trợ để bắt cả các chapter mồ côi
+  if (typeof indexedDB.databases === 'function') {
+    try {
+      const dbs = await indexedDB.databases();
+      const prefix = `crdt_${projectId}_`;
+      if (Array.isArray(dbs)) {
+        for (const dbInfo of dbs) {
+          if (dbInfo && dbInfo.name && dbInfo.name.startsWith(prefix)) {
+            dbsToDelete.add(dbInfo.name);
+          }
+        }
+      }
+    } catch (enumErr) {
+      console.warn(`[deleteProjectCrdtDatabases] Không thể liệt kê danh sách IndexedDB databases:`, enumErr);
+    }
+  }
+
+  // 3. Thực hiện xóa từng database
+  const deletePromises: Promise<void>[] = [];
+  for (const dbName of dbsToDelete) {
+    deletePromises.push(
+      new Promise<void>((resolve) => {
+        try {
+          const req = indexedDB.deleteDatabase(dbName);
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve(); // Tiếp tục dọn các DB khác nếu một DB gặp lỗi
+          req.onblocked = () => resolve();
+        } catch {
+          resolve();
+        }
+      })
+    );
+  }
+
+  await Promise.all(deletePromises);
 };
 
 /**
@@ -593,10 +671,14 @@ export const mergeSafeguardChapter = (existing: Chapter | undefined, incoming: C
 };
 
 const executeSaveChapterToDB = async (chapter: Chapter, projectId?: string): Promise<void> => {
+  if (!projectId) {
+    console.warn(`[saveChapterToDB] Bỏ qua lưu chương ${chapter.id}: thiếu parent projectId.`);
+    return;
+  }
+
   return withRetry(async () => {
     const db = await initDB();
     const hasProjectsStore = Boolean(
-      projectId &&
       db.objectStoreNames &&
       typeof db.objectStoreNames.contains === 'function' &&
       db.objectStoreNames.contains(PROJECTS_STORE)
@@ -607,17 +689,9 @@ const executeSaveChapterToDB = async (chapter: Chapter, projectId?: string): Pro
       const transaction = db.transaction(storesToLock, 'readwrite');
       const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
 
-      let isResolved = false;
-      const doResolve = () => {
-        if (!isResolved) {
-          isResolved = true;
-          resolve();
-        }
-      };
-
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
-      transaction.oncomplete = () => doResolve();
+      transaction.oncomplete = () => resolve();
 
       const proceedWithSave = () => {
         const getRequest = chaptersStore.get(chapter.id);
@@ -627,11 +701,10 @@ const executeSaveChapterToDB = async (chapter: Chapter, projectId?: string): Pro
           const chapterToSave = mergeSafeguardChapter(existing, chapter);
           const putRequest = chaptersStore.put(chapterToSave);
           putRequest.onerror = () => reject(putRequest.error);
-          putRequest.onsuccess = () => doResolve();
         };
       };
 
-      if (hasProjectsStore && projectId) {
+      if (hasProjectsStore) {
         const projectsStore = transaction.objectStore(PROJECTS_STORE);
         const projectReq = projectsStore.get(projectId);
         projectReq.onerror = () => reject(projectReq.error);
@@ -641,7 +714,7 @@ const executeSaveChapterToDB = async (chapter: Chapter, projectId?: string): Pro
             console.warn(
               `[saveChapterToDB] Bỏ qua lưu chương ${chapter.id} vì dự án cha ${projectId} không tồn tại hoặc đã bị xóa.`
             );
-            doResolve();
+            resolve();
             return;
           }
           proceedWithSave();
@@ -667,15 +740,27 @@ export const saveChapterToDB = async (chapter: Chapter): Promise<void> => {
     }
   }
 
+  // Fail-Closed Guard: Nếu không xác định được projectId, hủy lưu để tránh tạo orphan record
+  if (!projectId) {
+    console.warn(
+      `[saveChapterToDB] Bỏ qua lưu chương ${chapter.id || 'unknown'}: thiếu parent projectId và không tra cứu được từ DB (Fail-closed orphan guard).`
+    );
+    return;
+  }
+
   return enqueueProjectWrite(projectId, () => executeSaveChapterToDB(chapter, projectId));
 };
 
 const executeSaveChaptersToDB = async (chapters: Chapter[], projectId?: string): Promise<void> => {
   if (!chapters || chapters.length === 0) return;
+  if (!projectId) {
+    console.warn(`[saveChaptersToDB] Bỏ qua lưu danh sách chương: thiếu parent projectId.`);
+    return;
+  }
+
   return withRetry(async () => {
     const db = await initDB();
     const hasProjectsStore = Boolean(
-      projectId &&
       db.objectStoreNames &&
       typeof db.objectStoreNames.contains === 'function' &&
       db.objectStoreNames.contains(PROJECTS_STORE)
@@ -686,24 +771,11 @@ const executeSaveChaptersToDB = async (chapters: Chapter[], projectId?: string):
       const transaction = db.transaction(storesToLock, 'readwrite');
       const store = transaction.objectStore(CHAPTERS_STORE);
 
-      let isResolved = false;
-      const doResolve = () => {
-        if (!isResolved) {
-          isResolved = true;
-          resolve();
-        }
-      };
-
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
-      transaction.oncomplete = () => doResolve();
+      transaction.oncomplete = () => resolve();
 
       const proceedWithBatchSave = () => {
-        let remaining = chapters.length;
-        if (remaining === 0) {
-          doResolve();
-          return;
-        }
         for (const chap of chapters) {
           const getReq = store.get(chap.id);
           getReq.onerror = () => reject(getReq.error);
@@ -712,17 +784,11 @@ const executeSaveChaptersToDB = async (chapters: Chapter[], projectId?: string):
             const chapterToSave = mergeSafeguardChapter(existing, chap);
             const putReq = store.put(chapterToSave);
             putReq.onerror = () => reject(putReq.error);
-            putReq.onsuccess = () => {
-              remaining--;
-              if (remaining === 0) {
-                doResolve();
-              }
-            };
           };
         }
       };
 
-      if (hasProjectsStore && projectId) {
+      if (hasProjectsStore) {
         const projectsStore = transaction.objectStore(PROJECTS_STORE);
         const projReq = projectsStore.get(projectId);
         projReq.onerror = () => reject(projReq.error);
@@ -732,7 +798,7 @@ const executeSaveChaptersToDB = async (chapters: Chapter[], projectId?: string):
             console.warn(
               `[saveChaptersToDB] Bỏ qua lưu ${chapters.length} chương vì dự án cha ${projectId} không tồn tại hoặc đã bị xóa.`
             );
-            doResolve();
+            resolve();
             return;
           }
           proceedWithBatchSave();
@@ -753,15 +819,28 @@ export const saveChaptersToDB = async (chapters: Chapter[]): Promise<void> => {
   if (!chapters || chapters.length === 0) return;
 
   const groups = new Map<string, Chapter[]>();
-  const unassigned: Chapter[] = [];
 
   for (const chap of chapters) {
-    if (chap.projectId) {
-      const list = groups.get(chap.projectId) || [];
-      list.push(chap);
-      groups.set(chap.projectId, list);
+    let effectiveProjectId = chap.projectId;
+    if (!effectiveProjectId && chap.id) {
+      try {
+        const existing = await getChapterFromDB(chap.id);
+        if (existing?.projectId) {
+          effectiveProjectId = existing.projectId;
+        }
+      } catch {
+        // Bỏ qua lỗi tra cứu
+      }
+    }
+
+    if (effectiveProjectId) {
+      const list = groups.get(effectiveProjectId) || [];
+      list.push({ ...chap, projectId: effectiveProjectId });
+      groups.set(effectiveProjectId, list);
     } else {
-      unassigned.push(chap);
+      console.warn(
+        `[saveChaptersToDB] Bỏ qua lưu chương ${chap.id || 'unknown'}: thiếu parent projectId (Fail-closed orphan guard).`
+      );
     }
   }
 
@@ -769,10 +848,6 @@ export const saveChaptersToDB = async (chapters: Chapter[]): Promise<void> => {
 
   for (const [projectId, group] of groups.entries()) {
     tasks.push(enqueueProjectWrite(projectId, () => executeSaveChaptersToDB(group, projectId)));
-  }
-
-  if (unassigned.length > 0) {
-    tasks.push(executeSaveChaptersToDB(unassigned));
   }
 
   await Promise.all(tasks);
@@ -889,17 +964,14 @@ const executeSaveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
       const transaction = db.transaction(storesToLock, 'readwrite');
       const store = transaction.objectStore(CRDT_STATES_STORE);
 
-      let isResolved = false;
-      const doResolve = () => {
-        if (!isResolved) {
-          isResolved = true;
-          resolve();
-        }
-      };
-
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
-      transaction.oncomplete = () => doResolve();
+      transaction.oncomplete = () => resolve();
+
+      const proceedWithSave = () => {
+        const request = store.put(record);
+        request.onerror = () => reject(request.error);
+      };
 
       if (hasProjectsStore && projectId) {
         const projectsStore = transaction.objectStore(PROJECTS_STORE);
@@ -911,17 +983,13 @@ const executeSaveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
             console.warn(
               `[saveCrdtState] Bỏ qua lưu CRDT state cho chương ${record.chapterId} vì dự án cha ${projectId} không tồn tại hoặc đã bị xóa.`
             );
-            doResolve();
+            resolve();
             return;
           }
-          const request = store.put(record);
-          request.onerror = () => reject(request.error);
-          request.onsuccess = () => doResolve();
+          proceedWithSave();
         };
       } else {
-        const request = store.put(record);
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => doResolve();
+        proceedWithSave();
       }
     });
   }, 3, 100, 'saveCrdtState');
@@ -951,21 +1019,14 @@ const executeSaveCrdtStates = async (records: CrdtStateRecord[], projectId?: str
       const transaction = db.transaction(storesToLock, 'readwrite');
       const store = transaction.objectStore(CRDT_STATES_STORE);
 
-      let isResolved = false;
-      const doResolve = () => {
-        if (!isResolved) {
-          isResolved = true;
-          resolve();
-        }
-      };
-
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
-      transaction.oncomplete = () => doResolve();
+      transaction.oncomplete = () => resolve();
 
       const proceedWithBatchSave = () => {
         for (const rec of records) {
-          store.put(rec);
+          const request = store.put(rec);
+          request.onerror = () => reject(request.error);
         }
       };
 
@@ -979,7 +1040,7 @@ const executeSaveCrdtStates = async (records: CrdtStateRecord[], projectId?: str
             console.warn(
               `[saveCrdtStates] Bỏ qua lưu ${records.length} CRDT states vì dự án cha ${projectId} không tồn tại hoặc đã bị xóa.`
             );
-            doResolve();
+            resolve();
             return;
           }
           proceedWithBatchSave();
@@ -1027,9 +1088,12 @@ export const deleteCrdtState = async (chapterId: string): Promise<void> => {
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(CRDT_STATES_STORE, 'readwrite');
       const store = transaction.objectStore(CRDT_STATES_STORE);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      transaction.oncomplete = () => resolve();
+
       const request = store.delete(chapterId);
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
     });
   }, 3, 100, 'deleteCrdtState');
 };
@@ -1041,6 +1105,11 @@ const executeDeleteCrdtStatesByProject = async (projectId: string): Promise<void
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(CRDT_STATES_STORE, 'readwrite');
       const store = transaction.objectStore(CRDT_STATES_STORE);
+
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      transaction.oncomplete = () => resolve();
+
       if (!store.indexNames || typeof store.indexNames.contains !== 'function' || !store.indexNames.contains('projectId')) {
         resolve();
         return;
@@ -1053,8 +1122,6 @@ const executeDeleteCrdtStatesByProject = async (projectId: string): Promise<void
         if (cursor) {
           store.delete(cursor.primaryKey);
           cursor.continue();
-        } else {
-          resolve();
         }
       };
     });

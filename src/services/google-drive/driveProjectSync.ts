@@ -262,7 +262,10 @@ export class DriveProjectSync {
           await atomicSaveProjectBundle(projectData, chaptersData);
         } else if (chaptersData.length > 0) {
           for (const chap of chaptersData) {
-            await saveChapterToDB(chap);
+            const effectiveProjectId = chap.projectId || summary.id;
+            if (effectiveProjectId) {
+              await saveChapterToDB({ ...chap, projectId: effectiveProjectId });
+            }
           }
         }
       }
@@ -441,7 +444,10 @@ export class DriveProjectSync {
             await atomicSaveProjectBundle(projectData, chaptersData);
           } else if (chaptersData.length > 0) {
             for (const chap of chaptersData) {
-              await saveChapterToDB(chap);
+              const effectiveProjectId = chap.projectId || remote.id;
+              if (effectiveProjectId) {
+                await saveChapterToDB({ ...chap, projectId: effectiveProjectId });
+              }
             }
           }
           downloadedCount++;
