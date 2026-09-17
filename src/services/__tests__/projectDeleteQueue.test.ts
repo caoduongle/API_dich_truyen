@@ -2,10 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   saveProjectToDB,
   deleteProjectFromDB,
+  saveChapterToDB,
+  saveChaptersToDB,
+  saveCrdtState,
+  saveCrdtStates,
   waitForProjectWrites,
   resetProjectWriteChainsForTest,
   getProjectWriteChainsSizeForTest,
   resetDBInstanceForTesting,
+  CrdtStateRecord,
 } from '../db';
 import {
   enqueueProjectSave,
@@ -13,16 +18,18 @@ import {
   waitForQueueIdle,
   resetProjectWriteQueueForTest,
 } from '../projectStorageQueue';
-import { StoryProject } from '../../types';
+import { Chapter, StoryProject } from '../../types';
 
 describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)', () => {
   const mockProjects = new Map<string, any>();
   const mockChapters = new Map<string, any>();
+  const mockCrdtStates = new Map<string, any>();
   const executionOrder: string[] = [];
 
   beforeEach(() => {
     mockProjects.clear();
     mockChapters.clear();
+    mockCrdtStates.clear();
     executionOrder.length = 0;
     resetDBInstanceForTesting();
     resetProjectWriteChainsForTest();
@@ -33,69 +40,196 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
         contains: (name: string) => ['projects', 'chapters', 'crdt_states'].includes(name),
       },
       transaction: (storeNames: string | string[], mode: string) => {
+        let activeRequests = 0;
+        let isCommitted = false;
         const tx: any = {
           oncomplete: null,
           onerror: null,
           onabort: null,
-          objectStore: (name: string) => {
-            if (name === 'projects') {
-              return {
-                get: (id: string) => {
-                  const item = mockProjects.get(id);
-                  const req: any = { result: item, onsuccess: null, onerror: null };
-                  setTimeout(() => req.onsuccess?.({ target: req }), 0);
-                  return req;
-                },
-                put: (item: any) => {
-                  mockProjects.set(item.id, item);
-                  executionOrder.push(`save_project_${item.id}`);
-                  const req: any = { result: item.id, onsuccess: null, onerror: null };
-                  setTimeout(() => req.onsuccess?.({ target: req }), 0);
-                  return req;
-                },
-                delete: (id: string) => {
-                  mockProjects.delete(id);
-                  executionOrder.push(`delete_project_${id}`);
-                  const req: any = { result: undefined, onsuccess: null, onerror: null };
-                  setTimeout(() => req.onsuccess?.({ target: req }), 0);
-                  return req;
-                },
-              };
-            }
-            if (name === 'chapters') {
-              return {
-                indexNames: { contains: () => false },
-                openCursor: () => {
-                  const req: any = { result: null, onsuccess: null, onerror: null };
-                  setTimeout(() => req.onsuccess?.({ target: req }), 0);
-                  return req;
-                },
-                put: (item: any) => {
-                  mockChapters.set(item.id, item);
-                  const req: any = { result: item.id, onsuccess: null, onerror: null };
-                  setTimeout(() => req.onsuccess?.({ target: req }), 0);
-                  return req;
-                },
-                delete: (id: string) => {
-                  mockChapters.delete(id);
-                  const req: any = { result: undefined, onsuccess: null, onerror: null };
-                  setTimeout(() => req.onsuccess?.({ target: req }), 0);
-                  return req;
-                },
-              };
-            }
+        };
+
+        const tryComplete = () => {
+          if (activeRequests === 0 && !isCommitted) {
+            isCommitted = true;
+            queueMicrotask(() => tx.oncomplete?.());
+          }
+        };
+
+        const schedule = (cb: () => void) => {
+          activeRequests++;
+          queueMicrotask(() => {
+            cb();
+            activeRequests--;
+            tryComplete();
+          });
+        };
+
+        // Fallback for transactions where no operations are immediately queued
+        setTimeout(() => tryComplete(), 50);
+
+        tx.objectStore = (name: string) => {
+          if (name === 'projects') {
             return {
-              indexNames: { contains: () => false },
-              openKeyCursor: () => {
-                const req: any = { result: null, onsuccess: null, onerror: null };
-                setTimeout(() => req.onsuccess?.({ target: req }), 0);
+              get: (id: string) => {
+                const req: any = { result: undefined, onsuccess: null, onerror: null };
+                schedule(() => {
+                  req.result = mockProjects.get(id);
+                  req.onsuccess?.({ target: req });
+                });
                 return req;
               },
-              delete: () => {},
+              put: (item: any) => {
+                const req: any = { result: item.id, onsuccess: null, onerror: null };
+                schedule(() => {
+                  mockProjects.set(item.id, item);
+                  executionOrder.push(`save_project_${item.id}`);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+              delete: (id: string) => {
+                const req: any = { result: undefined, onsuccess: null, onerror: null };
+                schedule(() => {
+                  mockProjects.delete(id);
+                  executionOrder.push(`delete_project_${id}`);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
             };
-          },
+          }
+          if (name === 'chapters') {
+            return {
+              indexNames: { contains: () => false },
+              get: (id: string) => {
+                const req: any = { result: undefined, onsuccess: null, onerror: null };
+                schedule(() => {
+                  const item = mockChapters.get(id);
+                  req.result = item ? JSON.parse(JSON.stringify(item)) : undefined;
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+              openCursor: () => {
+                const entries = Array.from(mockChapters.values());
+                let idx = 0;
+                const cursorReq: any = { result: null, onsuccess: null, onerror: null };
+                const advance = () => {
+                  schedule(() => {
+                    if (idx < entries.length) {
+                      const currentVal = entries[idx++];
+                      cursorReq.result = {
+                        value: currentVal,
+                        primaryKey: currentVal.id,
+                        delete: () => {
+                          mockChapters.delete(currentVal.id);
+                          executionOrder.push(`delete_chapter_${currentVal.id}`);
+                        },
+                        continue: () => {
+                          advance();
+                        },
+                      };
+                    } else {
+                      cursorReq.result = null;
+                    }
+                    cursorReq.onsuccess?.({ target: cursorReq });
+                  });
+                };
+                advance();
+                return cursorReq;
+              },
+              put: (item: any) => {
+                const req: any = { result: item.id, onsuccess: null, onerror: null };
+                schedule(() => {
+                  mockChapters.set(item.id, item);
+                  executionOrder.push(`save_chapter_${item.id}`);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+              delete: (id: string) => {
+                const req: any = { result: undefined, onsuccess: null, onerror: null };
+                schedule(() => {
+                  mockChapters.delete(id);
+                  executionOrder.push(`delete_chapter_${id}`);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+            };
+          }
+          if (name === 'crdt_states') {
+            return {
+              indexNames: { contains: () => false },
+              get: (id: string) => {
+                const req: any = { result: null, onsuccess: null, onerror: null };
+                schedule(() => {
+                  const item = mockCrdtStates.get(id);
+                  req.result = item ? JSON.parse(JSON.stringify(item)) : null;
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+              openCursor: () => {
+                const entries = Array.from(mockCrdtStates.values());
+                let idx = 0;
+                const cursorReq: any = { result: null, onsuccess: null, onerror: null };
+                const advance = () => {
+                  schedule(() => {
+                    if (idx < entries.length) {
+                      const currentVal = entries[idx++];
+                      cursorReq.result = {
+                        value: currentVal,
+                        primaryKey: currentVal.chapterId,
+                        delete: () => {
+                          mockCrdtStates.delete(currentVal.chapterId);
+                          executionOrder.push(`delete_crdt_${currentVal.chapterId}`);
+                        },
+                        continue: () => {
+                          advance();
+                        },
+                      };
+                    } else {
+                      cursorReq.result = null;
+                    }
+                    cursorReq.onsuccess?.({ target: cursorReq });
+                  });
+                };
+                advance();
+                return cursorReq;
+              },
+              put: (item: any) => {
+                const req: any = { result: item.chapterId, onsuccess: null, onerror: null };
+                schedule(() => {
+                  mockCrdtStates.set(item.chapterId, item);
+                  executionOrder.push(`save_crdt_${item.chapterId}`);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+              delete: (id: string) => {
+                const req: any = { result: undefined, onsuccess: null, onerror: null };
+                schedule(() => {
+                  mockCrdtStates.delete(id);
+                  executionOrder.push(`delete_crdt_${id}`);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+            };
+          }
+          return {
+            indexNames: { contains: () => false },
+            openKeyCursor: () => {
+              const req: any = { result: null, onsuccess: null, onerror: null };
+              schedule(() => {
+                req.onsuccess?.({ target: req });
+              });
+              return req;
+            },
+            delete: () => {},
+          };
         };
-        setTimeout(() => tx.oncomplete?.(), 10);
         return tx;
       },
     };
@@ -175,6 +309,155 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
 
     expect(executionOrder).toEqual(['save_project_p_queue_1', 'delete_project_p_queue_1']);
     expect(mockProjects.has('p_queue_1')).toBe(false);
+    expect(getProjectWriteChainsSizeForTest()).toBe(0);
+  });
+
+  const createDummyChapter = (id: string, projectId: string, title: string = 'Chương 1'): Chapter => ({
+    id,
+    projectId,
+    title,
+    sourceText: '原文',
+    rawTranslation: 'Thô',
+    polishedTranslation: 'Mượt',
+    paragraphs: ['原文'],
+    translatedLines: ['Mượt'],
+    status: 'completed',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    qaIssues: [],
+  });
+
+  it('guarantees saveChapterToDB executes before concurrent deleteProjectFromDB and leaves 0 orphan chapters', async () => {
+    const project = createDummyProject('p_chap_race_1', 'Concurrent Chapter Race');
+    await saveProjectToDB(project);
+    expect(mockProjects.has('p_chap_race_1')).toBe(true);
+
+    const chapter = createDummyChapter('chap_race_1', 'p_chap_race_1', 'Chương 1');
+
+    // Concurrent saveChapterToDB immediately followed by deleteProjectFromDB
+    const chapterPromise = saveChapterToDB(chapter);
+    const deletePromise = deleteProjectFromDB(project.id);
+
+    await Promise.all([chapterPromise, deletePromise]);
+
+    // Check execution order: chapter save MUST precede project delete
+    expect(executionOrder).toContain('save_chapter_chap_race_1');
+    expect(executionOrder).toContain('delete_project_p_chap_race_1');
+    const saveIdx = executionOrder.indexOf('save_chapter_chap_race_1');
+    const deleteIdx = executionOrder.indexOf('delete_project_p_chap_race_1');
+    expect(saveIdx).toBeLessThan(deleteIdx);
+
+    // After delete completes, 0 chapters and 0 project records should remain
+    expect(mockProjects.has('p_chap_race_1')).toBe(false);
+    expect(mockChapters.has('chap_race_1')).toBe(false);
+    expect(getProjectWriteChainsSizeForTest()).toBe(0);
+  });
+
+  it('aborts saveChapterToDB cleanly when parent project has been deleted (orphan resurrection guard)', async () => {
+    const project = createDummyProject('p_tombstone_1', 'Tombstone Project');
+    await saveProjectToDB(project);
+
+    // Xóa dự án trước
+    await deleteProjectFromDB(project.id);
+    expect(mockProjects.has('p_tombstone_1')).toBe(false);
+
+    // Bây giờ cố gắng lưu chương sau khi dự án cha đã bị xóa
+    const orphanChapter = createDummyChapter('chap_orphan_1', 'p_tombstone_1', 'Chương mồ côi');
+    await saveChapterToDB(orphanChapter);
+
+    // Chương mồ côi KHÔNG được lưu vào IndexedDB
+    expect(mockChapters.has('chap_orphan_1')).toBe(false);
+    expect(executionOrder).not.toContain('save_chapter_chap_orphan_1');
+    expect(getProjectWriteChainsSizeForTest()).toBe(0);
+  });
+
+  it('serializes batch saveChaptersToDB and deleteProjectFromDB leaving 0 orphan chapters', async () => {
+    const project = createDummyProject('p_batch_race_1', 'Batch Race Project');
+    await saveProjectToDB(project);
+
+    const c1 = createDummyChapter('chap_b1', 'p_batch_race_1', 'Chương 1');
+    const c2 = createDummyChapter('chap_b2', 'p_batch_race_1', 'Chương 2');
+
+    const batchPromise = saveChaptersToDB([c1, c2]);
+    const deletePromise = deleteProjectFromDB(project.id);
+
+    await Promise.all([batchPromise, deletePromise]);
+
+    // Dự án và toàn bộ chương của nó phải được xóa sạch hoàn toàn
+    expect(mockProjects.has('p_batch_race_1')).toBe(false);
+    expect(mockChapters.has('chap_b1')).toBe(false);
+    expect(mockChapters.has('chap_b2')).toBe(false);
+    expect(getProjectWriteChainsSizeForTest()).toBe(0);
+  });
+
+  it('aborts saveCrdtState and saveCrdtStates when parent project has been deleted', async () => {
+    const project = createDummyProject('p_crdt_del_1', 'CRDT Guard Project');
+    await saveProjectToDB(project);
+    await deleteProjectFromDB(project.id);
+
+    // 1. Thử lưu đơn lẻ CRDT cho project đã xóa
+    const singleCrdt: CrdtStateRecord = {
+      chapterId: 'chap_crdt_1',
+      projectId: 'p_crdt_del_1',
+      state: new Uint8Array([1, 2, 3]),
+      updatedAt: new Date().toISOString(),
+    };
+    await saveCrdtState(singleCrdt);
+    expect(mockCrdtStates.has('chap_crdt_1')).toBe(false);
+
+    // 2. Thử lưu hàng loạt CRDT cho project đã xóa
+    const batchCrdt: CrdtStateRecord[] = [
+      {
+        chapterId: 'chap_crdt_2',
+        projectId: 'p_crdt_del_1',
+        state: new Uint8Array([4, 5, 6]),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    await saveCrdtStates(batchCrdt);
+    expect(mockCrdtStates.has('chap_crdt_2')).toBe(false);
+    expect(getProjectWriteChainsSizeForTest()).toBe(0);
+  });
+
+  it('cleans up projectWriteChains entry after saveChapterToDB settles', async () => {
+    const project = createDummyProject('p_leak_chap', 'Chapter Leak Test');
+    await saveProjectToDB(project);
+    expect(getProjectWriteChainsSizeForTest()).toBe(0);
+
+    const chapter = createDummyChapter('chap_leak_1', 'p_leak_chap');
+    const savePromise = saveChapterToDB(chapter);
+    expect(getProjectWriteChainsSizeForTest()).toBe(1);
+
+    await savePromise;
+    expect(getProjectWriteChainsSizeForTest()).toBe(0);
+  });
+
+  it('resolves missing chapter.projectId from existing record in IndexedDB and serializes under parent project', async () => {
+    const project = createDummyProject('p_resolve_1', 'Resolve Project');
+    await saveProjectToDB(project);
+
+    // Lưu chương ban đầu có projectId
+    const initialChapter = createDummyChapter('chap_resolve_1', 'p_resolve_1');
+    await saveChapterToDB(initialChapter);
+    expect(mockChapters.get('chap_resolve_1')?.projectId).toBe('p_resolve_1');
+
+    // Lưu cập nhật chương nhưng thiếu thuộc tính projectId
+    const partialChapter: any = {
+      id: 'chap_resolve_1',
+      title: 'Chương 1: Đã cập nhật tiêu đề',
+      sourceText: '原文 mới',
+      rawTranslation: 'Thô mới',
+      polishedTranslation: 'Mượt mới',
+      paragraphs: ['原文 mới'],
+      translatedLines: ['Mượt mới'],
+      status: 'completed',
+      createdAt: initialChapter.createdAt,
+      updatedAt: new Date().toISOString(),
+      qaIssues: [],
+    };
+
+    await saveChapterToDB(partialChapter);
+    expect(mockChapters.get('chap_resolve_1')?.title).toBe('Chương 1: Đã cập nhật tiêu đề');
     expect(getProjectWriteChainsSizeForTest()).toBe(0);
   });
 });

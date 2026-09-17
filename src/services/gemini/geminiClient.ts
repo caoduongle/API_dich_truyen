@@ -62,6 +62,19 @@ async function executeLogicalGeminiCall(
         const errJson = await response.json().catch(() => ({}));
         const errMsg = errJson?.error?.message || `HTTP ${response.status} ${response.statusText}`;
         const classified = classifyGeminiError(response.status, errJson);
+        lastError = new Error(`Gemini API Error [Key #${currentKeyIdx + 1}]: ${errMsg}`);
+
+        if (response.status === 404 || classified.category === 'RESOURCE_NOT_FOUND') {
+          (lastError as any).code = 'RESOURCE_NOT_FOUND';
+          (lastError as any).status = 404;
+          throw lastError;
+        }
+
+        if (response.status === 400) {
+          (lastError as any).code = 'BAD_REQUEST';
+          (lastError as any).status = 400;
+          throw lastError;
+        }
 
         localQuotaTracker.recordFailure(currentKey, modelName, {
           status: response.status,
@@ -82,20 +95,6 @@ async function executeLogicalGeminiCall(
             response.status === 429 ||
             response.status === 503 ||
             response.status === 500);
-
-        lastError = new Error(`Gemini API Error [Key #${currentKeyIdx + 1}]: ${errMsg}`);
-
-        if (response.status === 404 || classified.category === 'RESOURCE_NOT_FOUND') {
-          (lastError as any).code = 'RESOURCE_NOT_FOUND';
-          (lastError as any).status = 404;
-          throw lastError;
-        }
-
-        if (response.status === 400) {
-          (lastError as any).code = 'BAD_REQUEST';
-          (lastError as any).status = 400;
-          throw lastError;
-        }
 
         if (isRateLimitOrOverload) {
           const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);

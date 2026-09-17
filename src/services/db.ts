@@ -17,7 +17,7 @@ import {
 } from './storageResult';
 
 export { PROJECTS_STORE, CHAPTERS_STORE, CRDT_STATES_STORE };
-export type { StorageResult, StorageError, StorageErrorCode };
+export type { StorageResult, StorageError, StorageErrorCode, CrdtStateRecord };
 
 export interface CrdtBinaryStateItem {
   chapterId: string;
@@ -241,6 +241,56 @@ export const getProjectWriteChainsSizeForTest = (): number => {
   return projectWriteChains.size;
 };
 
+/**
+ * Trợ thủ khóa cấp dự án sử dụng Web Locks API (navigator.locks).
+ * Đồng bộ hóa các thao tác ghi và xóa dự án trên nhiều tab của trình duyệt.
+ * Tự động fallback về thực thi trực tiếp khi chạy trên môi trường không hỗ trợ Web Locks (Node.js / Vitest).
+ */
+export async function withProjectLock<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
+  if (!projectId) {
+    return fn();
+  }
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.locks &&
+    typeof navigator.locks.request === 'function'
+  ) {
+    return navigator.locks.request(`project-lock-${projectId}`, async () => {
+      return fn();
+    });
+  }
+  return fn();
+}
+
+/**
+ * Đưa một tác vụ ghi liên quan đến project vào hàng đợi tuần tự (Write Serialization Queue).
+ * Kết hợp tuần tự hóa trong cùng tab (qua projectWriteChains) và đa tab (qua withProjectLock).
+ */
+export const enqueueProjectWrite = <T = void>(projectId: string | undefined, fn: () => Promise<T>): Promise<T> => {
+  if (!projectId) {
+    return fn();
+  }
+
+  const currentChain = projectWriteChains.get(projectId) || Promise.resolve();
+
+  let nextChain: Promise<any>;
+  nextChain = currentChain
+    .catch(() => {
+      // Đảm bảo lỗi từ tác vụ ghi trước không làm tắc nghẽn tác vụ tiếp theo
+    })
+    .then(async () => {
+      return withProjectLock(projectId, fn);
+    })
+    .finally(() => {
+      if (projectWriteChains.get(projectId) === nextChain) {
+        projectWriteChains.delete(projectId);
+      }
+    });
+
+  projectWriteChains.set(projectId, nextChain);
+  return nextChain;
+};
+
 const executeSaveProjectToDB = async (project: StoryProject): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
@@ -300,25 +350,7 @@ export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
   if (!project || !project.id) {
     return executeSaveProjectToDB(project);
   }
-
-  const projectId = project.id;
-  const currentChain = projectWriteChains.get(projectId) || Promise.resolve();
-
-  const nextChain = currentChain
-    .catch(() => {
-      // Đảm bảo lỗi từ tác vụ ghi trước không làm tắc nghẽn tác vụ tiếp theo
-    })
-    .then(async () => {
-      await executeSaveProjectToDB(project);
-    })
-    .finally(() => {
-      if (projectWriteChains.get(projectId) === nextChain) {
-        projectWriteChains.delete(projectId);
-      }
-    });
-
-  projectWriteChains.set(projectId, nextChain);
-  return nextChain;
+  return enqueueProjectWrite(project.id, () => executeSaveProjectToDB(project));
 };
 
 const executeAtomicSaveProjectBundle = async (
@@ -399,25 +431,7 @@ export const atomicSaveProjectBundle = async (
   if (!project || !project.id) {
     return executeAtomicSaveProjectBundle(project, chapters, crdtStates);
   }
-
-  const projectId = project.id;
-  const currentChain = projectWriteChains.get(projectId) || Promise.resolve();
-
-  const nextChain = currentChain
-    .catch(() => {
-      // Đảm bảo lỗi từ tác vụ ghi trước không làm tắc nghẽn tác vụ tiếp theo
-    })
-    .then(async () => {
-      await executeAtomicSaveProjectBundle(project, chapters, crdtStates);
-    })
-    .finally(() => {
-      if (projectWriteChains.get(projectId) === nextChain) {
-        projectWriteChains.delete(projectId);
-      }
-    });
-
-  projectWriteChains.set(projectId, nextChain);
-  return nextChain;
+  return enqueueProjectWrite(project.id, () => executeAtomicSaveProjectBundle(project, chapters, crdtStates));
 };
 
 /**
@@ -511,22 +525,7 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
  */
 export const deleteProjectFromDB = async (id: string): Promise<void> => {
   if (!id) return;
-
-  const currentChain = projectWriteChains.get(id) || Promise.resolve();
-
-  const nextChain = currentChain
-    .catch(() => {})
-    .then(async () => {
-      await executeDeleteProjectFromDB(id);
-    })
-    .finally(() => {
-      if (projectWriteChains.get(id) === nextChain) {
-        projectWriteChains.delete(id);
-      }
-    });
-
-  projectWriteChains.set(id, nextChain);
-  return nextChain;
+  return enqueueProjectWrite(id, () => executeDeleteProjectFromDB(id));
 };
 
 /**
@@ -593,24 +592,156 @@ export const mergeSafeguardChapter = (existing: Chapter | undefined, incoming: C
   return incoming;
 };
 
-export const saveChapterToDB = async (chapter: Chapter): Promise<void> => {
+const executeSaveChapterToDB = async (chapter: Chapter, projectId?: string): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(CHAPTERS_STORE, 'readwrite');
-      const store = transaction.objectStore(CHAPTERS_STORE);
-      const getRequest = store.get(chapter.id);
+    const hasProjectsStore = Boolean(
+      projectId &&
+      db.objectStoreNames &&
+      typeof db.objectStoreNames.contains === 'function' &&
+      db.objectStoreNames.contains(PROJECTS_STORE)
+    );
 
-      getRequest.onerror = () => reject(getRequest.error);
-      getRequest.onsuccess = () => {
-        const existing = getRequest.result as Chapter | undefined;
-        const chapterToSave = mergeSafeguardChapter(existing, chapter);
-        const putRequest = store.put(chapterToSave);
-        putRequest.onerror = () => reject(putRequest.error);
-        putRequest.onsuccess = () => resolve();
+    const storesToLock = hasProjectsStore ? [PROJECTS_STORE, CHAPTERS_STORE] : [CHAPTERS_STORE];
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(storesToLock, 'readwrite');
+      const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
+
+      let isResolved = false;
+      const doResolve = () => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve();
+        }
       };
+
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      transaction.oncomplete = () => doResolve();
+
+      const proceedWithSave = () => {
+        const getRequest = chaptersStore.get(chapter.id);
+        getRequest.onerror = () => reject(getRequest.error);
+        getRequest.onsuccess = () => {
+          const existing = getRequest.result as Chapter | undefined;
+          const chapterToSave = mergeSafeguardChapter(existing, chapter);
+          const putRequest = chaptersStore.put(chapterToSave);
+          putRequest.onerror = () => reject(putRequest.error);
+          putRequest.onsuccess = () => doResolve();
+        };
+      };
+
+      if (hasProjectsStore && projectId) {
+        const projectsStore = transaction.objectStore(PROJECTS_STORE);
+        const projectReq = projectsStore.get(projectId);
+        projectReq.onerror = () => reject(projectReq.error);
+        projectReq.onsuccess = () => {
+          const parentProject = projectReq.result;
+          if (!parentProject) {
+            console.warn(
+              `[saveChapterToDB] Bỏ qua lưu chương ${chapter.id} vì dự án cha ${projectId} không tồn tại hoặc đã bị xóa.`
+            );
+            doResolve();
+            return;
+          }
+          proceedWithSave();
+        };
+      } else {
+        proceedWithSave();
+      }
     });
   }, 3, 100, 'saveChapterToDB');
+};
+
+export const saveChapterToDB = async (chapter: Chapter): Promise<void> => {
+  let projectId = chapter.projectId;
+  if (!projectId && chapter.id) {
+    try {
+      const existing = await getChapterFromDB(chapter.id);
+      if (existing?.projectId) {
+        projectId = existing.projectId;
+        chapter = { ...chapter, projectId };
+      }
+    } catch {
+      // Bỏ qua lỗi tra cứu
+    }
+  }
+
+  return enqueueProjectWrite(projectId, () => executeSaveChapterToDB(chapter, projectId));
+};
+
+const executeSaveChaptersToDB = async (chapters: Chapter[], projectId?: string): Promise<void> => {
+  if (!chapters || chapters.length === 0) return;
+  return withRetry(async () => {
+    const db = await initDB();
+    const hasProjectsStore = Boolean(
+      projectId &&
+      db.objectStoreNames &&
+      typeof db.objectStoreNames.contains === 'function' &&
+      db.objectStoreNames.contains(PROJECTS_STORE)
+    );
+
+    const storesToLock = hasProjectsStore ? [PROJECTS_STORE, CHAPTERS_STORE] : [CHAPTERS_STORE];
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(storesToLock, 'readwrite');
+      const store = transaction.objectStore(CHAPTERS_STORE);
+
+      let isResolved = false;
+      const doResolve = () => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve();
+        }
+      };
+
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      transaction.oncomplete = () => doResolve();
+
+      const proceedWithBatchSave = () => {
+        let remaining = chapters.length;
+        if (remaining === 0) {
+          doResolve();
+          return;
+        }
+        for (const chap of chapters) {
+          const getReq = store.get(chap.id);
+          getReq.onerror = () => reject(getReq.error);
+          getReq.onsuccess = () => {
+            const existing = getReq.result as Chapter | undefined;
+            const chapterToSave = mergeSafeguardChapter(existing, chap);
+            const putReq = store.put(chapterToSave);
+            putReq.onerror = () => reject(putReq.error);
+            putReq.onsuccess = () => {
+              remaining--;
+              if (remaining === 0) {
+                doResolve();
+              }
+            };
+          };
+        }
+      };
+
+      if (hasProjectsStore && projectId) {
+        const projectsStore = transaction.objectStore(PROJECTS_STORE);
+        const projReq = projectsStore.get(projectId);
+        projReq.onerror = () => reject(projReq.error);
+        projReq.onsuccess = () => {
+          const parentProject = projReq.result;
+          if (!parentProject) {
+            console.warn(
+              `[saveChaptersToDB] Bỏ qua lưu ${chapters.length} chương vì dự án cha ${projectId} không tồn tại hoặc đã bị xóa.`
+            );
+            doResolve();
+            return;
+          }
+          proceedWithBatchSave();
+        };
+      } else {
+        proceedWithBatchSave();
+      }
+    });
+  }, 3, 150, 'saveChaptersToDB');
 };
 
 /**
@@ -620,25 +751,31 @@ export const saveChapterToDB = async (chapter: Chapter): Promise<void> => {
  */
 export const saveChaptersToDB = async (chapters: Chapter[]): Promise<void> => {
   if (!chapters || chapters.length === 0) return;
-  return withRetry(async () => {
-    const db = await initDB();
-    return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(CHAPTERS_STORE, 'readwrite');
-      const store = transaction.objectStore(CHAPTERS_STORE);
-      transaction.onerror = () => reject(transaction.error);
-      transaction.oncomplete = () => resolve();
 
-      for (const chap of chapters) {
-        const getReq = store.get(chap.id);
-        getReq.onerror = () => reject(getReq.error);
-        getReq.onsuccess = () => {
-          const existing = getReq.result as Chapter | undefined;
-          const chapterToSave = mergeSafeguardChapter(existing, chap);
-          store.put(chapterToSave);
-        };
-      }
-    });
-  }, 3, 150, 'saveChaptersToDB');
+  const groups = new Map<string, Chapter[]>();
+  const unassigned: Chapter[] = [];
+
+  for (const chap of chapters) {
+    if (chap.projectId) {
+      const list = groups.get(chap.projectId) || [];
+      list.push(chap);
+      groups.set(chap.projectId, list);
+    } else {
+      unassigned.push(chap);
+    }
+  }
+
+  const tasks: Promise<void>[] = [];
+
+  for (const [projectId, group] of groups.entries()) {
+    tasks.push(enqueueProjectWrite(projectId, () => executeSaveChaptersToDB(group, projectId)));
+  }
+
+  if (unassigned.length > 0) {
+    tasks.push(executeSaveChaptersToDB(unassigned));
+  }
+
+  await Promise.all(tasks);
 };
 
 export const deleteChapterFromDB = async (id: string): Promise<void> => {
@@ -680,7 +817,7 @@ export const getChaptersByProjectFromDB = async (projectId: string): Promise<Cha
   }
 };
 
-export const deleteChaptersByProjectFromDB = async (projectId: string): Promise<void> => {
+const executeDeleteChaptersByProjectFromDB = async (projectId: string): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
@@ -706,6 +843,10 @@ export const deleteChaptersByProjectFromDB = async (projectId: string): Promise<
   }, 3, 150, 'deleteChaptersByProjectFromDB');
 };
 
+export const deleteChaptersByProjectFromDB = async (projectId: string): Promise<void> => {
+  return enqueueProjectWrite(projectId, () => executeDeleteChaptersByProjectFromDB(projectId));
+};
+
 // ==============================================================================
 // CRDT STATE STORAGE HELPERS (IndexedDB crdt_states store)
 // ==============================================================================
@@ -729,35 +870,154 @@ export const getCrdtState = async (chapterId: string): Promise<CrdtStateRecord |
   }
 };
 
-export const saveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
+const executeSaveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
     if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) return;
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(CRDT_STATES_STORE, 'readwrite');
+
+    const projectId = record.projectId;
+    const hasProjectsStore = Boolean(
+      projectId &&
+      db.objectStoreNames &&
+      typeof db.objectStoreNames.contains === 'function' &&
+      db.objectStoreNames.contains(PROJECTS_STORE)
+    );
+
+    const storesToLock = hasProjectsStore ? [PROJECTS_STORE, CRDT_STATES_STORE] : [CRDT_STATES_STORE];
+
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(storesToLock, 'readwrite');
       const store = transaction.objectStore(CRDT_STATES_STORE);
-      const request = store.put(record);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+
+      let isResolved = false;
+      const doResolve = () => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve();
+        }
+      };
+
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      transaction.oncomplete = () => doResolve();
+
+      if (hasProjectsStore && projectId) {
+        const projectsStore = transaction.objectStore(PROJECTS_STORE);
+        const projReq = projectsStore.get(projectId);
+        projReq.onerror = () => reject(projReq.error);
+        projReq.onsuccess = () => {
+          const parentProject = projReq.result;
+          if (!parentProject) {
+            console.warn(
+              `[saveCrdtState] Bỏ qua lưu CRDT state cho chương ${record.chapterId} vì dự án cha ${projectId} không tồn tại hoặc đã bị xóa.`
+            );
+            doResolve();
+            return;
+          }
+          const request = store.put(record);
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => doResolve();
+        };
+      } else {
+        const request = store.put(record);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => doResolve();
+      }
     });
   }, 3, 100, 'saveCrdtState');
 };
 
-export const saveCrdtStates = async (records: CrdtStateRecord[]): Promise<void> => {
+export const saveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
+  const projectId = record.projectId;
+  return enqueueProjectWrite(projectId, () => executeSaveCrdtState(record));
+};
+
+const executeSaveCrdtStates = async (records: CrdtStateRecord[], projectId?: string): Promise<void> => {
   if (!records || records.length === 0) return;
   return withRetry(async () => {
     const db = await initDB();
     if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) return;
+
+    const hasProjectsStore = Boolean(
+      projectId &&
+      db.objectStoreNames &&
+      typeof db.objectStoreNames.contains === 'function' &&
+      db.objectStoreNames.contains(PROJECTS_STORE)
+    );
+
+    const storesToLock = hasProjectsStore ? [PROJECTS_STORE, CRDT_STATES_STORE] : [CRDT_STATES_STORE];
+
     return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(CRDT_STATES_STORE, 'readwrite');
+      const transaction = db.transaction(storesToLock, 'readwrite');
       const store = transaction.objectStore(CRDT_STATES_STORE);
+
+      let isResolved = false;
+      const doResolve = () => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve();
+        }
+      };
+
       transaction.onerror = () => reject(transaction.error);
-      transaction.oncomplete = () => resolve();
-      for (const rec of records) {
-        store.put(rec);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      transaction.oncomplete = () => doResolve();
+
+      const proceedWithBatchSave = () => {
+        for (const rec of records) {
+          store.put(rec);
+        }
+      };
+
+      if (hasProjectsStore && projectId) {
+        const projectsStore = transaction.objectStore(PROJECTS_STORE);
+        const projReq = projectsStore.get(projectId);
+        projReq.onerror = () => reject(projReq.error);
+        projReq.onsuccess = () => {
+          const parentProject = projReq.result;
+          if (!parentProject) {
+            console.warn(
+              `[saveCrdtStates] Bỏ qua lưu ${records.length} CRDT states vì dự án cha ${projectId} không tồn tại hoặc đã bị xóa.`
+            );
+            doResolve();
+            return;
+          }
+          proceedWithBatchSave();
+        };
+      } else {
+        proceedWithBatchSave();
       }
     });
   }, 3, 150, 'saveCrdtStates');
+};
+
+export const saveCrdtStates = async (records: CrdtStateRecord[]): Promise<void> => {
+  if (!records || records.length === 0) return;
+
+  const groups = new Map<string, CrdtStateRecord[]>();
+  const unassigned: CrdtStateRecord[] = [];
+
+  for (const rec of records) {
+    if (rec.projectId) {
+      const list = groups.get(rec.projectId) || [];
+      list.push(rec);
+      groups.set(rec.projectId, list);
+    } else {
+      unassigned.push(rec);
+    }
+  }
+
+  const tasks: Promise<void>[] = [];
+
+  for (const [projectId, group] of groups.entries()) {
+    tasks.push(enqueueProjectWrite(projectId, () => executeSaveCrdtStates(group, projectId)));
+  }
+
+  if (unassigned.length > 0) {
+    tasks.push(executeSaveCrdtStates(unassigned));
+  }
+
+  await Promise.all(tasks);
 };
 
 export const deleteCrdtState = async (chapterId: string): Promise<void> => {
@@ -774,7 +1034,7 @@ export const deleteCrdtState = async (chapterId: string): Promise<void> => {
   }, 3, 100, 'deleteCrdtState');
 };
 
-export const deleteCrdtStatesByProject = async (projectId: string): Promise<void> => {
+const executeDeleteCrdtStatesByProject = async (projectId: string): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
     if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) return;
@@ -799,5 +1059,9 @@ export const deleteCrdtStatesByProject = async (projectId: string): Promise<void
       };
     });
   }, 3, 150, 'deleteCrdtStatesByProject');
+};
+
+export const deleteCrdtStatesByProject = async (projectId: string): Promise<void> => {
+  return enqueueProjectWrite(projectId, () => executeDeleteCrdtStatesByProject(projectId));
 };
 

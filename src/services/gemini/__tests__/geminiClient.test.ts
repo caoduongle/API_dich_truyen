@@ -229,8 +229,11 @@ describe('geminiClient', () => {
 
     const status = localQuotaTracker.getQuotaStatus(['KEY_1', 'KEY_2', 'KEY_3']);
     expect(status.summary?.retriesTotal).toBe(0);
-    expect(status.summary?.failedAttemptsTotal).toBe(1);
+    expect(status.summary?.failedAttemptsTotal).toBe(0);
     expect(status.summary?.failedRequestsTotal).toBe(1);
+    expect(status.keys[0].errorsTotal).toBe(0);
+    expect(status.keys[0].healthState).toBe('Healthy');
+    expect(status.keys[0].runtime.isBlacklisted).toBe(false);
   });
 
   it('throws on empty candidate text without marking key as exhausted', async () => {
