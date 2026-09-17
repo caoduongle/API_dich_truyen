@@ -22,6 +22,7 @@ vi.mock('../../services/db', () => ({
     getCrdtState: vi.fn(),
     saveCrdtState: vi.fn(),
     waitForProjectWrites: vi.fn().mockResolvedValue(undefined),
+    runInProjectExclusiveSection: vi.fn((_id: string, fn: () => any) => fn()),
 }));
 import * as projectStorageQueue from '../../services/projectStorageQueue';
 
@@ -213,5 +214,85 @@ describe('useProjects - State management hook', () => {
         expect(callOrder[0]).toBe('waitForQueueIdle');
         expect(callOrder.slice(1)).toContain('getChaptersByProjectFromDB');
         expect(callOrder.slice(1)).toContain('getCrdtStatesByProject');
+    });
+
+    it('executes snapshot capture and deletion inside runInProjectExclusiveSection for handleDeleteProject (T016)', async () => {
+        const dummyProject = { id: 'proj_exclusive_1', title: 'Exclusive Project', chapters: [], glossary: [] };
+        mockState.projects = [dummyProject];
+        refCurrent = mockState.projects;
+
+        const events: string[] = [];
+        vi.spyOn(projectStorageQueue, 'runInProjectExclusiveSection').mockImplementation(async (projectId, action) => {
+            events.push(`enter_exclusive:${projectId}`);
+            const res = await action();
+            events.push(`exit_exclusive:${projectId}`);
+            return res;
+        });
+
+        vi.mocked(db.getChaptersByProjectFromDB).mockImplementation(async () => {
+            events.push('snapshot_chapters');
+            return [];
+        });
+        vi.mocked(db.getCrdtStatesByProject).mockImplementation(async () => {
+            events.push('snapshot_crdt');
+            return [];
+        });
+        vi.mocked(db.deleteProjectFromDB).mockImplementation(async () => {
+            events.push('execute_delete_project');
+        });
+
+        const hook = useProjects();
+        await hook.handleDeleteProject('proj_exclusive_1');
+
+        expect(events).toEqual([
+            'enter_exclusive:proj_exclusive_1',
+            'snapshot_chapters',
+            'snapshot_crdt',
+            'execute_delete_project',
+            'exit_exclusive:proj_exclusive_1',
+        ]);
+    });
+
+    it('executes snapshot capture and deletion inside runInProjectExclusiveSection for handleDeleteChapterHistory (T016)', async () => {
+        const dummyProject = {
+            id: 'proj_exclusive_chap',
+            title: 'Chap Exclusive',
+            chapters: [{ id: 'chap_ex_1', title: 'Chapter Ex 1' }],
+            glossary: [],
+        };
+        mockState.projects = [dummyProject];
+        mockState.activeProjectId = 'proj_exclusive_chap';
+        refCurrent = mockState.projects;
+
+        const events: string[] = [];
+        vi.spyOn(projectStorageQueue, 'runInProjectExclusiveSection').mockImplementation(async (projectId, action) => {
+            events.push(`enter_exclusive:${projectId}`);
+            const res = await action();
+            events.push(`exit_exclusive:${projectId}`);
+            return res;
+        });
+
+        vi.mocked(db.getChapterFromDB).mockImplementation(async () => {
+            events.push('snapshot_chapter');
+            return { id: 'chap_ex_1', projectId: 'proj_exclusive_chap', title: 'Chapter Ex 1' } as any;
+        });
+        vi.mocked(db.getCrdtState).mockImplementation(async () => {
+            events.push('snapshot_crdt_state');
+            return null;
+        });
+        vi.mocked(db.deleteChapterFromDB).mockImplementation(async () => {
+            events.push('execute_delete_chapter');
+        });
+
+        const hook = useProjects();
+        await hook.handleDeleteChapterHistory('chap_ex_1');
+
+        expect(events).toEqual([
+            'enter_exclusive:proj_exclusive_chap',
+            'snapshot_chapter',
+            'snapshot_crdt_state',
+            'execute_delete_chapter',
+            'exit_exclusive:proj_exclusive_chap',
+        ]);
     });
 });

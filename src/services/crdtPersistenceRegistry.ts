@@ -63,21 +63,29 @@ export function unregisterCrdtPersistence(dbName: string, provider?: CrdtPersist
 
 /**
  * Đóng kết nối và giải phóng toàn bộ instances persistence trước khi xóa database vật lý.
+ * Fail-closed: Chỉ xóa provider khỏi registry khi .destroy() thành công, và lan truyền lỗi nếu thất bại.
  */
 export async function destroyCrdtPersistence(dbName: string): Promise<void> {
   if (!dbName) return;
   const set = activePersistences.get(dbName);
   if (set && set.size > 0) {
-    activePersistences.delete(dbName);
-    const promises: (Promise<void> | void)[] = [];
-    for (const item of set) {
+    const items = Array.from(set);
+    const errors: unknown[] = [];
+    for (const item of items) {
       try {
-        promises.push(item.provider.destroy());
+        await item.provider.destroy();
+        set.delete(item);
       } catch (e) {
         console.warn(`[destroyCrdtPersistence] Cảnh báo khi đóng persistence provider cho ${dbName}:`, e);
+        errors.push(e);
       }
     }
-    await Promise.all(promises);
+    if (set.size === 0) {
+      activePersistences.delete(dbName);
+    }
+    if (errors.length > 0) {
+      throw errors[0];
+    }
   }
 }
 

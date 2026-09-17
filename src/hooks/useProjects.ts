@@ -15,7 +15,12 @@ import {
     getCrdtState,
     saveCrdtState,
 } from '../services/db';
-import { enqueueProjectSave, enqueueProjectDelete, waitForQueueIdle } from '../services/projectStorageQueue';
+import {
+    enqueueProjectSave,
+    enqueueProjectDelete,
+    waitForQueueIdle,
+    runInProjectExclusiveSection,
+} from '../services/projectStorageQueue';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
 
@@ -148,14 +153,21 @@ export function useProjects() {
         // 0. Await in-flight project writes to settle before capturing backup snapshot
         await waitForQueueIdle(id);
 
-        // 1. Load full chapter bodies and CRDT states for backup before deleting
-        const [backedUpChapters, backedUpCrdtStates] = await Promise.all([
-            getChaptersByProjectFromDB(id),
-            getCrdtStatesByProject(id),
-        ]);
+        let backedUpChapters: Chapter[] = [];
+        let backedUpCrdtStates: any[] = [];
 
-        // 2. Perform DB deletion atomically (deletes project and its chapters)
-        await enqueueProjectDelete(id);
+        await runInProjectExclusiveSection(id, async () => {
+            // 1. Load full chapter bodies and CRDT states for backup before deleting
+            const [chapters, crdtStates] = await Promise.all([
+                getChaptersByProjectFromDB(id),
+                getCrdtStatesByProject(id),
+            ]);
+            backedUpChapters = chapters;
+            backedUpCrdtStates = crdtStates;
+
+            // 2. Perform DB deletion atomically (deletes project and its chapters)
+            await deleteProjectFromDB(id);
+        });
 
         const oldProjects = [...currentProjects];
 
@@ -375,15 +387,26 @@ export function useProjects() {
             await waitForQueueIdle(activeProjectId);
         }
 
-        // 1. Back up full chapter data and CRDT state
-        const [fullChapter, backedUpCrdt] = await Promise.all([
-            getChapterFromDB(chapId),
-            getCrdtState(chapId),
-        ]);
-        if (!fullChapter) return;
+        let fullChapter: Chapter | null = null;
+        let backedUpCrdt: any = null;
 
-        // 2. Perform deletion
-        await deleteChapterFromDB(chapId, activeProjectId || undefined);
+        const effectiveProjectId = activeProjectId || undefined;
+        await runInProjectExclusiveSection(effectiveProjectId || '', async () => {
+            // 1. Back up full chapter data and CRDT state
+            const [chapterRes, crdtRes] = await Promise.all([
+                getChapterFromDB(chapId),
+                getCrdtState(chapId),
+            ]);
+            fullChapter = chapterRes;
+            backedUpCrdt = crdtRes;
+            if (!fullChapter) return;
+
+            // 2. Perform deletion
+            await deleteChapterFromDB(chapId, effectiveProjectId);
+        });
+
+        if (!fullChapter) return;
+        const chapterToRestore = fullChapter;
 
         const oldProjects = [...currentProjects];
 
@@ -412,7 +435,7 @@ export function useProjects() {
             type: 'info',
             onUndo: async () => {
                 // Restore in IndexedDB
-                await saveChapterToDB(fullChapter);
+                await saveChapterToDB(chapterToRestore);
                 if (backedUpCrdt) {
                     await saveCrdtState(backedUpCrdt);
                 }

@@ -4,6 +4,7 @@ import {
   PROJECTS_STORE,
   CHAPTERS_STORE,
   CRDT_STATES_STORE,
+  DELETION_MANIFESTS_STORE,
   handleDBUpgrade,
   migrateLegacyProjects,
 } from './dbMigration';
@@ -20,8 +21,17 @@ import {
   destroyAllCrdtPersistencesForProject,
 } from './crdtPersistenceRegistry';
 
-export { PROJECTS_STORE, CHAPTERS_STORE, CRDT_STATES_STORE };
+export { PROJECTS_STORE, CHAPTERS_STORE, CRDT_STATES_STORE, DELETION_MANIFESTS_STORE };
 export type { StorageResult, StorageError, StorageErrorCode, CrdtStateRecord };
+
+export interface DeletionManifestRecord {
+  id: string;
+  projectId: string;
+  chapterIds: string[];
+  physicalDbNames: string[];
+  createdAt: string;
+  status: 'pending' | 'completed';
+}
 
 export interface CrdtBinaryStateItem {
   chapterId: string;
@@ -106,6 +116,10 @@ async function withRetry<T>(
       return await operation();
     } catch (err: any) {
       lastError = err;
+      // Không retry các lỗi vi phạm toàn vẹn quan hệ (Relational integrity violation)
+      if (err?.message && err.message.startsWith('Relational integrity violation')) {
+        throw err;
+      }
       // Nếu dbInstance bị đóng hoặc hỏng kết nối, xóa cache instance để mở lại kết nối mới
       if (dbInstance && (err?.name === 'InvalidStateError' || err?.name === 'TransactionInactiveError')) {
         try {
@@ -140,6 +154,11 @@ export const initDB = (): Promise<IDBDatabase> => {
         dbInstance = null;
       };
       resolve(db);
+
+      // T010: Khởi chạy phục hồi các thao tác xóa dở dang trong background khi bootstrap
+      recoverPendingDeletions().catch((err) => {
+        console.warn('[initDB] Lỗi khi chạy recoverPendingDeletions nền:', err);
+      });
     };
     request.onupgradeneeded = (event) => {
       const db = request.result;
@@ -236,13 +255,41 @@ export const getProjectFromDB = async (projectId: string): Promise<StoryProject 
 };
 
 const projectWriteChains = new Map<string, Promise<void>>();
+const activeExclusiveProjects = new Set<string>();
+
+export const isProjectInExclusiveSection = (projectId: string): boolean => {
+  return activeExclusiveProjects.has(projectId);
+};
 
 export const resetProjectWriteChainsForTest = (): void => {
   projectWriteChains.clear();
+  activeExclusiveProjects.clear();
 };
 
 export const getProjectWriteChainsSizeForTest = (): number => {
   return projectWriteChains.size;
+};
+
+/**
+ * Thực thi một tác vụ trong vùng critical section độc quyền của dự án.
+ * Đảm bảo các tác vụ ghi đang dở dang đã hoàn tất và không có tác vụ ghi mới nào chen ngang.
+ * Cho phép các thao tác xóa trong cùng context chạy trực tiếp không bị deadlock.
+ */
+export const runInProjectExclusiveSection = async <T>(
+  projectId: string,
+  action: () => Promise<T>
+): Promise<T> => {
+  if (!projectId) {
+    return action();
+  }
+  return enqueueProjectWrite(projectId, async () => {
+    activeExclusiveProjects.add(projectId);
+    try {
+      return await action();
+    } finally {
+      activeExclusiveProjects.delete(projectId);
+    }
+  });
 };
 
 /**
@@ -480,129 +527,13 @@ export const waitForProjectWrites = async (projectId?: string): Promise<void> =>
   }
 };
 
-const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
-  const chapterIdsToDelete: string[] = [];
-
-  await withRetry(async () => {
-    const db = await initDB();
-
-    return new Promise<void>((resolve, reject) => {
-      const storesToLock = [PROJECTS_STORE, CHAPTERS_STORE];
-      const crdtStoreName = (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains(CRDT_STATES_STORE))
-        ? CRDT_STATES_STORE
-        : (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains('crdt_docs') ? 'crdt_docs' : null);
-
-      if (crdtStoreName) {
-        storesToLock.push(crdtStoreName);
-      }
-      const transaction = db.transaction(storesToLock, 'readwrite');
-      const projectsStore = transaction.objectStore(PROJECTS_STORE);
-      const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
-
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
-      transaction.oncomplete = () => resolve();
-
-      // 1. Thu thập chapterIds từ project.chapters trước khi xóa record project
-      const getProjReq = projectsStore.get(id);
-      getProjReq.onerror = () => reject(getProjReq.error);
-      getProjReq.onsuccess = () => {
-        const proj = getProjReq.result;
-        if (proj?.chapters && Array.isArray(proj.chapters)) {
-          for (const c of proj.chapters) {
-            if (c?.id && !chapterIdsToDelete.includes(c.id)) {
-              chapterIdsToDelete.push(c.id);
-            }
-          }
-        }
-        projectsStore.delete(id);
-      };
-
-      // 2. Xóa tất cả các chapters của project và thu thập chapterId để dọn dẹp CRDT databases
-      if (chaptersStore.indexNames && typeof chaptersStore.indexNames.contains === 'function' && chaptersStore.indexNames.contains('projectId')) {
-        const index = chaptersStore.index('projectId');
-        const cursorRequest = index.openKeyCursor(IDBKeyRange.only(id));
-        cursorRequest.onerror = () => reject(cursorRequest.error);
-        cursorRequest.onsuccess = (event) => {
-          const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
-          if (cursor) {
-            const chapId = String(cursor.primaryKey);
-            if (!chapterIdsToDelete.includes(chapId)) {
-              chapterIdsToDelete.push(chapId);
-            }
-            chaptersStore.delete(cursor.primaryKey);
-            cursor.continue();
-          }
-        };
-      } else if (typeof chaptersStore.openCursor === 'function') {
-        const cursorRequest = chaptersStore.openCursor();
-        cursorRequest.onerror = () => reject(cursorRequest.error);
-        cursorRequest.onsuccess = (event) => {
-          const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
-          if (cursor) {
-            if (cursor.value.projectId === id) {
-              const chapId = cursor.value.id || String(cursor.primaryKey);
-              if (!chapterIdsToDelete.includes(chapId)) {
-                chapterIdsToDelete.push(chapId);
-              }
-              cursor.delete();
-            }
-            cursor.continue();
-          }
-        };
-      }
-
-      // 3. Xóa CRDT states của project nếu có
-      if (crdtStoreName) {
-        const crdtStore = transaction.objectStore(crdtStoreName);
-        if (crdtStore.indexNames && typeof crdtStore.indexNames.contains === 'function' && crdtStore.indexNames.contains('projectId')) {
-          const index = crdtStore.index('projectId');
-          const cursorRequest = index.openKeyCursor(IDBKeyRange.only(id));
-          cursorRequest.onerror = () => reject(cursorRequest.error);
-          cursorRequest.onsuccess = (event) => {
-            const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
-            if (cursor) {
-              const chapId = String(cursor.primaryKey);
-              if (!chapterIdsToDelete.includes(chapId)) {
-                chapterIdsToDelete.push(chapId);
-              }
-              crdtStore.delete(cursor.primaryKey);
-              cursor.continue();
-            }
-          };
-        } else if (typeof crdtStore.openCursor === 'function') {
-          const cursorRequest = crdtStore.openCursor();
-          cursorRequest.onerror = () => reject(cursorRequest.error);
-          cursorRequest.onsuccess = (event) => {
-            const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
-            if (cursor) {
-              if (cursor.value && cursor.value.projectId === id) {
-                const chapId = cursor.value.chapterId || String(cursor.primaryKey);
-                if (!chapterIdsToDelete.includes(chapId)) {
-                  chapterIdsToDelete.push(chapId);
-                }
-                cursor.delete();
-              }
-              cursor.continue();
-            }
-          };
-        }
-      }
-    });
-  }, 3, 150, 'deleteProjectFromDB_primary');
-
-  // Sau khi primary transaction commit thành công, dọn dẹp các database vật lý CRDT
-  // BẮT BUỘC propagate lỗi nếu deleteProjectCrdtDatabases thất bại (Fail-Closed)
-  await deleteProjectCrdtDatabases(id, chapterIdsToDelete);
-};
-
 /**
  * Trợ thủ xóa IndexedDB an toàn:
  * - Chỉ resolve khi onsuccess fires (không resolve trên onblocked/onerror).
  * - Trên onblocked: chờ onsuccess với bounded timeout 5000ms.
  * - Trên onerror hoặc timeout: reject với lỗi.
  */
-const executeDeleteDatabase = (dbName: string): Promise<void> => {
+export function executeDeleteDatabase(dbName: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     try {
       const req = indexedDB.deleteDatabase(dbName);
@@ -648,7 +579,245 @@ const executeDeleteDatabase = (dbName: string): Promise<void> => {
       reject(err);
     }
   });
-};
+}
+
+/**
+ * Ghi nhận một manifest xóa dở dang vào store deletion_manifests
+ * trước khi thực hiện thao tác xóa dữ liệu catalog chính.
+ */
+export async function recordDeletionManifest(manifest: DeletionManifestRecord): Promise<void> {
+  return withRetry(async () => {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(DELETION_MANIFESTS_STORE)) {
+      return;
+    }
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(DELETION_MANIFESTS_STORE, 'readwrite');
+      const store = tx.objectStore(DELETION_MANIFESTS_STORE);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+      tx.oncomplete = () => resolve();
+
+      const req = store.put(manifest);
+      req.onerror = () => reject(req.error);
+    });
+  }, 3, 100, 'recordDeletionManifest');
+}
+
+export const recordPendingDeletion = recordDeletionManifest;
+
+/**
+ * Xóa một manifest xóa sau khi tất cả database vật lý liên quan đã được dọn dẹp xong.
+ */
+export async function removeDeletionManifest(id: string): Promise<void> {
+  return withRetry(async () => {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(DELETION_MANIFESTS_STORE)) {
+      return;
+    }
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(DELETION_MANIFESTS_STORE, 'readwrite');
+      const store = tx.objectStore(DELETION_MANIFESTS_STORE);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+      tx.oncomplete = () => resolve();
+
+      const req = store.delete(id);
+      req.onerror = () => reject(req.error);
+    });
+  }, 3, 100, 'removeDeletionManifest');
+}
+
+/**
+ * Lấy tất cả các deletion manifests đang ở trạng thái pending.
+ */
+export async function getPendingDeletionManifests(): Promise<DeletionManifestRecord[]> {
+  try {
+    const db = await initDB();
+    if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(DELETION_MANIFESTS_STORE)) {
+      return [];
+    }
+    return new Promise<DeletionManifestRecord[]>((resolve, reject) => {
+      const tx = db.transaction(DELETION_MANIFESTS_STORE, 'readonly');
+      const store = tx.objectStore(DELETION_MANIFESTS_STORE);
+      if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('status')) {
+        const index = store.index('status');
+        const req = index.getAll('pending');
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => resolve((req.result as DeletionManifestRecord[]) || []);
+      } else {
+        const req = store.getAll();
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const all = (req.result as DeletionManifestRecord[]) || [];
+          resolve(all.filter((m) => m.status === 'pending'));
+        };
+      }
+    });
+  } catch (err) {
+    console.warn('[getPendingDeletionManifests] Lỗi tra cứu manifests:', err);
+    return [];
+  }
+}
+
+/**
+ * Quét các deletion manifests dở dang và xóa nốt các database vật lý CRDT còn sót.
+ */
+export async function recoverPendingDeletions(): Promise<{ recoveredCount: number; failedCount: number }> {
+  const pending = await getPendingDeletionManifests();
+  let recoveredCount = 0;
+  let failedCount = 0;
+
+  for (const manifest of pending) {
+    let manifestClean = true;
+    const dbNames = (manifest.physicalDbNames && manifest.physicalDbNames.length > 0)
+      ? manifest.physicalDbNames
+      : (manifest.chapterIds || []).map((cid) => `crdt_${manifest.projectId}_${cid}`);
+
+    for (const dbName of dbNames) {
+      try {
+        await executeDeleteDatabase(dbName);
+      } catch (err) {
+        manifestClean = false;
+        console.warn(`[recoverPendingDeletions] Thất bại khi dọn dẹp db vật lý "${dbName}" cho manifest ${manifest.id}:`, err);
+      }
+    }
+
+    if (manifestClean) {
+      try {
+        await removeDeletionManifest(manifest.id);
+        recoveredCount++;
+      } catch (err) {
+        console.warn(`[recoverPendingDeletions] Không thể xóa manifest ${manifest.id}:`, err);
+        failedCount++;
+      }
+    } else {
+      failedCount++;
+    }
+  }
+
+  return { recoveredCount, failedCount };
+}
+
+/**
+ * Khám phá toàn bộ danh sách chapterIds thuộc về một project từ cả 3 nguồn:
+ * 1. projects store (thuộc tính chapters của StoryProject)
+ * 2. chapters store (cursor theo index projectId hoặc toàn bảng)
+ * 3. crdt_states store (cursor theo index projectId hoặc toàn bảng)
+ *
+ * Không swallow lỗi; nếu xảy ra lỗi truy vấn, ném lỗi ra ngoài (Fail-Closed).
+ */
+export async function discoverProjectChapterIds(projectId: string): Promise<string[]> {
+  if (!projectId) return [];
+  const chapterIds = new Set<string>();
+  const db = await initDB();
+  if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function') {
+    return [];
+  }
+
+  // 1. Tra cứu chapters từ Projects Store
+  if (db.objectStoreNames.contains(PROJECTS_STORE)) {
+    const tx = db.transaction(PROJECTS_STORE, 'readonly');
+    const store = tx.objectStore(PROJECTS_STORE);
+    const getReq = store.get(projectId);
+    await new Promise<void>((resolve, reject) => {
+      getReq.onsuccess = () => {
+        const proj = getReq.result;
+        if (proj?.chapters && Array.isArray(proj.chapters)) {
+          for (const c of proj.chapters) {
+            if (c?.id) chapterIds.add(c.id);
+          }
+        }
+        resolve();
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  }
+
+  // 2. Tra cứu chapters từ Chapters Store
+  if (db.objectStoreNames.contains(CHAPTERS_STORE)) {
+    const tx = db.transaction(CHAPTERS_STORE, 'readonly');
+    const store = tx.objectStore(CHAPTERS_STORE);
+    if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
+      const idx = store.index('projectId');
+      const cursorReq = idx.openKeyCursor(IDBKeyRange.only(projectId));
+      await new Promise<void>((resolve, reject) => {
+        cursorReq.onsuccess = (ev) => {
+          const cursor = (ev.target as IDBRequest<IDBCursor | null>).result;
+          if (cursor) {
+            chapterIds.add(String(cursor.primaryKey));
+            cursor.continue();
+          } else {
+            resolve();
+          }
+        };
+        cursorReq.onerror = () => reject(cursorReq.error);
+      });
+    } else if (typeof store.openCursor === 'function') {
+      const cursorReq = store.openCursor();
+      await new Promise<void>((resolve, reject) => {
+        cursorReq.onsuccess = (ev) => {
+          const cursor = (ev.target as IDBRequest<IDBCursorWithValue | null>).result;
+          if (cursor) {
+            if (cursor.value && cursor.value.projectId === projectId) {
+              const chapId = cursor.value.id || String(cursor.primaryKey);
+              if (chapId) chapterIds.add(chapId);
+            }
+            cursor.continue();
+          } else {
+            resolve();
+          }
+        };
+        cursorReq.onerror = () => reject(cursorReq.error);
+      });
+    }
+  }
+
+  // 3. Tra cứu chapters từ Crdt Store
+  const crdtStoreName = (db.objectStoreNames.contains(CRDT_STATES_STORE))
+    ? CRDT_STATES_STORE
+    : (db.objectStoreNames.contains('crdt_docs') ? 'crdt_docs' : null);
+
+  if (crdtStoreName) {
+    const tx = db.transaction(crdtStoreName, 'readonly');
+    const store = tx.objectStore(crdtStoreName);
+    if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
+      const idx = store.index('projectId');
+      const cursorReq = idx.openKeyCursor(IDBKeyRange.only(projectId));
+      await new Promise<void>((resolve, reject) => {
+        cursorReq.onsuccess = (ev) => {
+          const cursor = (ev.target as IDBRequest<IDBCursor | null>).result;
+          if (cursor) {
+            chapterIds.add(String(cursor.primaryKey));
+            cursor.continue();
+          } else {
+            resolve();
+          }
+        };
+        cursorReq.onerror = () => reject(cursorReq.error);
+      });
+    } else if (typeof store.openCursor === 'function') {
+      const cursorReq = store.openCursor();
+      await new Promise<void>((resolve, reject) => {
+        cursorReq.onsuccess = (ev) => {
+          const cursor = (ev.target as IDBRequest<IDBCursorWithValue | null>).result;
+          if (cursor) {
+            if (cursor.value && cursor.value.projectId === projectId) {
+              const chapId = cursor.value.chapterId || String(cursor.primaryKey);
+              if (chapId) chapterIds.add(chapId);
+            }
+            cursor.continue();
+          } else {
+            resolve();
+          }
+        };
+        cursorReq.onerror = () => reject(cursorReq.error);
+      });
+    }
+  }
+
+  return Array.from(chapterIds);
+}
 
 /**
  * Xóa sạch database IndexedDB riêng do y-indexeddb tạo ra cho một chương cụ thể (crdt_${projectId}_${chapterId}).
@@ -701,74 +870,12 @@ export const deleteProjectCrdtDatabases = async (
     }
   }
 
-  // 2. Nếu không có knownChapterIds hoặc để đảm bảo quét sạch, tra cứu chapterIds từ IndexedDB
-  try {
-    const db = await initDB();
-    if (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function') {
-      if (db.objectStoreNames.contains(PROJECTS_STORE)) {
-        const tx = db.transaction(PROJECTS_STORE, 'readonly');
-        const store = tx.objectStore(PROJECTS_STORE);
-        const getReq = store.get(projectId);
-        await new Promise<void>((res) => {
-          getReq.onsuccess = () => {
-            const proj = getReq.result;
-            if (proj?.chapters && Array.isArray(proj.chapters)) {
-              for (const c of proj.chapters) {
-                if (c?.id) {
-                  allChapterIds.add(c.id);
-                }
-              }
-            }
-            res();
-          };
-          getReq.onerror = () => res();
-        });
-      }
-
-      if (db.objectStoreNames.contains(CHAPTERS_STORE)) {
-        const tx = db.transaction(CHAPTERS_STORE, 'readonly');
-        const store = tx.objectStore(CHAPTERS_STORE);
-        if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
-          const idx = store.index('projectId');
-          const cursorReq = idx.openKeyCursor(IDBKeyRange.only(projectId));
-          await new Promise<void>((res) => {
-            cursorReq.onsuccess = (ev) => {
-              const cursor = (ev.target as IDBRequest<IDBCursor | null>).result;
-              if (cursor) {
-                allChapterIds.add(String(cursor.primaryKey));
-                cursor.continue();
-              } else {
-                res();
-              }
-            };
-            cursorReq.onerror = () => res();
-          });
-        }
-      }
-
-      if (db.objectStoreNames.contains(CRDT_STATES_STORE)) {
-        const tx = db.transaction(CRDT_STATES_STORE, 'readonly');
-        const store = tx.objectStore(CRDT_STATES_STORE);
-        if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
-          const idx = store.index('projectId');
-          const cursorReq = idx.openKeyCursor(IDBKeyRange.only(projectId));
-          await new Promise<void>((res) => {
-            cursorReq.onsuccess = (ev) => {
-              const cursor = (ev.target as IDBRequest<IDBCursor | null>).result;
-              if (cursor) {
-                allChapterIds.add(String(cursor.primaryKey));
-                cursor.continue();
-              } else {
-                res();
-              }
-            };
-            cursorReq.onerror = () => res();
-          });
-        }
-      }
+  // 2. Tra cứu thêm chapterIds từ DB để bảo đảm không sót chapter nào (Fail-Closed: propagate errors)
+  const discovered = await discoverProjectChapterIds(projectId);
+  for (const chapId of discovered) {
+    if (chapId) {
+      allChapterIds.add(chapId);
     }
-  } catch (err) {
-    console.warn(`[deleteProjectCrdtDatabases] Không thể tra cứu thêm chapterIds từ DB:`, err);
   }
 
   // 3. Tạo danh sách các DB cần xóa chính xác tuyệt đối: crdt_${projectId}_${chapId}
@@ -788,13 +895,159 @@ export const deleteProjectCrdtDatabases = async (
   await Promise.all(deletePromises);
 };
 
+const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
+  // 1. Khám phá toàn bộ chapterIds của dự án TRƯỚC KHI xóa primary records
+  const discoveredChapterIds = await discoverProjectChapterIds(id);
+  const chapterIdsToDelete = [...discoveredChapterIds];
+
+  // 2. Ghi nhận durable deletion manifest vào DELETION_MANIFESTS_STORE TRƯỚC KHI commit xóa catalog
+  const manifestId = `manifest_${Date.now()}_${id}_${Math.random().toString(36).slice(2, 7)}`;
+  const physicalDbNames = Array.from(new Set(chapterIdsToDelete.map((cid) => `crdt_${id}_${cid}`)));
+  const manifest: DeletionManifestRecord = {
+    id: manifestId,
+    projectId: id,
+    chapterIds: [...chapterIdsToDelete],
+    physicalDbNames,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  await recordDeletionManifest(manifest);
+
+  try {
+    await withRetry(async () => {
+      const db = await initDB();
+
+      return new Promise<void>((resolve, reject) => {
+        const storesToLock = [PROJECTS_STORE, CHAPTERS_STORE];
+        const crdtStoreName = (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains(CRDT_STATES_STORE))
+          ? CRDT_STATES_STORE
+          : (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains('crdt_docs') ? 'crdt_docs' : null);
+
+        if (crdtStoreName) {
+          storesToLock.push(crdtStoreName);
+        }
+        const transaction = db.transaction(storesToLock, 'readwrite');
+        const projectsStore = transaction.objectStore(PROJECTS_STORE);
+        const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
+
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+        transaction.oncomplete = () => resolve();
+
+        // 1. Thu thập chapterIds từ project.chapters trước khi xóa record project
+        const getProjReq = projectsStore.get(id);
+        getProjReq.onerror = () => reject(getProjReq.error);
+        getProjReq.onsuccess = () => {
+          const proj = getProjReq.result;
+          if (proj?.chapters && Array.isArray(proj.chapters)) {
+            for (const c of proj.chapters) {
+              if (c?.id && !chapterIdsToDelete.includes(c.id)) {
+                chapterIdsToDelete.push(c.id);
+              }
+            }
+          }
+          projectsStore.delete(id);
+        };
+
+        // 2. Xóa tất cả các chapters của project và thu thập chapterId để dọn dẹp CRDT databases
+        if (chaptersStore.indexNames && typeof chaptersStore.indexNames.contains === 'function' && chaptersStore.indexNames.contains('projectId')) {
+          const index = chaptersStore.index('projectId');
+          const cursorRequest = index.openKeyCursor(IDBKeyRange.only(id));
+          cursorRequest.onerror = () => reject(cursorRequest.error);
+          cursorRequest.onsuccess = (event) => {
+            const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+            if (cursor) {
+              const chapId = String(cursor.primaryKey);
+              if (!chapterIdsToDelete.includes(chapId)) {
+                chapterIdsToDelete.push(chapId);
+              }
+              chaptersStore.delete(cursor.primaryKey);
+              cursor.continue();
+            }
+          };
+        } else if (typeof chaptersStore.openCursor === 'function') {
+          const cursorRequest = chaptersStore.openCursor();
+          cursorRequest.onerror = () => reject(cursorRequest.error);
+          cursorRequest.onsuccess = (event) => {
+            const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
+            if (cursor) {
+              if (cursor.value.projectId === id) {
+                const chapId = cursor.value.id || String(cursor.primaryKey);
+                if (!chapterIdsToDelete.includes(chapId)) {
+                  chapterIdsToDelete.push(chapId);
+                }
+                cursor.delete();
+              }
+              cursor.continue();
+            }
+          };
+        }
+
+        // 3. Xóa CRDT states của project nếu có
+        if (crdtStoreName) {
+          const crdtStore = transaction.objectStore(crdtStoreName);
+          if (crdtStore.indexNames && typeof crdtStore.indexNames.contains === 'function' && crdtStore.indexNames.contains('projectId')) {
+            const index = crdtStore.index('projectId');
+            const cursorRequest = index.openKeyCursor(IDBKeyRange.only(id));
+            cursorRequest.onerror = () => reject(cursorRequest.error);
+            cursorRequest.onsuccess = (event) => {
+              const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+              if (cursor) {
+                const chapId = String(cursor.primaryKey);
+                if (!chapterIdsToDelete.includes(chapId)) {
+                  chapterIdsToDelete.push(chapId);
+                }
+                crdtStore.delete(cursor.primaryKey);
+                cursor.continue();
+              }
+            };
+          } else if (typeof crdtStore.openCursor === 'function') {
+            const cursorRequest = crdtStore.openCursor();
+            cursorRequest.onerror = () => reject(cursorRequest.error);
+            cursorRequest.onsuccess = (event) => {
+              const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
+              if (cursor) {
+                if (cursor.value && cursor.value.projectId === id) {
+                  const chapId = cursor.value.chapterId || String(cursor.primaryKey);
+                  if (!chapterIdsToDelete.includes(chapId)) {
+                    chapterIdsToDelete.push(chapId);
+                  }
+                  cursor.delete();
+                }
+                cursor.continue();
+              }
+            };
+          }
+        }
+      });
+    }, 3, 150, 'deleteProjectFromDB_primary');
+
+    // 4. Sau khi primary transaction commit thành công, dọn dẹp các database vật lý CRDT
+    // BẮT BUỘC propagate lỗi nếu deleteProjectCrdtDatabases thất bại (Fail-Closed)
+    await deleteProjectCrdtDatabases(id, chapterIdsToDelete);
+
+    // 5. Khi toàn bộ database vật lý đã được dọn dẹp thành công, gỡ bỏ manifest
+    await removeDeletionManifest(manifestId);
+  } catch (err) {
+    // Giữ nguyên manifest trong DB để phục hồi ở lần chạy tiếp theo
+    throw err;
+  }
+};
+
 /**
  * Xóa dự án khỏi IndexedDB kèm tuần tự hóa hàng đợi ghi (Write Serialization Queue).
  * Xếp vào hàng đợi projectWriteChains theo projectId để đảm bảo mọi thao tác lưu trước đó
  * hoàn tất trước khi xóa, loại bỏ triệt để race condition hồi sinh dự án (project resurrection).
  */
-export const deleteProjectFromDB = async (id: string): Promise<void> => {
+export const deleteProjectFromDB = async (
+  id: string,
+  options?: { skipQueue?: boolean }
+): Promise<void> => {
   if (!id) return;
+  if (options?.skipQueue || activeExclusiveProjects.has(id)) {
+    return executeDeleteProjectFromDB(id);
+  }
   return enqueueProjectWrite(id, () => executeDeleteProjectFromDB(id));
 };
 
@@ -891,9 +1144,14 @@ const executeSaveChapterToDB = async (chapter: Chapter, projectId?: string): Pro
         getRequest.onsuccess = () => {
           const existing = getRequest.result as Chapter | undefined;
           if (existing && existing.projectId && existing.projectId !== projectId) {
-            console.warn(
-              `[saveChapterToDB] Bỏ qua lưu chương ${chapter.id}: vi phạm ràng buộc toàn vẹn khóa ngoại (existing.projectId "${existing.projectId}" !== incoming "${projectId}").`
+            const err = new Error(
+              `Relational integrity violation: Cannot re-parent chapter "${chapter.id}" from project "${existing.projectId}" to "${projectId}".`
             );
+            console.warn(`[saveChapterToDB] ${err.message}`);
+            try {
+              transaction.abort();
+            } catch (_) {}
+            reject(err);
             return;
           }
           const chapterToSave = mergeSafeguardChapter(existing, chapter);
@@ -980,9 +1238,14 @@ const executeSaveChaptersToDB = async (chapters: Chapter[], projectId?: string):
           getReq.onsuccess = () => {
             const existing = getReq.result as Chapter | undefined;
             if (existing && existing.projectId && existing.projectId !== projectId) {
-              console.warn(
-                `[saveChaptersToDB] Bỏ qua lưu chương ${chap.id}: vi phạm ràng buộc toàn vẹn khóa ngoại (existing.projectId "${existing.projectId}" !== incoming "${projectId}").`
+              const err = new Error(
+                `Relational integrity violation: Cannot re-parent chapter "${chap.id}" from project "${existing.projectId}" to "${projectId}".`
               );
+              console.warn(`[saveChaptersToDB] ${err.message}`);
+              try {
+                transaction.abort();
+              } catch (_) {}
+              reject(err);
               return;
             }
             const chapterToSave = mergeSafeguardChapter(existing, chap);
@@ -1057,16 +1320,27 @@ export const saveChaptersToDB = async (chapters: Chapter[]): Promise<void> => {
   await Promise.all(tasks);
 };
 
-export const deleteChapterFromDB = async (id: string, projectId?: string): Promise<void> => {
-  let resolvedProjectId = projectId;
-  if (!resolvedProjectId) {
-    try {
-      const stored = await getChapterFromDB(id);
-      resolvedProjectId = stored?.projectId;
-    } catch {
-      // Bỏ qua lỗi tra cứu
+export const deleteChapterFromDB = async (
+  id: string,
+  projectId?: string,
+  options?: { skipQueue?: boolean }
+): Promise<void> => {
+  if (!id) return;
+
+  let storedChapter: Chapter | null = null;
+  try {
+    storedChapter = await getChapterFromDB(id);
+  } catch {
+    // Không gián đoạn nếu DB lỗi tra cứu
+  }
+
+  if (storedChapter && storedChapter.projectId) {
+    if (projectId && projectId !== storedChapter.projectId) {
+      throw new Error(`Mismatched projectId for chapter ${id}: expected ${storedChapter.projectId}, got ${projectId}`);
     }
   }
+
+  const resolvedProjectId = storedChapter?.projectId || projectId;
 
   const executeDelete = async () => {
     return withRetry(async () => {
@@ -1102,7 +1376,7 @@ export const deleteChapterFromDB = async (id: string, projectId?: string): Promi
     }, 3, 100, 'deleteChapterFromDB');
   };
 
-  if (resolvedProjectId) {
+  if (resolvedProjectId && !options?.skipQueue && !activeExclusiveProjects.has(resolvedProjectId)) {
     return enqueueProjectWrite(resolvedProjectId, executeDelete);
   }
   return executeDelete();
@@ -1135,62 +1409,44 @@ export const getChaptersByProjectFromDB = async (projectId: string): Promise<Cha
 };
 
 const executeDeleteChaptersByProjectFromDB = async (projectId: string): Promise<void> => {
-  const deletedChapterIds: string[] = [];
+  // 1. Khám phá toàn bộ chapterIds của dự án TRƯỚC KHI xóa primary records
+  const discoveredChapterIds = await discoverProjectChapterIds(projectId);
+  const deletedChapterIds = [...discoveredChapterIds];
 
-  await withRetry(async () => {
-    const db = await initDB();
-    const hasCrdtStore = Boolean(
-      db.objectStoreNames &&
-      typeof db.objectStoreNames.contains === 'function' &&
-      db.objectStoreNames.contains(CRDT_STATES_STORE)
-    );
-    const storesToLock = hasCrdtStore ? [CHAPTERS_STORE, CRDT_STATES_STORE] : [CHAPTERS_STORE];
+  // 2. Ghi nhận durable deletion manifest vào DELETION_MANIFESTS_STORE
+  const manifestId = `manifest_${Date.now()}_${projectId}_${Math.random().toString(36).slice(2, 7)}`;
+  const physicalDbNames = Array.from(new Set(deletedChapterIds.map((cid) => `crdt_${projectId}_${cid}`)));
+  const manifest: DeletionManifestRecord = {
+    id: manifestId,
+    projectId,
+    chapterIds: [...deletedChapterIds],
+    physicalDbNames,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
 
-    return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(storesToLock, 'readwrite');
-      const store = transaction.objectStore(CHAPTERS_STORE);
+  await recordDeletionManifest(manifest);
 
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
-      transaction.oncomplete = () => resolve();
+  try {
+    await withRetry(async () => {
+      const db = await initDB();
+      const hasCrdtStore = Boolean(
+        db.objectStoreNames &&
+        typeof db.objectStoreNames.contains === 'function' &&
+        db.objectStoreNames.contains(CRDT_STATES_STORE)
+      );
+      const storesToLock = hasCrdtStore ? [CHAPTERS_STORE, CRDT_STATES_STORE] : [CHAPTERS_STORE];
 
-      if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
-        const index = store.index('projectId');
-        const request = index.openKeyCursor(IDBKeyRange.only(projectId));
-        request.onerror = () => reject(request.error);
-        request.onsuccess = (event) => {
-          const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
-          if (cursor) {
-            const chapId = String(cursor.primaryKey);
-            if (!deletedChapterIds.includes(chapId)) {
-              deletedChapterIds.push(chapId);
-            }
-            store.delete(cursor.primaryKey);
-            cursor.continue();
-          }
-        };
-      } else if (typeof store.openCursor === 'function') {
-        const cursorRequest = store.openCursor();
-        cursorRequest.onerror = () => reject(cursorRequest.error);
-        cursorRequest.onsuccess = (event) => {
-          const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
-          if (cursor) {
-            if (cursor.value && cursor.value.projectId === projectId) {
-              const chapId = cursor.value.id || String(cursor.primaryKey);
-              if (!deletedChapterIds.includes(chapId)) {
-                deletedChapterIds.push(chapId);
-              }
-              cursor.delete();
-            }
-            cursor.continue();
-          }
-        };
-      }
+      return new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(storesToLock, 'readwrite');
+        const store = transaction.objectStore(CHAPTERS_STORE);
 
-      if (hasCrdtStore) {
-        const crdtStore = transaction.objectStore(CRDT_STATES_STORE);
-        if (crdtStore.indexNames && typeof crdtStore.indexNames.contains === 'function' && crdtStore.indexNames.contains('projectId')) {
-          const index = crdtStore.index('projectId');
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+        transaction.oncomplete = () => resolve();
+
+        if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
+          const index = store.index('projectId');
           const request = index.openKeyCursor(IDBKeyRange.only(projectId));
           request.onerror = () => reject(request.error);
           request.onsuccess = (event) => {
@@ -1200,18 +1456,18 @@ const executeDeleteChaptersByProjectFromDB = async (projectId: string): Promise<
               if (!deletedChapterIds.includes(chapId)) {
                 deletedChapterIds.push(chapId);
               }
-              crdtStore.delete(cursor.primaryKey);
+              store.delete(cursor.primaryKey);
               cursor.continue();
             }
           };
-        } else if (typeof crdtStore.openCursor === 'function') {
-          const cursorRequest = crdtStore.openCursor();
+        } else if (typeof store.openCursor === 'function') {
+          const cursorRequest = store.openCursor();
           cursorRequest.onerror = () => reject(cursorRequest.error);
           cursorRequest.onsuccess = (event) => {
             const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
             if (cursor) {
               if (cursor.value && cursor.value.projectId === projectId) {
-                const chapId = cursor.value.chapterId || String(cursor.primaryKey);
+                const chapId = cursor.value.id || String(cursor.primaryKey);
                 if (!deletedChapterIds.includes(chapId)) {
                   deletedChapterIds.push(chapId);
                 }
@@ -1221,15 +1477,63 @@ const executeDeleteChaptersByProjectFromDB = async (projectId: string): Promise<
             }
           };
         }
-      }
-    });
-  }, 3, 150, 'deleteChaptersByProjectFromDB');
 
-  // Sau khi primary transaction commit thành công, dọn dẹp các database vật lý CRDT
-  await deleteProjectCrdtDatabases(projectId, deletedChapterIds);
+        if (hasCrdtStore) {
+          const crdtStore = transaction.objectStore(CRDT_STATES_STORE);
+          if (crdtStore.indexNames && typeof crdtStore.indexNames.contains === 'function' && crdtStore.indexNames.contains('projectId')) {
+            const index = crdtStore.index('projectId');
+            const request = index.openKeyCursor(IDBKeyRange.only(projectId));
+            request.onerror = () => reject(request.error);
+            request.onsuccess = (event) => {
+              const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+              if (cursor) {
+                const chapId = String(cursor.primaryKey);
+                if (!deletedChapterIds.includes(chapId)) {
+                  deletedChapterIds.push(chapId);
+                }
+                crdtStore.delete(cursor.primaryKey);
+                cursor.continue();
+              }
+            };
+          } else if (typeof crdtStore.openCursor === 'function') {
+            const cursorRequest = crdtStore.openCursor();
+            cursorRequest.onerror = () => reject(cursorRequest.error);
+            cursorRequest.onsuccess = (event) => {
+              const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
+              if (cursor) {
+                if (cursor.value && cursor.value.projectId === projectId) {
+                  const chapId = cursor.value.chapterId || String(cursor.primaryKey);
+                  if (!deletedChapterIds.includes(chapId)) {
+                    deletedChapterIds.push(chapId);
+                  }
+                  cursor.delete();
+                }
+                cursor.continue();
+              }
+            };
+          }
+        }
+      });
+    }, 3, 150, 'deleteChaptersByProjectFromDB');
+
+    // Sau khi primary transaction commit thành công, dọn dẹp các database vật lý CRDT
+    await deleteProjectCrdtDatabases(projectId, deletedChapterIds);
+
+    // Gỡ bỏ manifest khi dọn dẹp thành công
+    await removeDeletionManifest(manifestId);
+  } catch (err) {
+    throw err;
+  }
 };
 
-export const deleteChaptersByProjectFromDB = async (projectId: string): Promise<void> => {
+export const deleteChaptersByProjectFromDB = async (
+  projectId: string,
+  options?: { skipQueue?: boolean }
+): Promise<void> => {
+  if (!projectId) return;
+  if (options?.skipQueue || activeExclusiveProjects.has(projectId)) {
+    return executeDeleteChaptersByProjectFromDB(projectId);
+  }
   return enqueueProjectWrite(projectId, () => executeDeleteChaptersByProjectFromDB(projectId));
 };
 
@@ -1328,10 +1632,26 @@ const executeSaveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
           chapReq.onerror = () => reject(chapReq.error);
           chapReq.onsuccess = () => {
             const chapter = chapReq.result as Chapter | undefined;
-            if (chapter && chapter.projectId && chapter.projectId !== projectId) {
-              console.warn(
-                `[saveCrdtState] Bỏ qua lưu CRDT state cho chương ${record.chapterId}: vi phạm ràng buộc toàn vẹn khóa ngoại (chapter.projectId "${chapter.projectId}" !== record.projectId "${projectId}").`
+            if (!chapter) {
+              const err = new Error(
+                `Relational integrity violation: Chapter "${record.chapterId}" does not exist in store.`
               );
+              console.warn(`[saveCrdtState] ${err.message}`);
+              try {
+                transaction.abort();
+              } catch (_) {}
+              reject(err);
+              return;
+            }
+            if (chapter.projectId && chapter.projectId !== projectId) {
+              const err = new Error(
+                `Relational integrity violation: Chapter "${record.chapterId}" belongs to project "${chapter.projectId}", not "${projectId}".`
+              );
+              console.warn(`[saveCrdtState] ${err.message}`);
+              try {
+                transaction.abort();
+              } catch (_) {}
+              reject(err);
               return;
             }
             proceedWithSave();
@@ -1412,10 +1732,26 @@ const executeSaveCrdtStates = async (records: CrdtStateRecord[], projectId?: str
             chapReq.onerror = () => reject(chapReq.error);
             chapReq.onsuccess = () => {
               const chapter = chapReq.result as Chapter | undefined;
-              if (chapter && chapter.projectId && chapter.projectId !== projectId) {
-                console.warn(
-                  `[saveCrdtStates] Bỏ qua lưu CRDT state cho chương ${rec.chapterId}: vi phạm ràng buộc toàn vẹn khóa ngoại (chapter.projectId "${chapter.projectId}" !== record.projectId "${projectId}").`
+              if (!chapter) {
+                const err = new Error(
+                  `Relational integrity violation: Chapter "${rec.chapterId}" does not exist in store.`
                 );
+                console.warn(`[saveCrdtStates] ${err.message}`);
+                try {
+                  transaction.abort();
+                } catch (_) {}
+                reject(err);
+                return;
+              }
+              if (chapter.projectId && chapter.projectId !== projectId) {
+                const err = new Error(
+                  `Relational integrity violation: Chapter "${rec.chapterId}" belongs to project "${chapter.projectId}", not "${projectId}".`
+                );
+                console.warn(`[saveCrdtStates] ${err.message}`);
+                try {
+                  transaction.abort();
+                } catch (_) {}
+                reject(err);
                 return;
               }
               const request = store.put(rec);

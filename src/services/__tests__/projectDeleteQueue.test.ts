@@ -19,6 +19,12 @@ import {
   getProjectWriteChainsSizeForTest,
   resetDBInstanceForTesting,
   CrdtStateRecord,
+  recordDeletionManifest,
+  removeDeletionManifest,
+  getPendingDeletionManifests,
+  recoverPendingDeletions,
+  discoverProjectChapterIds,
+  DeletionManifestRecord,
 } from '../db';
 import {
   registerCrdtPersistence,
@@ -39,6 +45,7 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
   const mockProjects = new Map<string, any>();
   const mockChapters = new Map<string, any>();
   const mockCrdtStates = new Map<string, any>();
+  const mockManifests = new Map<string, any>();
   const executionOrder: string[] = [];
   const deletedDatabases: string[] = [];
   const knownDatabases = new Set<string>();
@@ -47,6 +54,7 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
     mockProjects.clear();
     mockChapters.clear();
     mockCrdtStates.clear();
+    mockManifests.clear();
     executionOrder.length = 0;
     resetDBInstanceForTesting();
     resetProjectWriteChainsForTest();
@@ -54,7 +62,7 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
 
     const mockDB: any = {
       objectStoreNames: {
-        contains: (name: string) => ['projects', 'chapters', 'crdt_states'].includes(name),
+        contains: (name: string) => ['projects', 'chapters', 'crdt_states', 'deletion_manifests'].includes(name),
       },
       transaction: (storeNames: string | string[], mode: string) => {
         let activeRequests = 0;
@@ -235,6 +243,58 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
               },
             };
           }
+          if (name === 'deletion_manifests') {
+            return {
+              indexNames: { contains: (idx: string) => idx === 'status' || idx === 'projectId' },
+              index: (_idx: string) => ({
+                getAll: (query?: any) => {
+                  const req: any = { result: [], onsuccess: null, onerror: null };
+                  schedule(() => {
+                    const list = Array.from(mockManifests.values()).filter(
+                      (m) => query === undefined || m.status === query
+                    );
+                    req.result = list;
+                    req.onsuccess?.({ target: req });
+                  });
+                  return req;
+                },
+              }),
+              get: (id: string) => {
+                const req: any = { result: undefined, onsuccess: null, onerror: null };
+                schedule(() => {
+                  req.result = mockManifests.get(id);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+              getAll: () => {
+                const req: any = { result: [], onsuccess: null, onerror: null };
+                schedule(() => {
+                  req.result = Array.from(mockManifests.values());
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+              put: (item: any) => {
+                const req: any = { result: item.id, onsuccess: null, onerror: null };
+                schedule(() => {
+                  mockManifests.set(item.id, item);
+                  executionOrder.push(`save_manifest_${item.id}`);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+              delete: (id: string) => {
+                const req: any = { result: undefined, onsuccess: null, onerror: null };
+                schedule(() => {
+                  mockManifests.delete(id);
+                  executionOrder.push(`delete_manifest_${id}`);
+                  req.onsuccess?.({ target: req });
+                });
+                return req;
+              },
+            };
+          }
           return {
             indexNames: { contains: () => false },
             openKeyCursor: () => {
@@ -307,7 +367,10 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
     await Promise.all([savePromise, deletePromise]);
 
     // Check execution order: save MUST precede delete
-    expect(executionOrder).toEqual(['save_project_p_race_1', 'delete_project_p_race_1']);
+    const projectOps = executionOrder.filter(
+      (op) => op.startsWith('save_project_') || op.startsWith('delete_project_')
+    );
+    expect(projectOps).toEqual(['save_project_p_race_1', 'delete_project_p_race_1']);
 
     // Check persistent state: project must NOT be resurrected
     expect(mockProjects.has('p_race_1')).toBe(false);
@@ -339,7 +402,10 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
     await waitForQueueIdle('p_queue_1');
     await Promise.all([saveP, deleteP]);
 
-    expect(executionOrder).toEqual(['save_project_p_queue_1', 'delete_project_p_queue_1']);
+    const projectOps = executionOrder.filter(
+      (op) => op.startsWith('save_project_') || op.startsWith('delete_project_')
+    );
+    expect(projectOps).toEqual(['save_project_p_queue_1', 'delete_project_p_queue_1']);
     expect(mockProjects.has('p_queue_1')).toBe(false);
     expect(getProjectWriteChainsSizeForTest()).toBe(0);
   });
@@ -707,6 +773,147 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
     });
   });
 
+  describe('Feature 146 User Story 1: Durable Deletion Manifest & Startup Recovery (T006, T007)', () => {
+    it('recovers pending deletion manifests, deletes physical databases, and removes completed manifests on recoverPendingDeletions (T006)', async () => {
+      const manifest: DeletionManifestRecord = {
+        id: 'manifest_pending_test_1',
+        projectId: 'p_recover_proj',
+        chapterIds: ['chap_rec_1', 'chap_rec_2'],
+        physicalDbNames: ['crdt_p_recover_proj_chap_rec_1', 'crdt_p_recover_proj_chap_rec_2'],
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      };
+
+      await recordDeletionManifest(manifest);
+      expect(mockManifests.size).toBe(1);
+
+      const result = await recoverPendingDeletions();
+      expect(result.recoveredCount).toBe(1);
+      expect(result.failedCount).toBe(0);
+      expect(deletedDatabases).toContain('crdt_p_recover_proj_chap_rec_1');
+      expect(deletedDatabases).toContain('crdt_p_recover_proj_chap_rec_2');
+      expect(mockManifests.size).toBe(0);
+    });
+
+    it('retains manifest if physical database deletion fails during recovery (T006)', async () => {
+      (indexedDB.deleteDatabase as any).mockImplementation((_name: string) => {
+        const req: any = {
+          result: undefined,
+          onsuccess: null,
+          onerror: null,
+          onblocked: null,
+          error: new Error('Simulated physical DB delete failure during recovery'),
+        };
+        setTimeout(() => req.onerror?.({ target: req }), 10);
+        return req;
+      });
+
+      const manifest: DeletionManifestRecord = {
+        id: 'manifest_fail_test',
+        projectId: 'p_fail_proj',
+        chapterIds: ['chap_fail_1'],
+        physicalDbNames: ['crdt_p_fail_proj_chap_fail_1'],
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      };
+
+      await recordDeletionManifest(manifest);
+      expect(mockManifests.size).toBe(1);
+
+      const result = await recoverPendingDeletions();
+      expect(result.recoveredCount).toBe(0);
+      expect(result.failedCount).toBe(1);
+      // Manifest MUST NOT be removed if physical deletion failed
+      expect(mockManifests.has('manifest_fail_test')).toBe(true);
+    });
+
+    it('records deletion manifest before primary catalog commit and removes it on successful deletion (T007)', async () => {
+      const p = createDummyProject('p_manifest_order_test', 'Order Test Project');
+      p.chapters = [{ id: 'chap_mf_1', title: 'Chapter 1' } as any];
+      await saveProjectToDB(p);
+      const c = createDummyChapter('chap_mf_1', 'p_manifest_order_test');
+      await saveChapterToDB(c);
+
+      executionOrder.length = 0;
+      await deleteProjectFromDB('p_manifest_order_test');
+
+      // Verify execution order: manifest was saved BEFORE project primary record was deleted
+      const manifestSaveIdx = executionOrder.findIndex((op) => op.startsWith('save_manifest_'));
+      const projectDeleteIdx = executionOrder.findIndex((op) => op === 'delete_project_p_manifest_order_test');
+      const manifestDeleteIdx = executionOrder.findIndex((op) => op.startsWith('delete_manifest_'));
+
+      expect(manifestSaveIdx).toBeGreaterThanOrEqual(0);
+      expect(projectDeleteIdx).toBeGreaterThan(manifestSaveIdx);
+      expect(manifestDeleteIdx).toBeGreaterThan(projectDeleteIdx);
+      expect(mockManifests.size).toBe(0);
+      expect(deletedDatabases).toContain('crdt_p_manifest_order_test_chap_mf_1');
+    });
+
+    it('persists manifest in storage when physical deletion fails so it can be recovered later (T007)', async () => {
+      const p = createDummyProject('p_unrecovered_crash', 'Crash Test Project');
+      await saveProjectToDB(p);
+      const c = createDummyChapter('chap_crash_1', 'p_unrecovered_crash');
+      await saveChapterToDB(c);
+
+      (indexedDB.deleteDatabase as any).mockImplementation((_name: string) => {
+        const req: any = {
+          result: undefined,
+          onsuccess: null,
+          onerror: null,
+          onblocked: null,
+          error: new Error('Crash during physical database eradication'),
+        };
+        setTimeout(() => req.onerror?.({ target: req }), 10);
+        return req;
+      });
+
+      await expect(deleteProjectFromDB('p_unrecovered_crash')).rejects.toThrow(
+        'Crash during physical database eradication'
+      );
+
+      // Primary records were deleted, but manifest MUST remain durable in storage
+      expect(mockProjects.has('p_unrecovered_crash')).toBe(false);
+      expect(mockManifests.size).toBe(1);
+      const pendingManifests = await getPendingDeletionManifests();
+      expect(pendingManifests).toHaveLength(1);
+      expect(pendingManifests[0].projectId).toBe('p_unrecovered_crash');
+      expect(pendingManifests[0].chapterIds).toContain('chap_crash_1');
+
+      // Now restore working physical deletion and run recovery
+      (indexedDB.deleteDatabase as any).mockImplementation((name: string) => {
+        deletedDatabases.push(name);
+        const req: any = { result: undefined, onsuccess: null, onerror: null, onblocked: null };
+        setTimeout(() => req.onsuccess?.({ target: req }), 0);
+        return req;
+      });
+
+      const recoveryResult = await recoverPendingDeletions();
+      expect(recoveryResult.recoveredCount).toBe(1);
+      expect(mockManifests.size).toBe(0);
+      expect(deletedDatabases).toContain('crdt_p_unrecovered_crash_chap_crash_1');
+    });
+
+    it('records deletion manifest during executeDeleteChaptersByProjectFromDB and removes it on success (T007)', async () => {
+      const p = createDummyProject('p_bulk_chap_del', 'Bulk Chap Delete');
+      await saveProjectToDB(p);
+      const c1 = createDummyChapter('c_bulk_1', 'p_bulk_chap_del');
+      const c2 = createDummyChapter('c_bulk_2', 'p_bulk_chap_del');
+      await saveChaptersToDB([c1, c2]);
+
+      executionOrder.length = 0;
+      await deleteChaptersByProjectFromDB('p_bulk_chap_del');
+
+      const manifestSaveIdx = executionOrder.findIndex((op) => op.startsWith('save_manifest_'));
+      const manifestDeleteIdx = executionOrder.findIndex((op) => op.startsWith('delete_manifest_'));
+
+      expect(manifestSaveIdx).toBeGreaterThanOrEqual(0);
+      expect(manifestDeleteIdx).toBeGreaterThan(manifestSaveIdx);
+      expect(mockManifests.size).toBe(0);
+      expect(deletedDatabases).toContain('crdt_p_bulk_chap_del_c_bulk_1');
+      expect(deletedDatabases).toContain('crdt_p_bulk_chap_del_c_bulk_2');
+    });
+  });
+
   describe('User Story 2: Fail-Closed Orphan Guard for Unparented Chapters', () => {
     it('aborts saveChapterToDB cleanly and writes 0 records when chapter lacks projectId and cannot be found in DB', async () => {
       const orphanChapter: any = {
@@ -803,6 +1010,8 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
     it('saveCrdtStates omits unparented records lacking projectId', async () => {
       const project = createDummyProject('p_valid_crdt', 'Valid Parent');
       await saveProjectToDB(project);
+      const chapter = createDummyChapter('crdt_valid_1', 'p_valid_crdt');
+      await saveChapterToDB(chapter);
 
       const validRecord: CrdtStateRecord = {
         chapterId: 'crdt_valid_1',
@@ -858,7 +1067,9 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       // Attempt to overwrite existing chapter with a different projectId
       const hijackedChapter = createDummyChapter('c_locked', 'proj_attacker');
       hijackedChapter.title = 'Hijacked Title';
-      await saveChapterToDB(hijackedChapter);
+      await expect(saveChapterToDB(hijackedChapter)).rejects.toThrow(
+        /Relational integrity violation: Cannot re-parent chapter/
+      );
 
       // Verify it aborted without modifying the existing record
       const stored = mockChapters.get('c_locked');
@@ -866,7 +1077,7 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       expect(stored.title).toBe('Original Title');
     });
 
-    it('refuses to re-parent an existing chapter to another projectId in batch saveChaptersToDB (T020)', async () => {
+    it('refuses to re-parent an existing chapter to another projectId in batch saveChaptersToDB (T020, T011)', async () => {
       const project1 = createDummyProject('proj_orig_batch', 'Original Project');
       const project2 = createDummyProject('proj_attack_batch', 'Attacker Project');
       await saveProjectToDB(project1);
@@ -878,14 +1089,16 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
 
       const hijackedChapter = createDummyChapter('c_batch_locked', 'proj_attack_batch');
       hijackedChapter.title = 'Hijacked Batch Title';
-      await saveChaptersToDB([hijackedChapter]);
+      await expect(saveChaptersToDB([hijackedChapter])).rejects.toThrow(
+        /Relational integrity violation: Cannot re-parent chapter/
+      );
 
       const stored = mockChapters.get('c_batch_locked');
       expect(stored.projectId).toBe('proj_orig_batch');
       expect(stored.title).toBe('Original Batch Title');
     });
 
-    it('refuses to save CRDT state for a chapter belonging to a different project (T021)', async () => {
+    it('refuses to save CRDT state for a chapter belonging to a different project (T021, T013)', async () => {
       const project1 = createDummyProject('proj_crdt_parent', 'Project 1');
       const project2 = createDummyProject('proj_crdt_foreign', 'Project 2');
       await saveProjectToDB(project1);
@@ -902,13 +1115,15 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
         updatedAt: new Date().toISOString(),
       };
 
-      await saveCrdtState(mismatchedRecord);
+      await expect(saveCrdtState(mismatchedRecord)).rejects.toThrow(
+        /Relational integrity violation: Chapter "c_crdt_bound" belongs to project "proj_crdt_parent"/
+      );
 
       // Verify that CRDT state was not saved
       expect(mockCrdtStates.has('c_crdt_bound')).toBe(false);
     });
 
-    it('refuses to save CRDT states in batch when chapters belong to a different project (T021)', async () => {
+    it('refuses to save CRDT states in batch when chapters belong to a different project (T021, T013)', async () => {
       const project1 = createDummyProject('proj_batch_crdt_1', 'Project 1');
       const project2 = createDummyProject('proj_batch_crdt_2', 'Project 2');
       await saveProjectToDB(project1);
@@ -924,9 +1139,45 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
         updatedAt: new Date().toISOString(),
       };
 
-      await saveCrdtStates([mismatchedRecord]);
+      await expect(saveCrdtStates([mismatchedRecord])).rejects.toThrow(
+        /Relational integrity violation: Chapter "c_batch_bound" belongs to project "proj_batch_crdt_1"/
+      );
 
       expect(mockCrdtStates.has('c_batch_bound')).toBe(false);
+    });
+
+    it('rejects saveCrdtState when referenced chapter does not exist in store (T012)', async () => {
+      const project = createDummyProject('proj_missing_c', 'Missing Chapter Proj');
+      await saveProjectToDB(project);
+
+      const orphanCrdt: CrdtStateRecord = {
+        chapterId: 'nonexistent_chap',
+        projectId: 'proj_missing_c',
+        state: new Uint8Array([1, 2, 3]),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await expect(saveCrdtState(orphanCrdt)).rejects.toThrow(
+        /Relational integrity violation: Chapter "nonexistent_chap" does not exist in store/
+      );
+      expect(mockCrdtStates.has('nonexistent_chap')).toBe(false);
+    });
+
+    it('rejects saveCrdtStates in batch when referenced chapter does not exist in store (T012)', async () => {
+      const project = createDummyProject('proj_missing_batch_c', 'Missing Chapter Batch Proj');
+      await saveProjectToDB(project);
+
+      const orphanCrdt: CrdtStateRecord = {
+        chapterId: 'batch_nonexistent_chap',
+        projectId: 'proj_missing_batch_c',
+        state: new Uint8Array([4, 5, 6]),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await expect(saveCrdtStates([orphanCrdt])).rejects.toThrow(
+        /Relational integrity violation: Chapter "batch_nonexistent_chap" does not exist in store/
+      );
+      expect(mockCrdtStates.has('batch_nonexistent_chap')).toBe(false);
     });
   });
 
@@ -976,6 +1227,119 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       // Clean up
       await destroyAllCrdtPersistencesForProject('proj_100_200');
       expect(p100_200Destroy).toHaveBeenCalledTimes(1);
+      expect(getActivePersistenceCountForTest()).toBe(0);
+    });
+  });
+
+  describe('Feature 146 User Story 4: Canonical Project Identity in Chapter Operations (T019)', () => {
+    it('rejects deleteChapterFromDB when provided projectId conflicts with stored chapter (T019)', async () => {
+      const projectA = createDummyProject('proj_original_owner', 'Original Owner Project');
+      await saveProjectToDB(projectA);
+
+      const chapter = createDummyChapter('c_mismatch_guard', 'proj_original_owner');
+      await saveChapterToDB(chapter);
+
+      await expect(
+        deleteChapterFromDB('c_mismatch_guard', 'proj_attacker_id')
+      ).rejects.toThrow('Mismatched projectId for chapter c_mismatch_guard: expected proj_original_owner, got proj_attacker_id');
+
+      // The chapter must remain in storage
+      expect(mockChapters.has('c_mismatch_guard')).toBe(true);
+    });
+
+    it('resolves canonical projectId from storage when projectId is omitted in deleteChapterFromDB (T019)', async () => {
+      const project = createDummyProject('proj_auto_resolve', 'Auto Resolve Project');
+      await saveProjectToDB(project);
+
+      const chapter = createDummyChapter('c_auto_resolve', 'proj_auto_resolve');
+      await saveChapterToDB(chapter);
+
+      knownDatabases.add('crdt_proj_auto_resolve_c_auto_resolve');
+
+      // Call without specifying projectId parameter
+      await deleteChapterFromDB('c_auto_resolve');
+
+      // Must be removed from catalog
+      expect(mockChapters.has('c_auto_resolve')).toBe(false);
+      // Dedicated physical DB must be resolved and deleted
+      expect(deletedDatabases).toContain('crdt_proj_auto_resolve_c_auto_resolve');
+    });
+  });
+
+  describe('Feature 146 User Story 5: Fail-Closed Discovery and Provider Release (T023, T024)', () => {
+    it('rejects deleteProjectCrdtDatabases if chapter ID discovery encounters an error (T023)', async () => {
+      resetDBInstanceForTesting();
+
+      // Re-stub indexedDB.open to return a database whose transaction for projects store fails on get
+      vi.stubGlobal('indexedDB', {
+        open: () => {
+          const faultyDB = {
+            objectStoreNames: { contains: () => true },
+            transaction: (storeNames: any) => {
+              const tx: any = { oncomplete: null, onerror: null, onabort: null };
+              setTimeout(() => tx.oncomplete?.(), 10);
+              tx.objectStore = (name: string) => {
+                if (name === 'projects') {
+                  return {
+                    get: () => {
+                      const req: any = { error: new Error('Simulated discovery failure'), onsuccess: null, onerror: null };
+                      setTimeout(() => req.onerror?.({ target: req }), 0);
+                      return req;
+                    },
+                  };
+                }
+                return {
+                  indexNames: { contains: () => false },
+                  index: () => ({
+                    getAll: () => {
+                      const req: any = { result: [], onsuccess: null, onerror: null };
+                      setTimeout(() => req.onsuccess?.({ target: req }), 0);
+                      return req;
+                    },
+                  }),
+                  getAll: () => {
+                    const req: any = { result: [], onsuccess: null, onerror: null };
+                    setTimeout(() => req.onsuccess?.({ target: req }), 0);
+                    return req;
+                  },
+                };
+              };
+              return tx;
+            },
+          };
+          const req: any = { result: faultyDB, onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        },
+        deleteDatabase: () => {
+          const req: any = { onsuccess: null, onerror: null, onblocked: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        },
+      });
+
+      await expect(deleteProjectCrdtDatabases('proj_disc_fail')).rejects.toThrow('Simulated discovery failure');
+    });
+
+    it('retains provider references in registry and propagates error if provider .destroy() throws (T024)', async () => {
+      clearActivePersistencesForTest();
+
+      const faultyDestroy = vi.fn().mockRejectedValue(new Error('Simulated provider destruction failure'));
+      const provider = { destroy: faultyDestroy };
+
+      registerCrdtPersistence('crdt_proj_fail_test_c1', provider as any, 'proj_fail_test', 'c1');
+      expect(getActivePersistenceCountForTest()).toBe(1);
+
+      await expect(
+        destroyCrdtPersistence('crdt_proj_fail_test_c1')
+      ).rejects.toThrow('Simulated provider destruction failure');
+
+      // Provider reference MUST be retained in registry for future retry
+      expect(getActivePersistenceCountForTest()).toBe(1);
+
+      // Subsequent successful destroy cleans up
+      faultyDestroy.mockResolvedValueOnce(undefined);
+      await destroyCrdtPersistence('crdt_proj_fail_test_c1');
       expect(getActivePersistenceCountForTest()).toBe(0);
     });
   });

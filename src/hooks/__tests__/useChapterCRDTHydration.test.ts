@@ -269,4 +269,66 @@ describe('User Story 2: Editor CRDT State Hydration on Undo Reopening (T010)', (
     expect(receivedRemoteChange.rawTranslation).toBe('Bản dịch thô đã khôi phục');
     expect(receivedRemoteChange.polishedTranslation).toBe('Bản dịch mượt đã khôi phục');
   });
+
+  it('aborts CRDT hydration when crdtRecord.projectId !== projectId (T020)', async () => {
+    const { saveCrdtState, saveProjectToDB, saveChapterToDB, resetDBInstanceForTesting } = await import('../../services/db');
+    resetDBInstanceForTesting();
+
+    // 1. Setup project A and chapter
+    await saveProjectToDB({ id: 'proj_client_a', title: 'Project A', chapters: [] } as any);
+    await saveProjectToDB({ id: 'proj_client_b', title: 'Project B', chapters: [] } as any);
+
+    const chapter = createMockChapter({
+      id: 'chap_guard_mismatch',
+      projectId: 'proj_client_a',
+      title: 'Chương Guard',
+      sourceText: '原文',
+      rawTranslation: '',
+      polishedTranslation: '',
+    });
+    await saveChapterToDB(chapter);
+
+    // 2. Generate a CRDT update that was mistakenly assigned or corrupted with projectId = 'proj_client_b'
+    const foreignSession = createChapterYDoc('proj_client_b', 'chap_guard_mismatch', {
+      ...chapter,
+      rawTranslation: 'Bản dịch nhiễm từ Project B',
+      polishedTranslation: 'Bản dịch nhiễm mượt B',
+    });
+    const foreignSnapshot = exportDocUpdate(foreignSession.doc);
+
+    // We force a record in mock store where projectId is proj_client_b
+    mockCrdtStatesStore.set('chap_guard_mismatch', {
+      chapterId: 'chap_guard_mismatch',
+      projectId: 'proj_client_b',
+      state: foreignSnapshot,
+      updatedAt: new Date().toISOString(),
+    });
+
+    stateIndex = 0;
+    refIndex = 0;
+    effectIdx = 0;
+    callbackIdx = 0;
+
+    const onRemoteChange = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // 3. Mount useChapterCRDT for Project A
+    useChapterCRDT({
+      projectId: 'proj_client_a',
+      chapterId: 'chap_guard_mismatch',
+      initialChapter: chapter,
+      onRemoteChange,
+    });
+    flushEffects();
+
+    // Wait for hydration attempt
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Must NOT have applied foreign updates
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Project identity mismatch during CRDT hydration')
+    );
+    expect(onRemoteChange).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });

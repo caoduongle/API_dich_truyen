@@ -3,6 +3,7 @@ import { StoryProject, Chapter, ChapterMetadata } from '../types';
 export const PROJECTS_STORE = 'projects';
 export const CHAPTERS_STORE = 'chapters';
 export const CRDT_STATES_STORE = 'crdt_states';
+export const DELETION_MANIFESTS_STORE = 'deletion_manifests';
 
 /**
  * Xử lý nâng cấp schema IndexedDB qua các phiên bản (onupgradeneeded)
@@ -49,6 +50,29 @@ export function handleDBUpgrade(
       : false;
     if (!hasIndex && typeof crdtStore.createIndex === 'function') {
       crdtStore.createIndex('projectId', 'projectId', { unique: false });
+    }
+  }
+
+  // Schema v4 -> v5: Khởi tạo store deletion_manifests & index status/projectId
+  let manifestStore: IDBObjectStore | null = null;
+  if (!db.objectStoreNames.contains(DELETION_MANIFESTS_STORE)) {
+    manifestStore = db.createObjectStore(DELETION_MANIFESTS_STORE, { keyPath: 'id' });
+  } else if (transaction) {
+    manifestStore = transaction.objectStore(DELETION_MANIFESTS_STORE);
+  }
+
+  if (manifestStore) {
+    const hasStatusIndex = manifestStore.indexNames && typeof manifestStore.indexNames.contains === 'function'
+      ? manifestStore.indexNames.contains('status')
+      : false;
+    if (!hasStatusIndex && typeof manifestStore.createIndex === 'function') {
+      manifestStore.createIndex('status', 'status', { unique: false });
+    }
+    const hasProjIndex = manifestStore.indexNames && typeof manifestStore.indexNames.contains === 'function'
+      ? manifestStore.indexNames.contains('projectId')
+      : false;
+    if (!hasProjIndex && typeof manifestStore.createIndex === 'function') {
+      manifestStore.createIndex('projectId', 'projectId', { unique: false });
     }
   }
 }

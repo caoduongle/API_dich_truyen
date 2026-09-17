@@ -5,9 +5,24 @@
  */
 
 import { StoryProject } from '../types';
-import { saveProjectToDB, deleteProjectFromDB, waitForProjectWrites, resetProjectWriteChainsForTest } from './db';
+import {
+  saveProjectToDB,
+  deleteProjectFromDB,
+  waitForProjectWrites,
+  resetProjectWriteChainsForTest,
+  enqueueProjectWrite,
+  runInProjectExclusiveSection as runInDbExclusiveSection,
+} from './db';
 
 let writeChain: Promise<void> = Promise.resolve();
+
+/**
+ * Thực thi một tác vụ trong vùng critical section độc quyền của dự án.
+ * Đảm bảo các tác vụ ghi đang dở dang đã hoàn tất và không có tác vụ ghi mới nào chen ngang.
+ */
+export function runInProjectExclusiveSection<T>(projectId: string, action: () => Promise<T>): Promise<T> {
+  return runInDbExclusiveSection(projectId, action);
+}
 
 /**
  * Đưa tác vụ lưu dự án vào hàng đợi ghi tuần tự.

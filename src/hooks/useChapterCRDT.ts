@@ -185,6 +185,10 @@ export function useChapterCRDT({
     getCrdtState(chapterId)
       .then((crdtRecord) => {
         if (isCancelled || !crdtRecord?.state || crdtRecord.state.length === 0 || !docRef.current) return;
+        if (crdtRecord.projectId !== projectId) {
+          console.warn(`[useChapterCRDT] Project identity mismatch during CRDT hydration: expected "${projectId}", found "${crdtRecord.projectId}"`);
+          return;
+        }
         try {
           Y.applyUpdate(doc, crdtRecord.state, 'restore-hydration');
         } catch (e) {
