@@ -9,7 +9,7 @@ import {
   readChapterFromYDoc,
   exportDocUpdate,
 } from '../services/crdtDocManager';
-import { getChapterFromDB, saveChapterToDB, saveCrdtState } from '../services/db';
+import { getChapterFromDB, getCrdtState, saveChapterToDB, saveCrdtState } from '../services/db';
 import { registerCrdtPersistence, unregisterCrdtPersistence } from '../services/crdtPersistenceRegistry';
 
 export interface UseChapterCRDTOptions {
@@ -126,7 +126,7 @@ export function useChapterCRDT({
       try {
         const idbProvider = new IndexeddbPersistence(persistenceDbName, doc);
         persistenceRef.current = idbProvider;
-        registerCrdtPersistence(persistenceDbName, idbProvider);
+        registerCrdtPersistence(persistenceDbName, idbProvider, projectId, chapterId);
       } catch (e) {
         console.warn('[useChapterCRDT] IndexedDB Persistence không khả dụng:', e);
       }
@@ -179,6 +179,21 @@ export function useChapterCRDT({
       debouncedSaveToDb(doc, chapterId);
     };
     doc.on('update', handleDocUpdate);
+
+    // 4. Hydrate canonical CRDT state snapshot từ crdt_states store nếu có
+    // Đảm bảo sau khi Undo / khôi phục dự án, toàn bộ CRDT update/lineage được áp dụng vào editor
+    getCrdtState(chapterId)
+      .then((crdtRecord) => {
+        if (isCancelled || !crdtRecord?.state || crdtRecord.state.length === 0 || !docRef.current) return;
+        try {
+          Y.applyUpdate(doc, crdtRecord.state, 'restore-hydration');
+        } catch (e) {
+          console.warn('[useChapterCRDT] Không thể apply snapshot từ crdt_states:', e);
+        }
+      })
+      .catch((err) => {
+        console.warn('[useChapterCRDT] Lỗi tra cứu crdt_states:', err);
+      });
 
     return () => {
       isCancelled = true;

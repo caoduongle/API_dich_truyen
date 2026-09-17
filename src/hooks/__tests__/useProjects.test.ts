@@ -21,7 +21,9 @@ vi.mock('../../services/db', () => ({
     saveCrdtStates: vi.fn(),
     getCrdtState: vi.fn(),
     saveCrdtState: vi.fn(),
+    waitForProjectWrites: vi.fn().mockResolvedValue(undefined),
 }));
+import * as projectStorageQueue from '../../services/projectStorageQueue';
 
 vi.mock('../../context/NotificationContext', () => ({
     useNotifications: () => ({
@@ -185,5 +187,31 @@ describe('useProjects - State management hook', () => {
 
         expect(db.saveChapterToDB).toHaveBeenCalledWith(dummyChapter);
         expect(db.saveCrdtState).toHaveBeenCalledWith(dummyCrdt);
+    });
+
+    it('awaits waitForQueueIdle before taking undo backup snapshots (US3)', async () => {
+        const dummyProject = { id: 'proj_snap', title: 'Snapshot Test', chapters: [], glossary: [] };
+        mockState.projects = [dummyProject];
+        refCurrent = mockState.projects;
+
+        const callOrder: string[] = [];
+        vi.spyOn(projectStorageQueue, 'waitForQueueIdle').mockImplementation(async () => {
+            callOrder.push('waitForQueueIdle');
+        });
+        vi.mocked(db.getChaptersByProjectFromDB).mockImplementation(async () => {
+            callOrder.push('getChaptersByProjectFromDB');
+            return [];
+        });
+        vi.mocked(db.getCrdtStatesByProject).mockImplementation(async () => {
+            callOrder.push('getCrdtStatesByProject');
+            return [];
+        });
+
+        const hook = useProjects();
+        await hook.handleDeleteProject('proj_snap');
+
+        expect(callOrder[0]).toBe('waitForQueueIdle');
+        expect(callOrder.slice(1)).toContain('getChaptersByProjectFromDB');
+        expect(callOrder.slice(1)).toContain('getCrdtStatesByProject');
     });
 });

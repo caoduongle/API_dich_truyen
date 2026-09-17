@@ -15,7 +15,7 @@ import {
     getCrdtState,
     saveCrdtState,
 } from '../services/db';
-import { enqueueProjectSave, enqueueProjectDelete } from '../services/projectStorageQueue';
+import { enqueueProjectSave, enqueueProjectDelete, waitForQueueIdle } from '../services/projectStorageQueue';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
 
@@ -144,6 +144,9 @@ export function useProjects() {
         const currentProjects = projectsRef.current;
         const project = currentProjects.find(p => p.id === id);
         if (!project) return;
+
+        // 0. Await in-flight project writes to settle before capturing backup snapshot
+        await waitForQueueIdle(id);
 
         // 1. Load full chapter bodies and CRDT states for backup before deleting
         const [backedUpChapters, backedUpCrdtStates] = await Promise.all([
@@ -366,6 +369,11 @@ export function useProjects() {
 
         const chapterMeta = activeProj.chapters.find(c => c.id === chapId);
         if (!chapterMeta) return;
+
+        // 0. Await in-flight project writes to settle before capturing backup snapshot
+        if (activeProjectId) {
+            await waitForQueueIdle(activeProjectId);
+        }
 
         // 1. Back up full chapter data and CRDT state
         const [fullChapter, backedUpCrdt] = await Promise.all([

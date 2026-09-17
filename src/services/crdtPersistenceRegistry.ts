@@ -2,14 +2,38 @@ export interface CrdtPersistenceProvider {
   destroy(): Promise<void> | void;
 }
 
-const activePersistences = new Map<string, CrdtPersistenceProvider>();
+export interface RegisteredPersistenceItem {
+  provider: CrdtPersistenceProvider;
+  projectId?: string;
+  chapterId?: string;
+}
+
+const activePersistences = new Map<string, Set<RegisteredPersistenceItem>>();
 
 /**
  * Đăng ký instance IndexeddbPersistence đang hoạt động trong session hiện tại.
+ * Hỗ trợ lưu trữ nhiều provider trên cùng một dbName (Set).
  */
-export function registerCrdtPersistence(dbName: string, provider: CrdtPersistenceProvider): void {
+export function registerCrdtPersistence(
+  dbName: string,
+  provider: CrdtPersistenceProvider,
+  projectId?: string,
+  chapterId?: string
+): void {
   if (!dbName || !provider) return;
-  activePersistences.set(dbName, provider);
+  let set = activePersistences.get(dbName);
+  if (!set) {
+    set = new Set();
+    activePersistences.set(dbName, set);
+  }
+  for (const item of set) {
+    if (item.provider === provider) {
+      if (projectId) item.projectId = projectId;
+      if (chapterId) item.chapterId = chapterId;
+      return;
+    }
+  }
+  set.add({ provider, projectId, chapterId });
 }
 
 /**
@@ -17,65 +41,112 @@ export function registerCrdtPersistence(dbName: string, provider: CrdtPersistenc
  */
 export function unregisterCrdtPersistence(dbName: string, provider?: CrdtPersistenceProvider): void {
   if (!dbName) return;
-  const existing = activePersistences.get(dbName);
-  if (!provider || existing === provider) {
+  const set = activePersistences.get(dbName);
+  if (!set) return;
+
+  if (!provider) {
+    activePersistences.delete(dbName);
+    return;
+  }
+
+  for (const item of set) {
+    if (item.provider === provider) {
+      set.delete(item);
+      break;
+    }
+  }
+
+  if (set.size === 0) {
     activePersistences.delete(dbName);
   }
 }
 
 /**
- * Đóng kết nối và giải phóng instance persistence trước khi xóa database vật lý.
+ * Đóng kết nối và giải phóng toàn bộ instances persistence trước khi xóa database vật lý.
  */
 export async function destroyCrdtPersistence(dbName: string): Promise<void> {
   if (!dbName) return;
-  const provider = activePersistences.get(dbName);
-  if (provider) {
+  const set = activePersistences.get(dbName);
+  if (set && set.size > 0) {
     activePersistences.delete(dbName);
-    try {
-      await provider.destroy();
-    } catch (e) {
-      console.warn(`[destroyCrdtPersistence] Cảnh báo khi đóng persistence provider cho ${dbName}:`, e);
+    const promises: (Promise<void> | void)[] = [];
+    for (const item of set) {
+      try {
+        promises.push(item.provider.destroy());
+      } catch (e) {
+        console.warn(`[destroyCrdtPersistence] Cảnh báo khi đóng persistence provider cho ${dbName}:`, e);
+      }
     }
+    await Promise.all(promises);
   }
 }
 
 /**
  * Đóng toàn bộ các kết nối persistence đang mở cho một dự án cụ thể.
+ * Ưu tiên knownChapterIds chính xác. Nếu không truyền, chỉ hủy các provider có
+ * projectId khớp chính xác tuyệt đối (tránh va chạm prefix giữa proj_100 và proj_100_200).
  */
 export async function destroyAllCrdtPersistencesForProject(
   projectId: string,
   knownChapterIds?: string[]
 ): Promise<void> {
   if (!projectId) return;
-  const promises: Promise<void>[] = [];
+  const targetDbNames = new Set<string>();
 
   if (knownChapterIds && knownChapterIds.length > 0) {
     for (const chapId of knownChapterIds) {
       if (chapId) {
         const dbName = `crdt_${projectId}_${chapId}`;
         if (activePersistences.has(dbName)) {
-          promises.push(destroyCrdtPersistence(dbName));
+          targetDbNames.add(dbName);
         }
       }
     }
   } else {
-    // Nếu không có knownChapterIds, quét các provider có tên khớp với format `crdt_${projectId}_`
-    // Lưu ý: Đây là in-memory map của tab hiện tại
-    for (const dbName of Array.from(activePersistences.keys())) {
-      if (dbName.startsWith(`crdt_${projectId}_`)) {
-        promises.push(destroyCrdtPersistence(dbName));
+    // Không có knownChapterIds:
+    for (const [dbName, set] of activePersistences.entries()) {
+      let matches = false;
+      for (const item of set) {
+        if (item.projectId) {
+          if (item.projectId === projectId) {
+            matches = true;
+            break;
+          }
+        }
+      }
+      if (matches) {
+        targetDbNames.add(dbName);
+        continue;
+      }
+
+      // Nếu không có explicit projectId, chỉ fallback khi dbName khớp format crdt_${projectId}_${chapterId}
+      // VÀ item không mang projectId của project khác
+      let hasDifferentProject = false;
+      for (const item of set) {
+        if (item.projectId && item.projectId !== projectId) {
+          hasDifferentProject = true;
+          break;
+        }
+      }
+      if (!hasDifferentProject && dbName.startsWith(`crdt_${projectId}_`)) {
+        targetDbNames.add(dbName);
       }
     }
   }
 
+  const promises = Array.from(targetDbNames).map((dbName) => destroyCrdtPersistence(dbName));
   await Promise.all(promises);
 }
 
 /**
- * Trợ thủ kiểm thử: Lấy số lượng persistence provider đang active.
+ * Trợ thủ kiểm thử: Lấy tổng số lượng persistence provider đang active across all dbNames.
  */
 export function getActivePersistenceCountForTest(): number {
-  return activePersistences.size;
+  let count = 0;
+  for (const set of activePersistences.values()) {
+    count += set.size;
+  }
+  return count;
 }
 
 /**

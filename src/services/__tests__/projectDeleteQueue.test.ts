@@ -5,6 +5,7 @@ import {
   deleteProjectCrdtDatabases,
   deleteChapterCrdtDatabase,
   deleteChapterFromDB,
+  deleteChaptersByProjectFromDB,
   getChapterFromDB,
   getCrdtState,
   getCrdtStatesByProject,
@@ -21,6 +22,8 @@ import {
 } from '../db';
 import {
   registerCrdtPersistence,
+  destroyCrdtPersistence,
+  destroyAllCrdtPersistencesForProject,
   getActivePersistenceCountForTest,
   clearActivePersistencesForTest,
 } from '../crdtPersistenceRegistry';
@@ -509,6 +512,59 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       expect(deletedDatabases).toContain('crdt_p_crdt_del_all_c2');
     });
 
+    it('purges dedicated CRDT databases derived from project.chapters even if detached from chapters store (US4)', async () => {
+      const project = createDummyProject('p_meta_chapters', 'Meta Chapters Proj');
+      project.chapters = [
+        { id: 'c_meta_1', title: 'Chapter Meta 1', createdAt: new Date().toISOString() } as any,
+      ];
+      await saveProjectToDB(project);
+
+      knownDatabases.add('crdt_p_meta_chapters_c_meta_1');
+
+      await deleteProjectFromDB('p_meta_chapters');
+
+      expect(deletedDatabases).toContain('crdt_p_meta_chapters_c_meta_1');
+    });
+
+    it('purges chapters, crdt_states, and dedicated CRDT databases in deleteChaptersByProjectFromDB (US4)', async () => {
+      const project = createDummyProject('p_bulk_chap_del', 'Bulk Chap Del Proj');
+      await saveProjectToDB(project);
+
+      const c1 = createDummyChapter('c_bulk_1', 'p_bulk_chap_del');
+      const c2 = createDummyChapter('c_bulk_2', 'p_bulk_chap_del');
+      await saveChaptersToDB([c1, c2]);
+
+      await saveCrdtState({
+        chapterId: 'c_bulk_1',
+        projectId: 'p_bulk_chap_del',
+        state: new Uint8Array([1, 2, 3]),
+        updatedAt: new Date().toISOString(),
+      });
+      await saveCrdtState({
+        chapterId: 'c_bulk_2',
+        projectId: 'p_bulk_chap_del',
+        state: new Uint8Array([4, 5, 6]),
+        updatedAt: new Date().toISOString(),
+      });
+
+      knownDatabases.add('crdt_p_bulk_chap_del_c_bulk_1');
+      knownDatabases.add('crdt_p_bulk_chap_del_c_bulk_2');
+
+      await deleteChaptersByProjectFromDB('p_bulk_chap_del');
+
+      // Chapters store is cleared for this project
+      expect(mockChapters.has('c_bulk_1')).toBe(false);
+      expect(mockChapters.has('c_bulk_2')).toBe(false);
+
+      // CRDT states store is cleared for this project
+      expect(mockCrdtStates.has('c_bulk_1')).toBe(false);
+      expect(mockCrdtStates.has('c_bulk_2')).toBe(false);
+
+      // Dedicated CRDT databases are purged
+      expect(deletedDatabases).toContain('crdt_p_bulk_chap_del_c_bulk_1');
+      expect(deletedDatabases).toContain('crdt_p_bulk_chap_del_c_bulk_2');
+    });
+
     it('purges CRDT databases derived strictly from known project chapters without prefix collision with sibling projects (US2)', async () => {
       // Project A: proj_100
       const projectA = createDummyProject('proj_100', 'Project 100');
@@ -596,6 +652,44 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       await expect(
         deleteProjectCrdtDatabases('p_error_test', ['chap_err'])
       ).rejects.toThrow('IDB delete error');
+    });
+
+    it('propagates rejection when deleteProjectFromDB encounters CRDT database error (US1)', async () => {
+      const p = createDummyProject('p_proj_crdt_err', 'Error Proj');
+      await saveProjectToDB(p);
+      const c = createDummyChapter('chap_proj_err', 'p_proj_crdt_err');
+      await saveChapterToDB(c);
+
+      (indexedDB.deleteDatabase as any).mockImplementation((_name: string) => {
+        const req: any = { result: undefined, onsuccess: null, onerror: null, onblocked: null, error: new Error('CRDT Project Delete Error') };
+        setTimeout(() => {
+          req.onerror?.({ target: req });
+        }, 10);
+        return req;
+      });
+
+      await expect(
+        deleteProjectFromDB('p_proj_crdt_err')
+      ).rejects.toThrow('CRDT Project Delete Error');
+    });
+
+    it('propagates rejection when deleteChapterFromDB encounters CRDT database error (US1)', async () => {
+      const p = createDummyProject('p_chap_crdt_err', 'Error Proj');
+      await saveProjectToDB(p);
+      const c = createDummyChapter('chap_del_err', 'p_chap_crdt_err');
+      await saveChapterToDB(c);
+
+      (indexedDB.deleteDatabase as any).mockImplementation((_name: string) => {
+        const req: any = { result: undefined, onsuccess: null, onerror: null, onblocked: null, error: new Error('CRDT Chapter Delete Error') };
+        setTimeout(() => {
+          req.onerror?.({ target: req });
+        }, 10);
+        return req;
+      });
+
+      await expect(
+        deleteChapterFromDB('chap_del_err', 'p_chap_crdt_err')
+      ).rejects.toThrow('CRDT Chapter Delete Error');
     });
 
     it('deleteProjectCrdtDatabases works gracefully without indexedDB.databases()', async () => {
@@ -745,6 +839,144 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
 
       expect(mockProjects.has('proj_A')).toBe(false);
       expect(mockChapters.has('chap_A_1')).toBe(false);
+    });
+  });
+
+  describe('Feature 145 User Story 5: Relational Foreign-Key Ownership Integrity (T020, T021)', () => {
+    it('refuses to re-parent an existing chapter to another projectId in saveChapterToDB (T020)', async () => {
+      const project1 = createDummyProject('proj_original', 'Original Project');
+      const project2 = createDummyProject('proj_attacker', 'Attacker Project');
+      await saveProjectToDB(project1);
+      await saveProjectToDB(project2);
+
+      const originalChapter = createDummyChapter('c_locked', 'proj_original');
+      originalChapter.title = 'Original Title';
+      await saveChapterToDB(originalChapter);
+
+      expect(mockChapters.get('c_locked')?.projectId).toBe('proj_original');
+
+      // Attempt to overwrite existing chapter with a different projectId
+      const hijackedChapter = createDummyChapter('c_locked', 'proj_attacker');
+      hijackedChapter.title = 'Hijacked Title';
+      await saveChapterToDB(hijackedChapter);
+
+      // Verify it aborted without modifying the existing record
+      const stored = mockChapters.get('c_locked');
+      expect(stored.projectId).toBe('proj_original');
+      expect(stored.title).toBe('Original Title');
+    });
+
+    it('refuses to re-parent an existing chapter to another projectId in batch saveChaptersToDB (T020)', async () => {
+      const project1 = createDummyProject('proj_orig_batch', 'Original Project');
+      const project2 = createDummyProject('proj_attack_batch', 'Attacker Project');
+      await saveProjectToDB(project1);
+      await saveProjectToDB(project2);
+
+      const originalChapter = createDummyChapter('c_batch_locked', 'proj_orig_batch');
+      originalChapter.title = 'Original Batch Title';
+      await saveChapterToDB(originalChapter);
+
+      const hijackedChapter = createDummyChapter('c_batch_locked', 'proj_attack_batch');
+      hijackedChapter.title = 'Hijacked Batch Title';
+      await saveChaptersToDB([hijackedChapter]);
+
+      const stored = mockChapters.get('c_batch_locked');
+      expect(stored.projectId).toBe('proj_orig_batch');
+      expect(stored.title).toBe('Original Batch Title');
+    });
+
+    it('refuses to save CRDT state for a chapter belonging to a different project (T021)', async () => {
+      const project1 = createDummyProject('proj_crdt_parent', 'Project 1');
+      const project2 = createDummyProject('proj_crdt_foreign', 'Project 2');
+      await saveProjectToDB(project1);
+      await saveProjectToDB(project2);
+
+      const chapter = createDummyChapter('c_crdt_bound', 'proj_crdt_parent');
+      await saveChapterToDB(chapter);
+
+      // Attempt to save CRDT state referencing c_crdt_bound under proj_crdt_foreign
+      const mismatchedRecord: CrdtStateRecord = {
+        chapterId: 'c_crdt_bound',
+        projectId: 'proj_crdt_foreign',
+        state: new Uint8Array([9, 9, 9]),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await saveCrdtState(mismatchedRecord);
+
+      // Verify that CRDT state was not saved
+      expect(mockCrdtStates.has('c_crdt_bound')).toBe(false);
+    });
+
+    it('refuses to save CRDT states in batch when chapters belong to a different project (T021)', async () => {
+      const project1 = createDummyProject('proj_batch_crdt_1', 'Project 1');
+      const project2 = createDummyProject('proj_batch_crdt_2', 'Project 2');
+      await saveProjectToDB(project1);
+      await saveProjectToDB(project2);
+
+      const chapter = createDummyChapter('c_batch_bound', 'proj_batch_crdt_1');
+      await saveChapterToDB(chapter);
+
+      const mismatchedRecord: CrdtStateRecord = {
+        chapterId: 'c_batch_bound',
+        projectId: 'proj_batch_crdt_2',
+        state: new Uint8Array([8, 8, 8]),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await saveCrdtStates([mismatchedRecord]);
+
+      expect(mockCrdtStates.has('c_batch_bound')).toBe(false);
+    });
+  });
+
+  describe('Feature 145 User Story 6: Collision-Safe Persistence Management & Multi-Instance Cleanup (T024, T025)', () => {
+    it('destroys all registered persistence provider instances for a single database (T024)', async () => {
+      const p1Destroy = vi.fn();
+      const p2Destroy = vi.fn();
+
+      const provider1 = { destroy: p1Destroy };
+      const provider2 = { destroy: p2Destroy };
+
+      registerCrdtPersistence('crdt_multi_p1_c1', provider1, 'multi_p1', 'c1');
+      registerCrdtPersistence('crdt_multi_p1_c1', provider2, 'multi_p1', 'c1');
+
+      expect(getActivePersistenceCountForTest()).toBe(2);
+
+      await destroyCrdtPersistence('crdt_multi_p1_c1');
+
+      expect(p1Destroy).toHaveBeenCalledTimes(1);
+      expect(p2Destroy).toHaveBeenCalledTimes(1);
+      expect(getActivePersistenceCountForTest()).toBe(0);
+    });
+
+    it('destroys providers for proj_100 without affecting proj_100_200 (T025)', async () => {
+      const p100Destroy = vi.fn();
+      const p100_200Destroy = vi.fn();
+
+      const providerP100 = { destroy: p100Destroy };
+      const providerP100_200 = { destroy: p100_200Destroy };
+
+      registerCrdtPersistence('crdt_proj_100_c1', providerP100, 'proj_100', 'c1');
+      registerCrdtPersistence('crdt_proj_100_200_c1', providerP100_200, 'proj_100_200', 'c1');
+
+      expect(getActivePersistenceCountForTest()).toBe(2);
+
+      // Destroy all persistences for proj_100
+      await destroyAllCrdtPersistencesForProject('proj_100');
+
+      // providerP100 MUST be destroyed
+      expect(p100Destroy).toHaveBeenCalledTimes(1);
+      // providerP100_200 MUST NOT be destroyed
+      expect(p100_200Destroy).not.toHaveBeenCalled();
+
+      // Only 1 provider remains active
+      expect(getActivePersistenceCountForTest()).toBe(1);
+
+      // Clean up
+      await destroyAllCrdtPersistencesForProject('proj_100_200');
+      expect(p100_200Destroy).toHaveBeenCalledTimes(1);
+      expect(getActivePersistenceCountForTest()).toBe(0);
     });
   });
 });

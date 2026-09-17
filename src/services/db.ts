@@ -481,9 +481,10 @@ export const waitForProjectWrites = async (projectId?: string): Promise<void> =>
 };
 
 const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
-  return withRetry(async () => {
+  const chapterIdsToDelete: string[] = [];
+
+  await withRetry(async () => {
     const db = await initDB();
-    const chapterIdsToDelete: string[] = [];
 
     return new Promise<void>((resolve, reject) => {
       const storesToLock = [PROJECTS_STORE, CHAPTERS_STORE];
@@ -500,17 +501,22 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
 
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
-      transaction.oncomplete = async () => {
-        try {
-          await deleteProjectCrdtDatabases(id, chapterIdsToDelete);
-        } catch (crdtErr) {
-          console.warn(`[deleteProjectFromDB] Cảnh báo khi dọn CRDT databases cho dự án ${id}:`, crdtErr);
-        }
-        resolve();
-      };
+      transaction.oncomplete = () => resolve();
 
-      // 1. Xóa record project
-      projectsStore.delete(id);
+      // 1. Thu thập chapterIds từ project.chapters trước khi xóa record project
+      const getProjReq = projectsStore.get(id);
+      getProjReq.onerror = () => reject(getProjReq.error);
+      getProjReq.onsuccess = () => {
+        const proj = getProjReq.result;
+        if (proj?.chapters && Array.isArray(proj.chapters)) {
+          for (const c of proj.chapters) {
+            if (c?.id && !chapterIdsToDelete.includes(c.id)) {
+              chapterIdsToDelete.push(c.id);
+            }
+          }
+        }
+        projectsStore.delete(id);
+      };
 
       // 2. Xóa tất cả các chapters của project và thu thập chapterId để dọn dẹp CRDT databases
       if (chaptersStore.indexNames && typeof chaptersStore.indexNames.contains === 'function' && chaptersStore.indexNames.contains('projectId')) {
@@ -520,7 +526,10 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
         cursorRequest.onsuccess = (event) => {
           const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
           if (cursor) {
-            chapterIdsToDelete.push(String(cursor.primaryKey));
+            const chapId = String(cursor.primaryKey);
+            if (!chapterIdsToDelete.includes(chapId)) {
+              chapterIdsToDelete.push(chapId);
+            }
             chaptersStore.delete(cursor.primaryKey);
             cursor.continue();
           }
@@ -532,7 +541,10 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
           const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
           if (cursor) {
             if (cursor.value.projectId === id) {
-              chapterIdsToDelete.push(cursor.value.id || String(cursor.primaryKey));
+              const chapId = cursor.value.id || String(cursor.primaryKey);
+              if (!chapterIdsToDelete.includes(chapId)) {
+                chapterIdsToDelete.push(chapId);
+              }
               cursor.delete();
             }
             cursor.continue();
@@ -550,7 +562,10 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
           cursorRequest.onsuccess = (event) => {
             const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
             if (cursor) {
-              chapterIdsToDelete.push(String(cursor.primaryKey));
+              const chapId = String(cursor.primaryKey);
+              if (!chapterIdsToDelete.includes(chapId)) {
+                chapterIdsToDelete.push(chapId);
+              }
               crdtStore.delete(cursor.primaryKey);
               cursor.continue();
             }
@@ -562,7 +577,10 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
             const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
             if (cursor) {
               if (cursor.value && cursor.value.projectId === id) {
-                chapterIdsToDelete.push(cursor.value.chapterId || String(cursor.primaryKey));
+                const chapId = cursor.value.chapterId || String(cursor.primaryKey);
+                if (!chapterIdsToDelete.includes(chapId)) {
+                  chapterIdsToDelete.push(chapId);
+                }
                 cursor.delete();
               }
               cursor.continue();
@@ -571,7 +589,11 @@ const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
         }
       }
     });
-  }, 3, 150, 'deleteProjectFromDB');
+  }, 3, 150, 'deleteProjectFromDB_primary');
+
+  // Sau khi primary transaction commit thành công, dọn dẹp các database vật lý CRDT
+  // BẮT BUỘC propagate lỗi nếu deleteProjectCrdtDatabases thất bại (Fail-Closed)
+  await deleteProjectCrdtDatabases(id, chapterIdsToDelete);
 };
 
 /**
@@ -683,6 +705,26 @@ export const deleteProjectCrdtDatabases = async (
   try {
     const db = await initDB();
     if (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function') {
+      if (db.objectStoreNames.contains(PROJECTS_STORE)) {
+        const tx = db.transaction(PROJECTS_STORE, 'readonly');
+        const store = tx.objectStore(PROJECTS_STORE);
+        const getReq = store.get(projectId);
+        await new Promise<void>((res) => {
+          getReq.onsuccess = () => {
+            const proj = getReq.result;
+            if (proj?.chapters && Array.isArray(proj.chapters)) {
+              for (const c of proj.chapters) {
+                if (c?.id) {
+                  allChapterIds.add(c.id);
+                }
+              }
+            }
+            res();
+          };
+          getReq.onerror = () => res();
+        });
+      }
+
       if (db.objectStoreNames.contains(CHAPTERS_STORE)) {
         const tx = db.transaction(CHAPTERS_STORE, 'readonly');
         const store = tx.objectStore(CHAPTERS_STORE);
@@ -848,6 +890,12 @@ const executeSaveChapterToDB = async (chapter: Chapter, projectId?: string): Pro
         getRequest.onerror = () => reject(getRequest.error);
         getRequest.onsuccess = () => {
           const existing = getRequest.result as Chapter | undefined;
+          if (existing && existing.projectId && existing.projectId !== projectId) {
+            console.warn(
+              `[saveChapterToDB] Bỏ qua lưu chương ${chapter.id}: vi phạm ràng buộc toàn vẹn khóa ngoại (existing.projectId "${existing.projectId}" !== incoming "${projectId}").`
+            );
+            return;
+          }
           const chapterToSave = mergeSafeguardChapter(existing, chapter);
           const putRequest = chaptersStore.put(chapterToSave);
           putRequest.onerror = () => reject(putRequest.error);
@@ -931,6 +979,12 @@ const executeSaveChaptersToDB = async (chapters: Chapter[], projectId?: string):
           getReq.onerror = () => reject(getReq.error);
           getReq.onsuccess = () => {
             const existing = getReq.result as Chapter | undefined;
+            if (existing && existing.projectId && existing.projectId !== projectId) {
+              console.warn(
+                `[saveChaptersToDB] Bỏ qua lưu chương ${chap.id}: vi phạm ràng buộc toàn vẹn khóa ngoại (existing.projectId "${existing.projectId}" !== incoming "${projectId}").`
+              );
+              return;
+            }
             const chapterToSave = mergeSafeguardChapter(existing, chap);
             const putReq = store.put(chapterToSave);
             putReq.onerror = () => reject(putReq.error);
@@ -1043,11 +1097,7 @@ export const deleteChapterFromDB = async (id: string, projectId?: string): Promi
 
       // Sau khi transaction commit xong, dọn CRDT database vật lý của chính chapter đó
       if (resolvedProjectId) {
-        try {
-          await deleteChapterCrdtDatabase(resolvedProjectId, id);
-        } catch (crdtErr) {
-          console.warn(`[deleteChapterFromDB] Cảnh báo khi dọn CRDT database cho chương ${id}:`, crdtErr);
-        }
+        await deleteChapterCrdtDatabase(resolvedProjectId, id);
       }
     }, 3, 100, 'deleteChapterFromDB');
   };
@@ -1085,32 +1135,98 @@ export const getChaptersByProjectFromDB = async (projectId: string): Promise<Cha
 };
 
 const executeDeleteChaptersByProjectFromDB = async (projectId: string): Promise<void> => {
-  return withRetry(async () => {
+  const deletedChapterIds: string[] = [];
+
+  await withRetry(async () => {
     const db = await initDB();
+    const hasCrdtStore = Boolean(
+      db.objectStoreNames &&
+      typeof db.objectStoreNames.contains === 'function' &&
+      db.objectStoreNames.contains(CRDT_STATES_STORE)
+    );
+    const storesToLock = hasCrdtStore ? [CHAPTERS_STORE, CRDT_STATES_STORE] : [CHAPTERS_STORE];
+
     return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(CHAPTERS_STORE, 'readwrite');
+      const transaction = db.transaction(storesToLock, 'readwrite');
       const store = transaction.objectStore(CHAPTERS_STORE);
 
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       transaction.oncomplete = () => resolve();
 
-      if (!store.indexNames.contains('projectId')) {
-        resolve();
-        return;
+      if (store.indexNames && typeof store.indexNames.contains === 'function' && store.indexNames.contains('projectId')) {
+        const index = store.index('projectId');
+        const request = index.openKeyCursor(IDBKeyRange.only(projectId));
+        request.onerror = () => reject(request.error);
+        request.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+          if (cursor) {
+            const chapId = String(cursor.primaryKey);
+            if (!deletedChapterIds.includes(chapId)) {
+              deletedChapterIds.push(chapId);
+            }
+            store.delete(cursor.primaryKey);
+            cursor.continue();
+          }
+        };
+      } else if (typeof store.openCursor === 'function') {
+        const cursorRequest = store.openCursor();
+        cursorRequest.onerror = () => reject(cursorRequest.error);
+        cursorRequest.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
+          if (cursor) {
+            if (cursor.value && cursor.value.projectId === projectId) {
+              const chapId = cursor.value.id || String(cursor.primaryKey);
+              if (!deletedChapterIds.includes(chapId)) {
+                deletedChapterIds.push(chapId);
+              }
+              cursor.delete();
+            }
+            cursor.continue();
+          }
+        };
       }
-      const index = store.index('projectId');
-      const request = index.openKeyCursor(IDBKeyRange.only(projectId));
-      request.onerror = () => reject(request.error);
-      request.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
-        if (cursor) {
-          store.delete(cursor.primaryKey);
-          cursor.continue();
+
+      if (hasCrdtStore) {
+        const crdtStore = transaction.objectStore(CRDT_STATES_STORE);
+        if (crdtStore.indexNames && typeof crdtStore.indexNames.contains === 'function' && crdtStore.indexNames.contains('projectId')) {
+          const index = crdtStore.index('projectId');
+          const request = index.openKeyCursor(IDBKeyRange.only(projectId));
+          request.onerror = () => reject(request.error);
+          request.onsuccess = (event) => {
+            const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+            if (cursor) {
+              const chapId = String(cursor.primaryKey);
+              if (!deletedChapterIds.includes(chapId)) {
+                deletedChapterIds.push(chapId);
+              }
+              crdtStore.delete(cursor.primaryKey);
+              cursor.continue();
+            }
+          };
+        } else if (typeof crdtStore.openCursor === 'function') {
+          const cursorRequest = crdtStore.openCursor();
+          cursorRequest.onerror = () => reject(cursorRequest.error);
+          cursorRequest.onsuccess = (event) => {
+            const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
+            if (cursor) {
+              if (cursor.value && cursor.value.projectId === projectId) {
+                const chapId = cursor.value.chapterId || String(cursor.primaryKey);
+                if (!deletedChapterIds.includes(chapId)) {
+                  deletedChapterIds.push(chapId);
+                }
+                cursor.delete();
+              }
+              cursor.continue();
+            }
+          };
         }
-      };
+      }
     });
   }, 3, 150, 'deleteChaptersByProjectFromDB');
+
+  // Sau khi primary transaction commit thành công, dọn dẹp các database vật lý CRDT
+  await deleteProjectCrdtDatabases(projectId, deletedChapterIds);
 };
 
 export const deleteChaptersByProjectFromDB = async (projectId: string): Promise<void> => {
@@ -1182,8 +1298,15 @@ const executeSaveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
       typeof db.objectStoreNames.contains === 'function' &&
       db.objectStoreNames.contains(PROJECTS_STORE)
     );
+    const hasChaptersStore = Boolean(
+      db.objectStoreNames &&
+      typeof db.objectStoreNames.contains === 'function' &&
+      db.objectStoreNames.contains(CHAPTERS_STORE)
+    );
 
-    const storesToLock = hasProjectsStore ? [PROJECTS_STORE, CRDT_STATES_STORE] : [CRDT_STATES_STORE];
+    const storesToLock: string[] = [CRDT_STATES_STORE];
+    if (hasProjectsStore) storesToLock.push(PROJECTS_STORE);
+    if (hasChaptersStore) storesToLock.push(CHAPTERS_STORE);
 
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(storesToLock, 'readwrite');
@@ -1196,6 +1319,26 @@ const executeSaveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
       const proceedWithSave = () => {
         const request = store.put(record);
         request.onerror = () => reject(request.error);
+      };
+
+      const proceedWithChapterCheck = () => {
+        if (hasChaptersStore) {
+          const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
+          const chapReq = chaptersStore.get(record.chapterId);
+          chapReq.onerror = () => reject(chapReq.error);
+          chapReq.onsuccess = () => {
+            const chapter = chapReq.result as Chapter | undefined;
+            if (chapter && chapter.projectId && chapter.projectId !== projectId) {
+              console.warn(
+                `[saveCrdtState] Bỏ qua lưu CRDT state cho chương ${record.chapterId}: vi phạm ràng buộc toàn vẹn khóa ngoại (chapter.projectId "${chapter.projectId}" !== record.projectId "${projectId}").`
+              );
+              return;
+            }
+            proceedWithSave();
+          };
+        } else {
+          proceedWithSave();
+        }
       };
 
       if (hasProjectsStore && projectId) {
@@ -1211,10 +1354,10 @@ const executeSaveCrdtState = async (record: CrdtStateRecord): Promise<void> => {
             resolve();
             return;
           }
-          proceedWithSave();
+          proceedWithChapterCheck();
         };
       } else {
-        proceedWithSave();
+        proceedWithChapterCheck();
       }
     });
   }, 3, 100, 'saveCrdtState');
@@ -1243,8 +1386,15 @@ const executeSaveCrdtStates = async (records: CrdtStateRecord[], projectId?: str
       typeof db.objectStoreNames.contains === 'function' &&
       db.objectStoreNames.contains(PROJECTS_STORE)
     );
+    const hasChaptersStore = Boolean(
+      db.objectStoreNames &&
+      typeof db.objectStoreNames.contains === 'function' &&
+      db.objectStoreNames.contains(CHAPTERS_STORE)
+    );
 
-    const storesToLock = hasProjectsStore ? [PROJECTS_STORE, CRDT_STATES_STORE] : [CRDT_STATES_STORE];
+    const storesToLock: string[] = [CRDT_STATES_STORE];
+    if (hasProjectsStore) storesToLock.push(PROJECTS_STORE);
+    if (hasChaptersStore) storesToLock.push(CHAPTERS_STORE);
 
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(storesToLock, 'readwrite');
@@ -1256,8 +1406,25 @@ const executeSaveCrdtStates = async (records: CrdtStateRecord[], projectId?: str
 
       const proceedWithBatchSave = () => {
         for (const rec of records) {
-          const request = store.put(rec);
-          request.onerror = () => reject(request.error);
+          if (hasChaptersStore) {
+            const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
+            const chapReq = chaptersStore.get(rec.chapterId);
+            chapReq.onerror = () => reject(chapReq.error);
+            chapReq.onsuccess = () => {
+              const chapter = chapReq.result as Chapter | undefined;
+              if (chapter && chapter.projectId && chapter.projectId !== projectId) {
+                console.warn(
+                  `[saveCrdtStates] Bỏ qua lưu CRDT state cho chương ${rec.chapterId}: vi phạm ràng buộc toàn vẹn khóa ngoại (chapter.projectId "${chapter.projectId}" !== record.projectId "${projectId}").`
+                );
+                return;
+              }
+              const request = store.put(rec);
+              request.onerror = () => reject(request.error);
+            };
+          } else {
+            const request = store.put(rec);
+            request.onerror = () => reject(request.error);
+          }
         }
       };
 
