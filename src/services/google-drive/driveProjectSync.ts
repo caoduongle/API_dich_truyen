@@ -8,6 +8,7 @@ import {
 import {
   getProjectsFromDB,
   saveProjectToDB,
+  atomicSaveProjectBundle,
   getChaptersByProjectFromDB,
   saveChapterToDB,
 } from '../db';
@@ -240,19 +241,26 @@ export class DriveProjectSync {
         }
 
         // 3. Khôi phục định dạng monolithic
+        let projectData: StoryProject | null = null;
+        let chaptersData: Chapter[] = [];
+
         if (summary.projectFileId) {
-          const projectData = await client.downloadJsonFile<StoryProject>(
+          projectData = await client.downloadJsonFile<StoryProject>(
             accessToken,
             summary.projectFileId
           );
-          await saveProjectToDB(projectData);
         }
 
         if (summary.chaptersFileId) {
-          const chaptersData = await client.downloadJsonFile<Chapter[]>(
+          chaptersData = (await client.downloadJsonFile<Chapter[]>(
             accessToken,
             summary.chaptersFileId
-          );
+          )) || [];
+        }
+
+        if (projectData) {
+          await atomicSaveProjectBundle(projectData, chaptersData);
+        } else if (chaptersData.length > 0) {
           for (const chap of chaptersData) {
             await saveChapterToDB(chap);
           }
@@ -413,18 +421,25 @@ export class DriveProjectSync {
 
           uploadedCount++;
         } else if (action === 'pull' && remote) {
+          let projectData: StoryProject | null = null;
+          let chaptersData: Chapter[] = [];
+
           if (remote.projectFileId) {
-            const projectData = await client.downloadJsonFile<StoryProject>(
+            projectData = await client.downloadJsonFile<StoryProject>(
               accessToken,
               remote.projectFileId
             );
-            await saveProjectToDB(projectData);
           }
           if (remote.chaptersFileId) {
-            const chaptersData = await client.downloadJsonFile<Chapter[]>(
+            chaptersData = (await client.downloadJsonFile<Chapter[]>(
               accessToken,
               remote.chaptersFileId
-            );
+            )) || [];
+          }
+
+          if (projectData) {
+            await atomicSaveProjectBundle(projectData, chaptersData);
+          } else if (chaptersData.length > 0) {
             for (const chap of chaptersData) {
               await saveChapterToDB(chap);
             }

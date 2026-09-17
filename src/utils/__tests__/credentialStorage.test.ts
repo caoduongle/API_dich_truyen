@@ -118,6 +118,39 @@ describe('Credential Storage & Lifecycle Security', () => {
       expect(updatedLimits[newHash]).toEqual({ maxRpd: 1234, maxRpm: 15 });
       expect(updatedLimits[legacyHash]).toBeUndefined();
     });
+
+    it('should restore keys from app_ui_prefs.savedKeys when rememberKeys is true and audit passes', () => {
+      mockLocalStorage['app_ui_prefs'] = JSON.stringify({
+        rememberKeys: true,
+        savedKeys: ['AIzaSyRemembered1', 'AIzaSyRemembered2'],
+      });
+
+      const keys = migrateAndLoadApiKeys();
+      expect(keys).toEqual(['AIzaSyRemembered1', 'AIzaSyRemembered2']);
+      expect(JSON.parse(mockSessionStorage['gemini_api_keys'])).toEqual(['AIzaSyRemembered1', 'AIzaSyRemembered2']);
+
+      const report = verifyStorageIntegrity(global.localStorage);
+      expect(report.isValid).toBe(true);
+    });
+
+    it('should scrub leftover savedKeys when rememberKeys is false on load', () => {
+      mockLocalStorage['app_ui_prefs'] = JSON.stringify({
+        rememberKeys: false,
+        savedKeys: ['AIzaSyShouldBeScrubbed'],
+      });
+
+      const keys = migrateAndLoadApiKeys();
+      expect(keys).toEqual([]);
+      expect(mockSessionStorage['gemini_api_keys']).toBeUndefined();
+
+      // Verify leftover keys are scrubbed immediately from app_ui_prefs in localStorage
+      const updatedPrefs = JSON.parse(mockLocalStorage['app_ui_prefs']);
+      expect(updatedPrefs.savedKeys).toEqual([]);
+      expect(updatedPrefs.rememberKeys).toBe(false);
+
+      const report = verifyStorageIntegrity(global.localStorage);
+      expect(report.isValid).toBe(true);
+    });
   });
 
   describe('Secret Redaction & Logging Guarantees', () => {

@@ -131,13 +131,13 @@ flowchart TD
 
 ## 7. Lưu trữ Đồng bộ Nguyên tử & Hàng Đợi Ghi Dự Án (Atomic Project Storage & Unified Queue)
 
-Để tránh xung đột ghi đè dữ liệu (race condition) và hiện tượng ghi chắp vá (partial-write) giữa giao diện người dùng và tiến trình đồng bộ Google Drive:
+Để tránh xung đột ghi đè dữ liệu (race condition), nguy cơ hồi sinh dự án sau khi xóa (project resurrection), và hiện tượng ghi chắp vá (partial-write) giữa giao diện người dùng và tiến trình đồng bộ Google Drive:
 
 1. **Hàng đợi tuần tự hóa duy nhất (`projectWriteChains`)**:
    - Mọi thao tác lưu dự án từ UI (`projectStorageQueue.ts`) đều ủy quyền trực tiếp tới `saveProjectToDB()` trong `src/services/db.ts`.
-   - Các lệnh ghi cùng một `projectId` được tuần tự hóa nghiêm ngặt theo mô hình FIFO promise chain, giải quyết triệt để tình trạng phân tách thành 2 hàng đợi độc lập gây tranh chấp dữ liệu.
+   - Thao tác xóa dự án `deleteProjectFromDB()` cũng đi qua chính chuỗi `projectWriteChains` theo `projectId`, đảm bảo việc xóa diễn ra sau mọi thao tác lưu trước đó, loại bỏ triệt để nguy cơ dự án bị lưu đè trở lại sau khi xóa. Khi chuỗi hoàn tất, tham chiếu trong Map được giải phóng tự động để chống rò rỉ bộ nhớ.
 2. **Giao dịch đa store nguyên tử (`atomicSaveProjectBundle`)**:
-   - Tiến trình kéo gói từ Google Drive (`pullBundle`, `initFromBundle`) gộp toàn bộ thao tác lưu `project`, danh sách `chapters`, và trạng thái CRDT (`crdt_states` / `crdt_docs`) vào trong một giao dịch `IDBTransaction` duy nhất `readwrite`.
+   - Tiến trình kéo dữ liệu từ Google Drive (cả định dạng `bundle` lẫn `monolithic`) gộp toàn bộ thao tác lưu `project`, danh sách `chapters`, và trạng thái CRDT (sử dụng store canonical chính thức là `crdt_states`, kèm fallback tương thích ngược `crdt_docs`) vào trong một giao dịch `IDBTransaction` duy nhất `readwrite`.
    - Nếu xảy ra lỗi hoặc ngoại lệ tại bất kỳ bước nào, toàn bộ giao dịch được tự động rollback, bảo đảm không xảy ra trạng thái cơ sở dữ liệu bị hỏng hoặc mất đồng bộ một phần.
 
 ---

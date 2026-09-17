@@ -1,7 +1,14 @@
 /**
  * Bilingual Adaptive Splitter
  * Chia tách song ngữ đồng bộ ranh giới đoạn văn giữa văn bản nguồn (Trung) và văn bản thô (Việt)
- * Bảo đảm 1:1 ngữ cảnh cho từng TranslationChunk
+ * Bảo đảm 1:1 ngữ cảnh cho từng TranslationChunk.
+ *
+ * Cơ chế đóng gói (Greedy Accumulative Packing Heuristic):
+ * `maxTokensPerChunk` đóng vai trò là một heuristic đóng gói lũy kế (soft target packing budget)
+ * nhằm giữ kích cỡ các chunk ở quy mô hợp lý trong khi bảo toàn tuyệt đối ranh giới đoạn văn (paragraph integrity).
+ * Thay vì cắt vụn văn bản giữa chừng câu hoặc đoạn văn, thuật toán gom lũy kế từng đoạn hoàn chỉnh
+ * cho đến khi vượt ngưỡng `maxTokensPerChunk`. Nếu gặp một đoạn văn đơn lẻ dài hơn ngưỡng, đoạn văn đó
+ * vẫn được giữ nguyên vẹn trong một chunk riêng để đảm bảo chất lượng ngữ nghĩa bản dịch.
  */
 
 import { TranslationChunk, BilingualSplitOptions, IBilingualSplitter } from './types';

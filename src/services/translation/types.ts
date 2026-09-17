@@ -24,6 +24,13 @@ export interface BilingualSplitOptions {
   sourceText: string;
   rawText: string;
   targetParts?: number;
+  /**
+   * Ngưỡng token ước tính tối đa cho mỗi chunk (accumulative target packing heuristic).
+   * LƯU Ý: Đây là heuristic đóng gói lũy kế mềm (soft target packing budget) nhằm giữ chunk ở quy mô hợp lý
+   * mà KHÔNG cắt gãy giữa chừng đoạn văn (paragraph integrity).
+   * Nếu một đoạn văn đơn lẻ vượt quá ngưỡng này, toàn bộ đoạn văn vẫn được giữ nguyên vẹn
+   * và không bị chia cắt làm hỏng cấu trúc câu/nghĩa.
+   */
   maxTokensPerChunk?: number;
 }
 

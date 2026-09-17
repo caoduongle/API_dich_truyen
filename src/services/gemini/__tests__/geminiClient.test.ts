@@ -197,4 +197,60 @@ describe('geminiClient', () => {
     expect(status.summary?.failedRequestsTotal).toBe(0); // Thành công nên failedRequestsTotal = 0
     expect(status.summary?.successfulRequestsTotal).toBe(1);
   });
+
+  it('immediately throws on HTTP 404 without rotating keys or incrementing retries', async () => {
+    const calledKeys: string[] = [];
+    global.fetch = vi.fn().mockImplementation(async (_url, init) => {
+      const key = init.headers['x-goog-api-key'];
+      calledKeys.push(key);
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({
+          error: {
+            code: 404,
+            status: 'NOT_FOUND',
+            message: 'models/gemini-pro is not found for API version v1beta',
+          },
+        }),
+      };
+    });
+
+    await expect(
+      callGemini({
+        apiKeys: ['KEY_1', 'KEY_2', 'KEY_3'],
+        prompt: 'Hello',
+      })
+    ).rejects.toThrow('Gemini API Error [Key #1]: models/gemini-pro is not found');
+
+    // Phải fail-fast ngay ở key 1, không được rotate sang KEY_2 hay KEY_3
+    expect(calledKeys).toEqual(['KEY_1']);
+
+    const status = localQuotaTracker.getQuotaStatus(['KEY_1', 'KEY_2', 'KEY_3']);
+    expect(status.summary?.retriesTotal).toBe(0);
+    expect(status.summary?.failedAttemptsTotal).toBe(1);
+    expect(status.summary?.failedRequestsTotal).toBe(1);
+  });
+
+  it('throws on empty candidate text without marking key as exhausted', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: '' }] } }],
+      }),
+    });
+
+    await expect(
+      callGemini({
+        apiKeys: ['KEY_EMPTY'],
+        prompt: 'Hello',
+      })
+    ).rejects.toThrow('AI trả về phản hồi rỗng.');
+
+    const status = localQuotaTracker.getQuotaStatus(['KEY_EMPTY']);
+    expect(status.keys[0].healthState).not.toBe('QuotaExhausted');
+  });
 });
+

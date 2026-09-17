@@ -95,4 +95,20 @@ describe('classifyGeminiError', () => {
     const defaultRpm = classifyGeminiError(429, { error: { message: 'Too many requests' } });
     expect(defaultRpm.category).toBe('RATE_LIMIT_RPM');
   });
+
+  it('classifies 404 and NOT_FOUND as non-retryable RESOURCE_NOT_FOUND', () => {
+    const classified404 = classifyGeminiError(404, {
+      error: { message: 'models/gemini-pro is not found for API version v1beta' },
+    });
+    expect(classified404.category).toBe('RESOURCE_NOT_FOUND');
+    expect(classified404.isRetryable).toBe(false);
+    expect(classified404.recommendedCooldownMs).toBe(0);
+
+    const classifiedRpcNotFound = classifyGeminiError(404, {
+      error: { status: 'NOT_FOUND', message: 'Resource not found' },
+    });
+    expect(classifiedRpcNotFound.category).toBe('RESOURCE_NOT_FOUND');
+    expect(classifiedRpcNotFound.isRetryable).toBe(false);
+  });
 });
+

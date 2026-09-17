@@ -237,6 +237,10 @@ export const resetProjectWriteChainsForTest = (): void => {
   projectWriteChains.clear();
 };
 
+export const getProjectWriteChainsSizeForTest = (): number => {
+  return projectWriteChains.size;
+};
+
 const executeSaveProjectToDB = async (project: StoryProject): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
@@ -306,6 +310,11 @@ export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
     })
     .then(async () => {
       await executeSaveProjectToDB(project);
+    })
+    .finally(() => {
+      if (projectWriteChains.get(projectId) === nextChain) {
+        projectWriteChains.delete(projectId);
+      }
     });
 
   projectWriteChains.set(projectId, nextChain);
@@ -400,6 +409,11 @@ export const atomicSaveProjectBundle = async (
     })
     .then(async () => {
       await executeAtomicSaveProjectBundle(project, chapters, crdtStates);
+    })
+    .finally(() => {
+      if (projectWriteChains.get(projectId) === nextChain) {
+        projectWriteChains.delete(projectId);
+      }
     });
 
   projectWriteChains.set(projectId, nextChain);
@@ -421,24 +435,24 @@ export const waitForProjectWrites = async (projectId?: string): Promise<void> =>
   }
 };
 
-export const deleteProjectFromDB = async (id: string): Promise<void> => {
+const executeDeleteProjectFromDB = async (id: string): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
       const storesToLock = [PROJECTS_STORE, CHAPTERS_STORE];
-      const hasCrdtStore = Boolean(
-        db.objectStoreNames &&
-        typeof db.objectStoreNames.contains === 'function' &&
-        db.objectStoreNames.contains(CRDT_STATES_STORE)
-      );
-      if (hasCrdtStore) {
-        storesToLock.push(CRDT_STATES_STORE);
+      const crdtStoreName = (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains(CRDT_STATES_STORE))
+        ? CRDT_STATES_STORE
+        : (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains('crdt_docs') ? 'crdt_docs' : null);
+
+      if (crdtStoreName) {
+        storesToLock.push(crdtStoreName);
       }
       const transaction = db.transaction(storesToLock, 'readwrite');
       const projectsStore = transaction.objectStore(PROJECTS_STORE);
       const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
 
       transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
       transaction.oncomplete = () => resolve();
 
       // 1. Xóa record project
@@ -471,8 +485,8 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
       }
 
       // 3. Xóa CRDT states của project nếu có
-      if (hasCrdtStore) {
-        const crdtStore = transaction.objectStore(CRDT_STATES_STORE);
+      if (crdtStoreName) {
+        const crdtStore = transaction.objectStore(crdtStoreName);
         if (crdtStore.indexNames && typeof crdtStore.indexNames.contains === 'function' && crdtStore.indexNames.contains('projectId')) {
           const index = crdtStore.index('projectId');
           const cursorRequest = index.openKeyCursor(IDBKeyRange.only(id));
@@ -488,6 +502,31 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
       }
     });
   }, 3, 150, 'deleteProjectFromDB');
+};
+
+/**
+ * Xóa dự án khỏi IndexedDB kèm tuần tự hóa hàng đợi ghi (Write Serialization Queue).
+ * Xếp vào hàng đợi projectWriteChains theo projectId để đảm bảo mọi thao tác lưu trước đó
+ * hoàn tất trước khi xóa, loại bỏ triệt để race condition hồi sinh dự án (project resurrection).
+ */
+export const deleteProjectFromDB = async (id: string): Promise<void> => {
+  if (!id) return;
+
+  const currentChain = projectWriteChains.get(id) || Promise.resolve();
+
+  const nextChain = currentChain
+    .catch(() => {})
+    .then(async () => {
+      await executeDeleteProjectFromDB(id);
+    })
+    .finally(() => {
+      if (projectWriteChains.get(id) === nextChain) {
+        projectWriteChains.delete(id);
+      }
+    });
+
+  projectWriteChains.set(id, nextChain);
+  return nextChain;
 };
 
 /**

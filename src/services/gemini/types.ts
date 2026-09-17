@@ -6,6 +6,7 @@ export type ClassifiedErrorCategory =
   | 'RATE_LIMIT_RPM'       // Giới hạn tần suất 15 RPM
   | 'QUOTA_EXHAUSTED_RPD'  // Hết hạn mức 1,500 RPD trong ngày
   | 'AUTH_FAILURE'         // Khóa không hợp lệ, 401/403
+  | 'RESOURCE_NOT_FOUND'   // Mô hình hoặc tài nguyên không tồn tại, 404 (non-retryable)
   | 'SERVICE_OVERLOAD'     // 503 / 500 Gemini backend quá tải
   | 'CONTENT_BLOCKED'      // Bộ lọc an toàn (Safety Filter)
   | 'NETWORK_FAILURE'      // Mất mạng, timeout, CORS/CSP

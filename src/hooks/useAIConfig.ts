@@ -82,7 +82,15 @@ export function migrateAndLoadApiKeys(): string[] {
         const prefsRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('app_ui_prefs') : null;
         if (prefsRaw) {
             const prefs = JSON.parse(prefsRaw);
-            if (prefs && prefs.rememberKeys !== false && Array.isArray(prefs.savedKeys)) {
+            if (prefs && prefs.rememberKeys === false) {
+                // Nếu rememberKeys = false mà có savedKeys còn sót lại -> scrub ngay lập tức
+                if (Array.isArray(prefs.savedKeys) && prefs.savedKeys.length > 0) {
+                    prefs.savedKeys = [];
+                    try {
+                        localStorage.setItem('app_ui_prefs', JSON.stringify(prefs));
+                    } catch (_) {}
+                }
+            } else if (prefs && prefs.rememberKeys !== false && Array.isArray(prefs.savedKeys)) {
                 const clean = prefs.savedKeys.filter((k: any): k is string => typeof k === 'string' && k.trim().length > 0);
                 if (clean.length > 0) {
                     try {

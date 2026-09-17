@@ -53,6 +53,23 @@ export function classifyGeminiError(
     };
   }
 
+  // 2b. Tài nguyên không tìm thấy / Model không tồn tại (404, NOT_FOUND)
+  if (
+    httpStatus === 404 ||
+    rpcStatus === 'NOT_FOUND'
+  ) {
+    return {
+      category: 'RESOURCE_NOT_FOUND',
+      httpStatus,
+      rpcStatus,
+      reason: 'ResourceNotFound',
+      details,
+      recommendedCooldownMs: 0,
+      isRetryable: false,
+      message,
+    };
+  }
+
   // 3. Quá tải tạm thời máy chủ Google (503, 500, UNAVAILABLE)
   if (
     httpStatus === 503 ||

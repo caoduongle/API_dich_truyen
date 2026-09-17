@@ -31,16 +31,16 @@ describe('Storage Audit & State Ownership Invariants (TASK 13)', () => {
   });
 
   describe('Source of Truth Registry Definition', () => {
-    it('defines authoritative owners for all 10 core storage domains', () => {
+    it('defines authoritative owners for all 10 core storage domains in client-side SPA', () => {
       expect(STORAGE_TIER_REGISTRY.PROJECTS_CONTENT.sourceOfTruth).toBe('IndexedDB');
-      expect(STORAGE_TIER_REGISTRY.API_CREDENTIALS.sourceOfTruth).toBe('ServerSession');
-      expect(STORAGE_TIER_REGISTRY.AUTH_CREDENTIALS.sourceOfTruth).toBe('ServerAuth');
+      expect(STORAGE_TIER_REGISTRY.API_CREDENTIALS.sourceOfTruth).toBe('SessionStorage');
+      expect(STORAGE_TIER_REGISTRY.AUTH_CREDENTIALS.sourceOfTruth).toBe('SessionStorage');
       expect(STORAGE_TIER_REGISTRY.SELECTED_MODEL.sourceOfTruth).toBe('LocalStorage');
-      expect(STORAGE_TIER_REGISTRY.DISCOVERED_MODELS.sourceOfTruth).toBe('ServerModelRegistry');
-      expect(STORAGE_TIER_REGISTRY.QUOTA_USAGE.sourceOfTruth).toBe('ServerQuota');
-      expect(STORAGE_TIER_REGISTRY.KEY_HEALTH.sourceOfTruth).toBe('ServerQuota');
-      expect(STORAGE_TIER_REGISTRY.CHUNK_CACHE.sourceOfTruth).toBe('ServerCache');
-      expect(STORAGE_TIER_REGISTRY.IDEMPOTENCY.sourceOfTruth).toBe('ServerCache');
+      expect(STORAGE_TIER_REGISTRY.DISCOVERED_MODELS.sourceOfTruth).toBe('LocalStorage');
+      expect(STORAGE_TIER_REGISTRY.QUOTA_USAGE.sourceOfTruth).toBe('ReactMemory');
+      expect(STORAGE_TIER_REGISTRY.KEY_HEALTH.sourceOfTruth).toBe('ReactMemory');
+      expect(STORAGE_TIER_REGISTRY.CHUNK_CACHE.sourceOfTruth).toBe('ReactMemory');
+      expect(STORAGE_TIER_REGISTRY.IDEMPOTENCY.sourceOfTruth).toBe('ReactMemory');
       expect(STORAGE_TIER_REGISTRY.UI_PREFERENCES.sourceOfTruth).toBe('LocalStorage');
     });
 
@@ -65,6 +65,29 @@ describe('Storage Audit & State Ownership Invariants (TASK 13)', () => {
       expect(report.isValid).toBe(true);
       expect(report.violations).toHaveLength(0);
       expect(report.auditedKeysCount).toBe(4);
+    });
+
+    it('allows savedKeys in app_ui_prefs when rememberKeys is true or unset', () => {
+      storageMock.setItem('app_ui_prefs', JSON.stringify({
+        rememberKeys: true,
+        savedKeys: ['AIzaSyValidKey1', 'AIzaSyValidKey2'],
+      }));
+
+      const report = verifyStorageIntegrity(storageMock);
+      expect(report.isValid).toBe(true);
+      expect(report.violations).toHaveLength(0);
+    });
+
+    it('flags violation when savedKeys is present in app_ui_prefs and rememberKeys is false', () => {
+      storageMock.setItem('app_ui_prefs', JSON.stringify({
+        rememberKeys: false,
+        savedKeys: ['AIzaSyForbiddenKey'],
+      }));
+
+      const report = verifyStorageIntegrity(storageMock);
+      expect(report.isValid).toBe(false);
+      expect(report.violations.some(v => v.includes('rememberKeys'))).toBe(true);
+      expect(report.forbiddenKeysFound).toContain('app_ui_prefs.savedKeys');
     });
 
     it('flags forbidden plain API keys in localStorage', () => {
@@ -115,6 +138,25 @@ describe('Storage Audit & State Ownership Invariants (TASK 13)', () => {
       // Valid preferences preserved
       expect(storageMock.getItem('gemini_selected_model')).toBe('gemini-2.5-pro');
       expect(storageMock.getItem('app_locale')).toBe('vi');
+
+      const report = verifyStorageIntegrity(storageMock);
+      expect(report.isValid).toBe(true);
+    });
+
+    it('sanitizes app_ui_prefs.savedKeys to empty array when rememberKeys is false', () => {
+      storageMock.setItem('app_ui_prefs', JSON.stringify({
+        rememberKeys: false,
+        savedKeys: ['AIzaSyKeyToClean'],
+        theme: 'dark',
+      }));
+
+      const cleaned = sanitizeLocalStorage(storageMock);
+      expect(cleaned).toBe(1);
+
+      const parsed = JSON.parse(storageMock.getItem('app_ui_prefs') || '{}');
+      expect(parsed.savedKeys).toEqual([]);
+      expect(parsed.theme).toBe('dark');
+      expect(parsed.rememberKeys).toBe(false);
 
       const report = verifyStorageIntegrity(storageMock);
       expect(report.isValid).toBe(true);

@@ -85,6 +85,18 @@ async function executeLogicalGeminiCall(
 
         lastError = new Error(`Gemini API Error [Key #${currentKeyIdx + 1}]: ${errMsg}`);
 
+        if (response.status === 404 || classified.category === 'RESOURCE_NOT_FOUND') {
+          (lastError as any).code = 'RESOURCE_NOT_FOUND';
+          (lastError as any).status = 404;
+          throw lastError;
+        }
+
+        if (response.status === 400) {
+          (lastError as any).code = 'BAD_REQUEST';
+          (lastError as any).status = 400;
+          throw lastError;
+        }
+
         if (isRateLimitOrOverload) {
           const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);
           if (nextIdx === -1 || attemptsCount >= rawKeys.length - 1) {
@@ -149,7 +161,14 @@ async function executeLogicalGeminiCall(
         successKeyIndex: currentKeyIdx,
       };
     } catch (err: any) {
-      if (err.name === 'AbortError' || err.code === 'ALL_KEYS_EXHAUSTED') {
+      if (
+        err.name === 'AbortError' ||
+        err.code === 'ALL_KEYS_EXHAUSTED' ||
+        err.code === 'RESOURCE_NOT_FOUND' ||
+        err.code === 'BAD_REQUEST' ||
+        err.status === 404 ||
+        err.status === 400
+      ) {
         throw err;
       }
       if (!attemptFailureRecorded) {

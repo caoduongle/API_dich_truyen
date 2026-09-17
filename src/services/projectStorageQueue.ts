@@ -5,7 +5,7 @@
  */
 
 import { StoryProject } from '../types';
-import { saveProjectToDB, waitForProjectWrites, resetProjectWriteChainsForTest } from './db';
+import { saveProjectToDB, deleteProjectFromDB, waitForProjectWrites, resetProjectWriteChainsForTest } from './db';
 
 let writeChain: Promise<void> = Promise.resolve();
 
@@ -20,6 +20,19 @@ export function enqueueProjectSave(project: StoryProject): Promise<void> {
     .then(() => savePromise)
     .catch(() => {});
   return savePromise;
+}
+
+/**
+ * Đưa tác vụ xóa dự án vào hàng đợi tuần tự.
+ * Ủy quyền trực tiếp tới deleteProjectFromDB để đảm bảo đồng bộ với các thao tác lưu trước đó.
+ */
+export function enqueueProjectDelete(id: string): Promise<void> {
+  const deletePromise = deleteProjectFromDB(id);
+  writeChain = writeChain
+    .catch(() => {})
+    .then(() => deletePromise)
+    .catch(() => {});
+  return deletePromise;
 }
 
 /**

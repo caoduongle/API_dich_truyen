@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
 import { getProjectsFromDB, saveProjectToDB, deleteProjectFromDB, saveChapterToDB, deleteChapterFromDB, getChapterFromDB, getChaptersByProjectFromDB, deleteChaptersByProjectFromDB, saveChaptersToDB } from '../services/db';
-import { enqueueProjectSave } from '../services/projectStorageQueue';
+import { enqueueProjectSave, enqueueProjectDelete } from '../services/projectStorageQueue';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
 
@@ -135,7 +135,7 @@ export function useProjects() {
         const backedUpChapters = await getChaptersByProjectFromDB(id);
 
         // 2. Perform DB deletion atomically (deletes project and its chapters)
-        await deleteProjectFromDB(id);
+        await enqueueProjectDelete(id);
 
         const oldProjects = [...currentProjects];
 

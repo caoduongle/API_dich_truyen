@@ -1,11 +1,11 @@
 /**
  * Storage Audit & Source of Truth Invariant Enforcement
  * 
- * Defines the definitive ownership boundaries across all storage tiers:
- * - IndexedDB: Sole authoritative store for projects, chapters, split paragraphs, glossaries
- * - Server SessionStore: Sole authoritative store for API keys and runtime credentials
- * - Server QuotaService: Sole authoritative store for RPM/TPM/RPD and key health states
- * - LocalStorage: Strictly restricted to UI preferences and short-lived caches with TTL
+ * Defines the definitive ownership boundaries across all client-side storage tiers:
+ * - IndexedDB: Sole authoritative store for projects, chapters, split paragraphs, glossaries, CRDT states
+ * - SessionStorage: Authoritative store for ephemeral runtime session credentials
+ * - LocalQuotaTracker / ReactMemory: Authoritative store for RPM/TPM/RPD metrics and key health states
+ * - LocalStorage: Strictly restricted to UI preferences (including user-controlled saved keys) and short-lived caches with TTL
  */
 
 export type StorageDomain =
@@ -24,13 +24,11 @@ export interface StorageTierContract {
   domain: StorageDomain;
   sourceOfTruth:
     | 'IndexedDB'
-    | 'ServerSession'
-    | 'ServerAuth'
-    | 'ServerQuota'
-    | 'ServerModelRegistry'
-    | 'ServerCache'
-    | 'LocalStorage';
-  cacheLayer: 'None' | 'ReactMemory' | 'LocalStorage' | 'ServerMemory';
+    | 'SessionStorage'
+    | 'LocalStorage'
+    | 'ReactMemory'
+    | 'EphemeralMemory';
+  cacheLayer: 'None' | 'ReactMemory' | 'LocalStorage';
   ttlMs?: number;
   evictionStrategy: 'None' | 'LRU' | 'FixedTTL' | 'DailyPSTMidnight' | 'ManualUserWipe';
   migrationStrategy: 'None' | 'IndexedDBVersionMigration' | 'SessionReSync' | 'DefaultFallbackOnDeprecation';
@@ -51,16 +49,16 @@ export const STORAGE_TIER_REGISTRY: Record<StorageDomain, StorageTierContract> =
   },
   API_CREDENTIALS: {
     domain: 'API_CREDENTIALS',
-    sourceOfTruth: 'ServerSession',
+    sourceOfTruth: 'SessionStorage',
     cacheLayer: 'ReactMemory',
     ttlMs: 24 * 60 * 60 * 1000,
     evictionStrategy: 'FixedTTL',
     migrationStrategy: 'SessionReSync',
-    allowedKeys: ['gemini_session_token'],
+    allowedKeys: ['gemini_api_keys'],
   },
   AUTH_CREDENTIALS: {
     domain: 'AUTH_CREDENTIALS',
-    sourceOfTruth: 'ServerAuth',
+    sourceOfTruth: 'SessionStorage',
     cacheLayer: 'LocalStorage',
     ttlMs: 24 * 60 * 60 * 1000,
     evictionStrategy: 'FixedTTL',
@@ -77,7 +75,7 @@ export const STORAGE_TIER_REGISTRY: Record<StorageDomain, StorageTierContract> =
   },
   DISCOVERED_MODELS: {
     domain: 'DISCOVERED_MODELS',
-    sourceOfTruth: 'ServerModelRegistry',
+    sourceOfTruth: 'LocalStorage',
     cacheLayer: 'LocalStorage',
     ttlMs: 60 * 60 * 1000, // 1 hour TTL
     evictionStrategy: 'FixedTTL',
@@ -86,7 +84,7 @@ export const STORAGE_TIER_REGISTRY: Record<StorageDomain, StorageTierContract> =
   },
   QUOTA_USAGE: {
     domain: 'QUOTA_USAGE',
-    sourceOfTruth: 'ServerQuota',
+    sourceOfTruth: 'ReactMemory',
     cacheLayer: 'ReactMemory',
     evictionStrategy: 'DailyPSTMidnight',
     migrationStrategy: 'None',
@@ -94,7 +92,7 @@ export const STORAGE_TIER_REGISTRY: Record<StorageDomain, StorageTierContract> =
   },
   KEY_HEALTH: {
     domain: 'KEY_HEALTH',
-    sourceOfTruth: 'ServerQuota',
+    sourceOfTruth: 'ReactMemory',
     cacheLayer: 'ReactMemory',
     evictionStrategy: 'FixedTTL',
     migrationStrategy: 'None',
@@ -102,8 +100,8 @@ export const STORAGE_TIER_REGISTRY: Record<StorageDomain, StorageTierContract> =
   },
   CHUNK_CACHE: {
     domain: 'CHUNK_CACHE',
-    sourceOfTruth: 'ServerCache',
-    cacheLayer: 'ServerMemory',
+    sourceOfTruth: 'ReactMemory',
+    cacheLayer: 'ReactMemory',
     ttlMs: 2 * 60 * 60 * 1000, // 2 hours
     evictionStrategy: 'LRU',
     migrationStrategy: 'None',
@@ -111,8 +109,8 @@ export const STORAGE_TIER_REGISTRY: Record<StorageDomain, StorageTierContract> =
   },
   IDEMPOTENCY: {
     domain: 'IDEMPOTENCY',
-    sourceOfTruth: 'ServerCache',
-    cacheLayer: 'ServerMemory',
+    sourceOfTruth: 'ReactMemory',
+    cacheLayer: 'ReactMemory',
     ttlMs: 10 * 60 * 1000, // 10 minutes
     evictionStrategy: 'FixedTTL',
     migrationStrategy: 'None',
@@ -161,9 +159,10 @@ export interface StorageIntegrityReport {
 
 /**
  * Kiểm tra tính toàn vẹn của bộ nhớ trình duyệt (localStorage):
- * 1. Không chứa API key dạng plaintext (`gemini_api_keys`)
- * 2. Không chứa dữ liệu bản thảo / chương truyện (`sourceText`, `rawTranslation`, v.v.)
- * 3. Không vượt quá giới hạn kích thước cho từng key UI (tối đa 500KB)
+ * 1. Không chứa API key dạng plaintext tại khóa gốc (`gemini_api_keys`)
+ * 2. Không chứa API key trong `app_ui_prefs.savedKeys` khi tùy chọn `rememberKeys` bị tắt (false)
+ * 3. Không chứa dữ liệu bản thảo / chương truyện (`sourceText`, `rawTranslation`, v.v.)
+ * 4. Không vượt quá giới hạn kích thước cho từng key UI (tối đa 500KB)
  */
 export function verifyStorageIntegrity(storage?: Storage): StorageIntegrityReport {
   const targetStorage = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
@@ -188,10 +187,21 @@ export function verifyStorageIntegrity(storage?: Storage): StorageIntegrityRepor
   for (const key of keys) {
     const value = targetStorage.getItem(key) || '';
 
-    // 1. Kiểm tra cấm lưu trữ plaintext API keys
+    // 1. Kiểm tra cấm lưu trữ plaintext API keys tại root localStorage
     if (key === 'gemini_api_keys') {
-      violations.push(`Phát hiện khóa nhạy cảm bị cấm trong localStorage: "${key}". API key phải được lưu trong Server SessionStore hoặc sessionStorage.`);
+      violations.push(`Phát hiện khóa nhạy cảm bị cấm trong localStorage: "${key}". API key dạng thô không được lưu ở khóa gốc localStorage.`);
       forbiddenKeysFound.push(key);
+    }
+
+    // 1b. Kiểm tra app_ui_prefs: nếu rememberKeys === false thì savedKeys không được chứa key
+    if (key === 'app_ui_prefs') {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed && parsed.rememberKeys === false && Array.isArray(parsed.savedKeys) && parsed.savedKeys.length > 0) {
+          violations.push('Phát hiện API key được lưu trong app_ui_prefs khi tùy chọn "rememberKeys" đã bị tắt.');
+          forbiddenKeysFound.push('app_ui_prefs.savedKeys');
+        }
+      } catch (_) {}
     }
 
     // 2. Kiểm tra cấm lưu trữ manuscript / chương truyện trong localStorage
@@ -233,8 +243,20 @@ export function sanitizeLocalStorage(storage?: Storage): number {
   let cleanedCount = 0;
 
   for (const forbiddenKey of report.forbiddenKeysFound) {
-    targetStorage.removeItem(forbiddenKey);
-    cleanedCount++;
+    if (forbiddenKey === 'app_ui_prefs.savedKeys') {
+      try {
+        const raw = targetStorage.getItem('app_ui_prefs');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          parsed.savedKeys = [];
+          targetStorage.setItem('app_ui_prefs', JSON.stringify(parsed));
+          cleanedCount++;
+        }
+      } catch (_) {}
+    } else {
+      targetStorage.removeItem(forbiddenKey);
+      cleanedCount++;
+    }
   }
 
   return cleanedCount;
