@@ -210,9 +210,24 @@ export const getProjectsResultFromDB = async (): Promise<StorageResult<StoryProj
     const rawProjects = await new Promise<any[]>((resolve, reject) => {
       const transaction = db.transaction(PROJECTS_STORE, 'readonly');
       const store = transaction.objectStore(PROJECTS_STORE);
-      const request = store.getAll();
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result || []);
+      if (typeof store.getAll === 'function') {
+        const request = store.getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result || []);
+      } else {
+        const results: any[] = [];
+        const request = store.openCursor();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = (event: any) => {
+          const cursor = event.target.result;
+          if (cursor) {
+            results.push(cursor.value);
+            cursor.continue();
+          } else {
+            resolve(results);
+          }
+        };
+      }
     });
 
     const migrated = await migrateLegacyProjects(rawProjects, db);
@@ -370,17 +385,10 @@ const executeSaveProjectToDB = async (project: StoryProject): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
 
-    // 1. Tách các chương có sourceText sang store chapters
-    const chaptersToSave: Chapter[] = [];
-    const normalizedChaptersMeta: ChapterMetadata[] = [];
-
+    let normalizedChaptersMeta: ChapterMetadata[] = [];
     if (project.chapters && Array.isArray(project.chapters)) {
       for (const chap of project.chapters) {
         if ('sourceText' in chap) {
-          chaptersToSave.push({
-            ...(chap as Chapter),
-            projectId: project.id,
-          });
           normalizedChaptersMeta.push({
             id: chap.id,
             title: chap.title,
@@ -392,42 +400,58 @@ const executeSaveProjectToDB = async (project: StoryProject): Promise<void> => {
           normalizedChaptersMeta.push(chap as ChapterMetadata);
         }
       }
+
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(CHAPTERS_STORE, 'readonly');
+        const store = tx.objectStore(CHAPTERS_STORE);
+        let pending = normalizedChaptersMeta.length;
+        let hasError = false;
+
+        if (pending === 0) return resolve();
+
+        for (const meta of normalizedChaptersMeta) {
+          const req = store.get(meta.id);
+          req.onerror = () => {
+            if (!hasError) { hasError = true; reject(req.error); }
+          };
+          req.onsuccess = () => {
+            if (hasError) return;
+            const existing = req.result;
+            if (existing && existing.projectId !== project.id) {
+              hasError = true;
+              return reject(new Error(`Relational integrity violation: Cannot re-parent chapter "${meta.id}" from project "${existing.projectId}" to "${project.id}".`));
+            }
+            pending--;
+            if (pending === 0) resolve();
+          };
+        }
+      });
     }
 
-    // 2. Lưu đồng bộ trong 1 transaction
-    return new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction([PROJECTS_STORE, CHAPTERS_STORE], 'readwrite');
-      const projectsStore = transaction.objectStore(PROJECTS_STORE);
-      const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = db.transaction([PROJECTS_STORE, CHAPTERS_STORE], 'readwrite');
+        const projectsStore = transaction.objectStore(PROJECTS_STORE);
+        const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
 
-      transaction.onerror = () => reject(transaction.error);
-      transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.oncomplete = () => resolve();
 
-      for (const chap of chaptersToSave) {
-        const getReq = chaptersStore.get(chap.id);
-        getReq.onerror = () => reject(getReq.error);
-        getReq.onsuccess = () => {
-          const existing = getReq.result as Chapter | undefined;
-          try {
-            assertChapterOwnership(existing, project.id, chap.id);
-          } catch (err) {
-            console.warn(`[saveProjectToDB] ${(err as Error).message}`);
-            try {
-              transaction.abort();
-            } catch (_) {}
-            reject(err);
-            return;
+        if (project.chapters && Array.isArray(project.chapters)) {
+          const chaptersToSave = project.chapters.filter((c: any) => 'sourceText' in c);
+          for (const chap of chaptersToSave) {
+            chaptersStore.put({ ...chap, projectId: project.id });
           }
-          const putReq = chaptersStore.put(chap);
-          putReq.onerror = () => reject(putReq.error);
-        };
-      }
+        }
 
-      const projectToSave = {
-        ...project,
-        chapters: normalizedChaptersMeta,
-      };
-      projectsStore.put(projectToSave);
+        const projectToSave = {
+          ...project,
+          chapters: normalizedChaptersMeta,
+        };
+        projectsStore.put(projectToSave);
+      } catch (e) {
+        reject(e);
+      }
     });
   }, 3, 150, 'saveProjectToDB');
 };
@@ -451,6 +475,39 @@ const executeAtomicSaveProjectBundle = async (
 ): Promise<void> => {
   return withRetry(async () => {
     const db = await initDB();
+
+    // Validate all CRDT states belong to valid chapters in this bundle
+    if (crdtStates) {
+      const validChapterIds = new Set(chapters.map(c => c.id));
+      const chapterIdToProjectId = new Map(chapters.map(c => [c.id, c.projectId]));
+      for (const crdt of crdtStates) {
+        if (!validChapterIds.has(crdt.chapterId)) {
+          throw new Error(`[atomicSaveProjectBundle] Orphan CRDT state: chapter ${crdt.chapterId} is not present in the bundle chapters.`);
+        }
+        
+        const chapProjectId = chapterIdToProjectId.get(crdt.chapterId);
+        if (chapProjectId !== project.id) {
+          throw new Error(`[atomicSaveProjectBundle] Mismatched projectId in CRDT state: chapter ${crdt.chapterId} belongs to project "${chapProjectId}" which does not match bundle projectId "${project.id}".`);
+        }
+
+        // Also ensure no re-parenting of existing chapters
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(CHAPTERS_STORE, 'readonly');
+          const req = tx.objectStore(CHAPTERS_STORE).get(crdt.chapterId);
+          req.onsuccess = () => {
+            const existing = req.result as Chapter | undefined;
+            if (existing && existing.projectId !== project.id) {
+              reject(new Error(`Relational integrity violation: Cannot re-parent chapter "${crdt.chapterId}" from project "${existing.projectId}" to "${project.id}".`));
+            } else {
+              resolve();
+            }
+          };
+          req.onerror = () => reject(req.error);
+        });
+      }
+    }
+
+
     const crdtStoreName = db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains(CRDT_STATES_STORE)
       ? CRDT_STATES_STORE
       : (db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains('crdt_docs') ? 'crdt_docs' : null);
@@ -1378,11 +1435,14 @@ export const deleteChapterFromDB = async (
 ): Promise<void> => {
   if (!id) return;
 
-  let storedChapter: Chapter | null = null;
-  try {
-    storedChapter = await getChapterFromDB(id);
-  } catch {
-    // Không gián đoạn nếu DB lỗi tra cứu
+  const res = await getChapterResultFromDB(id);
+  if (!res.ok) {
+    throw res.error; // propagate DB lookup error to satisfy US2 fail-close behavior
+  }
+  
+  const storedChapter = res.data;
+  if (!storedChapter) {
+    throw new Error(`Chapter "${id}" not found in canonical store`);
   }
 
   if (storedChapter && storedChapter.projectId) {
@@ -1635,7 +1695,7 @@ export const deleteChaptersByProjectFromDB = async (
 // CRDT STATE STORAGE HELPERS (IndexedDB crdt_states store)
 // ==============================================================================
 
-export const getCrdtState = async (chapterId: string): Promise<CrdtStateRecord | null> => {
+export const getCrdtState = async (chapterId: string, expectedProjectId?: string): Promise<CrdtStateRecord | null> => {
   try {
     const db = await initDB();
     if (!db.objectStoreNames || typeof db.objectStoreNames.contains !== 'function' || !db.objectStoreNames.contains(CRDT_STATES_STORE)) {
@@ -1646,7 +1706,15 @@ export const getCrdtState = async (chapterId: string): Promise<CrdtStateRecord |
       const store = transaction.objectStore(CRDT_STATES_STORE);
       const request = store.get(chapterId);
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result || null);
+      request.onsuccess = () => {
+        const result = request.result;
+        if (result && expectedProjectId && result.projectId !== expectedProjectId) {
+          console.warn(`[getCrdtState] Project identity mismatch during CRDT hydration: expected "${expectedProjectId}", found "${result.projectId}"`);
+          resolve(null);
+        } else {
+          resolve(result || null);
+        }
+      };
     });
   } catch (err) {
     console.error('IndexedDB Get CRDT State Error:', err);

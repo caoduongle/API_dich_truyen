@@ -41,7 +41,7 @@ export class DriveBundleSync {
 
     for (const chap of localChapters) {
       let crdtSnapshot = '';
-      const storedCrdt = await getCrdtState(chap.id);
+      const storedCrdt = await getCrdtState(chap.id, projectId);
 
       if (storedCrdt && storedCrdt.state && storedCrdt.state.length > 0) {
         crdtSnapshot = uint8ArrayToBase64(storedCrdt.state);
@@ -190,7 +190,7 @@ export class DriveBundleSync {
 
       for (const remoteChap of bundle.chapters) {
         const localChap = localChaptersMap.get(remoteChap.id);
-        const storedCrdt = await getCrdtState(remoteChap.id);
+        const storedCrdt = await getCrdtState(remoteChap.id, projectId);
 
         const { mergedChapter, crdtState } = mergeChapterCrdt({
           projectId,

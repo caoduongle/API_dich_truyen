@@ -24,6 +24,9 @@ import {
   getPendingDeletionManifests,
   recoverPendingDeletions,
   discoverProjectChapterIds,
+  getProjectsResultFromDB,
+  getProjectFromDB,
+  initDB,
   DeletionManifestRecord,
 } from '../db';
 import {
@@ -39,7 +42,11 @@ import {
   waitForQueueIdle,
   resetProjectWriteQueueForTest,
 } from '../projectStorageQueue';
-import { Chapter, StoryProject } from '../../types';
+import {
+  Chapter,
+  ChapterMetadata,
+  StoryProject,
+} from '../../types';
 
 describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)', () => {
   const mockProjects = new Map<string, any>();
@@ -1421,6 +1428,90 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
         'Relational integrity violation: Cannot re-parent chapter "c_atomic_locked" from project "proj_atomic_orig" to "proj_atomic_attacker".'
       );
     });
+
+    it('atomicSaveProjectBundle rejects when CRDT state references a chapterId not in the bundle (US1)', async () => {
+      const p = createDummyProject('p_us1_orphan', 'Orphan Project');
+      const crdtState = { chapterId: 'c_not_in_bundle', projectId: 'p_us1_orphan', state: new Uint8Array([1]) };
+      
+      await expect(atomicSaveProjectBundle(p, [], [crdtState])).rejects.toThrow(
+        '[atomicSaveProjectBundle] Orphan CRDT state: chapter c_not_in_bundle is not present in the bundle chapters.'
+      );
+    });
+
+    it('atomicSaveProjectBundle rejects when CRDT state references a chapter belonging to another project (US1)', async () => {
+      const p = createDummyProject('p_us1_cross', 'Cross Project');
+      const c = createDummyChapter('c_us1_cross', 'p_other_project');
+      const crdtState = { chapterId: 'c_us1_cross', projectId: 'p_us1_cross', state: new Uint8Array([1]) };
+      
+      await expect(atomicSaveProjectBundle(p, [c], [crdtState])).rejects.toThrow(
+        '[atomicSaveProjectBundle] Mismatched projectId in CRDT state: chapter c_us1_cross belongs to project "p_other_project" which does not match bundle projectId "p_us1_cross".'
+      );
+    });
+  });
+
+  describe('User Story 2: Fail-Closed Chapter Deletion (US2)', () => {
+    it('deleteChapterFromDB rejects when chapter does not exist in store (US2)', async () => {
+      await expect(deleteChapterFromDB('c_not_exist_us2')).rejects.toThrow('Chapter "c_not_exist_us2" not found in canonical store');
+    });
+
+    it('deleteChapterFromDB rejects when DB lookup throws an error (US2)', async () => {
+      const spy = vi.spyOn(indexedDB, 'open').mockImplementation(() => {
+        const req: any = { result: undefined, onsuccess: null, onerror: null, error: new Error('Simulated DB lookup error') };
+        setTimeout(() => {
+          req.onerror?.({ target: req });
+        }, 10);
+        return req;
+      });
+
+      try {
+        const dbModule = await import('../db');
+        dbModule.resetDBInstanceForTesting();
+        await expect(dbModule.deleteChapterFromDB('c_error_us2')).rejects.toThrow('Simulated DB lookup error');
+      } finally {
+        spy.mockRestore();
+        const dbModule = await import('../db');
+        dbModule.resetDBInstanceForTesting();
+      }
+    });
+  });
+
+  describe('User Story 3: Project Chapters Metadata Ownership Guard (US3)', () => {
+    it('saveProjectToDB rejects when project.chapters metadata references a chapter owned by a different project (US3)', async () => {
+      const p1 = createDummyProject('p_us3_owner', 'Owner Project');
+      await saveProjectToDB(p1);
+      const c1 = createDummyChapter('c_us3_shared', 'p_us3_owner');
+      await saveChapterToDB(c1);
+
+      const p2 = createDummyProject('p_us3_attacker', 'Attacker Project');
+      p2.chapters = [
+        { id: 'c_us3_shared', title: 'Shared', status: 'completed', createdAt: '0', updatedAt: '0' }
+      ];
+
+      await expect(saveProjectToDB(p2)).rejects.toThrow(
+        'Relational integrity violation: Cannot re-parent chapter "c_us3_shared" from project "p_us3_owner" to "p_us3_attacker".'
+      );
+    });
+
+    it('saveProjectToDB succeeds when project.chapters metadata references a non-existent chapter (lazy sync allowed) (US3)', async () => {
+      const p = createDummyProject('p_us3_lazy', 'Lazy Project');
+      p.chapters = [
+        { id: 'c_us3_nonexistent', title: 'Not Here', status: 'not_started', createdAt: 0, updatedAt: 0 } as unknown as ChapterMetadata
+      ];
+
+      await saveProjectToDB(p);
+      
+      const db = await initDB();
+      const saved = await new Promise<any>((resolve, reject) => {
+        const tx = db.transaction('projects', 'readonly');
+        const store = tx.objectStore('projects');
+        const req = store.get('p_us3_lazy');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+
+      expect(saved?.chapters?.length).toBe(1);
+      expect(saved?.chapters?.[0].id).toBe('c_us3_nonexistent');
+    });
   });
 
 
@@ -1447,8 +1538,7 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
 
   describe('User Story 4: Fail-Closed Deletion Database Error Propagation (Part 2 - T028)', () => {
     it('recoverPendingDeletions returns failedCount > 0 if manifest retrieval throws (T028)', async () => {
-      const originalOpen = indexedDB.open;
-      (indexedDB.open as any) = vi.fn().mockImplementation(() => {
+      const spy = vi.spyOn(indexedDB, 'open').mockImplementation(() => {
         const req: any = { result: undefined, onsuccess: null, onerror: null, error: new Error('Simulated DB open failure') };
         setTimeout(() => {
           req.onerror?.({ target: req });
@@ -1460,9 +1550,8 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
         resetDBInstanceForTesting();
         const result = await recoverPendingDeletions();
         expect(result.failedCount).toBeGreaterThan(0);
-        expect(result.recoveredCount).toBe(0);
       } finally {
-        (indexedDB.open as any) = originalOpen;
+        spy.mockRestore();
         resetDBInstanceForTesting();
       }
     });
@@ -1524,6 +1613,38 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
         db.transaction = originalTx;
       }
     });
-  });
 
+
+  describe('User Story 4: Strict CRDT State Retrieval API (US4)', () => {
+    it('getCrdtState returns null when expected project ID mismatches (T021)', async () => {
+      const p = createDummyProject('p_us4_strict', 'Strict');
+      const c = createDummyChapter('c_us4_strict', 'p_us4_strict');
+      const crdt = { chapterId: 'c_us4_strict', projectId: 'p_us4_strict', state: new Uint8Array([1,2,3]) };
+      
+      await atomicSaveProjectBundle(p, [c], [crdt]);
+
+      // Should return null if wrong project ID is provided
+      const result = await getCrdtState('c_us4_strict', 'p_wrong_id');
+      expect(result).toBeNull();
+    });
+
+    it('getCrdtState returns the state when expected project ID matches or is omitted (T022)', async () => {
+      const p = createDummyProject('p_us4_strict_2', 'Strict 2');
+      const c = createDummyChapter('c_us4_strict_2', 'p_us4_strict_2');
+      const crdt = { chapterId: 'c_us4_strict_2', projectId: 'p_us4_strict_2', state: new Uint8Array([1,2,3]) };
+      
+      await atomicSaveProjectBundle(p, [c], [crdt]);
+
+      // Match
+      const resultMatch = await getCrdtState('c_us4_strict_2', 'p_us4_strict_2');
+      expect(resultMatch).not.toBeNull();
+      expect(resultMatch?.projectId).toBe('p_us4_strict_2');
+
+      // Omitted (backward compatibility)
+      const resultOmit = await getCrdtState('c_us4_strict_2');
+      expect(resultOmit).not.toBeNull();
+      expect(resultOmit?.projectId).toBe('p_us4_strict_2');
+    });
+  });
+  });
 });

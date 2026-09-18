@@ -395,7 +395,7 @@ export function useProjects() {
             // 1. Back up full chapter data and CRDT state
             const [chapterRes, crdtRes] = await Promise.all([
                 getChapterFromDB(chapId),
-                getCrdtState(chapId),
+                getCrdtState(chapId, activeProjectId),
             ]);
             fullChapter = chapterRes;
             backedUpCrdt = crdtRes;
