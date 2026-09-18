@@ -827,7 +827,7 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       expect(mockManifests.has('manifest_fail_test')).toBe(true);
     });
 
-    it('records deletion manifest before primary catalog commit and removes it on successful deletion (T007)', async () => {
+    it('records deletion manifest atomically with catalog commit and removes it on successful deletion (T007)', async () => {
       const p = createDummyProject('p_manifest_order_test', 'Order Test Project');
       p.chapters = [{ id: 'chap_mf_1', title: 'Chapter 1' } as any];
       await saveProjectToDB(p);
@@ -837,13 +837,13 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       executionOrder.length = 0;
       await deleteProjectFromDB('p_manifest_order_test');
 
-      // Verify execution order: manifest was saved BEFORE project primary record was deleted
       const manifestSaveIdx = executionOrder.findIndex((op) => op.startsWith('save_manifest_'));
       const projectDeleteIdx = executionOrder.findIndex((op) => op === 'delete_project_p_manifest_order_test');
       const manifestDeleteIdx = executionOrder.findIndex((op) => op.startsWith('delete_manifest_'));
 
       expect(manifestSaveIdx).toBeGreaterThanOrEqual(0);
-      expect(projectDeleteIdx).toBeGreaterThan(manifestSaveIdx);
+      expect(projectDeleteIdx).toBeGreaterThanOrEqual(0);
+      expect(manifestDeleteIdx).toBeGreaterThan(manifestSaveIdx);
       expect(manifestDeleteIdx).toBeGreaterThan(projectDeleteIdx);
       expect(mockManifests.size).toBe(0);
       expect(deletedDatabases).toContain('crdt_p_manifest_order_test_chap_mf_1');
@@ -1342,5 +1342,188 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       await destroyCrdtPersistence('crdt_proj_fail_test_c1');
       expect(getActivePersistenceCountForTest()).toBe(0);
     });
+  describe('User Story 2: Single Chapter Deletion Manifest (T012, T013)', () => {
+    it('records deletion manifest inside atomic transaction during deleteChapterFromDB and removes it on success (T012)', async () => {
+      const p = createDummyProject('p_single_chap_del', 'Single Chap Delete');
+      await saveProjectToDB(p);
+      const c1 = createDummyChapter('c_single_1', 'p_single_chap_del');
+      await saveChapterToDB(c1);
+
+      executionOrder.length = 0;
+      await deleteChapterFromDB('c_single_1', 'p_single_chap_del');
+
+      const manifestSaveIdx = executionOrder.findIndex((op) => op.startsWith('save_manifest_'));
+      const manifestDeleteIdx = executionOrder.findIndex((op) => op.startsWith('delete_manifest_'));
+
+      expect(manifestSaveIdx).toBeGreaterThanOrEqual(0);
+      expect(manifestDeleteIdx).toBeGreaterThan(manifestSaveIdx);
+      expect(mockManifests.size).toBe(0);
+      expect(deletedDatabases).toContain('crdt_p_single_chap_del_c_single_1');
+    });
+
+    it('persists manifest in storage when physical deletion fails during single chapter deletion (T013)', async () => {
+      const p = createDummyProject('p_single_crash', 'Single Crash Project');
+      await saveProjectToDB(p);
+      const c = createDummyChapter('c_single_crash', 'p_single_crash');
+      await saveChapterToDB(c);
+
+      (indexedDB.deleteDatabase as any).mockImplementationOnce((_name: string) => {
+        const req: any = {
+          result: undefined,
+          onsuccess: null,
+          onerror: null,
+          onblocked: null,
+          error: new Error('Crash during single chapter physical deletion'),
+        };
+        setTimeout(() => req.onerror?.({ target: req }), 10);
+        return req;
+      });
+
+      await expect(deleteChapterFromDB('c_single_crash', 'p_single_crash')).rejects.toThrow(
+        'Crash during single chapter physical deletion'
+      );
+
+      // Manifest MUST remain durable in storage
+      expect(mockManifests.size).toBe(1);
+      const pendingManifests = await getPendingDeletionManifests();
+      expect(pendingManifests).toHaveLength(1);
+      expect(pendingManifests[0].projectId).toBe('p_single_crash');
+      expect(pendingManifests[0].chapterIds).toContain('c_single_crash');
+    });
   });
+
+  });
+
+  describe('User Story 3: Protect Project Write Paths from Bypassing FK Guard (T018, T019)', () => {
+    it('saveProjectToDB refuses to re-parent an existing chapter to another projectId (T018)', async () => {
+      const p1 = createDummyProject('proj_save_proj_orig', 'Original');
+      await saveProjectToDB(p1);
+      const c = createDummyChapter('c_save_proj_locked', 'proj_save_proj_orig');
+      await saveChapterToDB(c);
+
+      const p2 = createDummyProject('proj_save_proj_attacker', 'Attacker');
+      p2.chapters = [ { ...c, projectId: 'proj_save_proj_attacker' } as any ];
+      
+      await expect(saveProjectToDB(p2)).rejects.toThrow(
+        'Relational integrity violation: Cannot re-parent chapter "c_save_proj_locked" from project "proj_save_proj_orig" to "proj_save_proj_attacker".'
+      );
+    });
+
+    it('atomicSaveProjectBundle refuses to re-parent an existing chapter to another projectId (T019)', async () => {
+      const p1 = createDummyProject('proj_atomic_orig', 'Original');
+      await saveProjectToDB(p1);
+      const c = createDummyChapter('c_atomic_locked', 'proj_atomic_orig');
+      await saveChapterToDB(c);
+
+      const p2 = createDummyProject('proj_atomic_attacker', 'Attacker');
+      
+      await expect(atomicSaveProjectBundle({ ...p2, id: 'proj_atomic_attacker' }, [ { ...c, projectId: 'proj_atomic_attacker' } ])).rejects.toThrow(
+        'Relational integrity violation: Cannot re-parent chapter "c_atomic_locked" from project "proj_atomic_orig" to "proj_atomic_attacker".'
+      );
+    });
+  });
+
+
+  describe('User Story 4: Fail-Closed Deletion Database Error Propagation (T024, T025)', () => {
+    it('aborts deleteProjectFromDB and retains manifest if provider .destroy() throws (T024)', async () => {
+      const p = createDummyProject('p_prov_fail', 'Prov Fail');
+      await saveProjectToDB(p);
+      const c = createDummyChapter('c_prov_fail_1', 'p_prov_fail');
+      await saveChapterToDB(c);
+
+      clearActivePersistencesForTest();
+      const faultyDestroy = vi.fn().mockRejectedValue(new Error('Simulated provider destruction failure during project delete'));
+      const provider = { destroy: faultyDestroy };
+      registerCrdtPersistence('crdt_p_prov_fail_c_prov_fail_1', provider as any, 'p_prov_fail', 'c_prov_fail_1');
+
+      await expect(deleteProjectFromDB('p_prov_fail')).rejects.toThrow('Simulated provider destruction failure during project delete');
+
+      const pendingManifests = await getPendingDeletionManifests();
+      expect(pendingManifests.some(m => m.projectId === 'p_prov_fail')).toBe(true);
+      expect(deletedDatabases).not.toContain('crdt_p_prov_fail_c_prov_fail_1');
+    });
+  });
+
+
+  describe('User Story 4: Fail-Closed Deletion Database Error Propagation (Part 2 - T028)', () => {
+    it('recoverPendingDeletions returns failedCount > 0 if manifest retrieval throws (T028)', async () => {
+      const originalOpen = indexedDB.open;
+      (indexedDB.open as any) = vi.fn().mockImplementation(() => {
+        const req: any = { result: undefined, onsuccess: null, onerror: null, error: new Error('Simulated DB open failure') };
+        setTimeout(() => {
+          req.onerror?.({ target: req });
+        }, 10);
+        return req;
+      });
+
+      try {
+        resetDBInstanceForTesting();
+        const result = await recoverPendingDeletions();
+        expect(result.failedCount).toBeGreaterThan(0);
+        expect(result.recoveredCount).toBe(0);
+      } finally {
+        (indexedDB.open as any) = originalOpen;
+        resetDBInstanceForTesting();
+      }
+    });
+  });
+
+
+  describe('User Story 5: Discovery Consistency Across Concurrency Windows (T031)', () => {
+    it('manifest includes ALL discovered chapter IDs even if discovered during cursor traversal (US5, T031)', async () => {
+      // Create a dummy project and chapter
+      const p1 = createDummyProject('proj_us5_disc', 'Project US5');
+      await saveProjectToDB(p1);
+      
+      const c1 = createDummyChapter('c_known', 'proj_us5_disc');
+      await saveChapterToDB(c1);
+
+      // Access the mock DB instance from the globally stubbed indexedDB.open()
+      const req = (indexedDB.open('whatever') as any);
+      const db = req.result;
+      const originalTx = db.transaction;
+      
+      let injected = false;
+
+      db.transaction = function(storeNames: string | string[], mode: string) {
+        // Intercept the readwrite transaction for deletion (it locks projects, chapters, deletion_manifests, etc)
+        if (mode === 'readwrite' && Array.isArray(storeNames) && storeNames.includes('deletion_manifests')) {
+          if (!injected) {
+            injected = true;
+            // Inject a chapter into the mocked chapters map JUST BEFORE the transaction cursors run.
+            // This simulates concurrent addition of a chapter after the initial discoverProjectChapterIds() call.
+            const hiddenChap = createDummyChapter('c_hidden_disc', 'proj_us5_disc');
+            mockChapters.set('c_hidden_disc', hiddenChap);
+          }
+        }
+        return originalTx.apply(this, arguments);
+      };
+
+      try {
+        (indexedDB.deleteDatabase as any).mockImplementationOnce((_name: string) => {
+          const req: any = { result: undefined, onsuccess: null, onerror: null, onblocked: null, error: new Error('Simulated physical deletion failure') };
+          setTimeout(() => req.onerror?.({ target: req }), 0);
+          return req;
+        });
+
+        await expect(deleteProjectFromDB('proj_us5_disc')).rejects.toThrow('Simulated physical deletion failure');
+        
+        // Assert that the manifest contains BOTH known and hidden chapters
+        let pendingManifests = Array.from(mockManifests.values());
+        expect(pendingManifests.length).toBeGreaterThan(0);
+        
+        const manifest = pendingManifests.find(m => m.projectId === 'proj_us5_disc');
+        expect(manifest).toBeDefined();
+        if (manifest) {
+          expect(manifest.chapterIds).toContain('c_known');
+          expect(manifest.chapterIds).toContain('c_hidden_disc'); // Proves US5 discovery works
+          expect(manifest.physicalDbNames).toContain('crdt_proj_us5_disc_c_known');
+          expect(manifest.physicalDbNames).toContain('crdt_proj_us5_disc_c_hidden_disc');
+        }
+      } finally {
+        db.transaction = originalTx;
+      }
+    });
+  });
+
 });
