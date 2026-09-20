@@ -47,9 +47,13 @@ export function useEpubExport() {
         return;
       }
 
-      const sortedChapters = [...fullChapters].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      );
+      const chapterOrderMap = new Map(chapterIds.map((id, index) => [id, index]));
+      const sortedChapters = [...fullChapters].sort((a, b) => {
+        const orderA = chapterOrderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+        const orderB = chapterOrderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+        if (orderA !== orderB) return orderA - orderB;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
 
       const zip = new JSZip();
 

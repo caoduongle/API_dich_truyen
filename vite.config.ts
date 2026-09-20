@@ -4,11 +4,16 @@ import fs from 'node:fs';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
+import { resolvePublicOrigin, transformIndexHtml, transformSitemap } from './src/config/publicOrigin';
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const publicUrl = (env.VITE_PUBLIC_URL || process.env.VITE_PUBLIC_URL || 'https://api-dich-truyen.onrender.com').replace(/\/+$/, '');
+  const publicConfig = resolvePublicOrigin(
+    env.VITE_PUBLIC_URL || process.env.VITE_PUBLIC_URL,
+    env.VITE_BASE_URL || process.env.VITE_BASE_URL
+  );
   if (env.VITE_PUBLIC_URL) {
-    process.env.VITE_PUBLIC_URL = publicUrl;
+    process.env.VITE_PUBLIC_URL = publicConfig.origin;
   }
   if (env.VITE_BASE_URL) {
     process.env.VITE_BASE_URL = env.VITE_BASE_URL;
@@ -22,7 +27,7 @@ export default defineConfig(({ mode }) => {
         name: 'html-transform-public-url',
         enforce: 'pre',
         transformIndexHtml(html: string) {
-          return html.replaceAll('%VITE_PUBLIC_URL%', publicUrl);
+          return transformIndexHtml(html, publicConfig);
         },
       },
       {
@@ -31,9 +36,7 @@ export default defineConfig(({ mode }) => {
           const sitemapDist = path.resolve(__dirname, 'dist/sitemap.xml');
           if (fs.existsSync(sitemapDist)) {
             const raw = fs.readFileSync(sitemapDist, 'utf8');
-            const transformed = raw
-              .replaceAll('%VITE_PUBLIC_URL%', publicUrl)
-              .replaceAll('https://api-dich-truyen.onrender.com', publicUrl);
+            const transformed = transformSitemap(raw, publicConfig);
             fs.writeFileSync(sitemapDist, transformed, 'utf8');
           }
         },
@@ -43,9 +46,7 @@ export default defineConfig(({ mode }) => {
               const sitemapPath = path.resolve(__dirname, 'public/sitemap.xml');
               if (fs.existsSync(sitemapPath)) {
                 const raw = fs.readFileSync(sitemapPath, 'utf8');
-                const transformed = raw
-                  .replaceAll('%VITE_PUBLIC_URL%', publicUrl)
-                  .replaceAll('https://api-dich-truyen.onrender.com', publicUrl);
+                const transformed = transformSitemap(raw, publicConfig);
                 res.setHeader('Content-Type', 'application/xml; charset=utf-8');
                 return res.end(transformed);
               }

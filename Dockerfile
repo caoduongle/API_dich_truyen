@@ -10,6 +10,13 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
+
+# Build arguments cho public origin và base URL (hỗ trợ custom domain & sub-path)
+ARG VITE_PUBLIC_URL
+ARG VITE_BASE_URL=/
+ENV VITE_PUBLIC_URL=$VITE_PUBLIC_URL
+ENV VITE_BASE_URL=$VITE_BASE_URL
+
 RUN npm run build
 
 # Stage 2: Serve static files with Nginx

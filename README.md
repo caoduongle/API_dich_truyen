@@ -103,6 +103,7 @@ cp .env.example .env
 ### Biến môi trường
 
 ```env
+VITE_PUBLIC_URL="https://api-dich-truyen.onrender.com"
 VITE_BASE_URL="/"
 VITE_GOOGLE_CLIENT_ID=""
 VITE_GOOGLE_PICKER_API_KEY=""
@@ -182,10 +183,13 @@ Output directory: dist
 
 ### Docker / Nginx
 
-Repo có `Dockerfile` multi-stage để build static assets và phục vụ bằng Nginx.
+Repo có `Dockerfile` multi-stage để build static assets và phục vụ bằng Nginx. Có thể tùy chỉnh domain và subpath khi build qua `--build-arg`:
 
 ```bash
-docker build -t ai-dich-truyen .
+docker build \
+  --build-arg VITE_PUBLIC_URL="https://example.com" \
+  --build-arg VITE_BASE_URL="/" \
+  -t ai-dich-truyen .
 docker run --rm -p 80:80 ai-dich-truyen
 ```
 

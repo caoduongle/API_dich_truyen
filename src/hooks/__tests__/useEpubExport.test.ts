@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import JSZip from 'jszip';
 import { useEpubExport, loadChaptersBatch } from '../useEpubExport';
@@ -45,63 +48,11 @@ function renderEpubHook() {
 }
 
 export function assertXmlWellFormed(xml: string, docLabel: string): void {
-  if (typeof (globalThis as any).DOMParser === 'function') {
-    const parser = new (globalThis as any).DOMParser();
-    const doc = parser.parseFromString(xml, 'application/xml');
-    const parserError = doc.querySelector('parsererror');
-    if (parserError) {
-      throw new Error(`XML well-formedness error in ${docLabel}: ${parserError.textContent}`);
-    }
-    return;
-  }
-
-  // Fallback XML well-formedness parser for Node headless environment
-  const bareAmpRegex = /&(?!(amp|lt|gt|quot|apos|#\d+|#[xX][0-9a-fA-F]+);)/g;
-  const bareAmpMatches = xml.match(bareAmpRegex);
-  if (bareAmpMatches) {
-    throw new Error(`XML well-formedness error in ${docLabel}: Contains ${bareAmpMatches.length} unescaped '&' characters`);
-  }
-
-  let cleaned = xml
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '')
-    .replace(/<\?xml[\s\S]*?\?>/g, '')
-    .replace(/<!DOCTYPE[\s\S]*?>/g, '');
-
-  const tagRegex = /<\/?([a-zA-Z0-9:-]+)([^>]*?)(\/?)>/g;
-  const stack: string[] = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = tagRegex.exec(cleaned)) !== null) {
-    const isClosing = match[0].startsWith('</');
-    const tagName = match[1];
-    const attrs = match[2];
-    const isSelfClosing = match[3] === '/' || match[0].endsWith('/>');
-
-    if (isClosing) {
-      if (stack.length === 0) {
-        throw new Error(`XML well-formedness error in ${docLabel}: Unexpected closing tag </${tagName}> with empty stack`);
-      }
-      const last = stack.pop();
-      if (last !== tagName) {
-        throw new Error(`XML well-formedness error in ${docLabel}: Mismatched closing tag </${tagName}>, expected </${last}>`);
-      }
-    } else if (!isSelfClosing) {
-      if (attrs.trim()) {
-        const attrRegex = /([a-zA-Z0-9:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
-        let attrMatch: RegExpExecArray | null;
-        while ((attrMatch = attrRegex.exec(attrs)) !== null) {
-          if (attrMatch[4] !== undefined) {
-            throw new Error(`XML well-formedness error in ${docLabel}: Unquoted attribute in <${tagName} ...>`);
-          }
-        }
-      }
-      stack.push(tagName);
-    }
-  }
-
-  if (stack.length > 0) {
-    throw new Error(`XML well-formedness error in ${docLabel}: Unclosed tags remaining: ${stack.join(', ')}`);
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, 'application/xml');
+  const parserError = doc.querySelector('parsererror');
+  if (parserError) {
+    throw new Error(`XML well-formedness error in ${docLabel}: ${parserError.textContent}`);
   }
 }
 
@@ -414,9 +365,10 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const mimetypeFile = zip.file('mimetype');
       expect(mimetypeFile).not.toBeNull();
       const mimetypeText = await mimetypeFile!.async('string');
-      expect(mimetypeText.trim()).toBe('application/epub+zip');
+      expect(mimetypeText).toBe('application/epub+zip');
       const compression = (mimetypeFile as any).options?.compression;
-      expect(compression === 'STORE' || compression === null, 'mimetype must be stored uncompressed (STORE)').toBe(true);
+      // In JSZip reading from loaded binary, uncompressed is STORE or null
+      expect(compression === 'STORE' || compression === null).toBe(true);
 
       // 2. META-INF/container.xml check
       const containerFile = zip.file('META-INF/container.xml');
@@ -495,6 +447,91 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       assertXmlWellFormed(chap2Html, 'OEBPS/chap_2.xhtml');
       expect(chap2Html).toContain('<h1>Chương 2: Quyết Chiến &lt;Đỉnh Núi&gt;</h1>');
       expect(chap2Html).toContain('<p>Đoạn 1: Gió gầm gào &amp; mây đen kéo đến.</p>');
+    });
+
+    it('preserves author chapter sequence from proj.chapters even when creation timestamps are inverted', async () => {
+      const hook = renderEpubHook();
+
+      // Chapters where chap-first has createdAt AFTER chap-second
+      const mockDbChapters: Record<string, Chapter> = {
+        'chap-first': {
+          id: 'chap-first',
+          projectId: 'proj-order',
+          title: 'Chương 1: Khởi Đầu',
+          sourceText: 'source 1',
+          rawTranslation: 'raw 1',
+          polishedTranslation: 'Dịch 1',
+          paragraphs: ['source 1'],
+          translatedLines: ['Dịch 1'],
+          status: 'completed',
+          createdAt: '2026-05-10T12:00:00Z', // Later date
+          updatedAt: '2026-05-10T12:00:00Z',
+        },
+        'chap-second': {
+          id: 'chap-second',
+          projectId: 'proj-order',
+          title: 'Chương 2: Diễn Biến',
+          sourceText: 'source 2',
+          rawTranslation: 'raw 2',
+          polishedTranslation: 'Dịch 2',
+          paragraphs: ['source 2'],
+          translatedLines: ['Dịch 2'],
+          status: 'completed',
+          createdAt: '2026-01-01T08:00:00Z', // Earlier date
+          updatedAt: '2026-01-01T08:00:00Z',
+        },
+      };
+
+      vi.spyOn(db, 'getChapterFromDB').mockImplementation(async (id: string) => mockDbChapters[id] || null);
+
+      const project: StoryProject = {
+        id: 'proj-order',
+        title: 'Thứ Tự Truyện',
+        author: 'Tác Giả',
+        genre: 'Đô Thị',
+        tone: 'Chuẩn',
+        description: 'Mô tả',
+        glossary: [],
+        pendingGlossary: [],
+        createdAt: '2026-01-01',
+        updatedAt: '2026-01-02',
+        // Manifest order explicitly lists chap-first BEFORE chap-second
+        chapters: [
+          { id: 'chap-first', title: 'Chương 1: Khởi Đầu', status: 'completed', createdAt: '2026-05-10T12:00:00Z', updatedAt: '2026-05-10T12:00:00Z' },
+          { id: 'chap-second', title: 'Chương 2: Diễn Biến', status: 'completed', createdAt: '2026-01-01T08:00:00Z', updatedAt: '2026-01-01T08:00:00Z' },
+        ],
+      };
+
+      await hook.handleExportEpub(project);
+
+      expect(capturedBlobs.length).toBeGreaterThanOrEqual(1);
+      const generatedBlob = capturedBlobs[capturedBlobs.length - 1];
+      const arrayBuffer = await generatedBlob.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+
+      // Verify TOC and Nav preserve chap-first then chap-second
+      const navFile = zip.file('OEBPS/nav.xhtml');
+      expect(navFile).not.toBeNull();
+      const navHtml = await navFile!.async('string');
+      assertXmlWellFormed(navHtml, 'OEBPS/nav.xhtml');
+
+      const indexChap1 = navHtml.indexOf('Chương 1: Khởi Đầu');
+      const indexChap2 = navHtml.indexOf('Chương 2: Diễn Biến');
+      expect(indexChap1).toBeGreaterThan(-1);
+      expect(indexChap2).toBeGreaterThan(-1);
+      expect(indexChap1).toBeLessThan(indexChap2);
+
+      // Verify package spine in content.opf
+      const opfFile = zip.file('OEBPS/content.opf');
+      expect(opfFile).not.toBeNull();
+      const opfXml = await opfFile!.async('string');
+      assertXmlWellFormed(opfXml, 'OEBPS/content.opf');
+
+      const spineChap1 = opfXml.indexOf('idref="chap_1"');
+      const spineChap2 = opfXml.indexOf('idref="chap_2"');
+      expect(spineChap1).toBeGreaterThan(-1);
+      expect(spineChap2).toBeGreaterThan(-1);
+      expect(spineChap1).toBeLessThan(spineChap2);
     });
   });
 });

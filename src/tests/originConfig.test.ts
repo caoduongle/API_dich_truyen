@@ -1,30 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PublicOriginResolver } from '../../specs/150-post-audit-hardening/contracts/origin-config.contract';
+import {
+  resolvePublicOrigin,
+  normalizeOrigin,
+  normalizeBasePath,
+  isValidWebProtocol,
+  transformIndexHtml,
+  transformSitemap,
+  DEFAULT_PUBLIC_URL,
+} from '../config/publicOrigin';
 
-export const originResolver: PublicOriginResolver = {
-  resolveOrigin(env: Record<string, string | undefined>, defaultFallback = 'https://api-dich-truyen.onrender.com'): string {
-    const raw = env.VITE_PUBLIC_URL || defaultFallback;
-    return raw.replace(/\/+$/, '');
-  },
-
-  transformHtml(html: string, origin: string): string {
-    return html.replaceAll('%VITE_PUBLIC_URL%', origin);
-  },
-
-  transformSitemap(sitemapXml: string, origin: string): string {
-    return sitemapXml
-      .replaceAll('%VITE_PUBLIC_URL%', origin)
-      .replaceAll('https://api-dich-truyen.onrender.com', origin);
-  },
-};
-
-describe('Public Origin Portability & Sitemap Decoupling Suite', () => {
+describe('Public Origin Portability & Subpath Architecture Suite', () => {
   const rootDir = path.resolve(__dirname, '../..');
   const indexHtmlPath = path.join(rootDir, 'index.html');
   const sitemapXmlPath = path.join(rootDir, 'public/sitemap.xml');
   const envExamplePath = path.join(rootDir, '.env.example');
+  const distIndexPath = path.join(rootDir, 'dist/index.html');
+  const distSitemapPath = path.join(rootDir, 'dist/sitemap.xml');
 
   it('verifies that index.html, public/sitemap.xml, and .env.example exist on disk', () => {
     expect(fs.existsSync(indexHtmlPath)).toBe(true);
@@ -35,12 +28,12 @@ describe('Public Origin Portability & Sitemap Decoupling Suite', () => {
   it('verifies .env.example documents VITE_PUBLIC_URL with default fallback', () => {
     const envExample = fs.readFileSync(envExamplePath, 'utf8');
     expect(envExample).toContain('VITE_PUBLIC_URL=');
-    expect(envExample).toContain('https://api-dich-truyen.onrender.com');
+    expect(envExample).toContain(DEFAULT_PUBLIC_URL);
   });
 
   it('verifies public/sitemap.xml contains %VITE_PUBLIC_URL% placeholder for all loc entries', () => {
     const sitemap = fs.readFileSync(sitemapXmlPath, 'utf8');
-    expect(sitemap).not.toContain('https://api-dich-truyen.onrender.com');
+    expect(sitemap).not.toContain(DEFAULT_PUBLIC_URL);
     expect(sitemap).toContain('<loc>%VITE_PUBLIC_URL%/</loc>');
     expect(sitemap).toContain('<loc>%VITE_PUBLIC_URL%/auto-translate</loc>');
     expect(sitemap).toContain('<loc>%VITE_PUBLIC_URL%/glossary</loc>');
@@ -52,39 +45,101 @@ describe('Public Origin Portability & Sitemap Decoupling Suite', () => {
   it('verifies index.html uses %VITE_PUBLIC_URL% placeholder for canonical and OG metadata', () => {
     const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
     expect(indexHtml).toContain('%VITE_PUBLIC_URL%');
-    expect(indexHtml).not.toContain('https://api-dich-truyen.onrender.com');
+    expect(indexHtml).not.toContain(DEFAULT_PUBLIC_URL);
   });
 
-  describe('Origin Resolution & Template Transformation', () => {
-    it('normalizes custom public URLs by trimming trailing slashes', () => {
-      expect(originResolver.resolveOrigin({ VITE_PUBLIC_URL: 'https://my-domain.vercel.app///' })).toBe(
-        'https://my-domain.vercel.app'
-      );
-      expect(originResolver.resolveOrigin({ VITE_PUBLIC_URL: 'https://custom.org' })).toBe('https://custom.org');
+  describe('Production publicOrigin.ts Unit Tests', () => {
+    it('validates web protocol schemes correctly (http/https only)', () => {
+      expect(isValidWebProtocol('https://example.com')).toBe(true);
+      expect(isValidWebProtocol('http://localhost:3000')).toBe(true);
+      expect(isValidWebProtocol('ftp://ftp.example.com')).toBe(false);
+      expect(isValidWebProtocol('javascript:alert(1)')).toBe(false);
+      expect(isValidWebProtocol('not-a-valid-url')).toBe(false);
+      expect(isValidWebProtocol('')).toBe(false);
     });
 
-    it('falls back to Render domain when VITE_PUBLIC_URL is undefined or empty', () => {
-      expect(originResolver.resolveOrigin({})).toBe('https://api-dich-truyen.onrender.com');
-      expect(originResolver.resolveOrigin({ VITE_PUBLIC_URL: '' })).toBe('https://api-dich-truyen.onrender.com');
+    it('normalizes custom public URLs by trimming trailing slashes and enforcing scheme', () => {
+      expect(normalizeOrigin('https://my-domain.vercel.app///')).toBe('https://my-domain.vercel.app');
+      expect(normalizeOrigin('https://custom.org')).toBe('https://custom.org');
+      expect(normalizeOrigin('http://insecure.site/')).toBe('http://insecure.site');
+      // Invalid scheme falls back safely to default production origin
+      expect(normalizeOrigin('invalid-scheme://domain')).toBe(DEFAULT_PUBLIC_URL);
+      expect(normalizeOrigin('abc')).toBe(DEFAULT_PUBLIC_URL);
     });
 
-    it('transforms sitemap.xml with custom deployment origin dynamically', () => {
-      const template = fs.readFileSync(sitemapXmlPath, 'utf8');
-      const transformed = originResolver.transformSitemap(template, 'https://sub.domain.io');
+    it('falls back to default production origin when origin is undefined, null, or empty', () => {
+      expect(normalizeOrigin(undefined)).toBe(DEFAULT_PUBLIC_URL);
+      expect(normalizeOrigin(null)).toBe(DEFAULT_PUBLIC_URL);
+      expect(normalizeOrigin('')).toBe(DEFAULT_PUBLIC_URL);
+      expect(normalizeOrigin('   ')).toBe(DEFAULT_PUBLIC_URL);
+    });
+
+    it('normalizes base path with leading and trailing slashes', () => {
+      expect(normalizeBasePath('/')).toBe('/');
+      expect(normalizeBasePath('dichtruyen')).toBe('/dichtruyen/');
+      expect(normalizeBasePath('/subpath')).toBe('/subpath/');
+      expect(normalizeBasePath('/nested/path/')).toBe('/nested/path/');
+      expect(normalizeBasePath('')).toBe('/');
+      expect(normalizeBasePath(undefined)).toBe('/');
+    });
+
+    it('resolves unified canonicalAppUrl correctly for standard root hosting', () => {
+      const config = resolvePublicOrigin('https://my-domain.org', '/');
+      expect(config.origin).toBe('https://my-domain.org');
+      expect(config.basePath).toBe('/');
+      expect(config.canonicalAppUrl).toBe('https://my-domain.org/');
+    });
+
+    it('resolves unified canonicalAppUrl correctly for nested sub-path hosting', () => {
+      const config = resolvePublicOrigin('https://my-domain.org', '/dichtruyen/');
+      expect(config.origin).toBe('https://my-domain.org');
+      expect(config.basePath).toBe('/dichtruyen/');
+      expect(config.canonicalAppUrl).toBe('https://my-domain.org/dichtruyen/');
+    });
+
+    it('transforms sitemap.xml with canonical application URL including sub-path', () => {
+      const sitemapTemplate = fs.readFileSync(sitemapXmlPath, 'utf8');
+      const config = resolvePublicOrigin('https://sub.domain.io', '/novel-reader/');
+      const transformed = transformSitemap(sitemapTemplate, config);
 
       expect(transformed).not.toContain('%VITE_PUBLIC_URL%');
-      expect(transformed).not.toContain('https://api-dich-truyen.onrender.com');
-      expect(transformed).toContain('<loc>https://sub.domain.io/</loc>');
-      expect(transformed).toContain('<loc>https://sub.domain.io/auto-translate</loc>');
-      expect(transformed).toContain('<loc>https://sub.domain.io/glossary</loc>');
+      expect(transformed).not.toContain(DEFAULT_PUBLIC_URL);
+      expect(transformed).toContain('<loc>https://sub.domain.io/novel-reader/</loc>');
+      expect(transformed).toContain('<loc>https://sub.domain.io/novel-reader/auto-translate</loc>');
+      expect(transformed).toContain('<loc>https://sub.domain.io/novel-reader/glossary</loc>');
     });
 
-    it('transforms index.html with custom deployment origin dynamically', () => {
-      const template = fs.readFileSync(indexHtmlPath, 'utf8');
-      const transformed = originResolver.transformHtml(template, 'https://sub.domain.io');
+    it('transforms index.html with canonical URL, absolute og:image, and adapts static asset links', () => {
+      const htmlTemplate = fs.readFileSync(indexHtmlPath, 'utf8');
+      const config = resolvePublicOrigin('https://sub.domain.io', '/subapp/');
+      const transformed = transformIndexHtml(htmlTemplate, config);
 
       expect(transformed).not.toContain('%VITE_PUBLIC_URL%');
-      expect(transformed).toContain('content="https://sub.domain.io/');
+      expect(transformed).not.toContain(DEFAULT_PUBLIC_URL);
+      expect(transformed).toContain('content="https://sub.domain.io/subapp/"');
+      expect(transformed).toContain('href="https://sub.domain.io/subapp/"');
+      expect(transformed).toContain('content="https://sub.domain.io/subapp/og-image.svg"');
+      expect(transformed).toContain('href="/subapp/favicon.svg"');
+      expect(transformed).toContain('src="/subapp/theme-init.js"');
+      expect(transformed).toContain('href="/subapp/site.webmanifest"');
+    });
+  });
+
+  describe('Build Artifacts Output Verification', () => {
+    it('verifies dist/index.html does not contain unreplaced placeholder tokens', () => {
+      if (fs.existsSync(distIndexPath)) {
+        const distHtml = fs.readFileSync(distIndexPath, 'utf8');
+        expect(distHtml).not.toContain('%VITE_PUBLIC_URL%');
+        expect(distHtml).not.toContain('%VITE_CANONICAL_URL%');
+      }
+    });
+
+    it('verifies dist/sitemap.xml does not contain unreplaced placeholder tokens', () => {
+      if (fs.existsSync(distSitemapPath)) {
+        const distSitemap = fs.readFileSync(distSitemapPath, 'utf8');
+        expect(distSitemap).not.toContain('%VITE_PUBLIC_URL%');
+        expect(distSitemap).toContain('<loc>http');
+      }
     });
   });
 });

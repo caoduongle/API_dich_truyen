@@ -317,12 +317,14 @@ describe('IndexedDB Services & Storage Estimation', () => {
       resetDBInstanceForTesting();
       const executionLog: string[] = [];
 
+      const storedProjects = new Map<string, any>();
+
       const mockProjectsStore = {
-        get: vi.fn(() => {
+        get: vi.fn((id: string) => {
           const req: any = {
             onsuccess: null,
             onerror: null,
-            result: { id: 'proj_seq', title: 'A2', chapters: [] },
+            result: storedProjects.get(id) || { id: 'proj_seq', title: 'A2', chapters: [] },
           };
           setTimeout(() => req.onsuccess?.({ target: req }), 0);
           return req;
@@ -331,12 +333,16 @@ describe('IndexedDB Services & Storage Estimation', () => {
           if (val && val.title) {
             executionLog.push(`save:${val.title}`);
           }
+          if (val && val.id) {
+            storedProjects.set(val.id, val);
+          }
           const req: any = { onsuccess: null, onerror: null };
           setTimeout(() => req.onsuccess?.({ target: req }), 0);
           return req;
         }),
         delete: vi.fn((id: any) => {
           executionLog.push(`delete:${id}`);
+          storedProjects.delete(id);
           const req: any = { onsuccess: null, onerror: null };
           setTimeout(() => req.onsuccess?.({ target: req }), 0);
           return req;
@@ -458,6 +464,11 @@ describe('IndexedDB Services & Storage Estimation', () => {
         'delete:proj_seq',
         'save:A3',
       ]);
+
+      // Verify that the final persistent state in the store is strictly A3 with zero resurrection
+      const finalProject = storedProjects.get(projectId);
+      expect(finalProject).toBeDefined();
+      expect(finalProject?.title).toBe('A3');
     });
   });
 
