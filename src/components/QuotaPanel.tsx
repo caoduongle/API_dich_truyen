@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { 
   RotateCw, 
   AlertTriangle, 
@@ -66,7 +66,7 @@ export function QuotaPanel({
 
   const {
     snapshotKeys,
-    groups,
+    groups: _groups,
     summary,
     loadingQuota: loading,
     quotaError: error,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as directGeminiClient from '../directGeminiClient';
 import {
   translateRawDirect,
@@ -721,7 +721,7 @@ describe('src/services/directTranslationEngine.ts', () => {
       const longRaw = Array(35).fill(longParagraph).join('\n\n');
 
       let callCount = 0;
-      vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (_args) => {
         callCount++;
         return {
           text: JSON.stringify({

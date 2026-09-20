@@ -1,4 +1,4 @@
-import type { ModelDefinition, RegisteredModelDef } from '../modelRegistry';
+import type { RegisteredModelDef } from '../modelRegistry';
 
 export const mockVerifiedCustomModel: RegisteredModelDef = {
   id: 'tunedModels/my-novel-v1',

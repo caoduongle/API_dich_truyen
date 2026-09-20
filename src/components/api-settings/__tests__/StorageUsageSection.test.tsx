@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { StorageUsageSection } from '../StorageUsageSection';
 import * as db from '../../../services/db';

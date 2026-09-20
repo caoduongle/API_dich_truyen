@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DriveRestClient, DRIVE_FILES_ENDPOINT, APP_FOLDER_NAME } from '../google-drive/driveRestClient';
+import { DriveRestClient, DRIVE_FILES_ENDPOINT } from '../google-drive/driveRestClient';
 import { DriveGranularSync } from '../google-drive/driveGranularSync';
 import { DriveProjectSync } from '../google-drive/driveProjectSync';
 import { StoryProject, Chapter } from '../../types';
@@ -131,7 +131,7 @@ describe('Google Drive Folder Self-Healing and Error Recovery', () => {
       vi.spyOn(client, 'fileExists').mockResolvedValue(false);
 
       // Mock search query returning existing or newly created folder
-      globalThis.fetch = vi.fn().mockImplementation((url: string, opts?: any) => {
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, opts?: any) => {
         if (opts?.method === 'POST') {
           return Promise.resolve({
             ok: true,
@@ -156,7 +156,7 @@ describe('Google Drive Folder Self-Healing and Error Recovery', () => {
       const client = new DriveRestClient();
       let fetchCallCount = 0;
 
-      globalThis.fetch = vi.fn().mockImplementation(async (url: string, opts?: any) => {
+      globalThis.fetch = vi.fn().mockImplementation(async (_url: string, _opts?: any) => {
         fetchCallCount++;
         await new Promise((r) => setTimeout(r, 20));
         return {
@@ -182,7 +182,7 @@ describe('Google Drive Folder Self-Healing and Error Recovery', () => {
       (client as any).cachedToken = 'user_a_token';
 
       let searched = false;
-      globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+      globalThis.fetch = vi.fn().mockImplementation(async (_url: string) => {
         searched = true;
         return {
           ok: true,

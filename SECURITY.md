@@ -39,9 +39,10 @@ Vui lòng báo cáo an toàn theo một trong các kênh sau:
 ## Mô hình bảo mật Client-Side cốt lõi
 
 1. **Kiến trúc Client-Direct & Lưu trữ Cục bộ (Không trung gian máy chủ)**:
-   - Toàn bộ Khóa API (Gemini API Key) do người dùng cung cấp được lưu trữ hoàn toàn tại bộ nhớ phiên trình duyệt (`sessionStorage`). Ứng dụng **hoàn toàn không có máy chủ trung gian**, do đó API key chỉ được truyền trực tiếp từ trình duyệt tới Google AI API (`generativelanguage.googleapis.com`).
+   - Khóa API (Gemini API Key) do người dùng cung cấp được quản lý trực tiếp trên trình duyệt: lưu tạm thời trong `sessionStorage` cho phiên làm việc hiện tại, và được đồng bộ vào `localStorage['app_ui_prefs'].savedKeys` khi tùy chọn "Ghi nhớ API Key trên trình duyệt này" (`rememberKeys`) được bật. Khi người dùng tắt tùy chọn này, toàn bộ khóa được xóa sạch khỏi `localStorage` và chỉ tồn tại tạm thời trong `sessionStorage` của tab.
+   - Ứng dụng **hoàn toàn không có máy chủ trung gian**, API key chỉ được gửi trực tiếp từ trình duyệt tới Google Gemini API (`generativelanguage.googleapis.com`).
    - Mọi thao tác kiểm tra tình trạng key, đo đạc quota và truy vấn danh sách model đều thực hiện Client-Direct qua `directGeminiClient.ts` và `modelVerificationService.ts`.
-   - Chuỗi API key được ẩn / mask trên giao diện người dùng và tự động làm sạch trong log console/chẩn đoán. Lưu ý: Người dùng cần chủ động bảo vệ thiết bị và kiểm soát các tiện ích mở rộng trình duyệt (browser extensions) có quyền truy cập bộ nhớ web.
+   - Chuỗi API key được ẩn / mask trên giao diện người dùng và tự động làm sạch trong log console/chẩn đoán. Lưu ý: Không nên bật tùy chọn ghi nhớ khóa khi sử dụng trên máy tính công cộng hoặc thiết bị dùng chung.
 
 2. **Xác thực Google OAuth 2.0 PKCE từ Trình duyệt**:
    - Tính năng đồng bộ Google Drive sử dụng luồng OAuth 2.0 Authorization Code với PKCE (Proof Key for Code Exchange) hoặc Google Identity Services Token Client chạy trực tiếp trên trình duyệt.

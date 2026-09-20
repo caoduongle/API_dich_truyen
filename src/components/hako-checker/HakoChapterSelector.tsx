@@ -7,7 +7,7 @@
  * và tra cứu Set O(1) để triệt tiêu độ trễ render, chống giật lag và ngăn ngừa sập trang trắng.
  */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   CheckSquare,
   Square,

@@ -84,7 +84,6 @@ describe('useTranslationProcess Key Rotation & Quota Fast-Break Tests', () => {
   };
 
   let logs: string[] = [];
-  let updatedProject: StoryProject = mockProject;
 
   const resetHarness = () => {
     stateSlots = [];
@@ -92,13 +91,12 @@ describe('useTranslationProcess Key Rotation & Quota Fast-Break Tests', () => {
     refSlots = [];
     refIndex = 0;
     logs = [];
-    updatedProject = { ...mockProject };
   };
 
   const createProps = (overrides?: Partial<UseTranslationProcessProps>): UseTranslationProcessProps => {
     return {
       activeProject: mockProject,
-      onUpdateProject: (p) => { updatedProject = p; },
+      onUpdateProject: (_p) => {},
       apiKeys: ['key-A', 'key-B', 'key-C'],
       selectedModel: 'gemini-2.5-flash',
       polishCycles: 1,

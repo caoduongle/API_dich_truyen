@@ -9,17 +9,13 @@ import {
   getProjectFromDB,
   saveProjectToDB,
   getChaptersByProjectFromDB,
-  saveChapterToDB,
-  saveChaptersToDB,
   getCrdtState,
-  saveCrdtState,
   saveCrdtStates,
   atomicSaveProjectBundle,
 } from '../db';
 import {
   createChapterYDoc,
   exportDocUpdate,
-  extractCrdtSnapshot,
   mergeChapterCrdt,
   uint8ArrayToBase64,
 } from '../crdtDocManager';

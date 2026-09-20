@@ -6,7 +6,7 @@
  * đoạn raw tiếng Trung đối ứng (nếu có), các nút quyết định và ô nhập ghi chú của moderator.
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -26,7 +26,6 @@ import {
 import {
   QualityIssue,
   QualityIssueDecision,
-  QualityIssueSeverity,
   QualityIssueCategory,
 } from '../../types/hakoChecker';
 import { Button } from '../ui/Button';

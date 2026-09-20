@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useModelDiscovery } from '../useModelDiscovery';
-import { DISCOVERED_MODELS_STORAGE_KEY, DISCOVERED_MODELS_TTL_MS } from '../../utils/modelRegistry';
 
 describe('useModelDiscovery Hook (TASK 14)', () => {
   let mockStorage: Record<string, string> = {};

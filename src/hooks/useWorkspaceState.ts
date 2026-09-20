@@ -139,7 +139,7 @@ export function useWorkspaceState({
   selectedModel,
   loadedChapter,
   onClearLoadedChapter,
-  enableAiQaCritique,
+  enableAiQaCritique: _enableAiQaCritique,
   enableSegmentTranslation,
 }: UseWorkspaceStateProps) {
   const { showToast, showConfirm } = useNotifications();

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Users, Wifi, WifiOff } from 'lucide-react';
 import { CRDTSyncStatus, UserPresence } from '../../types/crdt';
-import { Badge } from '../ui/Badge';
 
 interface CollaboratorPresenceBarProps {
   status: CRDTSyncStatus;

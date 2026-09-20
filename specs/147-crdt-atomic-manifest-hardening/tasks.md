@@ -1,4 +1,4 @@
-﻿# Tasks: CRDT Atomic Deletion Manifest & Storage Integrity Hardening
+# Tasks: CRDT Atomic Deletion Manifest & Storage Integrity Hardening
 
 **Feature**: `147-crdt-atomic-manifest-hardening`
 **Spec**: [spec.md](spec.md) | **Plan**: [plan.md](plan.md) | **Research**: [research.md](research.md)
@@ -10,7 +10,7 @@
 
 **Purpose**: Extract reusable validation utility and prepare the foundational guard used by all user stories.
 
-- [x] T001 [P] Create `assertChapterOwnership()` utility function in `src/services/db.ts` â€” a canonical chapter ownership validator that throws `Relational integrity violation` when an existing chapter's `projectId` differs from the incoming `incomingProjectId`. Signature: `export function assertChapterOwnership(existing: Chapter | undefined, incomingProjectId: string, chapterId: string): void`. Place immediately after the `DeletionManifestRecord` interface block (~line 34).
+- [x] T001 [P] Create `assertChapterOwnership()` utility function in `src/services/db.ts` — a canonical chapter ownership validator that throws `Relational integrity violation` when an existing chapter's `projectId` differs from the incoming `incomingProjectId`. Signature: `export function assertChapterOwnership(existing: Chapter | undefined, incomingProjectId: string, chapterId: string): void`. Place immediately after the `DeletionManifestRecord` interface block (~line 34).
 - [x] T002 [P] Refactor existing inline FK check in `executeSaveChapterToDB()` in `src/services/db.ts` (~line 1146) to delegate to the new `assertChapterOwnership()`, preserving identical error message and `transaction.abort()` + `reject()` behavior. Verify no functional change via existing test `refuses to re-parent an existing chapter to another projectId in saveChapterToDB (T020)`.
 - [x] T003 [P] Refactor existing inline FK check in `executeSaveChaptersToDB()` in `src/services/db.ts` (~line 1239) to delegate to the new `assertChapterOwnership()`, preserving identical behavior. Verify via existing test `refuses to re-parent an existing chapter to another projectId in batch saveChaptersToDB (T020, T011)`.
 
@@ -27,11 +27,11 @@
 
 - [x] T004 Identify and document all call sites of `recordDeletionManifest()` outside of an atomic catalog transaction in `src/services/db.ts`: `executeDeleteProjectFromDB` (~line 915) and `executeDeleteChaptersByProjectFromDB` (~line 1428). These will be inlined into the atomic transactions in US1.
 
-**Checkpoint**: Foundation ready â€” standalone manifest writes identified, user story implementation can now begin.
+**Checkpoint**: Foundation ready — standalone manifest writes identified, user story implementation can now begin.
 
 ---
 
-## Phase 3: User Story 1 â€” Atomic Manifest and Catalog Deletion (Priority: P1) ðŸŽ¯ MVP
+## Phase 3: User Story 1 — Atomic Manifest and Catalog Deletion (Priority: P1) 🎯 MVP
 
 **Goal**: Merge deletion manifest `put()` and catalog `delete()` operations into the same IDB transaction for project deletion and bulk chapter deletion, ensuring zero risk of manifest-exists-but-catalog-alive on crash.
 
@@ -39,18 +39,18 @@
 
 ### Implementation for User Story 1
 
-- [x] T005 [US1] Refactor `executeDeleteProjectFromDB()` in `src/services/db.ts` (~lines 898â€“1036): add `DELETION_MANIFESTS_STORE` to the `storesToLock` array, move the manifest `put()` inside the single IDB transaction (alongside project/chapter/crdt_states deletions), remove the standalone `await recordDeletionManifest(manifest)` call before the transaction. Build the final `chapterIds` and `physicalDbNames` list from all discovery sources inside the transaction and write the manifest with the complete list before transaction commits.
-- [x] T006 [US1] Refactor `executeDeleteChaptersByProjectFromDB()` in `src/services/db.ts` (~lines 1411â€“1530): add `DELETION_MANIFESTS_STORE` to the `storesToLock` array, move the manifest `put()` inside the single IDB transaction, remove the standalone `await recordDeletionManifest(manifest)` call. Collect final `deletedChapterIds` from cursors inside the transaction and record manifest with the complete discovery list.
+- [x] T005 [US1] Refactor `executeDeleteProjectFromDB()` in `src/services/db.ts` (~lines 898–1036): add `DELETION_MANIFESTS_STORE` to the `storesToLock` array, move the manifest `put()` inside the single IDB transaction (alongside project/chapter/crdt_states deletions), remove the standalone `await recordDeletionManifest(manifest)` call before the transaction. Build the final `chapterIds` and `physicalDbNames` list from all discovery sources inside the transaction and write the manifest with the complete list before transaction commits.
+- [x] T006 [US1] Refactor `executeDeleteChaptersByProjectFromDB()` in `src/services/db.ts` (~lines 1411–1530): add `DELETION_MANIFESTS_STORE` to the `storesToLock` array, move the manifest `put()` inside the single IDB transaction, remove the standalone `await recordDeletionManifest(manifest)` call. Collect final `deletedChapterIds` from cursors inside the transaction and record manifest with the complete discovery list.
 - [x] T007 [US1] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that when the catalog transaction for `deleteProjectFromDB` aborts (simulate via mock), zero manifests exist in `deletion_manifests` store and all project/chapter/crdt data remains intact.
 - [x] T008 [US1] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that a successful `deleteProjectFromDB` creates a manifest atomically with catalog deletion, and after physical cleanup completes, the manifest is removed.
 - [x] T009 [US1] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that `deleteChaptersByProjectFromDB` also writes the manifest inside the transaction atomically.
-- [x] T010 [US1] Run `npm run lint && npm test && npm run build` â€” all must pass cleanly.
+- [x] T010 [US1] Run `npm run lint && npm test && npm run build` — all must pass cleanly.
 
 **Checkpoint**: Project and bulk chapter deletion now use atomic manifest + catalog transactions. If transaction aborts, neither manifest nor catalog changes persist.
 
 ---
 
-## Phase 4: User Story 2 â€” Durable Deletion Manifest for Single Chapter Deletion (Priority: P1)
+## Phase 4: User Story 2 — Durable Deletion Manifest for Single Chapter Deletion (Priority: P1)
 
 **Goal**: Add a durable deletion manifest to `deleteChapterFromDB`, recorded atomically with chapter/CRDT-state catalog deletion, followed by physical cleanup and manifest removal.
 
@@ -58,17 +58,17 @@
 
 ### Implementation for User Story 2
 
-- [x] T011 [US2] Refactor `deleteChapterFromDB` / inner `executeDelete` in `src/services/db.ts` (~lines 1323â€“1383): add `DELETION_MANIFESTS_STORE` to `storesToLock`, create and `put()` a `DeletionManifestRecord` (`id: manifest_chap_${Date.now()}_${id}_...`, `projectId: resolvedProjectId`, `chapterIds: [id]`, `physicalDbNames: ['crdt_${resolvedProjectId}_${id}']`, `status: 'pending'`) inside the same transaction that deletes chapter and CRDT state records. After transaction commit, call `deleteChapterCrdtDatabase(resolvedProjectId, id)` then `removeDeletionManifest(manifestId)`. On physical deletion failure, propagate error and retain manifest for recovery.
+- [x] T011 [US2] Refactor `deleteChapterFromDB` / inner `executeDelete` in `src/services/db.ts` (~lines 1323–1383): add `DELETION_MANIFESTS_STORE` to `storesToLock`, create and `put()` a `DeletionManifestRecord` (`id: manifest_chap_${Date.now()}_${id}_...`, `projectId: resolvedProjectId`, `chapterIds: [id]`, `physicalDbNames: ['crdt_${resolvedProjectId}_${id}']`, `status: 'pending'`) inside the same transaction that deletes chapter and CRDT state records. After transaction commit, call `deleteChapterCrdtDatabase(resolvedProjectId, id)` then `removeDeletionManifest(manifestId)`. On physical deletion failure, propagate error and retain manifest for recovery.
 - [x] T012 [US2] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that `deleteChapterFromDB` creates a pending manifest record with `chapterIds: [id]` and `physicalDbNames: ['crdt_${projectId}_${id}']` atomically with chapter catalog deletion.
 - [x] T013 [US2] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that after a simulated crash between catalog commit and physical deletion, `recoverPendingDeletions()` discovers the single-chapter manifest, deletes the physical DB, and removes the manifest.
 - [x] T014 [US2] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that if physical cleanup succeeds immediately (no crash), the manifest is removed from `deletion_manifests` store.
-- [x] T015 [US2] Run `npm run lint && npm test && npm run build` â€” all must pass cleanly.
+- [x] T015 [US2] Run `npm run lint && npm test && npm run build` — all must pass cleanly.
 
 **Checkpoint**: Single-chapter deletion now has full durable manifest recovery parity with project and bulk deletion.
 
 ---
 
-## Phase 5: User Story 3 â€” Cross-Boundary FK Validation on All Write Paths (Priority: P1/P2)
+## Phase 5: User Story 3 — Cross-Boundary FK Validation on All Write Paths (Priority: P1/P2)
 
 **Goal**: Enforce `assertChapterOwnership` in `saveProjectToDB` and `atomicSaveProjectBundle`, closing the bypass paths used by Google Drive sync and bundle imports.
 
@@ -76,18 +76,18 @@
 
 ### Implementation for User Story 3
 
-- [x] T016 [US3] Add ownership validation to `executeSaveProjectToDB()` in `src/services/db.ts` (~lines 363â€“411): for each chapter in `chaptersToSave`, read the existing chapter from `chaptersStore.get(chap.id)` inside the transaction. Call `assertChapterOwnership(existing, project.id, chap.id)`. If it throws, abort the transaction with `reject(err)`.
-- [x] T017 [US3] Add ownership pre-validation to `executeAtomicSaveProjectBundle()` in `src/services/db.ts` (~lines 425â€“489): inside the transaction, before any `chaptersStore.put()` call, iterate all incoming `chapters` and for each, read existing record via `chaptersStore.get(chap.id)`. Call `assertChapterOwnership(existing, project.id, chap.id)`. If any throws, abort the entire transaction immediately via `transaction.abort()` and `reject(err)`. No `put()` operations should be enqueued before all validation completes.
+- [x] T016 [US3] Add ownership validation to `executeSaveProjectToDB()` in `src/services/db.ts` (~lines 363–411): for each chapter in `chaptersToSave`, read the existing chapter from `chaptersStore.get(chap.id)` inside the transaction. Call `assertChapterOwnership(existing, project.id, chap.id)`. If it throws, abort the transaction with `reject(err)`.
+- [x] T017 [US3] Add ownership pre-validation to `executeAtomicSaveProjectBundle()` in `src/services/db.ts` (~lines 425–489): inside the transaction, before any `chaptersStore.put()` call, iterate all incoming `chapters` and for each, read existing record via `chaptersStore.get(chap.id)`. Call `assertChapterOwnership(existing, project.id, chap.id)`. If any throws, abort the entire transaction immediately via `transaction.abort()` and `reject(err)`. No `put()` operations should be enqueued before all validation completes.
 - [x] T018 [US3] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that `saveProjectToDB` rejects with a relational integrity violation when a chapter in `project.chapters` already belongs to a different project in storage.
 - [x] T019 [US3] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that `atomicSaveProjectBundle` rejects with a relational integrity violation when any incoming chapter already belongs to a different project, and that zero records are mutated (no partial writes).
 - [x] T020 [US3] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that `atomicSaveProjectBundle` succeeds normally when all chapters either don't exist in storage or belong to the same project.
-- [x] T021 [US3] Run `npm run lint && npm test && npm run build` â€” all must pass cleanly.
+- [x] T021 [US3] Run `npm run lint && npm test && npm run build` — all must pass cleanly.
 
 **Checkpoint**: All storage write paths now enforce chapter ownership immutability.
 
 ---
 
-## Phase 6: User Story 4 â€” Fail-Closed Persistence Release and Recovery Discovery (Priority: P2)
+## Phase 6: User Story 4 — Fail-Closed Persistence Release and Recovery Discovery (Priority: P2)
 
 **Goal**: Remove error suppression in CRDT persistence disposal and manifest recovery discovery. Errors must propagate to callers.
 
@@ -104,7 +104,7 @@
 
 ---
 
-## Phase 7: User Story 5 â€” Discovery Consistency Across Concurrency Windows (Priority: P2)
+## Phase 7: User Story 5 — Discovery Consistency Across Concurrency Windows (Priority: P2)
 
 **Goal**: Ensure that the manifest committed inside the atomic deletion transaction contains all chapter IDs discovered across all stores during the transaction, not just the pre-transaction snapshot.
 
@@ -114,7 +114,7 @@
 
 - [x] T030 [US5] Update `executeDeleteProjectFromDB()` in `src/services/db.ts`: ensure the manifest `put()` operation is scheduled AFTER all cursor-based chapter discovery completes inside the transaction. The manifest's `chapterIds` and `physicalDbNames` must reflect the union of all chapter IDs found from `project.chapters`, `chaptersStore.index('projectId')`, and `crdtStore.index('projectId')`. This may require collecting IDs in a shared mutable set within the transaction callbacks and putting the manifest in a completion callback after all cursors finish.
 - [x] T031 [US5] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that when additional chapters are discovered during cursor traversal (beyond the initial `discoverProjectChapterIds` snapshot), the committed manifest includes ALL discovered chapter IDs and corresponding physical database names.
-- [ ] T032 [US5] Run `npm run lint && npm test && npm run build` â€” all must pass cleanly.
+- [ ] T032 [US5] Run `npm run lint && npm test && npm run build` — all must pass cleanly.
 
 **Checkpoint**: Manifest always reflects the authoritative, final set of chapters at transaction commit time.
 
@@ -125,8 +125,8 @@
 **Purpose**: Final validation, documentation alignment, and quality gate clearance.
 
 - [x] T033 [P] Remove the now-unused standalone `recordDeletionManifest()` export from `src/services/db.ts` if no external callers remain (check `recordPendingDeletion` alias). If external callers exist, keep the export but add a deprecation comment.
-- [x] T034 [P] Verify `crdtPersistenceRegistry.ts` in `src/services/crdtPersistenceRegistry.ts`: confirm that `destroyCrdtPersistence()` and `destroyAllCrdtPersistencesForProject()` correctly propagate errors (retain provider in registry on failure). No code change expected â€” verification only.
-- [x] T035 Run full quality gate: `npm run lint && npm test && npm run build` â€” all must pass cleanly with 0 errors, 0 skipped tests, 0 regressions.
+- [x] T034 [P] Verify `crdtPersistenceRegistry.ts` in `src/services/crdtPersistenceRegistry.ts`: confirm that `destroyCrdtPersistence()` and `destroyAllCrdtPersistencesForProject()` correctly propagate errors (retain provider in registry on failure). No code change expected — verification only.
+- [x] T035 Run full quality gate: `npm run lint && npm test && npm run build` — all must pass cleanly with 0 errors, 0 skipped tests, 0 regressions.
 - [x] T036 Run `quickstart.md` verification scenarios against the final implementation to confirm all 4 scenarios pass.
 
 ---
@@ -135,12 +135,12 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies â€” can start immediately
-- **Foundational (Phase 2)**: Depends on Setup (T001) â€” BLOCKS all user stories
-- **US1 (Phase 3)**: Depends on Foundational (Phase 2) â€” atomic manifest for project/bulk deletion
-- **US2 (Phase 4)**: Depends on Foundational (Phase 2) â€” can run in parallel with US1
-- **US3 (Phase 5)**: Depends on Setup (T001) â€” can run in parallel with US1 and US2
-- **US4 (Phase 6)**: No dependency on US1â€“US3 â€” can run in parallel
+- **Setup (Phase 1)**: No dependencies — can start immediately
+- **Foundational (Phase 2)**: Depends on Setup (T001) — BLOCKS all user stories
+- **US1 (Phase 3)**: Depends on Foundational (Phase 2) — atomic manifest for project/bulk deletion
+- **US2 (Phase 4)**: Depends on Foundational (Phase 2) — can run in parallel with US1
+- **US3 (Phase 5)**: Depends on Setup (T001) — can run in parallel with US1 and US2
+- **US4 (Phase 6)**: No dependency on US1–US3 — can run in parallel
 - **US5 (Phase 7)**: Depends on US1 (T005) since it refines the manifest discovery within the atomic transaction
 - **Polish (Phase 8)**: Depends on all user stories being complete
 
@@ -161,11 +161,11 @@
 ### Parallel Opportunities
 
 - T001, T002, T003 can all run in parallel (different functions, no file conflicts within reasonable merge)
-- T005 and T006 (US1) modify different functions â€” can run in parallel
+- T005 and T006 (US1) modify different functions — can run in parallel
 - US1 (Phase 3) and US2 (Phase 4) can proceed in parallel
 - US3 (Phase 5) can proceed in parallel with US1 and US2
 - US4 (Phase 6) can proceed in parallel with all other stories
-- T022 and T023 (US4) modify different functions â€” can run in parallel
+- T022 and T023 (US4) modify different functions — can run in parallel
 
 ---
 
@@ -188,21 +188,21 @@ Task: "Test bulk chapter deletion atomic manifest"
 
 ### MVP First (User Story 1 Only)
 
-1. Complete Phase 1: Setup (T001â€“T003)
+1. Complete Phase 1: Setup (T001–T003)
 2. Complete Phase 2: Foundational (T004)
-3. Complete Phase 3: User Story 1 (T005â€“T010)
+3. Complete Phase 3: User Story 1 (T005–T010)
 4. **STOP and VALIDATE**: Run `npm run lint && npm test && npm run build`
 5. The most critical P1 data-loss vulnerability is now closed
 
 ### Incremental Delivery
 
-1. Setup + Foundational â†’ Foundation ready
-2. Add US1 (atomic manifest) â†’ Test independently â†’ Validate (MVP!)
-3. Add US2 (single chapter manifest) â†’ Test independently â†’ Validate
-4. Add US3 (FK enforcement) â†’ Test independently â†’ Validate
-5. Add US4 (fail-closed) â†’ Test independently â†’ Validate
-6. Add US5 (discovery consistency) â†’ Test independently â†’ Validate
-7. Polish â†’ Final quality gate
+1. Setup + Foundational → Foundation ready
+2. Add US1 (atomic manifest) → Test independently → Validate (MVP!)
+3. Add US2 (single chapter manifest) → Test independently → Validate
+4. Add US3 (FK enforcement) → Test independently → Validate
+5. Add US4 (fail-closed) → Test independently → Validate
+6. Add US5 (discovery consistency) → Test independently → Validate
+7. Polish → Final quality gate
 
 ### Parallel Team Strategy
 

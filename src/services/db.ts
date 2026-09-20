@@ -327,8 +327,6 @@ export async function withProjectLock<T>(projectId: string, fn: () => Promise<T>
     navigator.locks &&
     typeof navigator.locks.request === 'function'
   ) {
-    type LockOutcome<R> = { ok: true; value: R } | { ok: false; error: unknown };
-
     const outcome = await withRetry(
       () =>
         navigator.locks.request(`project-lock-${projectId}`, async () => {
@@ -400,55 +398,71 @@ const executeSaveProjectToDB = async (project: StoryProject): Promise<void> => {
           normalizedChaptersMeta.push(chap as ChapterMetadata);
         }
       }
-
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(CHAPTERS_STORE, 'readonly');
-        const store = tx.objectStore(CHAPTERS_STORE);
-        let pending = normalizedChaptersMeta.length;
-        let hasError = false;
-
-        if (pending === 0) return resolve();
-
-        for (const meta of normalizedChaptersMeta) {
-          const req = store.get(meta.id);
-          req.onerror = () => {
-            if (!hasError) { hasError = true; reject(req.error); }
-          };
-          req.onsuccess = () => {
-            if (hasError) return;
-            const existing = req.result;
-            if (existing && existing.projectId !== project.id) {
-              hasError = true;
-              return reject(new Error(`Relational integrity violation: Cannot re-parent chapter "${meta.id}" from project "${existing.projectId}" to "${project.id}".`));
-            }
-            pending--;
-            if (pending === 0) resolve();
-          };
-        }
-      });
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       try {
         const transaction = db.transaction([PROJECTS_STORE, CHAPTERS_STORE], 'readwrite');
         const projectsStore = transaction.objectStore(PROJECTS_STORE);
         const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
 
-        transaction.onerror = () => reject(transaction.error);
+        let isAborted = false;
+        transaction.onerror = () => {
+          if (!isAborted) reject(transaction.error);
+        };
+        transaction.onabort = () => {
+          // Handled via reject() on validation or error
+        };
         transaction.oncomplete = () => resolve();
 
-        if (project.chapters && Array.isArray(project.chapters)) {
-          const chaptersToSave = project.chapters.filter((c: any) => 'sourceText' in c);
-          for (const chap of chaptersToSave) {
-            chaptersStore.put({ ...chap, projectId: project.id });
-          }
+        const chaptersToSave = (project.chapters && Array.isArray(project.chapters))
+          ? project.chapters.filter((c: any) => 'sourceText' in c)
+          : [];
+
+        if (normalizedChaptersMeta.length === 0) {
+          const projectToSave = {
+            ...project,
+            chapters: normalizedChaptersMeta,
+          };
+          projectsStore.put(projectToSave);
+          return;
         }
 
-        const projectToSave = {
-          ...project,
-          chapters: normalizedChaptersMeta,
-        };
-        projectsStore.put(projectToSave);
+        let pending = normalizedChaptersMeta.length;
+        for (const meta of normalizedChaptersMeta) {
+          const req = chaptersStore.get(meta.id);
+          req.onerror = () => {
+            if (!isAborted) {
+              isAborted = true;
+              try { transaction.abort(); } catch (_) {}
+              reject(req.error);
+            }
+          };
+          req.onsuccess = () => {
+            if (isAborted) return;
+            const existing = req.result as Chapter | undefined;
+            try {
+              assertChapterOwnership(existing, project.id, meta.id);
+            } catch (err) {
+              isAborted = true;
+              try { transaction.abort(); } catch (_) {}
+              reject(err);
+              return;
+            }
+
+            pending--;
+            if (pending === 0) {
+              for (const chap of chaptersToSave) {
+                chaptersStore.put({ ...chap, projectId: project.id });
+              }
+              const projectToSave = {
+                ...project,
+                chapters: normalizedChaptersMeta,
+              };
+              projectsStore.put(projectToSave);
+            }
+          };
+        }
       } catch (e) {
         reject(e);
       }
@@ -489,24 +503,8 @@ const executeAtomicSaveProjectBundle = async (
         if (chapProjectId !== project.id) {
           throw new Error(`[atomicSaveProjectBundle] Mismatched projectId in CRDT state: chapter ${crdt.chapterId} belongs to project "${chapProjectId}" which does not match bundle projectId "${project.id}".`);
         }
-
-        // Also ensure no re-parenting of existing chapters
-        await new Promise<void>((resolve, reject) => {
-          const tx = db.transaction(CHAPTERS_STORE, 'readonly');
-          const req = tx.objectStore(CHAPTERS_STORE).get(crdt.chapterId);
-          req.onsuccess = () => {
-            const existing = req.result as Chapter | undefined;
-            if (existing && existing.projectId !== project.id) {
-              reject(new Error(`Relational integrity violation: Cannot re-parent chapter "${crdt.chapterId}" from project "${existing.projectId}" to "${project.id}".`));
-            } else {
-              resolve();
-            }
-          };
-          req.onerror = () => reject(req.error);
-        });
       }
     }
-
 
     const crdtStoreName = db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains(CRDT_STATES_STORE)
       ? CRDT_STATES_STORE
@@ -522,20 +520,77 @@ const executeAtomicSaveProjectBundle = async (
       const chaptersStore = transaction.objectStore(CHAPTERS_STORE);
       const crdtStore = crdtStoreName ? transaction.objectStore(crdtStoreName) : null;
 
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error || new Error('Transaction aborted'));
+      let isAborted = false;
+      transaction.onerror = () => {
+        if (!isAborted) reject(transaction.error);
+      };
+      transaction.onabort = () => {
+        // Handled via reject() on validation or error
+      };
       transaction.oncomplete = () => resolve();
 
-      // 1. Lưu toàn bộ chapters
+      const proceedWithBundleWrites = () => {
+        // 1. Lưu toàn bộ chapters
+        for (const chap of chapters) {
+          const chapToSave = { ...chap, projectId: project.id };
+          const putReq = chaptersStore.put(chapToSave);
+          putReq.onerror = () => reject(putReq.error);
+        }
+
+        // 2. Lưu trạng thái CRDT nếu có
+        if (crdtStore && crdtStates && crdtStates.length > 0) {
+          for (const item of crdtStates) {
+            const rec: CrdtStateRecord = {
+              chapterId: item.chapterId,
+              projectId: ('projectId' in item && item.projectId) ? item.projectId : project.id,
+              state: item.state,
+              updatedAt: ('updatedAt' in item && (item as any).updatedAt)
+                ? (item as any).updatedAt
+                : (project.updatedAt || new Date().toISOString()),
+            };
+            crdtStore.put(rec);
+          }
+        }
+
+        // 3. Chuẩn hóa chapter metadata và lưu project
+        const normalizedChaptersMeta: ChapterMetadata[] = chapters.map((c) => ({
+          id: c.id,
+          title: c.title,
+          status: c.status || 'not_started',
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        }));
+
+        const projectToSave: StoryProject = {
+          ...project,
+          chapters: normalizedChaptersMeta,
+        };
+        projectsStore.put(projectToSave);
+      };
+
+      if (chapters.length === 0) {
+        proceedWithBundleWrites();
+        return;
+      }
+
+      // Pre-validate all chapters inside the transaction before any write
+      let pendingChecks = chapters.length;
       for (const chap of chapters) {
-        const chapToSave = { ...chap, projectId: project.id };
-        const getReq = chaptersStore.get(chapToSave.id);
-        getReq.onerror = () => reject(getReq.error);
+        const getReq = chaptersStore.get(chap.id);
+        getReq.onerror = () => {
+          if (!isAborted) {
+            isAborted = true;
+            try { transaction.abort(); } catch (_) {}
+            reject(getReq.error);
+          }
+        };
         getReq.onsuccess = () => {
+          if (isAborted) return;
           const existing = getReq.result as Chapter | undefined;
           try {
-            assertChapterOwnership(existing, project.id, chapToSave.id);
+            assertChapterOwnership(existing, project.id, chap.id);
           } catch (err) {
+            isAborted = true;
             console.warn(`[atomicSaveProjectBundle] ${(err as Error).message}`);
             try {
               transaction.abort();
@@ -543,40 +598,13 @@ const executeAtomicSaveProjectBundle = async (
             reject(err);
             return;
           }
-          const putReq = chaptersStore.put(chapToSave);
-          putReq.onerror = () => reject(putReq.error);
+
+          pendingChecks--;
+          if (pendingChecks === 0) {
+            proceedWithBundleWrites();
+          }
         };
       }
-
-      // 2. Lưu trạng thái CRDT nếu có
-      if (crdtStore && crdtStates && crdtStates.length > 0) {
-        for (const item of crdtStates) {
-          const rec: CrdtStateRecord = {
-            chapterId: item.chapterId,
-            projectId: ('projectId' in item && item.projectId) ? item.projectId : project.id,
-            state: item.state,
-            updatedAt: ('updatedAt' in item && (item as any).updatedAt)
-              ? (item as any).updatedAt
-              : (project.updatedAt || new Date().toISOString()),
-          };
-          crdtStore.put(rec);
-        }
-      }
-
-      // 3. Chuẩn hóa chapter metadata và lưu project
-      const normalizedChaptersMeta: ChapterMetadata[] = chapters.map((c) => ({
-        id: c.id,
-        title: c.title,
-        status: c.status || 'not_started',
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-      }));
-
-      const projectToSave: StoryProject = {
-        ...project,
-        chapters: normalizedChaptersMeta,
-      };
-      projectsStore.put(projectToSave);
     });
   }, 3, 150, 'atomicSaveProjectBundle');
 };

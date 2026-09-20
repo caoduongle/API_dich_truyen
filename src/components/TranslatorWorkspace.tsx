@@ -1,4 +1,3 @@
-import React from 'react';
 import { StoryProject, Chapter } from '../types';
 import { Edit3, AlertCircle } from 'lucide-react';
 

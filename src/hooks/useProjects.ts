@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter, ChapterMetadata } from '../types';
+import { StoryProject, GlossaryItem, PendingGlossaryItem, Chapter } from '../types';
 import {
     getProjectsFromDB,
     saveProjectToDB,
@@ -8,7 +8,6 @@ import {
     deleteChapterFromDB,
     getChapterFromDB,
     getChaptersByProjectFromDB,
-    deleteChaptersByProjectFromDB,
     saveChaptersToDB,
     getCrdtStatesByProject,
     saveCrdtStates,
@@ -17,7 +16,6 @@ import {
 } from '../services/db';
 import {
     enqueueProjectSave,
-    enqueueProjectDelete,
     waitForQueueIdle,
     runInProjectExclusiveSection,
 } from '../services/projectStorageQueue';

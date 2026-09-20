@@ -67,7 +67,7 @@ describe('src/services/directGeminiClient.ts', () => {
 
   it('rotates to next API key when encountering 429 Rate Limit', async () => {
     let callCount = 0;
-    global.fetch = vi.fn().mockImplementation(async (url, init) => {
+    global.fetch = vi.fn().mockImplementation(async (_url, init) => {
       callCount++;
       const apiKey = init.headers['x-goog-api-key'];
       if (apiKey === 'KEY_1') {
@@ -136,7 +136,7 @@ describe('src/services/directGeminiClient.ts', () => {
     localQuotaTracker.recordProviderAttempt(key1, 'gemini-2.5-flash');
 
     const calledKeys: string[] = [];
-    global.fetch = vi.fn().mockImplementation(async (url, init) => {
+    global.fetch = vi.fn().mockImplementation(async (_url, init) => {
       const apiKey = init.headers['x-goog-api-key'];
       calledKeys.push(apiKey);
       return {

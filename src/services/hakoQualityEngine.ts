@@ -15,7 +15,6 @@ import {
   QualityReviewSession,
   QualityReport,
   QualityReportStats,
-  ReauditDiffSummary,
   IssueReconciliationResult,
 } from '../types/hakoChecker';
 import { callGeminiDirect } from './directGeminiClient';

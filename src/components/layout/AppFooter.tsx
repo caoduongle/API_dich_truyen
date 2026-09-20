@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Languages, Mail, Phone } from 'lucide-react';
 import { Seal } from '../ui/Seal';
 import { Button } from '../ui/Button';

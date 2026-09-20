@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   RefreshCw, Play, Sparkles, BookOpen, FileText, Copy, Check, Save, 
-  ChevronRight, Edit3, Eraser, Search
+  Edit3, Eraser, Search
 } from 'lucide-react';
 import { ChapterMetadata, GlossaryItem, StoryProject } from '../../types';
 import { useNotifications } from '../NotificationSystem';
@@ -124,7 +124,7 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   apiKeys,
   selectedModel,
   warningParagraphMismatch,
-  enableAiQaCritique,
+  enableAiQaCritique: _enableAiQaCritique,
   qaIssues,
   hakoIssues,
   isCheckingQa,

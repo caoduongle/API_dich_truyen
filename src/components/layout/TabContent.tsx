@@ -1,5 +1,5 @@
 import React from 'react';
-import { Chapter, StoryProject, GlossaryItem, PendingGlossaryItem } from '../../types';
+import { Chapter, StoryProject } from '../../types';
 import { useProjectContext } from '../../context/ProjectContext';
 import { useAIConfigContext } from '../../context/AIConfigContext';
 import { TabSkeleton } from '../common/Skeleton';

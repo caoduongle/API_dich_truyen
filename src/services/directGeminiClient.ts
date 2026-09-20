@@ -1,9 +1,7 @@
 import { DEFAULT_MODEL_ID } from '../config/models';
 import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '../lib/text';
 import { GlossaryType } from '../types';
-import { localQuotaTracker, hashApiKey } from './localQuotaTracker';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
-import { classifyGeminiError } from './gemini/geminiErrorClassifier';
 
 export { getStoredCustomLimits };
 

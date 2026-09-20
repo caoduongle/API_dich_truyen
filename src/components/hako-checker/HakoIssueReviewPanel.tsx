@@ -6,7 +6,7 @@
  * hiển thị thống kê tổng quan và kích hoạt xuất báo cáo kiểm định.
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Filter,
   CheckCircle,
@@ -17,7 +17,6 @@ import {
   Clock,
   Download,
   RotateCcw,
-  Sparkles,
   CheckCheck,
   ChevronLeft,
   ChevronRight,
@@ -27,8 +26,6 @@ import {
 import {
   QualityIssue,
   QualityIssueDecision,
-  QualityIssueSeverity,
-  QualityIssueCategory,
   ProjectReviewChapter,
   ReauditDiffSummary,
 } from '../../types/hakoChecker';
@@ -39,7 +36,6 @@ import { EmptyState } from '../ui/EmptyState';
 import { Seal } from '../ui/Seal';
 import { Modal } from '../ui/Modal';
 import { useNotifications } from '../NotificationSystem';
-import { cn } from '../../lib/cn';
 
 export interface HakoIssueReviewPanelProps {
   issues: QualityIssue[];
@@ -65,7 +61,7 @@ export const BATCH_CONFIRM_THRESHOLD = 5;
 
 export function HakoIssueReviewPanel({
   issues,
-  chapters,
+  chapters: _chapters,
   selectedChapterIds = [],
   onDecisionChange,
   onBatchDecisionChange,

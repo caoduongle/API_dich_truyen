@@ -40,6 +40,10 @@ export function clearQuotaCache(): void {
   globalQuotaCache = null;
 }
 
+export function getQuotaCache(): QuotaCacheEntry | null {
+  return globalQuotaCache;
+}
+
 export function useModelObservability(
   apiKeys: string[],
   onModelsDiscovered?: (models: ModelInfoItem[]) => void,

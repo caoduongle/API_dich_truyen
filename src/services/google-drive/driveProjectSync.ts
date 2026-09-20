@@ -7,7 +7,6 @@ import {
 } from '../../types/googleDriveSync';
 import {
   getProjectsFromDB,
-  saveProjectToDB,
   atomicSaveProjectBundle,
   getChaptersByProjectFromDB,
   saveChapterToDB,

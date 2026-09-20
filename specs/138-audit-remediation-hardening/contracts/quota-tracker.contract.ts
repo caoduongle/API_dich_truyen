@@ -3,7 +3,7 @@
  * Định nghĩa giao diện quản lý hạn mức và bảo toàn trạng thái nghỉ qua các lần tải lại trang
  */
 
-import { KeyHealthState, LogicalSummaryStats, CustomLimit } from '../../../src/types/quota';
+import { KeyHealthState, CustomLimit } from '../../../src/types/quota';
 
 export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
 

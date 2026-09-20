@@ -3,7 +3,6 @@ import {
   verifyStorageIntegrity,
   sanitizeLocalStorage,
   STORAGE_TIER_REGISTRY,
-  ALLOWED_LOCAL_STORAGE_KEYS,
 } from '../storageAudit';
 
 describe('Storage Audit & State Ownership Invariants (TASK 13)', () => {

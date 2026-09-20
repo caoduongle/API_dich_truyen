@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useTransition } from 'react';
+import { useState, useEffect, useCallback, useTransition } from 'react';
 import { Cpu } from 'lucide-react';
 import { Chapter } from './types';
 import type { HighlightIntent } from './types/audit';

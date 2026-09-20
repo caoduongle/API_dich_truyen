@@ -6,6 +6,27 @@ import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../context/NotificationContext';
 import { escapeHtml } from '../lib/text';
 
+/**
+ * Tải danh sách chương từ IndexedDB với số luồng đồng thời có giới hạn (bounded concurrency).
+ * Ngăn chặn tình trạng nghẽn kết nối hoặc tràn bộ nhớ khi xuất tiểu thuyết có hàng ngàn chương.
+ */
+export async function loadChaptersBatch(
+  chapterIds: string[],
+  concurrencyLimit = 8
+): Promise<Chapter[]> {
+  const results: Chapter[] = [];
+  for (let i = 0; i < chapterIds.length; i += concurrencyLimit) {
+    const batch = chapterIds.slice(i, i + concurrencyLimit);
+    const fetched = await Promise.all(batch.map(id => getChapterFromDB(id)));
+    for (const chap of fetched) {
+      if (chap) {
+        results.push(chap);
+      }
+    }
+  }
+  return results;
+}
+
 export function useEpubExport() {
   const { showToast } = useNotifications();
   const [isExportingEpub, setIsExportingEpub] = useState<string | null>(null);
@@ -13,15 +34,12 @@ export function useEpubExport() {
   const handleExportEpub = async (proj: StoryProject) => {
     setIsExportingEpub(proj.id);
     try {
-      const fullChapters: Chapter[] = [];
-      if (proj.chapters && Array.isArray(proj.chapters)) {
-        for (const meta of proj.chapters) {
-          const chap = await getChapterFromDB(meta.id);
-          if (chap) {
-            fullChapters.push(chap);
-          }
-        }
-      }
+      const chapterIds = (proj.chapters && Array.isArray(proj.chapters))
+        ? proj.chapters.map(meta => meta.id)
+        : [];
+
+      const fullChapters = await loadChaptersBatch(chapterIds, 8);
+
 
       if (fullChapters.length === 0) {
         showToast({ message: "Không có chương truyện nào để xuất bản EPUB.", type: "warning" });

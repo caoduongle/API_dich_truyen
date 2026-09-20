@@ -97,11 +97,11 @@ describe('User Story 1: Total Text Preservation During Translation & Editing (T0
     mockChaptersStore.clear();
 
     const mockDB: any = {
-      transaction: (storeNames: string | string[], mode: string) => {
+      transaction: (_storeNames: string | string[], _mode: string) => {
         const tx: any = {
           oncomplete: null,
           onerror: null,
-          objectStore: (name: string) => {
+          objectStore: (_name: string) => {
             return {
               get: (id: string) => {
                 const item = mockChaptersStore.get(id);

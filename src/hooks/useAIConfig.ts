@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNotifications } from '../context/NotificationContext';
 import { DEFAULT_MODEL_ID } from '../config/models';
 import type { ModelInfoItem } from '../types/quota';

@@ -11,11 +11,11 @@ describe('Storage & CRDT Safeguard Guards (T003, T004, T005, T006)', () => {
     mockChaptersStore.clear();
 
     const mockDB: any = {
-      transaction: (storeNames: string | string[], mode: string) => {
+      transaction: (_storeNames: string | string[], _mode: string) => {
         const tx: any = {
           oncomplete: null,
           onerror: null,
-          objectStore: (name: string) => {
+          objectStore: (_name: string) => {
             return {
               get: (id: string) => {
                 const item = mockChaptersStore.get(id);

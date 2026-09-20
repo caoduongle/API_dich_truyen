@@ -9,14 +9,19 @@
 - **AI Integration**: Trực tiếp từ trình duyệt tới Google Gemini REST API (`@google/genai`).
 - **Đồng bộ Dữ liệu**: Đồng bộ hai chiều Google Drive qua OAuth 2.0 PKCE.
 
-## Các Phân Vùng Chức Năng Chính
-- **Bàn Dịch Thuật (`/workspace`)**: Giao diện song ngữ nguyên tác - bản dịch, hỗ trợ AI dịch phân đoạn, giữ định dạng chương và tra cứu thực thể tức thời.
-- **Thuật Ngữ (`/glossary`)**: Quản lý từ điển tên riêng, môn phái, võ học, địa danh với khả năng trích xuất tự động và ưu tiên thế từ.
-- **Bộ Nhớ Ngữ Cảnh (`/memory`)**: Ghi nhớ tiến trình cốt truyện, nhân vật, mối quan hệ và sự kiện quan trọng xuyên suốt toàn bộ tác phẩm.
-- **Kiểm Định Hako (`/hako`)**: Bộ lọc kiểm tra lỗi lậm convert, ngữ pháp tiếng Việt, từ cấm và quy chuẩn xuất bản light novel / web novel.
-- **Xuất Bản Thảo (`/export`)**: Xuất định dạng TXT, DOCX, EPUB với bố cục chuẩn ấn bản.
-- **Cấu Hình (`/settings`)**: Quản lý API Key cá nhân, mô hình Gemini (Gemini 2.5 Flash / Pro), nhiệt độ sinh từ và giao diện Mực & Chu Sa.
+## Các Phân Vùng Chức Năng Chính (Client-Side Tabs)
+- **Bàn Dịch Thuật (`/translate`)**: Giao diện song ngữ nguyên tác - bản dịch gióng hàng thời gian thực, hỗ trợ AI dịch phân đoạn, giữ định dạng chương và tra cứu thực thể tức thời.
+- **Dịch Tự Động Toàn Bộ (`/auto-translate`)**: Quy trình dịch thuật tự động 2 pha (dịch thô & mài giũa) xử lý hàng loạt chương tiểu thuyết với độ nhất quán cao.
+- **Thuật Ngữ (`/glossary`)**: Quản lý kho từ vựng, tên nhân vật, địa danh và thuật ngữ chuyên ngành tiếng Hán cho tác phẩm.
+- **Lịch Sử Chương Dịch (`/history`)**: Theo dõi tiến trình phiên bản, đối chiếu bản thảo trước sau và khôi phục các phân đoạn dịch.
+- **Quản Lý Tiểu Thuyết (`/projects`)**: Danh sách và thông tin các bộ truyện, thống kê tiến độ chương và cấu hình riêng cho từng tác phẩm.
+- **Kiểm Định Hako (`/hako-checker`)**: Công cụ rà soát lỗi chính tả, từ cấm, định dạng đoạn văn theo tiêu chuẩn biên tập tiểu thuyết mạng Hako.
+
+## Các Hộp Thoại & Thao Tác Bổ Trợ (Modals & Actions)
+- **Xuất Bản Thảo (Export)**: Xuất định dạng TXT và EPUB với bố cục chuẩn ấn bản (kích hoạt từ thanh công cụ hoặc bảng quản lý dự án).
+- **Cấu Hình (Settings Modal)**: Quản lý API Key cá nhân, mô hình Gemini (Gemini 2.5 Flash / Pro), xoay vòng key cục bộ và giao diện Mực & Chu Sa.
 
 ## Hướng Dẫn Dành Cho Tác Tử AI (AI Crawlers / Agents)
-- Trang web là Pure Single Page Application (SPA) hỗ trợ Client-side Routing.
+- Trang web là Pure Single Page Application (SPA) hỗ trợ Client-side Routing qua History API (`/translate`, `/auto-translate`, `/glossary`, `/history`, `/projects`, `/hako-checker`).
 - Tài liệu và thông tin cập nhật liên tục tại giao diện người dùng.
+

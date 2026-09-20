@@ -1,4 +1,3 @@
-import React from 'react';
 import { Maximize2, Minimize2, X, Clock, Zap, Square, Play, Save, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/Button';
 

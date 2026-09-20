@@ -6,8 +6,6 @@
 import {
   QualityIssue,
   QualityIssueCategory,
-  QualityIssueDecision,
-  QualityIssueSeverity,
 } from '../../../src/types/hakoChecker';
 
 export interface ReauditDiffSummary {

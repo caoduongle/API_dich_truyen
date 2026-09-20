@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   BookOpenText, Settings, History, Folder, Cpu, ShieldCheck,
   ChevronLeft, ChevronRight, MoreHorizontal, ChevronDown

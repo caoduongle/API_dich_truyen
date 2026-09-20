@@ -1,10 +1,8 @@
-import React from 'react';
 import {
   AlertTriangle,
   FileText,
   Copy,
   ArrowRightLeft,
-  CheckCircle2,
   Clock,
 } from 'lucide-react';
 import { ChapterConflictInfo } from '../../types/googleDriveSync';

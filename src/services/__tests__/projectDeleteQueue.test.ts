@@ -3,29 +3,21 @@ import {
   saveProjectToDB,
   deleteProjectFromDB,
   deleteProjectCrdtDatabases,
-  deleteChapterCrdtDatabase,
   deleteChapterFromDB,
   deleteChaptersByProjectFromDB,
-  getChapterFromDB,
   getCrdtState,
-  getCrdtStatesByProject,
   saveChapterToDB,
   saveChaptersToDB,
   saveCrdtState,
   saveCrdtStates,
   atomicSaveProjectBundle,
-  waitForProjectWrites,
   resetProjectWriteChainsForTest,
   getProjectWriteChainsSizeForTest,
   resetDBInstanceForTesting,
   CrdtStateRecord,
   recordDeletionManifest,
-  removeDeletionManifest,
   getPendingDeletionManifests,
   recoverPendingDeletions,
-  discoverProjectChapterIds,
-  getProjectsResultFromDB,
-  getProjectFromDB,
   initDB,
   DeletionManifestRecord,
 } from '../db';
@@ -71,7 +63,7 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       objectStoreNames: {
         contains: (name: string) => ['projects', 'chapters', 'crdt_states', 'deletion_manifests'].includes(name),
       },
-      transaction: (storeNames: string | string[], mode: string) => {
+      transaction: (_storeNames: string | string[], _mode: string) => {
         let activeRequests = 0;
         let isCommitted = false;
         const tx: any = {
@@ -1282,7 +1274,7 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
         open: () => {
           const faultyDB = {
             objectStoreNames: { contains: () => true },
-            transaction: (storeNames: any) => {
+            transaction: (_storeNames: any) => {
               const tx: any = { oncomplete: null, onerror: null, onabort: null };
               setTimeout(() => tx.oncomplete?.(), 10);
               tx.objectStore = (name: string) => {
@@ -1414,6 +1406,9 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       await expect(saveProjectToDB(p2)).rejects.toThrow(
         'Relational integrity violation: Cannot re-parent chapter "c_save_proj_locked" from project "proj_save_proj_orig" to "proj_save_proj_attacker".'
       );
+      // Verify atomic abort: attacker project was NOT persisted and chapter ownership remains untouched
+      expect(mockProjects.has('proj_save_proj_attacker')).toBe(false);
+      expect(mockChapters.get('c_save_proj_locked').projectId).toBe('proj_save_proj_orig');
     });
 
     it('atomicSaveProjectBundle refuses to re-parent an existing chapter to another projectId (T019)', async () => {
@@ -1427,7 +1422,11 @@ describe('Project Delete Queue Serialization & Resurrection Guard (User Story 1)
       await expect(atomicSaveProjectBundle({ ...p2, id: 'proj_atomic_attacker' }, [ { ...c, projectId: 'proj_atomic_attacker' } ])).rejects.toThrow(
         'Relational integrity violation: Cannot re-parent chapter "c_atomic_locked" from project "proj_atomic_orig" to "proj_atomic_attacker".'
       );
+      // Verify atomic abort: attacker project was NOT persisted and chapter ownership remains untouched
+      expect(mockProjects.has('proj_atomic_attacker')).toBe(false);
+      expect(mockChapters.get('c_atomic_locked').projectId).toBe('proj_atomic_orig');
     });
+
 
     it('atomicSaveProjectBundle rejects when CRDT state references a chapterId not in the bundle (US1)', async () => {
       const p = createDummyProject('p_us1_orphan', 'Orphan Project');

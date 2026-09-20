@@ -1,6 +1,6 @@
 import React from 'react';
 import { countParagraphs } from '../../lib/text';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 
 export interface ParagraphMetricsBadgeProps {
   text?: string;

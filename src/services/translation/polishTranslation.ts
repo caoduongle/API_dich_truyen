@@ -12,7 +12,6 @@ import {
   validatePolishIntegrity,
   validateParagraphParity,
   estimateTokenCount,
-  getPolishStrategyForRound,
 } from '../../lib/text';
 import { validateAndSnapBackEntities } from '../../lib/sinoNormalize';
 import {
@@ -51,7 +50,6 @@ export async function callPolishDirectCore(
     throw new Error('Bản dịch thô không được để trống khi chuốt văn phong.');
   }
 
-  const polishStrategy = getPolishStrategyForRound(roundIndex, totalRounds);
   const effectiveTemperature = typeof temperature === 'number'
     ? temperature
     : (roundIndex === 2 ? 0.5 : 0.3);

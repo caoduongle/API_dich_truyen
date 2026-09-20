@@ -3,7 +3,7 @@
  * Feature: 146-crdt-storage-lifecycle-recovery
  */
 
-import { Chapter, StoryProject } from '../../../src/types';
+import { Chapter } from '../../../src/types';
 import { CrdtStateRecord } from '../../../src/types/googleDriveSync';
 
 export interface DeletionManifestRecord {

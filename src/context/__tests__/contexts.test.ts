@@ -1,4 +1,3 @@
-import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { AIConfigProvider, useAIConfigContext } from '../AIConfigContext';
 import { ProjectProvider, useProjectContext } from '../ProjectContext';

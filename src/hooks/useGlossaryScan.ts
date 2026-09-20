@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StoryProject, GlossaryItem, PendingGlossaryItem, ChapterMetadata } from '../types';
-import { getChapterFromDB, getChaptersByProjectFromDB } from '../services/db';
+import { getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';

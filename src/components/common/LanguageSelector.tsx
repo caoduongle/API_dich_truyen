@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Languages, ChevronDown, Check } from 'lucide-react';
 import { useTranslation } from '../../i18n/I18nContext';

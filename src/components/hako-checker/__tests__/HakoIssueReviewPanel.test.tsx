@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import React from 'react';
 import { renderToString } from 'react-dom/server';
 import {
   HakoIssueReviewPanel,
@@ -75,7 +74,6 @@ describe('HakoIssueReviewPanel Batch Action Confirmation & Undo Guard', () => {
     it('executes batch confirm with > 5 issues through confirmation modal and allows undo', () => {
       const issues = createMockIssues(10);
       const onBatchDecisionChange = vi.fn();
-      const onDecisionChange = vi.fn();
 
       // Captured state and toast options
       let capturedToastOptions: any = null;

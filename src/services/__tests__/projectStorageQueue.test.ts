@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   enqueueProjectSave,
+  enqueueProjectDelete,
   waitForQueueIdle,
   resetProjectWriteQueueForTest,
 } from '../projectStorageQueue';
@@ -9,9 +10,11 @@ import { StoryProject } from '../../types';
 
 vi.mock('../db', () => ({
   saveProjectToDB: vi.fn(),
+  deleteProjectFromDB: vi.fn(),
   waitForProjectWrites: vi.fn(async () => {}),
   resetProjectWriteChainsForTest: vi.fn(),
 }));
+
 
 describe('projectStorageQueue', () => {
   beforeEach(() => {
@@ -40,6 +43,16 @@ describe('projectStorageQueue', () => {
     
     expect(db.saveProjectToDB).toHaveBeenCalledWith(p1);
     expect(db.saveProjectToDB).toHaveBeenCalledTimes(1);
+    await promise;
+  });
+
+  it('delegates enqueueProjectDelete directly to deleteProjectFromDB', async () => {
+    vi.mocked(db.deleteProjectFromDB).mockResolvedValue(undefined);
+
+    const promise = enqueueProjectDelete('proj_delete_1');
+
+    expect(db.deleteProjectFromDB).toHaveBeenCalledWith('proj_delete_1');
+    expect(db.deleteProjectFromDB).toHaveBeenCalledTimes(1);
     await promise;
   });
 

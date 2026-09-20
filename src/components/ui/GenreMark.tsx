@@ -1,4 +1,3 @@
-import React from 'react';
 import { Seal } from './Seal';
 
 /**

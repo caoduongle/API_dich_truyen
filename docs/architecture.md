@@ -84,7 +84,7 @@ flowchart TD
 |:---|:---|:---|:---|:---|
 | **Dự án, Chương truyện, Bản thảo** | **IndexedDB** (`db.ts`) | React Memory | Vĩnh viễn (Client-owned) | IndexedDB Version Migration, Storage Audit |
 | **Báo cáo Kiểm định Hako** | **IndexedDB** (`HakoQualityCheckerDB`) | React Memory | Vĩnh viễn (Client-owned) | Xóa theo dự án hoặc dọn thủ công |
-| **API Keys & Credentials** | **`sessionStorage`** | Bộ nhớ tiến trình React | Session trình duyệt | Tự xóa khi đóng tab, không lưu plaintext trong `localStorage` |
+| **API Keys & Credentials** | **`sessionStorage`** (phiên) / **`localStorage['app_ui_prefs'].savedKeys`** (khi bật `rememberKeys`) | Bộ nhớ tiến trình React | Phiên tab (tự xóa khi tắt `rememberKeys`) hoặc lưu bền vững khi người dùng chọn ghi nhớ | Cấm lưu ở key gốc `localStorage['gemini_api_keys']`, xóa sạch khỏi `localStorage` ngay khi tắt `rememberKeys`, có cảnh báo thiết bị dùng chung |
 | **Giao diện & Cài đặt UI** | **`localStorage`** | React Memory | Vĩnh viễn | Tự đồng bộ qua ThemeContext |
 | **Mô hình AI Khám phá (SWR)** | **`localStorage`** | React State | 24 giờ SWR | Stale Cache Preservation, tự khôi phục khi offline |
 | **Thống kê Quota & Token Usage** | **`localQuotaTracker` (In-memory)** | React Memory | Chu kỳ ngày PST | Reset lúc 00:00:00 PST (`America/Los_Angeles`) |

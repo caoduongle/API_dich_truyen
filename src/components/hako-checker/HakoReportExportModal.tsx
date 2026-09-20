@@ -6,14 +6,11 @@
  * Hỗ trợ sao chép vào clipboard chỉ với 1 cú click.
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   Copy,
   Check,
   FileText,
-  AlertTriangle,
-  Layers,
-  Sparkles,
 } from 'lucide-react';
 import { QualityReviewSession, QualityReport } from '../../types/hakoChecker';
 import { generateQualityReport } from '../../services/hakoQualityEngine';

@@ -10,8 +10,8 @@ export const DELETION_MANIFESTS_STORE = 'deletion_manifests';
  */
 export function handleDBUpgrade(
   db: IDBDatabase,
-  oldVersion: number,
-  newVersion: number | null,
+  _oldVersion: number,
+  _newVersion: number | null,
   transaction: IDBTransaction | null
 ): void {
   // Schema v1 -> v2: Khởi tạo store projects

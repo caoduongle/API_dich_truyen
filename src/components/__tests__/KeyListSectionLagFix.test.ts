@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { migrateAndLoadApiKeys } from '../../hooks/useAIConfig';
 import { computeModelStatsSummary } from '../../utils/modelRegistry';
-import type { KeyQuotaFullSnapshot } from '../../types/quota';
 
 describe('Key Configuration Lag & Lifecycle Fixes (Feature 118)', () => {
   let mockLocalStorage: Record<string, string> = {};

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeChapterTitle,
   formatChapterForWeb,
-  formatChapterForAudio,
   buildExportFileContent,
   formatExportTxtFileName,
   FormattedChapterInput

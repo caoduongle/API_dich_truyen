@@ -92,7 +92,7 @@ export function SkeletonGlossaryRow() {
 /**
  * Full Tab Loading Skeleton khi Suspense đang nạp mã nguồn component tab
  */
-export function TabSkeleton({ title = 'Đang tải bản thảo...' }: { title?: string }) {
+export function TabSkeleton({ title: _title = 'Đang tải bản thảo...' }: { title?: string }) {
   return (
     <div className="space-y-5 animate-fade-in p-2">
       {/* Thanh tiêu đề giả lập */}

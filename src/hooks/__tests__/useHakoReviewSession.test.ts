@@ -640,8 +640,8 @@ describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
 
       // Call without 3rd parameter
       const updateFunction = async (
-        chapters: Record<string, ProjectReviewChapter>,
-        issues: QualityIssue[],
+        _chapters: Record<string, ProjectReviewChapter>,
+        _issues: QualityIssue[],
         status: 'completed' | 'partial' | 'analyzing' = 'completed'
       ) => {
         savedStatus = status;
@@ -820,7 +820,7 @@ describe('Hako Checker Session Decoupling & Sanitization Tests', () => {
         set onclose(fn: any) {
           closeHandler = fn;
         },
-        set onversionchange(fn: any) {
+        set onversionchange(_fn: any) {
           // no-op
         },
       };

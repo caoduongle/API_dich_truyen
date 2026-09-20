@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StoryProject, Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryItem } from '../types';
-import { getChapterFromDB, saveChapterToDB } from '../services/db';
+import { getChapterFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
 import { executeSingleChapterTranslation, SingleChapterResult } from '../services/chapterTranslationService';
-import { getDynamicPacingInterval, isTpmNearLimit } from '../utils/modelRegistry';
+import { getDynamicPacingInterval } from '../utils/modelRegistry';
 import { localQuotaTracker } from '../services/localQuotaTracker';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 

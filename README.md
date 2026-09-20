@@ -18,7 +18,10 @@ Dữ liệu dự án và chương được lưu cục bộ trong **IndexedDB**. 
 
 Ứng dụng có `localQuotaTracker` để quản lý việc sử dụng nhiều API key phía client, gồm xoay vòng key, cooldown, circuit breaker và theo dõi request/token.
 
+Khóa API được lưu tạm thời trong `sessionStorage` (phiên làm việc) và được đồng bộ vào `localStorage['app_ui_prefs'].savedKeys` khi người dùng bật tùy chọn "Ghi nhớ API key" để tránh phải nhập lại. Khi tắt tùy chọn này, khóa sẽ được xóa sạch khỏi `localStorage` và chỉ lưu trong phiên tab hiện tại. Ứng dụng không khuyến nghị bật ghi nhớ trên máy tính công cộng.
+
 Đây là cơ chế quản lý phía ứng dụng, không thay thế quota do Google/Gemini áp dụng.
+
 
 ### Lưu trữ và đồng bộ
 
@@ -77,7 +80,7 @@ Chi tiết kiến trúc xem [`docs/architecture.md`](docs/architecture.md).
 
 ## Yêu cầu
 
-- Node.js 18+; nên dùng bản LTS.
+- Node.js 20 LTS.
 - npm
 - Trình duyệt hiện đại hỗ trợ ES2022, IndexedDB và Web Crypto API.
 

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Maximize2, Minimize2, X, RefreshCw, Sparkles, Square, Check } from 'lucide-react';
 import { StoryProject } from '../../types';
 import { Button } from '../ui/Button';

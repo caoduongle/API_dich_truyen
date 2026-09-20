@@ -1,11 +1,8 @@
-import { StoryProject, Chapter } from '../types';
+import { StoryProject } from '../types';
 import {
   DriveSyncManifest,
-  DriveProjectSummary,
   SyncProgress,
   SyncConflictInfo,
-  SharedProjectManifest,
-  ChapterManifestItem,
   ChapterConflictInfo,
 } from '../types/googleDriveSync';
 

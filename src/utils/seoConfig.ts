@@ -14,15 +14,16 @@ export const SEO_CONFIG = {
    * Xác định Base URL theo môi trường trình duyệt hoặc cấu hình build
    */
   getBaseUrl(): string {
+    // 1. Ưu tiên biến môi trường VITE_PUBLIC_URL nếu được cấu hình
+    const publicUrl = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_PUBLIC_URL
+      ? String(import.meta.env.VITE_PUBLIC_URL).trim().replace(/\/+$/, '')
+      : '';
+    if (publicUrl && publicUrl.startsWith('http')) {
+      return publicUrl;
+    }
+    // 2. Sử dụng origin thực tế của trình duyệt nếu có
     if (typeof window !== 'undefined' && window.location && window.location.origin) {
       return window.location.origin;
-    }
-    // Hỗ trợ Vite import.meta.env nếu có
-    const envUrl = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BASE_URL
-      ? String(import.meta.env.VITE_BASE_URL)
-      : '';
-    if (envUrl && envUrl.startsWith('http')) {
-      return envUrl.replace(/\/+$/, '');
     }
     return 'https://api-dich-truyen.onrender.com';
   },

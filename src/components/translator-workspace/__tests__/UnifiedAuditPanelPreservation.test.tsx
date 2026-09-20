@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { UnifiedAuditPanel } from '../UnifiedAuditPanel';
 import type { UnifiedAuditIssue } from '../../../types/audit';
@@ -16,20 +15,6 @@ describe('User Story 2: Integrity Guard During Quality Auditing & Auto-Fixes (T0
 
   it('renders auto-fix action for fixable audit issues without modifying underlying source text', () => {
     const handleApplyAuditFixMock = vi.fn();
-
-    const mockIssues: UnifiedAuditIssue[] = [
-      {
-        id: 'audit-1',
-        title: 'Sót chữ Hán',
-        message: 'Chữ Hán 纵横 cần được loại bỏ hoặc dịch',
-        severity: 'error',
-        source: 'hako_rule',
-        autoFixable: true,
-        targetText: '纵横',
-        suggestion: 'tung hoành',
-        status: 'pending',
-      },
-    ];
 
     const html = renderToString(
       <UnifiedAuditPanel

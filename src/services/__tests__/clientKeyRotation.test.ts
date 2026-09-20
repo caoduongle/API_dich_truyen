@@ -17,7 +17,7 @@ describe('src/services/clientKeyRotation.test.ts', () => {
   it('rotates through multiple keys starting from startKeyIndex', async () => {
     const calledKeys: string[] = [];
 
-    global.fetch = vi.fn().mockImplementation(async (url, init) => {
+    global.fetch = vi.fn().mockImplementation(async (_url, init) => {
       const apiKey = init.headers['x-goog-api-key'];
       calledKeys.push(apiKey);
 
@@ -62,7 +62,7 @@ describe('src/services/clientKeyRotation.test.ts', () => {
   it('rotates on 503 Provider Unavailable error', async () => {
     const calledKeys: string[] = [];
 
-    global.fetch = vi.fn().mockImplementation(async (url, init) => {
+    global.fetch = vi.fn().mockImplementation(async (_url, init) => {
       const apiKey = init.headers['x-goog-api-key'];
       calledKeys.push(apiKey);
 
@@ -117,7 +117,7 @@ describe('src/services/clientKeyRotation.test.ts', () => {
     expect(initialErrors).toBe(1);
 
     const calledKeys: string[] = [];
-    global.fetch = vi.fn().mockImplementation(async (url, init) => {
+    global.fetch = vi.fn().mockImplementation(async (_url, init) => {
       const apiKey = init.headers['x-goog-api-key'];
       calledKeys.push(apiKey);
       return {

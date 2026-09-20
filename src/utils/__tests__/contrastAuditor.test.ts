@@ -3,7 +3,6 @@ import {
   calculateLuminance,
   calculateContrastRatio,
   auditThemeSnippets,
-  THEME_PALETTES,
 } from '../contrastAuditor';
 
 describe('WCAG 2.1 Color Contrast Auditor Tests', () => {

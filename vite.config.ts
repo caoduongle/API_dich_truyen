@@ -4,9 +4,20 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  const publicUrl = (process.env.VITE_PUBLIC_URL || 'https://api-dich-truyen.onrender.com').replace(/\/+$/, '');
+  process.env.VITE_PUBLIC_URL = publicUrl;
   return {
     base: process.env.VITE_BASE_URL || '/',
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'html-transform-public-url',
+        transformIndexHtml(html: string) {
+          return html.replaceAll('%VITE_PUBLIC_URL%', publicUrl);
+        },
+      },
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -6,7 +6,7 @@ import { useNotifications } from '../context/NotificationContext';
 
 export function computeDuplicateGroups(
   glossary: GlossaryItem[], 
-  projectId: string = '', 
+  _projectId: string = '', 
   ignoredDuplicatePairs: string[] = []
 ): DuplicateGroupEdit[] {
   const n = glossary.length;

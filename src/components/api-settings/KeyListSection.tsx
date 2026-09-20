@@ -182,7 +182,7 @@ export function KeyListSection({
   onUpdateKeyIndex,
   onDeleteKeyIndex,
   onImportClipboardKeys,
-  onBatchUpdateKeys,
+  onBatchUpdateKeys: _onBatchUpdateKeys,
   rememberKeys = true,
   onToggleRememberKeys,
 }: KeyListSectionProps) {
@@ -298,21 +298,28 @@ export function KeyListSection({
 
       {/* Tùy chọn ghi nhớ khóa bền vững */}
       {onToggleRememberKeys && (
-        <div className="flex items-center justify-between pt-1 border-t border-parchment-2/40">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={rememberKeys}
-              onChange={e => onToggleRememberKeys(e.target.checked)}
-              className="rounded-[2px] text-polish focus:ring-polish/60 cursor-pointer"
-            />
-            <span className="text-[11px] text-text-main font-semibold">
-              Ghi nhớ API Key trên trình duyệt này
+        <div className="pt-1 border-t border-parchment-2/40 space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberKeys}
+                onChange={e => onToggleRememberKeys(e.target.checked)}
+                className="rounded-[2px] text-polish focus:ring-polish/60 cursor-pointer"
+              />
+              <span className="text-[11px] text-text-main font-semibold">
+                Ghi nhớ API Key trên trình duyệt này
+              </span>
+            </label>
+            <span className="text-[10px] text-text-muted">
+              {rememberKeys ? 'Không bị xóa khi đóng tab' : 'Chỉ lưu trong tab này'}
             </span>
-          </label>
-          <span className="text-[10px] text-text-muted">
-            {rememberKeys ? 'Không bị xóa khi đóng tab' : 'Chỉ lưu trong tab này'}
-          </span>
+          </div>
+          {rememberKeys && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-400 pl-5 leading-normal">
+              ⚠️ Không nên bật trên máy tính công cộng hoặc thiết bị dùng chung.
+            </p>
+          )}
         </div>
       )}
 

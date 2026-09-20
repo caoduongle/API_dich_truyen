@@ -1,4 +1,3 @@
-import React from 'react';
 import { ChapterMetadata } from '../../types';
 import { CHINESE_EXAMPLES } from '../../data/examples';
 import { Button } from '../ui/Button';

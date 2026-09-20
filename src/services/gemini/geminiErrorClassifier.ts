@@ -6,7 +6,7 @@
  * 3. message fallback
  */
 
-import { ClassifiedGeminiError, ClassifiedErrorCategory } from './types';
+import { ClassifiedGeminiError } from './types';
 
 export function classifyGeminiError(
   httpStatus: number,

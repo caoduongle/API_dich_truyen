@@ -68,7 +68,6 @@ export default function ApiSettings({
   // Lấy danh sách dynamic models từ AIConfigContext
   const {
     availableModels,
-    customModels,
     addCustomModel,
     removeCustomModel,
     registerDiscoveredModels,

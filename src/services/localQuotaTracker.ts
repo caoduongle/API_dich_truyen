@@ -145,7 +145,6 @@ export {
 import {
   hashApiKey,
   legacyHashApiKey,
-  isLegacyHash,
 } from '../utils/apiKeyHash';
 import { migrateCustomLimits } from '../utils/customLimitsStorage';
 
@@ -454,7 +453,7 @@ class LocalQuotaTracker {
   /**
    * Ghi nhận một hành vi thử lại (retry) hoặc xoay vòng sang khóa mới (key rotation)
    */
-  public recordRetry(key?: string, now: number = Date.now()): void {
+  public recordRetry(_key?: string, now: number = Date.now()): void {
     this.checkPstReset(now);
     this.summaryStats.retriesTotal++;
     this.summaryStats.retriesToday++;

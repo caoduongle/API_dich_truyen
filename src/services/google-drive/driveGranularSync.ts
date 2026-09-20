@@ -4,7 +4,6 @@ import {
   ChapterManifestItem,
   ChapterConflictInfo,
   SyncProgress,
-  SelectedDriveFile,
   FailedChapterPull,
   GranularProjectSyncSummary,
 } from '../../types/googleDriveSync';
@@ -49,7 +48,7 @@ export function sanitizeChapterTitleSlug(title: string): string {
  * Tạo tên file chương rõ ràng, dễ phân biệt trên Google Drive / Picker
  * Ví dụ: "chapter_001_chuong-1-yem-nguc.json" hoặc "chapter_012.json"
  */
-export function formatChapterFileName(index: number, title?: string, chapId?: string): string {
+export function formatChapterFileName(index: number, title?: string, _chapId?: string): string {
   const padIndex = String(index + 1).padStart(3, '0');
   const slug = sanitizeChapterTitleSlug(title || '');
   if (slug) {

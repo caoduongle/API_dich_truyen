@@ -51,7 +51,7 @@ export function ProjectFormModal({
   const [guidelineFileName, setGuidelineFileName] = useState('');
   const [isAnalyzingGuidelines, setIsAnalyzingGuidelines] = useState(false);
   const [analyzedGlossary, setAnalyzedGlossary] = useState<Omit<GlossaryItem, 'id'>[]>([]);
-  const [analyzedInfo, setAnalyzedInfo] = useState<{ genre?: string; tone?: string; description?: string } | null>(null);
+  const [_analyzedInfo, setAnalyzedInfo] = useState<{ genre?: string; tone?: string; description?: string } | null>(null);
 
   const rawInputRef = useRef<HTMLInputElement>(null);
   const mdInputRef = useRef<HTMLInputElement>(null);

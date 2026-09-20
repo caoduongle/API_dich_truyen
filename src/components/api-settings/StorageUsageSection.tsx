@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { HardDrive, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../lib/cn';

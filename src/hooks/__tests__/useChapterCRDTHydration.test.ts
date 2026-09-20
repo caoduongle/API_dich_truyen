@@ -104,7 +104,7 @@ describe('User Story 2: Editor CRDT State Hydration on Undo Reopening (T010)', (
       objectStoreNames: {
         contains: (name: string) => ['projects', 'chapters', 'crdt_states'].includes(name),
       },
-      transaction: (storeNames: string | string[], mode: string) => {
+      transaction: (_storeNames: string | string[], _mode: string) => {
         let activeRequests = 0;
         let isCommitted = false;
         const tx: any = {
@@ -212,7 +212,7 @@ describe('User Story 2: Editor CRDT State Hydration on Undo Reopening (T010)', (
   });
 
   it('hydrates Y.Doc from stored crdt_states snapshot upon opening a chapter session', async () => {
-    const { saveCrdtState, saveProjectToDB, saveChapterToDB, resetDBInstanceForTesting, getCrdtState } = await import('../../services/db');
+    const { saveCrdtState, saveProjectToDB, saveChapterToDB, resetDBInstanceForTesting } = await import('../../services/db');
     resetDBInstanceForTesting();
 
     // 1. Setup parent project and chapter
@@ -271,7 +271,7 @@ describe('User Story 2: Editor CRDT State Hydration on Undo Reopening (T010)', (
   });
 
   it('aborts CRDT hydration when crdtRecord.projectId !== projectId (T020)', async () => {
-    const { saveCrdtState, saveProjectToDB, saveChapterToDB, resetDBInstanceForTesting } = await import('../../services/db');
+    const { saveProjectToDB, saveChapterToDB, resetDBInstanceForTesting } = await import('../../services/db');
     resetDBInstanceForTesting();
 
     // 1. Setup project A and chapter

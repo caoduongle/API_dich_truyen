@@ -3,7 +3,6 @@ import {
   getDiscoveredModels,
   saveDiscoveredModels,
   migrateModelSelection,
-  normalizeModelId,
   isDiscoveryStale,
 } from '../modelRegistry';
 import { DEFAULT_MODEL_ID } from '../../config/models';

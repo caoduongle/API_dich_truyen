@@ -75,7 +75,7 @@ vi.mock('react', () => {
         useEffect: vi.fn(),
         useCallback: (fn: any) => fn,
         useMemo: (fn: any) => fn(),
-        useRef: (initial: any) => {
+        useRef: (_initial: any) => {
             return {
                 get current() {
                     return refCurrent;

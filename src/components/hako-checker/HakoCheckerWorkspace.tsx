@@ -6,7 +6,7 @@
  * Tích hợp toàn bộ luồng: Chọn dự án -> Chọn chương -> Rà soát Heuristic & AI -> Duyệt lỗi -> Xuất báo cáo.
  */
 
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import {
   ShieldCheck,
   RefreshCw,
@@ -15,8 +15,6 @@ import {
   X,
 } from 'lucide-react';
 import {
-  QualityReviewSession,
-  ProjectReviewChapter,
   QualityIssue,
   HakoChapterFull,
   ReauditDiffSummary,
@@ -72,20 +70,6 @@ export function HakoCheckerWorkspace({
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [diffSummary, setDiffSummary] = useState<ReauditDiffSummary | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Safe selected chapters derivation with defensive filter
-  const selectedChapters = useMemo(() => {
-    if (!session?.chapters || !session?.selectedChapterIds) return [];
-    const selectedSet = new Set(session.selectedChapterIds.map(String));
-    return Object.values(session.chapters).filter(
-      (c): c is ProjectReviewChapter => Boolean(c && selectedSet.has(String(c.chapterId)))
-    );
-  }, [session?.chapters, session?.selectedChapterIds]);
-
-  // Safe total word count aggregation
-  const _totalSelectedWords = useMemo(() => {
-    return selectedChapters.reduce((sum, c) => sum + (c?.wordCount || 0), 0);
-  }, [selectedChapters]);
 
   const completedChaptersCount = useMemo(() => {
     if (!session?.chapters || !session?.selectedChapterIds) return 0;

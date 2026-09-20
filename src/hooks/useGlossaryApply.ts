@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, startTransition } from 'react';
 import { StoryProject, Chapter } from '../types';
-import { getChapterFromDB, saveChaptersToDB, getChaptersByProjectFromDB } from '../services/db';
+import { saveChaptersToDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../context/NotificationContext';
 
