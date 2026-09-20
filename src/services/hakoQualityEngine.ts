@@ -18,7 +18,7 @@ import {
   IssueReconciliationResult,
 } from '../types/hakoChecker';
 import { callGeminiDirect } from './directGeminiClient';
-import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '../lib/text';
+import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput, parseGeminiStructuredResponse } from '../lib/text';
 
 /**
  * Chuẩn hóa đoạn trích văn bản tiếng Việt để so khớp ổn định giữa các lần quét:
@@ -529,7 +529,10 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
         signal,
       });
 
-      const parsed = JSON.parse(res.text);
+      const parsed = parseGeminiStructuredResponse<any>(res.text, {
+        contextName: 'hakoQualityEngine.runAiQualityScan',
+        fallback: { issues: [] },
+      });
       const rawIssues = Array.isArray(parsed?.issues) ? parsed.issues : [];
 
       for (const item of rawIssues) {

@@ -1,5 +1,5 @@
 import { DEFAULT_MODEL_ID } from '../config/models';
-import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput } from '../lib/text';
+import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput, parseGeminiStructuredResponse } from '../lib/text';
 import { GlossaryType } from '../types';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 
@@ -31,15 +31,23 @@ export { formatGeminiNetworkError };
  * (Facade chuyển tiếp tới mô-đun hóa src/services/gemini/geminiClient.ts)
  */
 export async function callGeminiDirect(
-  options: DirectGeminiRequestOptions & { schema?: Record<string, any> }
+  options: DirectGeminiRequestOptions
 ): Promise<DirectGeminiResponse> {
   return callGemini(options);
 }
 
+export interface ListModelsOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
 /**
- * Tra cứu danh sách models trực tiếp từ Google Gemini API bằng API key cá nhân.
+ * Tra cứu danh sách models trực tiếp từ Google Gemini API bằng API key cá nhân kèm timeout bảo vệ 15s.
  */
-export async function listModelsDirect(apiKey: string): Promise<Array<{
+export async function listModelsDirect(
+  apiKey: string,
+  options?: ListModelsOptions
+): Promise<Array<{
   name: string;
   displayName: string;
   description?: string;
@@ -52,6 +60,25 @@ export async function listModelsDirect(apiKey: string): Promise<Array<{
     throw new Error('API key không hợp lệ.');
   }
 
+  const timeoutMs = options?.timeoutMs ?? 15_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new Error(`Quá thời gian kết nối (timeout ${timeoutMs / 1000}s) khi tải danh sách models từ Google Gemini API.`));
+  }, timeoutMs);
+
+  let onCallerAbort: (() => void) | undefined;
+  if (options?.signal) {
+    if (options.signal.aborted) {
+      clearTimeout(timeoutId);
+      controller.abort(options.signal.reason);
+    } else {
+      onCallerAbort = () => {
+        controller.abort(options.signal?.reason);
+      };
+      options.signal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+  }
+
   const endpointUrl = `https://generativelanguage.googleapis.com/v1beta/models`;
   try {
     const response = await fetch(endpointUrl, {
@@ -59,6 +86,7 @@ export async function listModelsDirect(apiKey: string): Promise<Array<{
       headers: {
         'x-goog-api-key': cleanKey,
       },
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -79,6 +107,11 @@ export async function listModelsDirect(apiKey: string): Promise<Array<{
     }));
   } catch (err: any) {
     throw formatGeminiNetworkError(err);
+  } finally {
+    clearTimeout(timeoutId);
+    if (options?.signal && onCallerAbort) {
+      options.signal.removeEventListener('abort', onCallerAbort);
+    }
   }
 }
 
@@ -203,7 +236,16 @@ export async function quickTranslateTermDirect(options: {
     temperature: 0.1,
   });
 
-  const parsed = JSON.parse(res.text);
+  const parsed = parseGeminiStructuredResponse<any>(res.text, {
+    contextName: 'generateQuickTermDetailsDirect',
+    fallback: {
+      chinese: sanitizedTerm.trim(),
+      pinyin: '',
+      vietnamese: '',
+      type: 'character',
+      note: '',
+    },
+  });
   return {
     chinese: parsed.chinese || sanitizedTerm.trim(),
     pinyin: parsed.pinyin || '',

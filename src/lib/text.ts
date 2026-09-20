@@ -323,6 +323,45 @@ export function safeParseJson<T = any>(text: string): T | null {
   }
 }
 
+export interface StructuredParserOptions<T> {
+  validator?: (data: unknown) => data is T;
+  fallback?: T;
+  contextName?: string;
+}
+
+/**
+ * Chuẩn hóa giải mã dữ liệu JSON cấu trúc từ phản hồi AI kèm schema validation và fallback
+ */
+export function parseGeminiStructuredResponse<T>(
+  text: string,
+  options?: StructuredParserOptions<T>
+): T {
+  let parsed: T | null = null;
+  try {
+    parsed = safeParseJson<T>(text);
+  } catch (_) {
+    parsed = null;
+  }
+
+  if (parsed === null) {
+    if (options && options.fallback !== undefined) {
+      return options.fallback;
+    }
+    const context = options?.contextName ? ` trong ngữ cảnh [${options.contextName}]` : '';
+    throw new Error(`Không thể phân tích dữ liệu JSON trả về từ AI${context}.`);
+  }
+
+  if (options?.validator && !options.validator(parsed)) {
+    if (options.fallback !== undefined) {
+      return options.fallback;
+    }
+    const context = options?.contextName ? ` trong ngữ cảnh [${options.contextName}]` : '';
+    throw new Error(`Dữ liệu JSON từ AI${context} không thỏa mãn cấu trúc yêu cầu.`);
+  }
+
+  return parsed;
+}
+
 // Định vị điểm phân tách văn bản an toàn không làm đứt câu
 export function findSplitPoint(text: string): number {
   const mid = Math.floor(text.length / 2);

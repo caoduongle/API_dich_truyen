@@ -9,6 +9,7 @@ import {
   estimateTokenCount,
   splitTextAdaptively,
   safeParseJson,
+  parseGeminiStructuredResponse,
   getGenreStyleGuide,
   getPolishStrategyForRound,
   calculateTextSimilarity,
@@ -304,6 +305,60 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
       const target = Array(9).fill(p).join('\n\n'); // 9 paragraphs: 1/10 = 10% <= 20%
 
       expect(() => validateParagraphParity(ref, target, 0.20, 5)).not.toThrow();
+    });
+  });
+
+  describe('parseGeminiStructuredResponse', () => {
+    it('parses valid JSON response directly', () => {
+      const input = '{"chinese": "仙", "vietnamese": "Tiên"}';
+      const result = parseGeminiStructuredResponse<{ chinese: string; vietnamese: string }>(input);
+      expect(result).toEqual({ chinese: '仙', vietnamese: 'Tiên' });
+    });
+
+    it('parses markdown-fenced JSON response cleanly', () => {
+      const input = '```json\n{"status": "ok", "items": [1, 2, 3]}\n```';
+      const result = parseGeminiStructuredResponse<{ status: string; items: number[] }>(input);
+      expect(result.status).toBe('ok');
+      expect(result.items).toHaveLength(3);
+    });
+
+    it('returns fallback on malformed JSON when fallback is provided', () => {
+      const malformed = 'Not valid JSON at all';
+      const fallback = { status: 'fallback', items: [] };
+      const result = parseGeminiStructuredResponse(malformed, { fallback });
+      expect(result).toEqual(fallback);
+    });
+
+    it('throws descriptive error on malformed JSON when fallback is omitted', () => {
+      const malformed = 'This is corrupted data {';
+      expect(() =>
+        parseGeminiStructuredResponse(malformed, { contextName: 'UnitTesting' })
+      ).toThrow(/trong ngữ cảnh \[UnitTesting\]/);
+    });
+
+    it('validates schema using validator predicate and triggers fallback on failure', () => {
+      const input = '{"age": "twenty"}';
+      interface Person { age: number }
+      const isPerson = (data: any): data is Person => typeof data?.age === 'number';
+
+      const fallback: Person = { age: 0 };
+      const result = parseGeminiStructuredResponse<Person>(input, {
+        validator: isPerson,
+        fallback,
+      });
+      expect(result).toEqual(fallback);
+    });
+
+    it('throws error when validator fails and no fallback is provided', () => {
+      const input = '{"role": "guest"}';
+      const isAdmin = (data: any): data is { role: 'admin' } => data?.role === 'admin';
+
+      expect(() =>
+        parseGeminiStructuredResponse(input, {
+          validator: isAdmin,
+          contextName: 'AdminCheck',
+        })
+      ).toThrow(/Dữ liệu JSON từ AI trong ngữ cảnh \[AdminCheck\] không thỏa mãn cấu trúc yêu cầu/);
     });
   });
 });

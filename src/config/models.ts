@@ -113,7 +113,7 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
   },
   {
     id: 'gemma-4-31b-it',
-    label: 'Gemma 4 31B IT (Local)',
+    label: 'Gemma 4 31B IT (API)',
     source: 'preset',
     status: 'active',
     verified: true,

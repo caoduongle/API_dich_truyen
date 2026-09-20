@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { callGeminiDirect, DirectGeminiRequestOptions } from '../directGeminiClient';
+import { callGeminiDirect, listModelsDirect, DirectGeminiRequestOptions } from '../directGeminiClient';
 import { localQuotaTracker, hashApiKey } from '../localQuotaTracker';
 import { saveStoredCustomLimits, clearStoredCustomLimits } from '../../utils/customLimitsStorage';
 
@@ -187,5 +187,75 @@ describe('src/services/directGeminiClient.ts', () => {
     ).rejects.toThrow(/hạn mức|quá tải|RESOURCE_EXHAUSTED|cá nhân/i);
 
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  describe('listModelsDirect', () => {
+    it('successfully queries models from endpoint with clean API key', async () => {
+      const mockModelsData = {
+        models: [
+          {
+            name: 'models/gemini-2.5-flash',
+            displayName: 'Gemini 2.5 Flash',
+            description: 'Fast model',
+            supportedGenerationMethods: ['generateContent'],
+          },
+        ],
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => mockModelsData,
+      } as any);
+
+      const res = await listModelsDirect('  AIzaSyValidTestKey  ');
+      expect(res).toHaveLength(1);
+      expect(res[0].name).toBe('models/gemini-2.5-flash');
+      expect(res[0].displayName).toBe('Gemini 2.5 Flash');
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://generativelanguage.googleapis.com/v1beta/models',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { 'x-goog-api-key': 'AIzaSyValidTestKey' },
+        })
+      );
+    });
+
+    it('aborts when timeout is reached', async () => {
+      // Simulate stalled request
+      global.fetch = vi.fn().mockImplementation((_url, init) => {
+        return new Promise((_, reject) => {
+          if (init?.signal) {
+            init.signal.addEventListener('abort', () => {
+              const err = new Error('The operation was aborted.');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          }
+        });
+      });
+
+      await expect(
+        listModelsDirect('AIzaSyValidTestKey', { timeoutMs: 50 })
+      ).rejects.toThrow(/mất kết nối|timeout|aborted/i);
+    });
+
+    it('cancels immediately when external signal is aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      global.fetch = vi.fn().mockImplementation((_url, init) => {
+        if (init?.signal?.aborted) {
+          const err = new Error('Aborted by caller');
+          err.name = 'AbortError';
+          return Promise.reject(err);
+        }
+        return Promise.resolve({ ok: true, json: async () => ({ models: [] }) } as any);
+      });
+
+      await expect(
+        listModelsDirect('AIzaSyValidTestKey', { signal: controller.signal })
+      ).rejects.toThrow();
+    });
   });
 });

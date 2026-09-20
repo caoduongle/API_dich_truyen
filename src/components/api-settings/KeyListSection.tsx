@@ -183,7 +183,7 @@ export function KeyListSection({
   onDeleteKeyIndex,
   onImportClipboardKeys,
   onBatchUpdateKeys: _onBatchUpdateKeys,
-  rememberKeys = true,
+  rememberKeys = false,
   onToggleRememberKeys,
 }: KeyListSectionProps) {
   const [revealedKeys, setRevealedKeys] = useState<Set<number>>(new Set());

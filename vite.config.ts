@@ -7,7 +7,7 @@ import { defineConfig, loadEnv, type UserConfig, type ESBuildOptions } from 'vit
 import { resolvePublicOrigin, transformIndexHtml, transformSitemap } from './src/config/publicOrigin';
 
 export default defineConfig(({ mode }): UserConfig => {
-  const env = loadEnv(mode, process.cwd(), '');
+  const env = loadEnv(mode, process.cwd(), 'VITE_');
   const publicConfig = resolvePublicOrigin(
     env.VITE_PUBLIC_URL || process.env.VITE_PUBLIC_URL,
     env.VITE_BASE_URL || process.env.VITE_BASE_URL
@@ -62,7 +62,7 @@ export default defineConfig(({ mode }): UserConfig => {
       },
     },
     esbuild: {
-      drop: process.env.NODE_ENV === 'production' ? (['console', 'debugger'] as ('console' | 'debugger')[]) : [],
+      drop: mode === 'production' ? (['console', 'debugger'] as ('console' | 'debugger')[]) : [],
     } as ESBuildOptions,
     build: {
       outDir: 'dist',

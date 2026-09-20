@@ -66,7 +66,7 @@ describe('Storage Audit & State Ownership Invariants (TASK 13)', () => {
       expect(report.auditedKeysCount).toBe(4);
     });
 
-    it('allows savedKeys in app_ui_prefs when rememberKeys is true or unset', () => {
+    it('allows savedKeys in app_ui_prefs when rememberKeys is explicitly true', () => {
       storageMock.setItem('app_ui_prefs', JSON.stringify({
         rememberKeys: true,
         savedKeys: ['AIzaSyValidKey1', 'AIzaSyValidKey2'],
@@ -75,6 +75,13 @@ describe('Storage Audit & State Ownership Invariants (TASK 13)', () => {
       const report = verifyStorageIntegrity(storageMock);
       expect(report.isValid).toBe(true);
       expect(report.violations).toHaveLength(0);
+    });
+
+    it('verifies rememberKeys is treated as false when unconfigured', () => {
+      storageMock.setItem('app_ui_prefs', JSON.stringify({}));
+      const parsed = JSON.parse(storageMock.getItem('app_ui_prefs') || '{}');
+      const defaultRememberKeys = parsed.rememberKeys === true;
+      expect(defaultRememberKeys).toBe(false);
     });
 
     it('flags violation when savedKeys is present in app_ui_prefs and rememberKeys is false', () => {

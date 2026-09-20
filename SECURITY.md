@@ -64,8 +64,10 @@ Vui lòng báo cáo an toàn theo một trong các kênh sau:
      - `object-src 'none'` ngăn chặn nhúng plugin Flash/Java nguy hiểm
      - Kích hoạt đầy đủ `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, và HSTS.
 
-6. **Lưu trữ Bản thảo Cục bộ (IndexedDB)**:
-   - Bản thảo và từ điển lưu hoàn toàn trong IndexedDB của trình duyệt người dùng qua `src/services/db.ts`. Dữ liệu chỉ rời khỏi trình duyệt khi người dùng chủ động xuất file (TXT/EPUB) hoặc bấm nút Đồng bộ lên Google Drive cá nhân của mình.
+6. **Lưu trữ Bản thảo Cục bộ (IndexedDB) & Luồng Truyền Dữ liệu Client-Direct**:
+   - Bản thảo và từ điển lưu trữ cục bộ trong IndexedDB của trình duyệt người dùng qua `src/services/db.ts`. Ứng dụng hoạt động thuần Client-side, hoàn toàn không có máy chủ backend tiếp nhận hay lưu trữ nội dung truyện.
+   - Khi người dùng thực hiện dịch thuật, trau chuốt, trích xuất thuật ngữ hoặc kiểm định chất lượng AI, các đoạn văn bản tương ứng được trình duyệt gửi trực tiếp tới Google Gemini API qua kết nối HTTPS mã hóa.
+   - Dữ liệu chỉ được gửi tới dịch vụ lưu trữ đám mây khi người dùng chủ động kích hoạt đồng bộ Google Drive cá nhân, hoặc xuất file (TXT/EPUB) về thiết bị.
 
 ---
 

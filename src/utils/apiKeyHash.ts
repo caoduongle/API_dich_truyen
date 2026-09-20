@@ -158,7 +158,7 @@ export function sha256Sync(str: string): string {
 }
 
 /**
- * Băm API Key sang SHA-256 (64 hex characters) kèm bộ đệm bộ nhớ
+ * Băm API Key sang SHA-256 (64 hex characters) không lưu trữ raw secret trong bộ nhớ heap
  */
 export function hashApiKey(key: string): string {
   if (!key) return '';
@@ -167,26 +167,18 @@ export function hashApiKey(key: string): string {
   if (/^[0-9a-f]{64}$/.test(trimmed)) {
     return trimmed;
   }
-  const cached = keyHashCache.get(trimmed);
-  if (cached) {
-    return cached;
-  }
   if (typeof globalThis !== 'undefined' && (globalThis as any).process?.versions?.node) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const nodeCrypto = require('crypto');
-      const digest = nodeCrypto.createHash('sha256').update(trimmed).digest('hex');
-      keyHashCache.set(trimmed, digest);
-      return digest;
+      return nodeCrypto.createHash('sha256').update(trimmed).digest('hex');
     } catch {}
   }
-  const digest = sha256Sync(trimmed);
-  keyHashCache.set(trimmed, digest);
-  return digest;
+  return sha256Sync(trimmed);
 }
 
 /**
- * Băm API Key bất đồng bộ dùng Web Crypto API chuẩn trên trình duyệt
+ * Băm API Key bất đồng bộ dùng Web Crypto API chuẩn trên trình duyệt (không cache raw secret)
  */
 export async function hashApiKeyAsync(key: string): Promise<string> {
   if (!key) return '';
@@ -195,18 +187,12 @@ export async function hashApiKeyAsync(key: string): Promise<string> {
   if (/^[0-9a-f]{64}$/.test(trimmed)) {
     return trimmed;
   }
-  const cached = keyHashCache.get(trimmed);
-  if (cached) {
-    return cached;
-  }
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
     try {
       const msgUint8 = new TextEncoder().encode(trimmed);
       const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', msgUint8);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-      keyHashCache.set(trimmed, hashHex);
-      return hashHex;
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
     } catch {}
   }
   return hashApiKey(trimmed);
