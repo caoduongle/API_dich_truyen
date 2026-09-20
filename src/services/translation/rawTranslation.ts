@@ -6,7 +6,9 @@
 import { callGeminiDirect } from '../directGeminiClient';
 import { buildRawTranslationPayload } from '../ai/prompts';
 import {
-  safeParseJson,
+  parseGeminiStructuredResponse,
+  isRawTranslationResponse,
+  RawTranslationResponse,
   separateChapterTitleAndBody,
   validateTranslationOutput,
   splitTextAdaptively,
@@ -123,8 +125,12 @@ export async function callRawDirectCore(
     signal,
   });
 
-  const parsed = safeParseJson(response.text);
-  let finalRawTranslation = parsed?.rawTranslation || '';
+  const parsed = parseGeminiStructuredResponse<RawTranslationResponse>(response.text, {
+    validator: isRawTranslationResponse,
+    fallback: {},
+    contextName: 'rawTranslation',
+  });
+  let finalRawTranslation = parsed.rawTranslation || '';
 
   if (!finalRawTranslation || finalRawTranslation.trim() === '') {
     const altKey = parsed?.translation || parsed?.text || parsed?.vietnamese || parsed?.output || parsed?.raw_translation;

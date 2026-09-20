@@ -362,6 +362,86 @@ export function parseGeminiStructuredResponse<T>(
   return parsed;
 }
 
+export interface RawTranslationResponse {
+  rawTranslation?: string;
+  translation?: string;
+  vietnamese?: string;
+  text?: string;
+  output?: string;
+  raw_translation?: string;
+  discoveredEntities?: unknown[];
+  [key: string]: unknown;
+}
+
+export function isRawTranslationResponse(data: unknown): data is RawTranslationResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  const hasValidTranslation =
+    (obj.rawTranslation === undefined || typeof obj.rawTranslation === 'string') &&
+    (obj.translation === undefined || typeof obj.translation === 'string') &&
+    (obj.vietnamese === undefined || typeof obj.vietnamese === 'string') &&
+    (obj.text === undefined || typeof obj.text === 'string') &&
+    (obj.output === undefined || typeof obj.output === 'string') &&
+    (obj.raw_translation === undefined || typeof obj.raw_translation === 'string');
+  const hasValidEntities =
+    obj.discoveredEntities === undefined || Array.isArray(obj.discoveredEntities);
+  return hasValidTranslation && hasValidEntities;
+}
+
+export interface PolishTranslationResponse {
+  polishedTranslation?: string;
+  translation?: string;
+  vietnamese?: string;
+  text?: string;
+  output?: string;
+  polished_translation?: string;
+  discoveredEntities?: unknown[];
+  [key: string]: unknown;
+}
+
+export function isPolishTranslationResponse(data: unknown): data is PolishTranslationResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  const hasValidTranslation =
+    (obj.polishedTranslation === undefined || typeof obj.polishedTranslation === 'string') &&
+    (obj.translation === undefined || typeof obj.translation === 'string') &&
+    (obj.vietnamese === undefined || typeof obj.vietnamese === 'string') &&
+    (obj.text === undefined || typeof obj.text === 'string') &&
+    (obj.output === undefined || typeof obj.output === 'string') &&
+    (obj.polished_translation === undefined || typeof obj.polished_translation === 'string');
+  const hasValidEntities =
+    obj.discoveredEntities === undefined || Array.isArray(obj.discoveredEntities);
+  return hasValidTranslation && hasValidEntities;
+}
+
+export interface QaCritiqueResponse {
+  isValid?: boolean;
+  issues?: unknown[];
+  [key: string]: unknown;
+}
+
+export function isQaCritiqueResponse(data: unknown): data is QaCritiqueResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  const hasValidIssues = obj.issues === undefined || Array.isArray(obj.issues);
+  const hasValidFlag = obj.isValid === undefined || typeof obj.isValid === 'boolean';
+  return hasValidIssues && hasValidFlag;
+}
+
+export interface SentenceRewriteResponse {
+  rewrittenSentence: string;
+  [key: string]: unknown;
+}
+
+export function isSentenceRewriteResponse(data: unknown): data is SentenceRewriteResponse {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    typeof (data as Record<string, unknown>).rewrittenSentence === 'string'
+  );
+}
+
+
 // Định vị điểm phân tách văn bản an toàn không làm đứt câu
 export function findSplitPoint(text: string): number {
   const mid = Math.floor(text.length / 2);

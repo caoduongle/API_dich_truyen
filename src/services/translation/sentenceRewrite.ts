@@ -4,7 +4,12 @@
  */
 
 import { callGeminiDirect } from '../directGeminiClient';
-import { safeParseJson } from '../../lib/text';
+import {
+  sanitizePromptInput,
+  parseGeminiStructuredResponse,
+  isSentenceRewriteResponse,
+  SentenceRewriteResponse,
+} from '../../lib/text';
 
 export interface DirectRewriteSentenceParams {
   /** Đoạn trích văn bản cần viết lại */
@@ -49,6 +54,10 @@ export async function rewriteSentenceDirect(
     signal,
   } = params;
 
+  const cleanTargetText = sanitizePromptInput(targetText);
+  const cleanContext = sanitizePromptInput(context);
+  const cleanIssueMessage = sanitizePromptInput(issueMessage);
+
   const genrePart = genre ? ` Thể loại truyện: ${genre}.` : '';
   const tonePart = tone ? ` Tông giọng: ${tone}.` : '';
 
@@ -58,17 +67,17 @@ export async function rewriteSentenceDirect(
     'tự nhiên hơn trong tiếng Việt, giữ đúng ý nghĩa gốc và phong cách ' +
     'văn phong tiểu thuyết.' + genrePart + tonePart + ' Không giải thích, chỉ trả về câu đã viết lại.';
 
-  const contextPart = context
-    ? `\n\nNgữ cảnh xung quanh (để hiểu mạch văn):\n"${context}"`
+  const contextPart = cleanContext
+    ? `\n\nNgữ cảnh xung quanh (để hiểu mạch văn):\n"${cleanContext}"`
     : '';
 
-  const issuePart = issueMessage
-    ? `\n\nVấn đề cần khắc phục: ${issueMessage}`
+  const issuePart = cleanIssueMessage
+    ? `\n\nVấn đề cần khắc phục: ${cleanIssueMessage}`
     : '';
 
   const prompt =
     `Viết lại câu/cụm từ sau cho mượt mà, tự nhiên hơn trong tiếng Việt:` +
-    `\n\nCâu cần viết lại:\n"${targetText}"` +
+    `\n\nCâu cần viết lại:\n"${cleanTargetText}"` +
     contextPart +
     issuePart +
     `\n\nYêu cầu:` +
@@ -98,8 +107,11 @@ export async function rewriteSentenceDirect(
     signal,
   });
 
-  const parsed = safeParseJson(response.text);
-  const rewrittenSentence = parsed?.rewrittenSentence || '';
+  const parsed = parseGeminiStructuredResponse<SentenceRewriteResponse>(response.text, {
+    validator: isSentenceRewriteResponse,
+    contextName: 'sentenceRewrite',
+  });
+  const rewrittenSentence = parsed.rewrittenSentence;
 
   if (!rewrittenSentence.trim()) {
     throw new Error('AI không trả về câu viết lại hợp lệ.');

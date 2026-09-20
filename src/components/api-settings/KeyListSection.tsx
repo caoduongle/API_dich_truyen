@@ -252,7 +252,7 @@ export function KeyListSection({
           <Key className="w-5 h-5 text-amber-400 mx-auto animate-pulse" />
           <p className="text-xs font-semibold text-amber-300">API Key cá nhân là bắt buộc</p>
           <p className="text-[11px] text-text-muted">
-            Ứng dụng dịch trực tiếp từ trình duyệt đến Google Gemini (100% riêng tư, máy chủ không xử lý hay lưu trữ văn bản). Vui lòng thêm ít nhất một API Key để bắt đầu dịch.
+            Ứng dụng dịch trực tiếp từ trình duyệt tới Google Gemini, không có máy chủ trung gian của ứng dụng tiếp nhận hoặc lưu trữ bản thảo. Vui lòng thêm ít nhất một API Key để bắt đầu dịch.
           </p>
         </div>
       ) : (

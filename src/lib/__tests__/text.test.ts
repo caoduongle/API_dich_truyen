@@ -18,6 +18,10 @@ import {
   validatePolishIntegrity,
   validateParagraphParity,
   escapeHtml,
+  isRawTranslationResponse,
+  isPolishTranslationResponse,
+  isQaCritiqueResponse,
+  isSentenceRewriteResponse,
 } from '../text';
 import {
   buildRawTranslationPayload,
@@ -361,4 +365,70 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
       ).toThrow(/Dữ liệu JSON từ AI trong ngữ cảnh \[AdminCheck\] không thỏa mãn cấu trúc yêu cầu/);
     });
   });
+
+  describe('translation structured response validators (T002 & T010)', () => {
+    describe('isRawTranslationResponse', () => {
+      it('validates compliant raw translation payloads', () => {
+        expect(isRawTranslationResponse({ rawTranslation: 'Dịch', discoveredEntities: [] })).toBe(true);
+        expect(isRawTranslationResponse({ translation: 'Dịch', vietnamese: 'Dịch' })).toBe(true);
+        expect(isRawTranslationResponse({})).toBe(true);
+      });
+
+      it('rejects non-objects or null', () => {
+        expect(isRawTranslationResponse(null)).toBe(false);
+        expect(isRawTranslationResponse(undefined)).toBe(false);
+        expect(isRawTranslationResponse('string')).toBe(false);
+        expect(isRawTranslationResponse(123)).toBe(false);
+      });
+
+      it('rejects invalid field types for raw translation', () => {
+        expect(isRawTranslationResponse({ rawTranslation: 12345 })).toBe(false);
+        expect(isRawTranslationResponse({ translation: true })).toBe(false);
+        expect(isRawTranslationResponse({ discoveredEntities: 'not-an-array' })).toBe(false);
+      });
+    });
+
+    describe('isPolishTranslationResponse', () => {
+      it('validates compliant polish translation payloads', () => {
+        expect(isPolishTranslationResponse({ polishedTranslation: 'Chuốt', discoveredEntities: [] })).toBe(true);
+        expect(isPolishTranslationResponse({ translation: 'Chuốt' })).toBe(true);
+        expect(isPolishTranslationResponse({})).toBe(true);
+      });
+
+      it('rejects non-objects or invalid field types for polish translation', () => {
+        expect(isPolishTranslationResponse(null)).toBe(false);
+        expect(isPolishTranslationResponse({ polishedTranslation: false })).toBe(false);
+        expect(isPolishTranslationResponse({ discoveredEntities: 42 })).toBe(false);
+      });
+    });
+
+    describe('isQaCritiqueResponse', () => {
+      it('validates compliant qa critique payloads', () => {
+        expect(isQaCritiqueResponse({ isValid: true, issues: [] })).toBe(true);
+        expect(isQaCritiqueResponse({ isValid: false, issues: [{ message: 'issue' }] })).toBe(true);
+        expect(isQaCritiqueResponse({})).toBe(true);
+      });
+
+      it('rejects non-boolean isValid or non-array issues', () => {
+        expect(isQaCritiqueResponse(null)).toBe(false);
+        expect(isQaCritiqueResponse({ isValid: 'yes' })).toBe(false);
+        expect(isQaCritiqueResponse({ issues: 'none' })).toBe(false);
+      });
+    });
+
+    describe('isSentenceRewriteResponse', () => {
+      it('validates compliant sentence rewrite payloads', () => {
+        expect(isSentenceRewriteResponse({ rewrittenSentence: 'Câu chuốt mượt' })).toBe(true);
+        expect(isSentenceRewriteResponse({ rewrittenSentence: 'Câu chuốt', extra: 123 })).toBe(true);
+      });
+
+      it('rejects missing or non-string rewrittenSentence', () => {
+        expect(isSentenceRewriteResponse(null)).toBe(false);
+        expect(isSentenceRewriteResponse({})).toBe(false);
+        expect(isSentenceRewriteResponse({ rewrittenSentence: 123 })).toBe(false);
+        expect(isSentenceRewriteResponse({ rewrittenSentence: null })).toBe(false);
+      });
+    });
+  });
 });
+

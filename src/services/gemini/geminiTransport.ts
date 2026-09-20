@@ -21,15 +21,59 @@ export async function executeGeminiFetch(
   url: string,
   apiKey: string,
   payload: Record<string, any>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timeoutMs: number = 60_000
 ): Promise<Response> {
-  return fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
-    body: JSON.stringify(payload),
-    signal,
-  });
+  const controller = new AbortController();
+  let isTimedOut = false;
+
+  const timerId = setTimeout(() => {
+    isTimedOut = true;
+    controller.abort(
+      new Error(`Yêu cầu tới Gemini API đã quá thời gian chờ (${Math.round(timeoutMs / 1000)}s).`)
+    );
+  }, timeoutMs);
+
+  const onCallerAbort = () => {
+    controller.abort(signal?.reason);
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timerId);
+      controller.abort(signal.reason);
+    } else {
+      signal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+  }
+
+  try {
+    return await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    if (isTimedOut) {
+      const timeoutError = new Error(
+        `Yêu cầu tới Gemini API đã quá thời gian chờ (${Math.round(timeoutMs / 1000)}s).`
+      );
+      (timeoutError as any).name = 'TimeoutError';
+      (timeoutError as any).code = 'ETIMEDOUT';
+      throw timeoutError;
+    }
+    if (signal?.aborted) {
+      throw err;
+    }
+    throw formatGeminiNetworkError(err);
+  } finally {
+    clearTimeout(timerId);
+    if (signal) {
+      signal.removeEventListener('abort', onCallerAbort);
+    }
+  }
 }

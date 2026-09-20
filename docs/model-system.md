@@ -13,9 +13,9 @@ Hệ thống cung cấp danh mục mô hình tối ưu hóa cho dịch truyện 
 | Model ID | Nhãn hiển thị | Mô tả | Hạn mức mặc định (RPM / TPM / RPD) |
 |:---|:---|:---|:---|
 | `gemini-2.5-flash` | **Gemini 2.5 Flash** | Mô hình tiêu chuẩn, tốc độ cao, độ chính xác cao và tiết kiệm chi phí (Mặc định). | 15 RPM / 1M TPM / 1500 RPD |
-| `gemini-2.5-pro` | **Gemini 2.5 Pro** | Mô hình cao cấp cho các chương có văn phong cổ trang khó hoặc ẩn dụ phức tạp. | 5 RPM / 500K TPM / 100 RPD |
+| `gemini-2.5-pro` | **Gemini 2.5 Pro (Mạnh nhất)** | Mô hình cao cấp cho các chương có văn phong cổ trang khó hoặc ẩn dụ phức tạp. | 10 RPM / 1M TPM / 1000 RPD |
 | `gemini-3.1-flash-lite` | **Gemini 3.1 Flash Lite** | Tối ưu hóa độ trễ cực thấp cho các tác vụ dịch nhanh và tra từ điển. | 15 RPM / 1M TPM / 1500 RPD |
-| `gemma-4-31b-it` | **Gemma 4 31B IT** | Mô hình mã nguồn mở thế hệ mới hỗ trợ dịch thuật ngữ cảnh dài. | 15 RPM / 1M TPM / 1500 RPD |
+| `gemma-4-31b-it` | **Gemma 4 31B IT (API)** | Mô hình mã nguồn mở thế hệ mới hỗ trợ dịch thuật ngữ cảnh dài. | 30 RPM / 500K TPM |
 
 ---
 
@@ -38,7 +38,7 @@ sequenceDiagram
 
     alt Cache quá hạn TTL (1 giờ)
         Registry->>DirectClient: Kích hoạt revalidate ngầm (listModelsDirect)
-        DirectClient->>Google: GET /v1beta/models?key=... (Client Fetch)
+        DirectClient->>Google: GET /v1beta/models (Header: x-goog-api-key) (Client Fetch)
         Google-->>DirectClient: Danh sách model mới nhất
         DirectClient-->>Registry: Trả về danh sách đã lọc & chuẩn hóa
         Registry->>Cache: Cập nhật cache mới kèm timestamp
@@ -54,7 +54,7 @@ sequenceDiagram
 - **Thời gian sống (TTL)**: 1 giờ (`DISCOVERED_MODELS_TTL_MS = 3600000`).
 - **Khử trùng lặp In-Flight (Deduplication)**: Nếu có nhiều component cùng yêu cầu khám phá mô hình cùng lúc, chỉ có duy nhất 1 Promise được thực thi.
 - **Bảo toàn Stale Cache khi lỗi (Zero-Wipe)**: Khi Google API trả về lỗi 429 hoặc mất mạng, hệ thống **tuyệt đối không xóa** danh mục mô hình đã lưu mà tiếp tục dùng cache cũ.
-- **Client-Direct**: Hoạt động hoàn toàn trên trình duyệt người dùng, gọi trực tiếp endpoint `https://generativelanguage.googleapis.com/v1beta/models` mà không thông qua bất kỳ máy chủ backend nào.
+- **Client-Direct**: Hoạt động hoàn toàn trên trình duyệt người dùng, gọi trực tiếp endpoint `https://generativelanguage.googleapis.com/v1beta/models` với tiêu đề xác thực `x-goog-api-key` mà không thông qua bất kỳ máy chủ backend nào.
 
 ---
 

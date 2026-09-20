@@ -6,7 +6,9 @@
 import { callGeminiDirect } from '../directGeminiClient';
 import { buildPolishTranslationPayload } from '../ai/prompts';
 import {
-  safeParseJson,
+  parseGeminiStructuredResponse,
+  isPolishTranslationResponse,
+  PolishTranslationResponse,
   ensureChapterTitlePreserved,
   validateTranslationOutput,
   validatePolishIntegrity,
@@ -78,8 +80,12 @@ export async function callPolishDirectCore(
     signal,
   });
 
-  const parsed = safeParseJson(response.text);
-  let finalPolishedTranslation = parsed?.polishedTranslation || '';
+  const parsed = parseGeminiStructuredResponse<PolishTranslationResponse>(response.text, {
+    validator: isPolishTranslationResponse,
+    fallback: {},
+    contextName: 'polishTranslation',
+  });
+  let finalPolishedTranslation = parsed.polishedTranslation || '';
 
   if (!finalPolishedTranslation || finalPolishedTranslation.trim() === '') {
     const altKey = parsed?.translation || parsed?.text || parsed?.vietnamese || parsed?.output || parsed?.polished_translation;
