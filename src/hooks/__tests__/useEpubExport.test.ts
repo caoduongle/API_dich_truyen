@@ -359,16 +359,17 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const arrayBuffer = await generatedBlob.arrayBuffer();
       const zip = await JSZip.loadAsync(arrayBuffer);
 
-      // 1. mimetype check: first entry, valid text, uncompressed STORE
+      // 1. mimetype check: first entry, valid text, strictly uncompressed STORE
       const zipKeys = Object.keys(zip.files);
       expect(zipKeys[0], 'mimetype must be the very first entry in the ZIP archive').toBe('mimetype');
       const mimetypeFile = zip.file('mimetype');
       expect(mimetypeFile).not.toBeNull();
       const mimetypeText = await mimetypeFile!.async('string');
       expect(mimetypeText).toBe('application/epub+zip');
-      const compression = (mimetypeFile as any).options?.compression;
-      // In JSZip reading from loaded binary, uncompressed is STORE or null
-      expect(compression === 'STORE' || compression === null).toBe(true);
+      // In ZIP local file header (PK\x03\x04), bytes 8-9 specify compression method (0x0000 = STORE / uncompressed)
+      const zipBytes = new Uint8Array(arrayBuffer);
+      const compressionMethod = zipBytes[8] | (zipBytes[9] << 8);
+      expect(compressionMethod, 'mimetype compression method in ZIP header must be strictly 0 (STORE)').toBe(0);
 
       // 2. META-INF/container.xml check
       const containerFile = zip.file('META-INF/container.xml');

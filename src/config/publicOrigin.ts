@@ -13,28 +13,41 @@ export interface PublicUrlConfig {
 }
 
 /**
- * Validates that an origin string begins with http:// or https://.
+ * Validates that an origin string begins with http:// or https:// and has a valid web origin structure.
  */
 export function isValidWebProtocol(url: string): boolean {
   if (!url || typeof url !== 'string') return false;
-  return /^https?:\/\//i.test(url.trim());
+  try {
+    const parsed = new URL(url.trim());
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Normalizes the public origin:
  * - Trims whitespace
- * - Enforces http:// or https:// scheme (falls back to DEFAULT_PUBLIC_URL if invalid)
- * - Strips all trailing slashes
+ * - Enforces http:// or https:// scheme via URL parsing (falls back to DEFAULT_PUBLIC_URL if invalid)
+ * - Returns only protocol + host + port (origin), discarding paths, queries, or trailing slashes
  */
 export function normalizeOrigin(originInput?: string | null): string {
   if (!originInput || typeof originInput !== 'string') {
     return DEFAULT_PUBLIC_URL;
   }
   const trimmed = originInput.trim();
-  if (!trimmed || !isValidWebProtocol(trimmed)) {
+  if (!trimmed) {
     return DEFAULT_PUBLIC_URL;
   }
-  return trimmed.replace(/\/+$/, '');
+  try {
+    const parsed = new URL(trimmed);
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !parsed.hostname) {
+      return DEFAULT_PUBLIC_URL;
+    }
+    return parsed.origin && parsed.origin !== 'null' ? parsed.origin : `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return DEFAULT_PUBLIC_URL;
+  }
 }
 
 /**

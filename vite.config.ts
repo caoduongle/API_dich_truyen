@@ -16,10 +16,10 @@ export default defineConfig(({ mode }) => {
     process.env.VITE_PUBLIC_URL = publicConfig.origin;
   }
   if (env.VITE_BASE_URL) {
-    process.env.VITE_BASE_URL = env.VITE_BASE_URL;
+    process.env.VITE_BASE_URL = publicConfig.basePath;
   }
   return {
-    base: process.env.VITE_BASE_URL || '/',
+    base: publicConfig.basePath,
     plugins: [
       react(),
       tailwindcss(),

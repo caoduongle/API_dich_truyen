@@ -74,6 +74,22 @@ describe('Public Origin Portability & Subpath Architecture Suite', () => {
       expect(normalizeOrigin('   ')).toBe(DEFAULT_PUBLIC_URL);
     });
 
+    it('handles origin edge cases with strict URL parsing', () => {
+      // Empty host or malformed URL falls back to default
+      expect(normalizeOrigin('https://')).toBe(DEFAULT_PUBLIC_URL);
+      expect(normalizeOrigin('https:///')).toBe(DEFAULT_PUBLIC_URL);
+      expect(isValidWebProtocol('https://')).toBe(false);
+      expect(isValidWebProtocol('https:///')).toBe(false);
+
+      // Paths, query strings, and fragments are stripped down to canonical origin
+      expect(normalizeOrigin('https://example.com/foo/bar')).toBe('https://example.com');
+      expect(normalizeOrigin('https://example.com/foo/bar?query=1#hash')).toBe('https://example.com');
+
+      // Port numbers are preserved
+      expect(normalizeOrigin('https://example.com:8080')).toBe('https://example.com:8080');
+      expect(normalizeOrigin('http://localhost:3000/app')).toBe('http://localhost:3000');
+    });
+
     it('normalizes base path with leading and trailing slashes', () => {
       expect(normalizeBasePath('/')).toBe('/');
       expect(normalizeBasePath('dichtruyen')).toBe('/dichtruyen/');
@@ -127,19 +143,17 @@ describe('Public Origin Portability & Subpath Architecture Suite', () => {
 
   describe('Build Artifacts Output Verification', () => {
     it('verifies dist/index.html does not contain unreplaced placeholder tokens', () => {
-      if (fs.existsSync(distIndexPath)) {
-        const distHtml = fs.readFileSync(distIndexPath, 'utf8');
-        expect(distHtml).not.toContain('%VITE_PUBLIC_URL%');
-        expect(distHtml).not.toContain('%VITE_CANONICAL_URL%');
-      }
+      expect(fs.existsSync(distIndexPath)).toBe(true);
+      const distHtml = fs.readFileSync(distIndexPath, 'utf8');
+      expect(distHtml).not.toContain('%VITE_PUBLIC_URL%');
+      expect(distHtml).not.toContain('%VITE_CANONICAL_URL%');
     });
 
     it('verifies dist/sitemap.xml does not contain unreplaced placeholder tokens', () => {
-      if (fs.existsSync(distSitemapPath)) {
-        const distSitemap = fs.readFileSync(distSitemapPath, 'utf8');
-        expect(distSitemap).not.toContain('%VITE_PUBLIC_URL%');
-        expect(distSitemap).toContain('<loc>http');
-      }
+      expect(fs.existsSync(distSitemapPath)).toBe(true);
+      const distSitemap = fs.readFileSync(distSitemapPath, 'utf8');
+      expect(distSitemap).not.toContain('%VITE_PUBLIC_URL%');
+      expect(distSitemap).toContain('<loc>http');
     });
   });
 });

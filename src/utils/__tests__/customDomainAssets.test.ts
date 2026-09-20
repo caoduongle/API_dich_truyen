@@ -25,7 +25,7 @@ describe('Custom Domain Assets Integrity Suite', () => {
     const viteConfigPath = path.join(process.cwd(), 'vite.config.ts');
     const content = fs.readFileSync(viteConfigPath, 'utf-8');
 
-    expect(content).toContain('base: process.env.VITE_BASE_URL || \'/\'');
+    expect(content).toContain('base: publicConfig.basePath');
     expect(content).toContain("outDir: 'dist'");
   });
 

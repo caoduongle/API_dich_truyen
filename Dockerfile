@@ -22,20 +22,12 @@ RUN npm run build
 # Stage 2: Serve static files with Nginx
 FROM nginx:alpine AS runner
 
-# Tùy biến Nginx cấu hình SPA routing fallback về index.html
-RUN echo 'server { \
-    listen 80; \
-    server_name localhost; \
-    root /usr/share/nginx/html; \
-    index index.html; \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-    location = /favicon.svg { \
-        access_log off; \
-        log_not_found off; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
+ARG VITE_BASE_URL=/
+ENV VITE_BASE_URL=${VITE_BASE_URL:-/}
+ENV NGINX_ENVSUBST_FILTER="VITE_BASE_URL"
+
+# Cấu hình Nginx template hỗ trợ SPA routing và sub-path linh hoạt qua envsubst
+COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 

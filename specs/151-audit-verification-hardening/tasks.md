@@ -10,7 +10,7 @@
 
 **Purpose**: Configure test dependencies for standards-compliant XML parser environment.
 
-- [x] T001 Install `jsdom` and `@types/jsdom` as devDependencies in `package.json` for Vitest DOMParser environment support
+- [x] T001 Install `jsdom` and `@types/jsdom` as devDependencies in `package.json` for Vitest DOMParser environment support *(Note: jsdom version corrected from ^30.1.0 to 29.1.1 and @types/jsdom removed in spec 152 for Node 20 LTS runtime parity)*
 
 ---
 
@@ -114,7 +114,7 @@
 **Purpose**: Run full end-to-end quickstart validation and mandatory quality gates across the entire repository.
 
 - [x] T020 Run `specs/151-audit-verification-hardening/quickstart.md` verification scenarios across all 5 test scenarios
-- [x] T021 Run full quality gate: `npm run lint && npm test && npm run build` — 0 errors, 0 warnings, 0 skipped tests
+- [x] T021 Run full quality gate: `npm run lint && npm test && npm run build` — 0 errors, 0 warnings, 0 skipped tests *(Note: Quality gate passed and re-verified on Node 20 LTS under spec 152 with 92/92 test files and 844/844 tests passing)*
 
 ---
 
