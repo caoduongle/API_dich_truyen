@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import JSZip from 'jszip';
 import { useEpubExport, loadChaptersBatch } from '../useEpubExport';
 import { escapeHtml } from '../../lib/text';
@@ -44,13 +44,76 @@ function renderEpubHook() {
   return useEpubExport();
 }
 
+export function assertXmlWellFormed(xml: string, docLabel: string): void {
+  if (typeof (globalThis as any).DOMParser === 'function') {
+    const parser = new (globalThis as any).DOMParser();
+    const doc = parser.parseFromString(xml, 'application/xml');
+    const parserError = doc.querySelector('parsererror');
+    if (parserError) {
+      throw new Error(`XML well-formedness error in ${docLabel}: ${parserError.textContent}`);
+    }
+    return;
+  }
+
+  // Fallback XML well-formedness parser for Node headless environment
+  const bareAmpRegex = /&(?!(amp|lt|gt|quot|apos|#\d+|#[xX][0-9a-fA-F]+);)/g;
+  const bareAmpMatches = xml.match(bareAmpRegex);
+  if (bareAmpMatches) {
+    throw new Error(`XML well-formedness error in ${docLabel}: Contains ${bareAmpMatches.length} unescaped '&' characters`);
+  }
+
+  let cleaned = xml
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '')
+    .replace(/<\?xml[\s\S]*?\?>/g, '')
+    .replace(/<!DOCTYPE[\s\S]*?>/g, '');
+
+  const tagRegex = /<\/?([a-zA-Z0-9:-]+)([^>]*?)(\/?)>/g;
+  const stack: string[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = tagRegex.exec(cleaned)) !== null) {
+    const isClosing = match[0].startsWith('</');
+    const tagName = match[1];
+    const attrs = match[2];
+    const isSelfClosing = match[3] === '/' || match[0].endsWith('/>');
+
+    if (isClosing) {
+      if (stack.length === 0) {
+        throw new Error(`XML well-formedness error in ${docLabel}: Unexpected closing tag </${tagName}> with empty stack`);
+      }
+      const last = stack.pop();
+      if (last !== tagName) {
+        throw new Error(`XML well-formedness error in ${docLabel}: Mismatched closing tag </${tagName}>, expected </${last}>`);
+      }
+    } else if (!isSelfClosing) {
+      if (attrs.trim()) {
+        const attrRegex = /([a-zA-Z0-9:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
+        let attrMatch: RegExpExecArray | null;
+        while ((attrMatch = attrRegex.exec(attrs)) !== null) {
+          if (attrMatch[4] !== undefined) {
+            throw new Error(`XML well-formedness error in ${docLabel}: Unquoted attribute in <${tagName} ...>`);
+          }
+        }
+      }
+      stack.push(tagName);
+    }
+  }
+
+  if (stack.length > 0) {
+    throw new Error(`XML well-formedness error in ${docLabel}: Unclosed tags remaining: ${stack.join(', ')}`);
+  }
+}
+
 describe('useEpubExport & XML Well-Formedness Suite', () => {
   let capturedBlobs: Blob[] = [];
+  let revokeCalls: string[] = [];
 
   beforeEach(() => {
     stateSlots = [];
     stateIndex = 0;
     capturedBlobs = [];
+    revokeCalls = [];
     vi.clearAllMocks();
 
     if (typeof globalThis.URL.createObjectURL !== 'function') {
@@ -66,10 +129,18 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
     }
 
     if (typeof globalThis.URL.revokeObjectURL !== 'function') {
-      globalThis.URL.revokeObjectURL = vi.fn();
+      globalThis.URL.revokeObjectURL = vi.fn((url: string) => {
+        revokeCalls.push(url);
+      });
     } else {
-      vi.spyOn(globalThis.URL, 'revokeObjectURL').mockImplementation(() => {});
+      vi.spyOn(globalThis.URL, 'revokeObjectURL').mockImplementation((url: string) => {
+        revokeCalls.push(url);
+      });
     }
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('XML Well-Formedness & Escaping', () => {
@@ -307,6 +378,7 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
         ],
       };
 
+      const spySetTimeout = vi.spyOn(globalThis, 'setTimeout');
       await hook.handleExportEpub(project);
 
       // Verify download trigger
@@ -314,6 +386,15 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const [downloadUrl, filename] = vi.mocked(downloadUtils.triggerDownload).mock.calls[0];
       expect(downloadUrl).toMatch(/^blob:mock-url/);
       expect(filename).toBe('Tiên_Nghịch_Bản_Dịch_.epub');
+
+      // Verify deferred URL.revokeObjectURL (not synchronous, scheduled via setTimeout 1000ms)
+      expect(revokeCalls.length, 'URL.revokeObjectURL should NOT be called synchronously').toBe(0);
+      expect(spySetTimeout).toHaveBeenCalledWith(expect.any(Function), 1000);
+      const timeoutCallback = spySetTimeout.mock.calls.find(c => c[1] === 1000)?.[0] as () => void;
+      expect(timeoutCallback).toBeDefined();
+      timeoutCallback();
+      expect(revokeCalls.length, 'URL.revokeObjectURL should be called after timer').toBe(1);
+      expect(revokeCalls[0]).toBe(downloadUrl);
 
       // Verify success notification
       expect(mockShowToast).toHaveBeenCalledWith({
@@ -327,16 +408,21 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const arrayBuffer = await generatedBlob.arrayBuffer();
       const zip = await JSZip.loadAsync(arrayBuffer);
 
-      // 1. mimetype check
+      // 1. mimetype check: first entry, valid text, uncompressed STORE
+      const zipKeys = Object.keys(zip.files);
+      expect(zipKeys[0], 'mimetype must be the very first entry in the ZIP archive').toBe('mimetype');
       const mimetypeFile = zip.file('mimetype');
       expect(mimetypeFile).not.toBeNull();
       const mimetypeText = await mimetypeFile!.async('string');
       expect(mimetypeText.trim()).toBe('application/epub+zip');
+      const compression = (mimetypeFile as any).options?.compression;
+      expect(compression === 'STORE' || compression === null, 'mimetype must be stored uncompressed (STORE)').toBe(true);
 
       // 2. META-INF/container.xml check
       const containerFile = zip.file('META-INF/container.xml');
       expect(containerFile).not.toBeNull();
       const containerXml = await containerFile!.async('string');
+      assertXmlWellFormed(containerXml, 'META-INF/container.xml');
       expect(containerXml).toContain('full-path="OEBPS/content.opf"');
       expect(containerXml).toContain('media-type="application/oebps-package+xml"');
 
@@ -350,6 +436,7 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const coverFile = zip.file('OEBPS/cover.xhtml');
       expect(coverFile).not.toBeNull();
       const coverHtml = await coverFile!.async('string');
+      assertXmlWellFormed(coverHtml, 'OEBPS/cover.xhtml');
       expect(coverHtml).toContain('&lt;Bản Dịch&gt;');
       expect(coverHtml).toContain('Nhĩ Căn &amp; Dịch Giả');
       expect(coverHtml).toContain('Tiên Hiệp');
@@ -360,6 +447,7 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const opfFile = zip.file('OEBPS/content.opf');
       expect(opfFile).not.toBeNull();
       const opfXml = await opfFile!.async('string');
+      assertXmlWellFormed(opfXml, 'OEBPS/content.opf');
       expect(opfXml).toContain('<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0">');
       expect(opfXml).toContain('<dc:title>Tiên Nghịch &lt;Bản Dịch&gt;</dc:title>');
       expect(opfXml).toContain('<dc:creator>Nhĩ Căn &amp; Dịch Giả</dc:creator>');
@@ -375,6 +463,7 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const navFile = zip.file('OEBPS/nav.xhtml');
       expect(navFile).not.toBeNull();
       const navHtml = await navFile!.async('string');
+      assertXmlWellFormed(navHtml, 'OEBPS/nav.xhtml');
       expect(navHtml).toContain('<nav epub:type="toc" id="toc">');
       expect(navHtml).toContain('<a href="cover.xhtml">Giới thiệu tác phẩm</a>');
       expect(navHtml).toContain('<a href="chap_1.xhtml">Chương 1: Mở Đầu &amp; Hỗn Loạn</a>');
@@ -384,6 +473,7 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const ncxFile = zip.file('OEBPS/toc.ncx');
       expect(ncxFile).not.toBeNull();
       const ncxXml = await ncxFile!.async('string');
+      assertXmlWellFormed(ncxXml, 'OEBPS/toc.ncx');
       expect(ncxXml).toContain('<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">');
       expect(ncxXml).toContain('<text>Tiên Nghịch &lt;Bản Dịch&gt;</text>');
       expect(ncxXml).toContain('<content src="cover.xhtml"/>');
@@ -394,6 +484,7 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const chap1File = zip.file('OEBPS/chap_1.xhtml');
       expect(chap1File).not.toBeNull();
       const chap1Html = await chap1File!.async('string');
+      assertXmlWellFormed(chap1Html, 'OEBPS/chap_1.xhtml');
       expect(chap1Html).toContain('<h1>Chương 1: Mở Đầu &amp; Hỗn Loạn</h1>');
       expect(chap1Html).toContain('<p>Đoạn 1: Thiên địa sơ khai.</p>');
       expect(chap1Html).toContain('<p>Đoạn 2: Nhân gian vô đạo.</p>');
@@ -401,6 +492,7 @@ describe('useEpubExport & XML Well-Formedness Suite', () => {
       const chap2File = zip.file('OEBPS/chap_2.xhtml');
       expect(chap2File).not.toBeNull();
       const chap2Html = await chap2File!.async('string');
+      assertXmlWellFormed(chap2Html, 'OEBPS/chap_2.xhtml');
       expect(chap2Html).toContain('<h1>Chương 2: Quyết Chiến &lt;Đỉnh Núi&gt;</h1>');
       expect(chap2Html).toContain('<p>Đoạn 1: Gió gầm gào &amp; mây đen kéo đến.</p>');
     });

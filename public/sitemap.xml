@@ -1,37 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://api-dich-truyen.onrender.com/</loc>
+    <loc>%VITE_PUBLIC_URL%/</loc>
     <lastmod>2026-09-12</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://api-dich-truyen.onrender.com/auto-translate</loc>
+    <loc>%VITE_PUBLIC_URL%/auto-translate</loc>
     <lastmod>2026-09-12</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://api-dich-truyen.onrender.com/glossary</loc>
+    <loc>%VITE_PUBLIC_URL%/glossary</loc>
     <lastmod>2026-09-12</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://api-dich-truyen.onrender.com/history</loc>
+    <loc>%VITE_PUBLIC_URL%/history</loc>
     <lastmod>2026-09-12</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://api-dich-truyen.onrender.com/projects</loc>
+    <loc>%VITE_PUBLIC_URL%/projects</loc>
     <lastmod>2026-09-12</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://api-dich-truyen.onrender.com/hako-checker</loc>
+    <loc>%VITE_PUBLIC_URL%/hako-checker</loc>
     <lastmod>2026-09-12</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>

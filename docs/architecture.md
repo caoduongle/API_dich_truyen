@@ -5,7 +5,7 @@
 Hệ thống Dịch Truyện Trung - Việt AI là ứng dụng dịch thuật toàn diện vận hành theo kiến trúc **100% Thuần Client-Side (Pure Client-Side SPA / Zero Backend)**:
 - **Biên dịch & Đóng gói**: Sử dụng duy nhất `vite build`, tạo ra thư mục `dist/` chứa static assets.
 - **Triển khai Không Máy Chủ**: Deploy trực tiếp lên bất kỳ nền tảng Static Hosting nào (Cloudflare Pages, Netlify, Vercel, GitHub Pages, S3/CDN, Nginx) mà không cần tiến trình Node.js lúc runtime.
-- **Không Lưu Khóa trên Máy Chủ Trung Gian**: Mọi API Key của Google Gemini do người dùng tự quản lý và lưu tạm thời trong `sessionStorage` của trình duyệt hoặc mã hóa trong IndexedDB.
+- **Không Lưu Khóa trên Máy Chủ Trung Gian**: Mọi API Key của Google Gemini do người dùng tự quản lý và lưu trong `sessionStorage` (mặc định) hoặc `localStorage` khi người dùng chủ động bật tùy chọn lưu khóa.
 - **Giao Tiếp Đám Mây Trực Tiếp**: Toàn bộ thao tác dịch thuật, gọi AI, phân tích thuật ngữ và đồng bộ Google Drive đều được thực thi trực tiếp từ trình duyệt người dùng đến Google REST APIs.
 
 ---

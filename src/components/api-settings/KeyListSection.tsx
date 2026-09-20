@@ -324,7 +324,7 @@ export function KeyListSection({
       )}
 
       <p className="text-[11px] text-text-muted leading-relaxed">
-        Hệ thống tự động gom nhóm khóa theo Project / Quota Group và quản lý hạn ngạch RPM/TPM độc lập. Thêm nhiều khóa thuộc các dự án khác nhau để mở rộng dung lượng dịch.
+        Hệ thống tự động gom nhóm khóa theo Project / Quota Group và quản lý hạn ngạch RPM/TPM độc lập. Có thể cấu hình nhiều khóa thuộc các Project / Quota Group khác nhau để tăng khả năng dự phòng và điều phối hạn mức.
       </p>
       <p className="text-[11px] text-text-muted leading-relaxed border-t border-parchment-2/50 pt-2">
         💡 <strong className="text-text-main">Gợi ý quản lý chi phí:</strong> Bạn nên chủ động thiết lập <span className="font-semibold text-text-main">Quota Limits &amp; Billing Alerts</span> trên chính Google Cloud Console của mình để kiểm soát hạn mức chi tiêu an toàn cho từng API Key cá nhân.

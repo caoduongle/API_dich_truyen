@@ -482,29 +482,41 @@ export const saveProjectToDB = async (project: StoryProject): Promise<void> => {
   return enqueueProjectWrite(project.id, () => executeSaveProjectToDB(project));
 };
 
+/**
+ * Kiểm tra tính toàn vẹn của dữ liệu đầu vào (in-memory validation) trước khi mở giao dịch IndexedDB.
+ * Đảm bảo mọi CRDT state thuộc về một chương hợp lệ trong bundle và có projectId khớp với project.
+ */
+export function validateBundleInput(
+  project: StoryProject,
+  chapters: Chapter[],
+  crdtStates?: (CrdtBinaryStateItem | CrdtStateRecord)[]
+): void {
+  if (!crdtStates || crdtStates.length === 0) return;
+
+  const validChapterIds = new Set(chapters.map(c => c.id));
+  const chapterIdToProjectId = new Map(chapters.map(c => [c.id, c.projectId]));
+  for (const crdt of crdtStates) {
+    if (!validChapterIds.has(crdt.chapterId)) {
+      throw new Error(`[atomicSaveProjectBundle] Orphan CRDT state: chapter ${crdt.chapterId} is not present in the bundle chapters.`);
+    }
+
+    const chapProjectId = chapterIdToProjectId.get(crdt.chapterId);
+    if (chapProjectId !== project.id) {
+      throw new Error(`[atomicSaveProjectBundle] Mismatched projectId in CRDT state: chapter ${crdt.chapterId} belongs to project "${chapProjectId}" which does not match bundle projectId "${project.id}".`);
+    }
+  }
+}
+
 const executeAtomicSaveProjectBundle = async (
   project: StoryProject,
   chapters: Chapter[],
   crdtStates?: (CrdtBinaryStateItem | CrdtStateRecord)[]
 ): Promise<void> => {
   return withRetry(async () => {
-    const db = await initDB();
+    // Validate in-memory bundle structure before acquiring DB transaction locks
+    validateBundleInput(project, chapters, crdtStates);
 
-    // Validate all CRDT states belong to valid chapters in this bundle
-    if (crdtStates) {
-      const validChapterIds = new Set(chapters.map(c => c.id));
-      const chapterIdToProjectId = new Map(chapters.map(c => [c.id, c.projectId]));
-      for (const crdt of crdtStates) {
-        if (!validChapterIds.has(crdt.chapterId)) {
-          throw new Error(`[atomicSaveProjectBundle] Orphan CRDT state: chapter ${crdt.chapterId} is not present in the bundle chapters.`);
-        }
-        
-        const chapProjectId = chapterIdToProjectId.get(crdt.chapterId);
-        if (chapProjectId !== project.id) {
-          throw new Error(`[atomicSaveProjectBundle] Mismatched projectId in CRDT state: chapter ${crdt.chapterId} belongs to project "${chapProjectId}" which does not match bundle projectId "${project.id}".`);
-        }
-      }
-    }
+    const db = await initDB();
 
     const crdtStoreName = db.objectStoreNames && typeof db.objectStoreNames.contains === 'function' && db.objectStoreNames.contains(CRDT_STATES_STORE)
       ? CRDT_STATES_STORE

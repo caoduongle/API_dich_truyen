@@ -6,6 +6,8 @@ import {
   getProjectsResultFromDB,
   getProjectResultFromDB,
   saveProjectToDB,
+  deleteProjectFromDB,
+  validateBundleInput,
 } from '../db';
 import { handleDBUpgrade } from '../dbMigration';
 
@@ -309,6 +311,196 @@ describe('IndexedDB Services & Storage Estimation', () => {
       ]);
 
       expect(executionOrder).toEqual(['Write 1', 'Write 2', 'Write 3']);
+    });
+
+    it('executes interleaved sequence [save A1 -> save A2 -> delete A -> save A3] in strict chronological FIFO order', async () => {
+      resetDBInstanceForTesting();
+      const executionLog: string[] = [];
+
+      const mockProjectsStore = {
+        get: vi.fn(() => {
+          const req: any = {
+            onsuccess: null,
+            onerror: null,
+            result: { id: 'proj_seq', title: 'A2', chapters: [] },
+          };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+        put: vi.fn((val: any) => {
+          if (val && val.title) {
+            executionLog.push(`save:${val.title}`);
+          }
+          const req: any = { onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+        delete: vi.fn((id: any) => {
+          executionLog.push(`delete:${id}`);
+          const req: any = { onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+      };
+
+      const mockChaptersStore = {
+        get: vi.fn(() => {
+          const req: any = { onsuccess: null, onerror: null, result: undefined };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+        put: vi.fn(() => {
+          const req: any = { onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+        delete: vi.fn(() => {
+          const req: any = { onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+        index: vi.fn(() => ({
+          openCursor: vi.fn(() => {
+            const req: any = { onsuccess: null, onerror: null, result: null };
+            setTimeout(() => req.onsuccess?.({ target: req }), 0);
+            return req;
+          }),
+        })),
+      };
+
+      const mockCrdtStore = {
+        index: vi.fn(() => ({
+          openCursor: vi.fn(() => {
+            const req: any = { onsuccess: null, onerror: null, result: null };
+            setTimeout(() => req.onsuccess?.({ target: req }), 0);
+            return req;
+          }),
+        })),
+        delete: vi.fn(() => {
+          const req: any = { onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+      };
+
+      const mockManifestsStore = {
+        getAll: vi.fn(() => {
+          const req: any = { onsuccess: null, onerror: null, result: [] };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+        put: vi.fn(() => {
+          const req: any = { onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+        delete: vi.fn(() => {
+          const req: any = { onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+      };
+
+      const mockTransaction = {
+        objectStore: vi.fn((name: string) => {
+          if (name === 'projects') return mockProjectsStore;
+          if (name === 'chapters') return mockChaptersStore;
+          if (name === 'deletion_manifests') return mockManifestsStore;
+          return mockCrdtStore;
+        }),
+        set oncomplete(cb: any) {
+          setTimeout(() => cb(), 10);
+        },
+      };
+
+      const mockDB: any = {
+        transaction: vi.fn(() => mockTransaction),
+        objectStoreNames: {
+          contains: vi.fn(() => true),
+        },
+        onclose: null,
+        onversionchange: null,
+      };
+
+      vi.stubGlobal('indexedDB', {
+        open: vi.fn(() => {
+          const req: any = {
+            result: mockDB,
+            set onsuccess(cb: any) {
+              setTimeout(() => cb(), 0);
+            },
+          };
+          return req;
+        }),
+        databases: vi.fn().mockResolvedValue([]),
+        deleteDatabase: vi.fn(() => {
+          const req: any = { onsuccess: null, onerror: null };
+          setTimeout(() => req.onsuccess?.({ target: req }), 0);
+          return req;
+        }),
+      });
+
+      const projectId = 'proj_seq';
+      const a1 = { id: projectId, title: 'A1', chapters: [] } as any;
+      const a2 = { id: projectId, title: 'A2', chapters: [] } as any;
+      const a3 = { id: projectId, title: 'A3', chapters: [] } as any;
+
+      const p1 = saveProjectToDB(a1);
+      const p2 = saveProjectToDB(a2);
+      const pDelete = deleteProjectFromDB(projectId);
+      const p3 = saveProjectToDB(a3);
+
+      await Promise.all([p1, p2, pDelete, p3]);
+
+      expect(executionLog).toEqual([
+        'save:A1',
+        'save:A2',
+        'delete:proj_seq',
+        'save:A3',
+      ]);
+    });
+  });
+
+  describe('validateBundleInput()', () => {
+    const mockProject = { id: 'p1', title: 'Test Project' } as any;
+    const mockChapters = [
+      { id: 'c1', projectId: 'p1', title: 'Chapter 1' },
+      { id: 'c2', projectId: 'p1', title: 'Chapter 2' },
+    ] as any;
+
+    it('passes when crdtStates is undefined or empty', () => {
+      expect(() => validateBundleInput(mockProject, mockChapters, undefined)).not.toThrow();
+      expect(() => validateBundleInput(mockProject, mockChapters, [])).not.toThrow();
+    });
+
+    it('passes when all crdtStates correspond to bundle chapters with matching projectId', () => {
+      const crdtStates = [
+        { chapterId: 'c1', update: new Uint8Array([1, 2, 3]) } as any,
+        { chapterId: 'c2', update: new Uint8Array([4, 5, 6]) } as any,
+      ];
+      expect(() => validateBundleInput(mockProject, mockChapters, crdtStates)).not.toThrow();
+    });
+
+    it('throws when crdtState references a chapter not in the bundle chapters', () => {
+      const crdtStates = [
+        { chapterId: 'orphan_c3', update: new Uint8Array([1]) } as any,
+      ];
+      expect(() => validateBundleInput(mockProject, mockChapters, crdtStates)).toThrow(
+        '[atomicSaveProjectBundle] Orphan CRDT state: chapter orphan_c3 is not present in the bundle chapters.'
+      );
+    });
+
+    it('throws when chapter in bundle has mismatched projectId', () => {
+      const chaptersWithMismatchedProject = [
+        { id: 'c1', projectId: 'p1', title: 'Chapter 1' },
+        { id: 'c2', projectId: 'other_project', title: 'Chapter 2' },
+      ] as any;
+      const crdtStates = [
+        { chapterId: 'c2', update: new Uint8Array([1]) } as any,
+      ];
+      expect(() => validateBundleInput(mockProject, chaptersWithMismatchedProject, crdtStates)).toThrow(
+        '[atomicSaveProjectBundle] Mismatched projectId in CRDT state: chapter c2 belongs to project "other_project" which does not match bundle projectId "p1".'
+      );
     });
   });
 });

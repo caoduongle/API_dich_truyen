@@ -1,11 +1,18 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'node:fs';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, loadEnv} from 'vite';
 
-export default defineConfig(() => {
-  const publicUrl = (process.env.VITE_PUBLIC_URL || 'https://api-dich-truyen.onrender.com').replace(/\/+$/, '');
-  process.env.VITE_PUBLIC_URL = publicUrl;
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const publicUrl = (env.VITE_PUBLIC_URL || process.env.VITE_PUBLIC_URL || 'https://api-dich-truyen.onrender.com').replace(/\/+$/, '');
+  if (env.VITE_PUBLIC_URL) {
+    process.env.VITE_PUBLIC_URL = publicUrl;
+  }
+  if (env.VITE_BASE_URL) {
+    process.env.VITE_BASE_URL = env.VITE_BASE_URL;
+  }
   return {
     base: process.env.VITE_BASE_URL || '/',
     plugins: [
@@ -13,8 +20,38 @@ export default defineConfig(() => {
       tailwindcss(),
       {
         name: 'html-transform-public-url',
+        enforce: 'pre',
         transformIndexHtml(html: string) {
           return html.replaceAll('%VITE_PUBLIC_URL%', publicUrl);
+        },
+      },
+      {
+        name: 'sitemap-transform-public-url',
+        closeBundle() {
+          const sitemapDist = path.resolve(__dirname, 'dist/sitemap.xml');
+          if (fs.existsSync(sitemapDist)) {
+            const raw = fs.readFileSync(sitemapDist, 'utf8');
+            const transformed = raw
+              .replaceAll('%VITE_PUBLIC_URL%', publicUrl)
+              .replaceAll('https://api-dich-truyen.onrender.com', publicUrl);
+            fs.writeFileSync(sitemapDist, transformed, 'utf8');
+          }
+        },
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            if (req.url === '/sitemap.xml' || req.url === '/sitemap.xml/') {
+              const sitemapPath = path.resolve(__dirname, 'public/sitemap.xml');
+              if (fs.existsSync(sitemapPath)) {
+                const raw = fs.readFileSync(sitemapPath, 'utf8');
+                const transformed = raw
+                  .replaceAll('%VITE_PUBLIC_URL%', publicUrl)
+                  .replaceAll('https://api-dich-truyen.onrender.com', publicUrl);
+                res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+                return res.end(transformed);
+              }
+            }
+            next();
+          });
         },
       },
     ],

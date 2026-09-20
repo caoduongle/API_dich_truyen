@@ -114,7 +114,7 @@
 
 - [x] T030 [US5] Update `executeDeleteProjectFromDB()` in `src/services/db.ts`: ensure the manifest `put()` operation is scheduled AFTER all cursor-based chapter discovery completes inside the transaction. The manifest's `chapterIds` and `physicalDbNames` must reflect the union of all chapter IDs found from `project.chapters`, `chaptersStore.index('projectId')`, and `crdtStore.index('projectId')`. This may require collecting IDs in a shared mutable set within the transaction callbacks and putting the manifest in a completion callback after all cursors finish.
 - [x] T031 [US5] Add test in `src/services/__tests__/projectDeleteQueue.test.ts`: verify that when additional chapters are discovered during cursor traversal (beyond the initial `discoverProjectChapterIds` snapshot), the committed manifest includes ALL discovered chapter IDs and corresponding physical database names.
-- [ ] T032 [US5] Run `npm run lint && npm test && npm run build` — all must pass cleanly.
+- [x] T032 [US5] Run `npm run lint && npm test && npm run build` — all must pass cleanly.
 
 **Checkpoint**: Manifest always reflects the authoritative, final set of chapters at transaction commit time.
 

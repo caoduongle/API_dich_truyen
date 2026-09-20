@@ -227,7 +227,7 @@ p {
       const content = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(content);
       triggerDownload(url, `${proj.title.replace(/[\s\/:*?"<>|]+/g, '_')}.epub`);
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       showToast({ message: "Xuất bản và đóng gói EPUB thành công!", type: "success" });
     } catch (err: any) {
       console.error(err);
