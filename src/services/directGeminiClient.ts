@@ -203,7 +203,8 @@ export async function quickTranslateTermDirect(options: {
 }): Promise<QuickTermResult> {
   const sanitizedTerm = sanitizePromptInput(options.term);
   const sanitizedContext = sanitizePromptInput(options.contextText || '');
-  const genreNote = options.genre ? `\nBộ truyện thuộc thể loại: ${options.genre}. Hãy ưu tiên từ ngữ và cách dịch phù hợp với phong cách thể loại này.` : '';
+  const sanitizedGenre = options.genre ? sanitizePromptInput(options.genre) : '';
+  const genreNote = sanitizedGenre ? `\nBộ truyện thuộc thể loại: ${sanitizedGenre}. Hãy ưu tiên từ ngữ và cách dịch phù hợp với phong cách thể loại này.` : '';
 
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +

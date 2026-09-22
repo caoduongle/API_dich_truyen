@@ -1,4 +1,5 @@
-import { GlossaryType } from '../types';
+import { GlossaryItem, GlossaryType } from '../types';
+import type { QualityIssueCategory, QualityIssueSeverity } from '../types/hakoChecker';
 
 export const ANTI_INJECTION_DEFENSE_DIRECTIVE =
   "[CHỈ THỊ BẢO VỆ AN TOÀN VÀ PHÒNG THỦ DỮ LIỆU ĐẦU VÀO]\n" +
@@ -526,15 +527,15 @@ export function isQaCritiqueIssue(item: unknown): item is QaCritiqueIssue {
       : null;
   if (!desc || !desc.trim()) return false;
 
-  if (obj.targetText !== undefined && typeof obj.targetText !== 'string') return false;
+  if (typeof obj.targetText !== 'string') return false;
 
   const validTypes = ['omission', 'addition', 'repetition', 'terminology', 'other'];
-  if (obj.type !== undefined && (typeof obj.type !== 'string' || !validTypes.includes(obj.type))) {
+  if (typeof obj.type !== 'string' || !validTypes.includes(obj.type)) {
     return false;
   }
 
   const validSeverities = ['critical', 'warning', 'info'];
-  if (obj.severity !== undefined && (typeof obj.severity !== 'string' || !validSeverities.includes(obj.severity))) {
+  if (typeof obj.severity !== 'string' || !validSeverities.includes(obj.severity)) {
     return false;
   }
 
@@ -586,6 +587,11 @@ export function isQuickTermResponse(data: unknown): data is QuickTermResponse {
   return true;
 }
 
+export interface GlossarySuggestion extends Omit<GlossaryItem, 'id'> {
+  term?: string;
+  [key: string]: unknown;
+}
+
 export interface GlossarySuggestionsResponse {
   suggestions: unknown[];
   [key: string]: unknown;
@@ -630,6 +636,57 @@ export function isAlignChapterResponse(data: unknown): data is AlignChapterRespo
   return Array.isArray((data as Record<string, unknown>).alignments);
 }
 
+export interface HakoQualityScanRawIssue {
+  category: QualityIssueCategory;
+  severity: QualityIssueSeverity;
+  explanation: string;
+  vietnameseSnippet?: string;
+  rawSnippet?: string;
+  suggestedFix?: string;
+  [key: string]: unknown;
+}
+
+export function isHakoQualityScanIssue(item: unknown): item is HakoQualityScanRawIssue {
+  if (typeof item !== 'object' || item === null) return false;
+  const obj = item as Record<string, unknown>;
+
+  if (typeof obj.explanation !== 'string' || !obj.explanation.trim()) {
+    return false;
+  }
+
+  const validCategories: string[] = [
+    'inconsistent_name',
+    'pronoun_gender',
+    'terminology_drift',
+    'repetition',
+    'wrong_chapter',
+    'mistranslation',
+    'omission',
+    'hallucination',
+    'other',
+  ];
+  if (typeof obj.category !== 'string' || !validCategories.includes(obj.category)) {
+    return false;
+  }
+
+  const validSeverities: string[] = ['critical', 'major', 'minor', 'warning'];
+  if (typeof obj.severity !== 'string' || !validSeverities.includes(obj.severity)) {
+    return false;
+  }
+
+  if (obj.vietnameseSnippet !== undefined && typeof obj.vietnameseSnippet !== 'string') {
+    return false;
+  }
+  if (obj.rawSnippet !== undefined && typeof obj.rawSnippet !== 'string') {
+    return false;
+  }
+  if (obj.suggestedFix !== undefined && typeof obj.suggestedFix !== 'string') {
+    return false;
+  }
+
+  return true;
+}
+
 export interface HakoQualityScanResponse {
   issues: unknown[];
   [key: string]: unknown;
@@ -639,6 +696,7 @@ export function isHakoQualityScanResponse(data: unknown): data is HakoQualitySca
   if (typeof data !== 'object' || data === null) return false;
   return Array.isArray((data as Record<string, unknown>).issues);
 }
+
 
 
 // Định vị điểm phân tách văn bản an toàn không làm đứt câu

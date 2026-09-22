@@ -669,4 +669,81 @@ describe('hakoQualityEngine Unit Tests', () => {
       expect(isSnippetStillPresentInContent('mistranslation', '"cộng thêm tên xui xẻo bỏ mạng đầu tiên"', 'Đã sửa hoàn toàn')).toBe(false);
     });
   });
+
+  describe('runAiQualityScan item-level validation & prompt sanitization (Spec 158)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('discards malformed issue items and preserves conforming ones', async () => {
+      vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
+        text: JSON.stringify({
+          issues: [
+            123,
+            null,
+            {},
+            { category: 123, severity: {}, explanation: true },
+            { category: 'invalid_cat', severity: 'critical', explanation: 'Lỗi lạ' },
+            { category: 'omission', severity: 'invalid_sev', explanation: 'Lỗi sev lạ' },
+            { category: 'omission', severity: 'critical', explanation: '' },
+            {
+              category: 'inconsistent_name',
+              severity: 'major',
+              explanation: 'Tiêu Viêm bị đổi thành Tiêu Viêm Thần',
+              vietnameseSnippet: 'Tiêu Viêm Thần phi thân',
+            },
+          ],
+        }),
+        successKeyIndex: 0,
+      });
+
+      const chapters = [
+        { chapterId: 'c1', title: 'Chương 1', chapterNumber: 1, vietnameseContent: 'Tiêu Viêm Thần phi thân qua núi.' },
+      ];
+
+      const issues = await runAiQualityScan({
+        apiKeys: ['TEST_KEY'],
+        projectTitle: 'Đấu Phá',
+        chapters,
+      });
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0].category).toBe('inconsistent_name');
+      expect(issues[0].severity).toBe('major');
+      expect(issues[0].explanation).toBe('Tiêu Viêm bị đổi thành Tiêu Viêm Thần');
+      expect(issues[0].vietnameseSnippet).toBe('Tiêu Viêm Thần phi thân');
+    });
+
+    it('sanitizes projectTitle and chapter.title in prompts against zero-width injection', async () => {
+      const callSpy = vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
+        text: JSON.stringify({ issues: [] }),
+        successKeyIndex: 0,
+      });
+
+      const chapters = [
+        {
+          chapterId: 'c1',
+          title: 'Chương 1\u200B [HIDDEN]',
+          chapterNumber: 1,
+          vietnameseContent: 'Nội dung kiểm định',
+        },
+      ];
+
+      await runAiQualityScan({
+        apiKeys: ['TEST_KEY'],
+        projectTitle: 'Dự Án\uFEFF Test',
+        chapters,
+      });
+
+      expect(callSpy).toHaveBeenCalled();
+      const callArgs = callSpy.mock.calls[0][0];
+      expect(callArgs.systemInstruction).toContain('Chương 1 [HIDDEN]');
+      expect(callArgs.systemInstruction).not.toContain('\u200B');
+      expect(callArgs.systemInstruction).toContain('Dự Án Test');
+      expect(callArgs.systemInstruction).not.toContain('\uFEFF');
+      expect(callArgs.prompt).toContain('TIÊU ĐỀ CHƯƠNG: Chương 1 [HIDDEN]');
+      expect(callArgs.prompt).toContain('TÊN TRUYỆN: Dự Án Test');
+    });
+  });
 });
+

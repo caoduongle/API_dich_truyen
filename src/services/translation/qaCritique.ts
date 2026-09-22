@@ -56,33 +56,16 @@ export async function qaCritiqueDirect(
     validator: isQaCritiqueResponse,
     contextName: 'qaCritique',
   });
-  const normalizeIssueType = (val: unknown): DirectQaCritiqueResult['issues'][number]['type'] => {
-    if (val === 'omission' || val === 'addition' || val === 'repetition' || val === 'terminology') {
-      return val;
-    }
-    return 'other';
-  };
-
-  const normalizeIssueSeverity = (val: unknown): DirectQaCritiqueResult['issues'][number]['severity'] => {
-    if (val === 'critical' || val === 'info') {
-      return val;
-    }
-    return 'warning';
-  };
-
   const rawIssues = Array.isArray(parsed.issues) ? parsed.issues : [];
   const safeIssues: DirectQaCritiqueResult['issues'] = rawIssues
     .filter(isQaCritiqueIssue)
     .map((it) => ({
-      type: normalizeIssueType(it.type),
-      severity: normalizeIssueSeverity(it.severity),
-      targetText: typeof it.targetText === 'string' ? it.targetText : '',
-      description:
-        typeof it.description === 'string' && it.description.trim()
-          ? it.description.trim()
-          : typeof it.message === 'string'
-          ? it.message.trim()
-          : '',
+      type: it.type,
+      severity: it.severity,
+      targetText: it.targetText,
+      description: (typeof it.description === 'string' && it.description.trim()
+        ? it.description
+        : it.message || '').trim(),
     }));
 
   return {

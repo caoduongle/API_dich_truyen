@@ -817,5 +817,45 @@ describe('src/services/directTranslationEngine.ts', () => {
       expect(res.vietnamese).toBe('');
       expect(res.type).toBe('character');
     });
+
+    it('sanitizes options.genre against prompt injection and hidden control characters', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      chinese: '张三',
+                      vietnamese: 'Trương Tam',
+                      pinyin: 'Zhāng Sān',
+                      type: 'character',
+                      note: 'Nhân vật',
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+
+      await directGeminiClient.quickTranslateTermDirect({
+        term: '张三',
+        genre: 'Tiên\u200B Hiệp\uFEFF',
+        apiKeys: ['KEY_1'],
+      });
+
+      expect(global.fetch).toHaveBeenCalled();
+      const callArgs = (global.fetch as any).mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      const systemInstruction = requestBody.systemInstruction.parts[0].text;
+      expect(systemInstruction).toContain('Tiên Hiệp');
+      expect(systemInstruction).not.toContain('\u200B');
+      expect(systemInstruction).not.toContain('\uFEFF');
+    });
   });
 });

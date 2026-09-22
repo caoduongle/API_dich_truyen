@@ -23,6 +23,7 @@ import {
   sanitizePromptInput,
   parseGeminiStructuredResponse,
   isHakoQualityScanResponse,
+  isHakoQualityScanIssue,
   HakoQualityScanResponse,
 } from '../lib/text';
 
@@ -460,10 +461,13 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
     const sanitizedVi = sanitizePromptInput(truncatedVi);
     const sanitizedRaw = hasRaw ? sanitizePromptInput(truncatedRaw) : '';
 
+    const cleanChapterTitle = sanitizePromptInput(chapter.title || 'Không có tiêu đề');
+    const cleanProjectTitle = sanitizePromptInput(projectTitle || 'Không có tiêu đề');
+
     const systemInstruction =
       LITERARY_TRANSLATION_FRAMING +
       `Bạn là chuyên gia kiểm định chất lượng bản dịch văn học Trung - Việt hàng đầu.\n` +
-      `Nhiệm vụ của bạn là rà soát chương truyện "${chapter.title}" thuộc bộ truyện "${projectTitle}" và chỉ ra các lỗi chất lượng thực sự nghiêm trọng hoặc gây khó chịu cho độc giả.\n\n` +
+      `Nhiệm vụ của bạn là rà soát chương truyện "${cleanChapterTitle}" thuộc bộ truyện "${cleanProjectTitle}" và chỉ ra các lỗi chất lượng thực sự nghiêm trọng hoặc gây khó chịu cho độc giả.\n\n` +
       `Các danh mục lỗi cần phát hiện:\n` +
       `1. "inconsistent_name": Tên nhân vật, địa danh, môn phái bị đổi cách dịch hoặc mâu thuẫn giữa các đoạn.\n` +
       `2. "pronoun_gender": Đại từ xưng hô, nhân xưng hoặc giới tính nhân vật bị mâu thuẫn bất thường (ví dụ: nhân vật nữ nhưng xưng "hắn", "anh" biến thành "cô").\n` +
@@ -518,7 +522,7 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
       required: ['issues'],
     };
 
-    let userPrompt = `TÊN TRUYỆN: ${projectTitle}\nTIÊU ĐỀ CHƯƠNG: ${chapter.title}\n\n`;
+    let userPrompt = `TÊN TRUYỆN: ${cleanProjectTitle}\nTIÊU ĐỀ CHƯƠNG: ${cleanChapterTitle}\n\n`;
     if (hasRaw) {
       userPrompt += `--- VĂN BẢN RAW TIẾNG TRUNG GỐC ---\n${sanitizedRaw}\n\n`;
     }
@@ -540,15 +544,14 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
         contextName: 'hakoQualityEngine.runAiQualityScan',
         fallback: { issues: [] },
       });
-      const rawIssues = (Array.isArray(parsed?.issues) ? parsed.issues : []) as Array<Record<string, any>>;
+      const rawIssues = Array.isArray(parsed?.issues) ? parsed.issues : [];
 
-      for (const item of rawIssues) {
-        if (!item.explanation) continue;
+      for (const item of rawIssues.filter(isHakoQualityScanIssue)) {
         const hasViSnippet = typeof item.vietnameseSnippet === 'string' && item.vietnameseSnippet.trim().length > 0;
         if (!hasViSnippet && item.category !== 'omission') continue;
 
         const viSnippet = hasViSnippet
-          ? String(item.vietnameseSnippet).trim()
+          ? item.vietnameseSnippet!.trim()
           : (chapter.vietnameseContent.trim().slice(-150) || 'Đoạn kết thúc bản dịch');
 
         allAiIssues.push({
@@ -556,17 +559,18 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
           chapterId,
           chapterTitle: chapter.title,
           chapterNumber: chapter.chapterNumber,
-          category: (item.category as QualityIssueCategory) || 'other',
-          severity: (item.severity as QualityIssueSeverity) || 'major',
+          category: item.category,
+          severity: item.severity,
           vietnameseSnippet: viSnippet,
-          rawSnippet: item.rawSnippet ? String(item.rawSnippet).trim() : undefined,
-          explanation: String(item.explanation).trim(),
-          suggestedFix: item.suggestedFix ? String(item.suggestedFix).trim() : undefined,
+          rawSnippet: item.rawSnippet ? item.rawSnippet.trim() : undefined,
+          explanation: item.explanation.trim(),
+          suggestedFix: item.suggestedFix ? item.suggestedFix.trim() : undefined,
           decision: 'pending',
           detectedBy: 'ai',
           createdAt: new Date().toISOString(),
         });
       }
+
     } catch (err: any) {
       if (err.name === 'AbortError') throw err;
       console.warn(`[hakoQualityEngine] AI scan failed for chapter "${chapter.title}":`, err);

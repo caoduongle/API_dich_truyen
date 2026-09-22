@@ -18,9 +18,11 @@ import {
   GlossarySuggestionsResponse,
   GuidelinesAnalysisResponse,
   AlignChapterResponse,
+  GlossarySuggestion,
 } from '../lib/text';
 import { validateAndSnapBackEntities, isHanEquivalent } from '../lib/sinoNormalize';
 import { parseGlossaryFromMd } from '../lib/parser';
+import { GlossaryType } from '../types';
 import { GLOSSARY_LIMITS } from '../config/constants';
 
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
@@ -44,7 +46,7 @@ export interface DirectGlossaryCommonParams {
 async function callGlossaryAnalysisDirect(
   text: string,
   common: DirectGlossaryCommonParams
-): Promise<{ suggestions: any[]; successKeyIndex: number }> {
+): Promise<{ suggestions: GlossarySuggestion[]; successKeyIndex: number }> {
   const { systemInstruction, prompt, schema } = buildAnalyzeGlossaryPayload({
     text,
     knownChineseTerms: common.knownChineseTerms,
@@ -72,7 +74,16 @@ async function callGlossaryAnalysisDirect(
     fallback: { suggestions: [] },
     contextName: 'callGlossaryAnalysisDirect',
   });
-  const suggestions = parsed && Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+  const rawSuggestions = (parsed && Array.isArray(parsed.suggestions) ? parsed.suggestions : []) as any[];
+  const suggestions: GlossarySuggestion[] = rawSuggestions.map((item: any) => ({
+    chinese: typeof item?.chinese === 'string' ? item.chinese : (typeof item?.term === 'string' ? item.term : ''),
+    vietnamese: typeof item?.vietnamese === 'string' ? item.vietnamese : '',
+    pinyin: typeof item?.pinyin === 'string' ? item.pinyin : '',
+    type: (['character', 'location', 'term', 'phrase', 'other'].includes(item?.type) ? item.type : 'other') as GlossaryType,
+    note: typeof item?.note === 'string' ? item.note : '',
+    ...(item?.sourceChapterId ? { sourceChapterId: item.sourceChapterId } : {}),
+    ...(typeof item?.needsReview === 'boolean' ? { needsReview: item.needsReview } : {}),
+  }));
   return { suggestions, successKeyIndex: response.successKeyIndex };
 }
 
@@ -80,7 +91,7 @@ async function analyzeGlossaryWithContentSplitDirect(
   text: string,
   common: DirectGlossaryCommonParams,
   depth = 0
-): Promise<{ suggestions: any[]; successKeyIndex: number }> {
+): Promise<{ suggestions: GlossarySuggestion[]; successKeyIndex: number }> {
   if (estimateTokenCount(text) < 180 || depth > 4) {
     try {
       return await callGlossaryAnalysisDirect(text, common);
@@ -132,7 +143,7 @@ export interface AnalyzeGlossaryDirectParams extends DirectGlossaryCommonParams 
 }
 
 export interface AnalyzeGlossaryDirectResult {
-  suggestions: any[];
+  suggestions: GlossarySuggestion[];
   successKeyIndex: number;
   truncated?: boolean;
   originalLength?: number;
@@ -150,7 +161,7 @@ export async function analyzeGlossaryDirect(
   const totalAnalyzedLength = chunksToProcess.reduce((sum, chunk) => sum + chunk.length, 0);
   const textToAnalyze = text.substring(0, totalAnalyzedLength);
 
-  let result = { suggestions: [] as any[], successKeyIndex: common.startKeyIndex ?? 0 };
+  let result = { suggestions: [] as GlossarySuggestion[], successKeyIndex: common.startKeyIndex ?? 0 };
   try {
     result = await analyzeGlossaryWithContentSplitDirect(textToAnalyze, common, 0);
   } catch (splitError: any) {
@@ -161,7 +172,7 @@ export async function analyzeGlossaryDirect(
     }
   }
 
-  const uniqueSuggestions: any[] = [];
+  const uniqueSuggestions: GlossarySuggestion[] = [];
   for (const item of result.suggestions) {
     if (!item || typeof item.chinese !== 'string') continue;
     const isDuplicate = uniqueSuggestions.some((existingItem) => isHanEquivalent(existingItem.chinese, item.chinese));
@@ -170,10 +181,10 @@ export async function analyzeGlossaryDirect(
     }
   }
 
-  const validatedSuggestions = validateAndSnapBackEntities(uniqueSuggestions, text);
+  const validatedSuggestions = validateAndSnapBackEntities(uniqueSuggestions, text) as GlossarySuggestion[];
   const resolvedChapterId = sourceChapterId || chapterId;
-  const finalSuggestions = resolvedChapterId
-    ? validatedSuggestions.map((s: any) => ({ ...s, sourceChapterId: resolvedChapterId }))
+  const finalSuggestions: GlossarySuggestion[] = resolvedChapterId
+    ? validatedSuggestions.map((s) => ({ ...s, sourceChapterId: resolvedChapterId }))
     : validatedSuggestions;
 
   return {
@@ -190,9 +201,10 @@ export interface AnalyzeGuidelinesDirectParams extends DirectGlossaryCommonParam
 }
 
 export interface AnalyzeGuidelinesDirectResult {
-  extractedGlossary: any[];
+  extractedGlossary: GlossarySuggestion[];
   genre: string;
   tone: string;
+
   description: string;
   successKeyIndex: number;
   truncated?: boolean;
@@ -246,7 +258,7 @@ export interface ExtractGlossaryDirectParams extends DirectGlossaryCommonParams 
 }
 
 export interface ExtractGlossaryDirectResult {
-  glossary: any[];
+  glossary: GlossarySuggestion[];
   successKeyIndex: number;
   warning?: string;
 }
@@ -275,11 +287,20 @@ export async function extractGlossaryDirect(
       contextName: 'extractGlossaryDirect',
     });
 
-    const parsedGlossary = Array.isArray(parsed) ? parsed : parsed?.suggestions || [];
-    let validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text);
+    const rawList = (Array.isArray(parsed) ? parsed : parsed?.suggestions || []) as any[];
+    const parsedGlossary: GlossarySuggestion[] = rawList.map((item: any) => ({
+      chinese: typeof item?.chinese === 'string' ? item.chinese : (typeof item?.term === 'string' ? item.term : ''),
+      vietnamese: typeof item?.vietnamese === 'string' ? item.vietnamese : '',
+      pinyin: typeof item?.pinyin === 'string' ? item.pinyin : '',
+      type: (['character', 'location', 'term', 'phrase', 'other'].includes(item?.type) ? item.type : 'other') as GlossaryType,
+      note: typeof item?.note === 'string' ? item.note : '',
+      ...(item?.sourceChapterId ? { sourceChapterId: item.sourceChapterId } : {}),
+      ...(typeof item?.needsReview === 'boolean' ? { needsReview: item.needsReview } : {}),
+    }));
+    let validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text) as GlossarySuggestion[];
     const resolvedChapterId = sourceChapterId || chapterId;
     if (resolvedChapterId) {
-      validatedGlossary = validatedGlossary.map((s: any) => ({ ...s, sourceChapterId: resolvedChapterId }));
+      validatedGlossary = validatedGlossary.map((s) => ({ ...s, sourceChapterId: resolvedChapterId }));
     }
 
     return { glossary: validatedGlossary, successKeyIndex: response.successKeyIndex };

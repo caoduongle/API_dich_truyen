@@ -84,4 +84,29 @@ describe('src/services/directGlossaryEngine.ts', () => {
     expect(capturedArgs.temperature).toBe(0.2);
     expect(capturedArgs.prompt).not.toContain('--- DANH SÁCH THUẬT NGỮ ĐÃ CÓ / ĐÃ QUÉT ĐƯỢC');
   });
+
+  it('extractGlossaryDirect returns strongly-typed GlossarySuggestion array', async () => {
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
+      text: JSON.stringify([
+        {
+          chinese: '玄阶中级斗技',
+          vietnamese: 'Huyền Giai Trung Cấp Đấu Kỹ',
+          type: 'term',
+          note: 'Cấp bậc công pháp',
+        },
+      ]),
+      successKeyIndex: 0,
+    });
+
+    const { extractGlossaryDirect } = await import('../directGlossaryEngine');
+    const res = await extractGlossaryDirect({
+      text: 'Hắn tu luyện một bộ Huyền Giai Trung Cấp Đấu Kỹ.',
+      apiKeys: ['TEST_KEY'],
+    });
+
+    expect(res.glossary).toHaveLength(1);
+    expect(res.glossary[0].chinese).toBe('玄阶中级斗技');
+    expect(res.glossary[0].vietnamese).toBe('Huyền Giai Trung Cấp Đấu Kỹ');
+  });
 });
+

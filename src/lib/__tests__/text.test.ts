@@ -30,6 +30,7 @@ import {
   isGuidelinesAnalysisResponse,
   isAlignChapterResponse,
   isHakoQualityScanResponse,
+  isHakoQualityScanIssue,
 } from '../text';
 import {
   buildRawTranslationPayload,
@@ -539,7 +540,7 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
     });
 
     describe('isQaCritiqueIssue', () => {
-      it('validates compliant issue items', () => {
+      it('validates compliant issue items with all required fields', () => {
         expect(
           isQaCritiqueIssue({
             type: 'omission',
@@ -559,15 +560,20 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
         ).toBe(true);
       });
 
-      it('rejects invalid or malformed issue items', () => {
+      it('rejects invalid or malformed issue items missing required fields', () => {
         expect(isQaCritiqueIssue(null)).toBe(false);
         expect(isQaCritiqueIssue(123)).toBe(false);
         expect(isQaCritiqueIssue({})).toBe(false);
-        expect(isQaCritiqueIssue({ description: '' })).toBe(false);
-        expect(isQaCritiqueIssue({ description: '   ' })).toBe(false);
-        expect(isQaCritiqueIssue({ severity: false, description: 'Lỗi' })).toBe(false);
-        expect(isQaCritiqueIssue({ type: 123, description: 'Lỗi' })).toBe(false);
-        expect(isQaCritiqueIssue({ targetText: 42, description: 'Lỗi' })).toBe(false);
+        expect(isQaCritiqueIssue({ description: 'Có lỗi dịch' })).toBe(false);
+        expect(isQaCritiqueIssue({ type: 'omission', description: 'Thiếu nội dung' })).toBe(false);
+        expect(isQaCritiqueIssue({ severity: 'critical', description: 'Lỗi nặng' })).toBe(false);
+        expect(isQaCritiqueIssue({ targetText: 'Sai', description: 'Lỗi' })).toBe(false);
+        expect(isQaCritiqueIssue({ type: 'omission', severity: 'critical', targetText: '' })).toBe(false);
+        expect(isQaCritiqueIssue({ type: 'omission', severity: 'critical', targetText: '', description: '' })).toBe(false);
+        expect(isQaCritiqueIssue({ type: 'omission', severity: 'critical', targetText: '', description: '   ' })).toBe(false);
+        expect(isQaCritiqueIssue({ type: 'omission', severity: 'critical', targetText: 42, description: 'Lỗi' })).toBe(false);
+        expect(isQaCritiqueIssue({ type: 'unknown_type', severity: 'critical', targetText: '', description: 'Lỗi' })).toBe(false);
+        expect(isQaCritiqueIssue({ type: 'omission', severity: 'unknown_sev', targetText: '', description: 'Lỗi' })).toBe(false);
       });
     });
 
@@ -613,12 +619,31 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
         expect(isAlignChapterResponse({ alignments: 'none' })).toBe(false);
       });
 
-      it('validates hako quality scan response payloads', () => {
+      it('validates hako quality scan response payloads and item-level issues', () => {
         expect(isHakoQualityScanResponse({ issues: [] })).toBe(true);
         expect(isHakoQualityScanResponse({})).toBe(false);
         expect(isHakoQualityScanResponse({ issues: 'invalid' })).toBe(false);
+
+        // Item-level tests (US2)
+        expect(
+          isHakoQualityScanIssue({
+            category: 'omission',
+            severity: 'critical',
+            explanation: 'Thiếu đoạn văn',
+            vietnameseSnippet: 'Đoạn kết',
+          })
+        ).toBe(true);
+
+        expect(isHakoQualityScanIssue(null)).toBe(false);
+        expect(isHakoQualityScanIssue({})).toBe(false);
+        expect(isHakoQualityScanIssue({ category: 123, severity: {}, explanation: true })).toBe(false);
+        expect(isHakoQualityScanIssue({ category: 'omission', severity: 'critical', explanation: '' })).toBe(false);
+        expect(isHakoQualityScanIssue({ category: 'invalid_cat', severity: 'critical', explanation: 'Lỗi' })).toBe(false);
+        expect(isHakoQualityScanIssue({ category: 'omission', severity: 'invalid_sev', explanation: 'Lỗi' })).toBe(false);
+        expect(isHakoQualityScanIssue({ category: 'omission', severity: 'critical', explanation: 'Lỗi', vietnameseSnippet: 123 })).toBe(false);
       });
     });
+
   });
 });
 

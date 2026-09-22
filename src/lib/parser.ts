@@ -1,8 +1,10 @@
+import { GlossaryType } from '../types';
+
 export function parseGlossaryFromMd(text: string): Array<{
   chinese: string;
   pinyin: string;
   vietnamese: string;
-  type: string;
+  type: GlossaryType;
   note: string;
 }> {
   if (!text) return [];
@@ -10,10 +12,10 @@ export function parseGlossaryFromMd(text: string): Array<{
     chinese: string;
     pinyin: string;
     vietnamese: string;
-    type: string;
+    type: GlossaryType;
     note: string;
   }> = [];
-  const SECTION_TYPE_MAP: Array<[RegExp, string]> = [
+  const SECTION_TYPE_MAP: Array<[RegExp, GlossaryType]> = [
     [/Nhân\s*vật|CHARACTER|TỔ\s*CHỨC|NHÂN\s*VẬT/i, "character"],
     [/Địa\s*danh|LOCATION|ĐỊA\s*DANH/i, "location"],
     [/Bí\s*kíp|Vật\s*phẩm|CHỦNG\s*TỘC|QUÁI\s*VẬT|HỆ\s*THỐNG|KHÁI\s*NIỆM|KỸ\s*NĂNG/i, "term"],
@@ -21,7 +23,7 @@ export function parseGlossaryFromMd(text: string): Array<{
     [/Thuật\s*ngữ\s*khác|OTHER/i, "other"],
   ];
   const HAN_REGEX = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/;
-  let currentType = "term";
+  let currentType: GlossaryType = "term";
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
