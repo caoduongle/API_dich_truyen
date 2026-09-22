@@ -57,9 +57,11 @@ export async function rewriteSentenceDirect(
   const cleanTargetText = sanitizePromptInput(targetText);
   const cleanContext = sanitizePromptInput(context);
   const cleanIssueMessage = sanitizePromptInput(issueMessage);
+  const cleanGenre = sanitizePromptInput(genre);
+  const cleanTone = sanitizePromptInput(tone);
 
-  const genrePart = genre ? ` Thể loại truyện: ${genre}.` : '';
-  const tonePart = tone ? ` Tông giọng: ${tone}.` : '';
+  const genrePart = cleanGenre ? ` Thể loại truyện: ${cleanGenre}.` : '';
+  const tonePart = cleanTone ? ` Tông giọng: ${cleanTone}.` : '';
 
   const systemInstruction =
     'Bạn là biên tập viên tiểu thuyết dịch Trung-Việt chuyên nghiệp. ' +

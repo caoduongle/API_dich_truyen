@@ -32,6 +32,7 @@ export interface DirectGeminiRequestOptions {
   apiKeys?: string[];
   startKeyIndex?: number;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface DirectGeminiResponse {

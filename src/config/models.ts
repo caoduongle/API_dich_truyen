@@ -54,13 +54,14 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     source: 'preset',
     status: 'active',
     verified: true,
-    lastVerifiedAt: '2026-08-20T00:00:00.000Z',
+    lastVerifiedAt: '2026-09-22T00:00:00.000Z',
     capabilities: {
       generateContent: true,
       structuredOutput: true,
       vision: true,
       thinking: false,
     },
+    // Local scheduler defaults: Giả định điều phối cục bộ (không thay thế hạn mức cấp dự án của Google)
     limits: {
       defaultRpm: 15,
       defaultTpm: 1000000,
@@ -75,13 +76,14 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     source: 'preset',
     status: 'active',
     verified: true,
-    lastVerifiedAt: '2026-08-20T00:00:00.000Z',
+    lastVerifiedAt: '2026-09-22T00:00:00.000Z',
     capabilities: {
       generateContent: true,
       structuredOutput: true,
       vision: true,
       thinking: true,
     },
+    // Local scheduler defaults: Giả định điều phối cục bộ (không thay thế hạn mức cấp dự án của Google)
     limits: {
       defaultRpm: 15,
       defaultTpm: 1000000,
@@ -92,17 +94,18 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
   },
   {
     id: 'gemini-2.5-pro',
-    label: 'Gemini 2.5 Pro (Mạnh nhất)',
+    label: 'Gemini 2.5 Pro (Preset cao cấp)',
     source: 'preset',
     status: 'active',
     verified: true,
-    lastVerifiedAt: '2026-08-20T00:00:00.000Z',
+    lastVerifiedAt: '2026-09-22T00:00:00.000Z',
     capabilities: {
       generateContent: true,
       structuredOutput: true,
       vision: true,
       thinking: true,
     },
+    // Local scheduler defaults: Giả định điều phối cục bộ (không thay thế hạn mức cấp dự án của Google)
     limits: {
       defaultRpm: 10,
       defaultTpm: 1000000,
@@ -117,13 +120,14 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
     source: 'preset',
     status: 'active',
     verified: true,
-    lastVerifiedAt: '2026-08-20T00:00:00.000Z',
+    lastVerifiedAt: '2026-09-22T00:00:00.000Z',
     capabilities: {
       generateContent: true,
       structuredOutput: false,
       vision: false,
       thinking: false,
     },
+    // Local scheduler defaults: Giả định điều phối cục bộ (không thay thế hạn mức cấp dự án của Google)
     limits: {
       defaultRpm: 30,
       defaultTpm: 500000,

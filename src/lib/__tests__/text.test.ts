@@ -10,6 +10,8 @@ import {
   splitTextAdaptively,
   safeParseJson,
   parseGeminiStructuredResponse,
+  parseGeminiStructuredResponseWithState,
+  validateDiscoveredEntity,
   getGenreStyleGuide,
   getPolishStrategyForRound,
   calculateTextSimilarity,
@@ -366,12 +368,107 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
     });
   });
 
+  describe('parseGeminiStructuredResponseWithState', () => {
+    it('returns VALID with parsed data when JSON satisfies validator', () => {
+      const input = '{"rawTranslation": "Dịch thành công", "discoveredEntities": []}';
+      const result = parseGeminiStructuredResponseWithState(input, {
+        validator: isRawTranslationResponse,
+      });
+      expect(result.state).toBe('VALID');
+      expect(result.data).toEqual({
+        rawTranslation: 'Dịch thành công',
+        discoveredEntities: [],
+      });
+    });
+
+    it('returns PARSE_FAILED with null data when input is not valid JSON', () => {
+      const input = 'Đây là văn bản dịch thông thường, không phải JSON.';
+      const result = parseGeminiStructuredResponseWithState(input, {
+        validator: isRawTranslationResponse,
+      });
+      expect(result.state).toBe('PARSE_FAILED');
+      expect(result.data).toBeNull();
+    });
+
+    it('returns SCHEMA_INVALID with null data when JSON is valid but does not satisfy validator', () => {
+      const input = '{"unknownKey": "Dữ liệu không đúng schema", "status": 200}';
+      const result = parseGeminiStructuredResponseWithState(input, {
+        validator: isRawTranslationResponse,
+      });
+      expect(result.state).toBe('SCHEMA_INVALID');
+      expect(result.data).toBeNull();
+    });
+  });
+
+  describe('validateDiscoveredEntity', () => {
+    it('normalizes a complete discovered entity safely', () => {
+      const raw = {
+        chinese: ' 萧炎 ',
+        pinyin: ' Tiêu Viêm ',
+        vietnamese: ' Tiêu Viêm ',
+        type: 'character',
+        note: ' Nhân vật chính ',
+        needsReview: true,
+      };
+      const result = validateDiscoveredEntity(raw);
+      expect(result).toEqual({
+        chinese: '萧炎',
+        pinyin: 'Tiêu Viêm',
+        vietnamese: 'Tiêu Viêm',
+        type: 'character',
+        note: 'Nhân vật chính',
+        needsReview: true,
+      });
+    });
+
+    it('defaults missing optional fields to empty strings and safe values', () => {
+      const raw = {
+        chinese: '张三',
+      };
+      const result = validateDiscoveredEntity(raw);
+      expect(result).toEqual({
+        chinese: '张三',
+        pinyin: '',
+        vietnamese: '',
+        type: 'other',
+        note: '',
+        needsReview: false,
+      });
+    });
+
+    it('normalizes invalid type to other', () => {
+      const raw = {
+        chinese: 'Kiếm',
+        type: 'unrecognized_category',
+      };
+      const result = validateDiscoveredEntity(raw);
+      expect(result?.type).toBe('other');
+    });
+
+    it('returns null for non-objects or missing/empty chinese', () => {
+      expect(validateDiscoveredEntity(null)).toBeNull();
+      expect(validateDiscoveredEntity(undefined)).toBeNull();
+      expect(validateDiscoveredEntity('string')).toBeNull();
+      expect(validateDiscoveredEntity(123)).toBeNull();
+      expect(validateDiscoveredEntity({})).toBeNull();
+      expect(validateDiscoveredEntity({ chinese: '' })).toBeNull();
+      expect(validateDiscoveredEntity({ chinese: '   ' })).toBeNull();
+      expect(validateDiscoveredEntity({ chinese: 123 })).toBeNull();
+    });
+  });
+
   describe('translation structured response validators (T002 & T010)', () => {
     describe('isRawTranslationResponse', () => {
       it('validates compliant raw translation payloads', () => {
         expect(isRawTranslationResponse({ rawTranslation: 'Dịch', discoveredEntities: [] })).toBe(true);
         expect(isRawTranslationResponse({ translation: 'Dịch', vietnamese: 'Dịch' })).toBe(true);
-        expect(isRawTranslationResponse({})).toBe(true);
+      });
+
+      it('rejects empty objects or objects without translation content', () => {
+        expect(isRawTranslationResponse({})).toBe(false);
+        expect(isRawTranslationResponse({ foo: 'bar' })).toBe(false);
+        expect(isRawTranslationResponse({ rawTranslation: '' })).toBe(false);
+        expect(isRawTranslationResponse({ rawTranslation: '   ' })).toBe(false);
       });
 
       it('rejects non-objects or null', () => {
@@ -384,7 +481,7 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
       it('rejects invalid field types for raw translation', () => {
         expect(isRawTranslationResponse({ rawTranslation: 12345 })).toBe(false);
         expect(isRawTranslationResponse({ translation: true })).toBe(false);
-        expect(isRawTranslationResponse({ discoveredEntities: 'not-an-array' })).toBe(false);
+        expect(isRawTranslationResponse({ rawTranslation: 'Dịch', discoveredEntities: 'not-an-array' })).toBe(false);
       });
     });
 
@@ -392,13 +489,19 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
       it('validates compliant polish translation payloads', () => {
         expect(isPolishTranslationResponse({ polishedTranslation: 'Chuốt', discoveredEntities: [] })).toBe(true);
         expect(isPolishTranslationResponse({ translation: 'Chuốt' })).toBe(true);
-        expect(isPolishTranslationResponse({})).toBe(true);
+      });
+
+      it('rejects empty objects or objects without translation content', () => {
+        expect(isPolishTranslationResponse({})).toBe(false);
+        expect(isPolishTranslationResponse({ foo: 'bar' })).toBe(false);
+        expect(isPolishTranslationResponse({ polishedTranslation: '' })).toBe(false);
+        expect(isPolishTranslationResponse({ polishedTranslation: '   ' })).toBe(false);
       });
 
       it('rejects non-objects or invalid field types for polish translation', () => {
         expect(isPolishTranslationResponse(null)).toBe(false);
         expect(isPolishTranslationResponse({ polishedTranslation: false })).toBe(false);
-        expect(isPolishTranslationResponse({ discoveredEntities: 42 })).toBe(false);
+        expect(isPolishTranslationResponse({ polishedTranslation: 'Chuốt', discoveredEntities: 42 })).toBe(false);
       });
     });
 

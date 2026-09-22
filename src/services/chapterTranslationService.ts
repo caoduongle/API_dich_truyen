@@ -8,6 +8,7 @@ import {
   polishTranslationDirect,
   qaCritiqueDirect,
 } from './directTranslationEngine';
+import { DiscoveredEntity } from './translation/types';
 
 export interface SingleChapterResult {
   success: boolean;
@@ -139,7 +140,7 @@ export async function executeSingleChapterTranslation({
     } else {
       addLog(`${logPrefix} Đang dịch thô trực tiếp qua Gemini API cá nhân (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
     }
-    let rawData: { rawTranslation: string; discoveredEntities?: any[]; successKeyIndex?: number };
+    let rawData: { rawTranslation: string; discoveredEntities?: DiscoveredEntity[]; successKeyIndex?: number };
 
     try {
       rawData = await translateRawDirect({
@@ -201,16 +202,17 @@ export async function executeSingleChapterTranslation({
 
     // Trích xuất entity mới
     if (isExtractionDuringTranslationEnabled && rawData.discoveredEntities && Array.isArray(rawData.discoveredEntities) && rawData.discoveredEntities.length > 0) {
-      rawData.discoveredEntities.forEach((ent: any) => {
-        if (!ent.chinese || !ent.vietnamese) return;
+      rawData.discoveredEntities.forEach((ent: DiscoveredEntity) => {
+        if (!ent || typeof ent.chinese !== 'string' || !ent.chinese.trim() || typeof ent.vietnamese !== 'string') return;
 
         const cleanChinese = ent.chinese.replace(/\s+/g, '').trim();
         const cleanVietnamese = ent.vietnamese.trim();
         const cleanPinyin = (ent.pinyin || '').trim();
         const cleanNote = (ent.note || '').trim();
+        const cleanType = ent.type || 'other';
 
         const matchedByCn = localGlossary.find((gItem) => isHanEquivalent(gItem.chinese, ent.chinese));
-        const matchedByVi = localGlossary.find((gItem) => gItem.vietnamese.trim().toLowerCase() === cleanVietnamese.toLowerCase());
+        const matchedByVi = localGlossary.find((gItem) => (gItem.vietnamese || '').trim().toLowerCase() === cleanVietnamese.toLowerCase());
 
         const rawChinese = ent.chinese.trim();
         const originParagraph = chapter.sourceText.split('\n').find((p) =>
@@ -223,7 +225,7 @@ export async function executeSingleChapterTranslation({
             chinese: cleanChinese,
             pinyin: cleanPinyin || cleanVietnamese,
             vietnamese: cleanVietnamese,
-            type: ent.type || 'other',
+            type: cleanType,
             note: cleanNote,
             sourceChapter: chapter.title,
             sourceParagraph: originParagraph,

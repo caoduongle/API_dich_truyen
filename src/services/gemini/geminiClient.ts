@@ -36,9 +36,24 @@ async function executeLogicalGeminiCall(
   const endpointUrl = buildEndpointUrl(modelName);
   const payload = buildPayload({ ...options, model: modelName });
 
+  const logicalStartTime = Date.now();
+  const overallDeadlineMs = options.timeoutMs ?? 60_000;
+
   let lastError: any = null;
 
   while (attemptsCount < rawKeys.length) {
+    const elapsedMs = Date.now() - logicalStartTime;
+    const remainingMs = overallDeadlineMs - elapsedMs;
+
+    if (remainingMs <= 0) {
+      const deadlineError = new Error(
+        `Quá hạn thời gian yêu cầu Gemini API (Cumulative Deadline: ${Math.round(overallDeadlineMs / 1000)}s).`
+      );
+      (deadlineError as any).name = 'TimeoutError';
+      (deadlineError as any).code = 'ETIMEDOUT';
+      throw deadlineError;
+    }
+
     const currentKey = rawKeys[currentKeyIdx];
 
     if (!isKeyAvailable(currentKey, customLimits)) {
@@ -55,8 +70,10 @@ async function executeLogicalGeminiCall(
     localQuotaTracker.recordProviderAttempt(currentKey, modelName, callStartTime);
     let attemptFailureRecorded = false;
 
+    const attemptTimeoutMs = Math.max(1000, Math.min(remainingMs, 60_000));
+
     try {
-      const response = await executeGeminiFetch(endpointUrl, currentKey, payload, options.signal);
+      const response = await executeGeminiFetch(endpointUrl, currentKey, payload, options.signal, attemptTimeoutMs);
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
@@ -169,6 +186,18 @@ async function executeLogicalGeminiCall(
         err.status === 400
       ) {
         throw err;
+      }
+
+      if (err.name === 'TimeoutError' || err.code === 'ETIMEDOUT') {
+        const currentElapsed = Date.now() - logicalStartTime;
+        if (overallDeadlineMs - currentElapsed <= 0) {
+          const deadlineError = new Error(
+            `Quá hạn thời gian yêu cầu Gemini API (Cumulative Deadline: ${Math.round(overallDeadlineMs / 1000)}s).`
+          );
+          (deadlineError as any).name = 'TimeoutError';
+          (deadlineError as any).code = 'ETIMEDOUT';
+          throw deadlineError;
+        }
       }
       if (!attemptFailureRecorded) {
         localQuotaTracker.recordFailure(currentKey, modelName, {

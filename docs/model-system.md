@@ -10,12 +10,15 @@ Phân hệ quản lý mô hình (**Model Subsystem**) chịu trách nhiệm qu�
 
 Hệ thống cung cấp danh mục mô hình tối ưu hóa cho dịch truyện Trung - Việt:
 
-| Model ID | Nhãn hiển thị | Mô tả | Hạn mức mặc định (RPM / TPM / RPD) |
+| Model ID | Nhãn hiển thị | Mô tả | Local scheduler defaults (RPM / TPM / RPD) |
 |:---|:---|:---|:---|
 | `gemini-2.5-flash` | **Gemini 2.5 Flash** | Mô hình tiêu chuẩn, tốc độ cao, độ chính xác cao và tiết kiệm chi phí (Mặc định). | 15 RPM / 1M TPM / 1500 RPD |
-| `gemini-2.5-pro` | **Gemini 2.5 Pro (Mạnh nhất)** | Mô hình cao cấp cho các chương có văn phong cổ trang khó hoặc ẩn dụ phức tạp. | 10 RPM / 1M TPM / 1000 RPD |
+| `gemini-2.5-pro` | **Gemini 2.5 Pro (Preset cao cấp)** | Mô hình cao cấp cho các chương có văn phong cổ trang khó hoặc ẩn dụ phức tạp. | 10 RPM / 1M TPM / 1000 RPD |
 | `gemini-3.1-flash-lite` | **Gemini 3.1 Flash Lite** | Tối ưu hóa độ trễ cực thấp cho các tác vụ dịch nhanh và tra từ điển. | 15 RPM / 1M TPM / 1500 RPD |
 | `gemma-4-31b-it` | **Gemma 4 31B IT (API)** | Mô hình mã nguồn mở thế hệ mới hỗ trợ dịch thuật ngữ cảnh dài. | 30 RPM / 500K TPM |
+
+> [!NOTE]
+> **Lưu ý về hạn mức Google AI Studio**: Các thông số trên là **Local scheduler defaults** (giả định điều phối cục bộ phía client giúp giãn cách request). Google quản lý hạn mức (RPM/RPD) ở cấp độ **Google Cloud Project**; nếu nhiều khóa API cùng thuộc một Project, chúng sẽ chia sẻ chung tổng hạn mức thực tế của Project đó.
 
 ---
 

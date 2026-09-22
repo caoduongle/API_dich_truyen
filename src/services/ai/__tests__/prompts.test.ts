@@ -171,4 +171,109 @@ describe('AI Prompts Construction Pipeline', () => {
       expect(payload.schema.properties.issues.items.properties.type.enum).toContain('terminology');
     });
   });
+
+  describe('Universal Prompt Sanitization (US3)', () => {
+    const dirtyChars = '\u200B\uFEFF\u{E0001}\u202A\u202C';
+
+    it('sanitizes genre, tone, description, text, and glossary in buildRawTranslationPayload', () => {
+      const payload = buildRawTranslationPayload({
+        text: `第一章${dirtyChars} 萧炎`,
+        genre: `Tiên\u200B Hiệp\uFEFF`,
+        tone: `Hào\u{E0001} hùng`,
+        description: `Quy\u202A tắc cẩm\u202C nang`,
+        glossary: [
+          {
+            chinese: `萧\u200B炎`,
+            vietnamese: `Tiêu\uFEFF Viêm`,
+            pinyin: `Tiêu\u{E0001} Viêm`,
+            type: 'character',
+            note: `Ghi\u202A chú\u202C`,
+          },
+        ],
+      });
+
+      expect(payload.systemInstruction).not.toContain('\u200B');
+      expect(payload.systemInstruction).not.toContain('\uFEFF');
+      expect(payload.systemInstruction).not.toContain('\u{E0001}');
+      expect(payload.systemInstruction).not.toContain('\u202A');
+      expect(payload.systemInstruction).not.toContain('\u202C');
+
+      expect(payload.prompt).not.toContain('\u200B');
+      expect(payload.prompt).not.toContain('\uFEFF');
+      expect(payload.prompt).not.toContain('\u{E0001}');
+      expect(payload.prompt).not.toContain('\u202A');
+      expect(payload.prompt).not.toContain('\u202C');
+
+      expect(payload.prompt).toContain('Tiên Hiệp');
+      expect(payload.prompt).toContain('Hào hùng');
+      expect(payload.prompt).toContain('Quy tắc cẩm nang');
+      expect(payload.prompt).toContain('Tiêu Viêm');
+    });
+
+    it('sanitizes genre, tone, description, additionalInstructions, and glossary in buildPolishTranslationPayload', () => {
+      const payload = buildPolishTranslationPayload({
+        sourceText: `第一章${dirtyChars} 萧炎`,
+        rawTranslation: `Chương 1${dirtyChars} Tiêu Viêm`,
+        genre: `Đô\u200B Thị`,
+        tone: `Hiện\uFEFF đại`,
+        description: `Cẩm\u{E0001} nang xưng hô`,
+        additionalInstructions: `Chỉ\u202A đạo thêm\u202C`,
+        glossary: [
+          {
+            chinese: `萧\u200B炎`,
+            vietnamese: `Tiêu\uFEFF Viêm`,
+          },
+        ],
+      });
+
+      expect(payload.systemInstruction).not.toContain('\u200B');
+      expect(payload.systemInstruction).not.toContain('\uFEFF');
+      expect(payload.systemInstruction).not.toContain('\u{E0001}');
+      expect(payload.systemInstruction).not.toContain('\u202A');
+      expect(payload.systemInstruction).not.toContain('\u202C');
+
+      expect(payload.prompt).not.toContain('\u200B');
+      expect(payload.prompt).not.toContain('\uFEFF');
+      expect(payload.prompt).not.toContain('\u{E0001}');
+      expect(payload.prompt).not.toContain('\u202A');
+      expect(payload.prompt).not.toContain('\u202C');
+
+      expect(payload.prompt).toContain('Đô Thị');
+      expect(payload.prompt).toContain('Hiện đại');
+      expect(payload.prompt).toContain('Cẩm nang xưng hô');
+      expect(payload.prompt).toContain('Chỉ đạo thêm');
+    });
+
+    it('sanitizes genre, tone, description, and glossary in buildQaCritiquePayload', () => {
+      const payload = buildQaCritiquePayload({
+        sourceText: `第一章${dirtyChars}`,
+        translatedText: `Chương 1${dirtyChars}`,
+        genre: `Huyền\u200B Huyễn`,
+        tone: `Kỳ\uFEFF ảo`,
+        description: `Quy\u{E0001} tắc QA`,
+        glossary: [
+          {
+            chinese: `词\u202A汇`,
+            vietnamese: `Từ\u202C vựng`,
+          },
+        ],
+      });
+
+      expect(payload.systemInstruction).not.toContain('\u200B');
+      expect(payload.systemInstruction).not.toContain('\uFEFF');
+      expect(payload.systemInstruction).not.toContain('\u{E0001}');
+      expect(payload.systemInstruction).not.toContain('\u202A');
+      expect(payload.systemInstruction).not.toContain('\u202C');
+
+      expect(payload.prompt).not.toContain('\u200B');
+      expect(payload.prompt).not.toContain('\uFEFF');
+      expect(payload.prompt).not.toContain('\u{E0001}');
+      expect(payload.prompt).not.toContain('\u202A');
+      expect(payload.prompt).not.toContain('\u202C');
+
+      expect(payload.systemInstruction).toContain('Huyền Huyễn');
+      expect(payload.systemInstruction).toContain('Kỳ ảo');
+      expect(payload.systemInstruction).toContain('Quy tắc QA');
+    });
+  });
 });

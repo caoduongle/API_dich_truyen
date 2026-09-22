@@ -255,5 +255,58 @@ describe('geminiClient', () => {
     const status = localQuotaTracker.getQuotaStatus(['KEY_EMPTY']);
     expect(status.keys[0].healthState).not.toBe('QuotaExhausted');
   });
+
+  describe('Cumulative Request Deadline (US4)', () => {
+    it('terminates request with TimeoutError when cumulative deadline is exceeded across key attempts', async () => {
+      global.fetch = vi.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return {
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          json: async () => ({ error: { message: 'Overloaded' } }),
+        };
+      });
+
+      await expect(
+        callGemini({
+          apiKeys: ['KEY_1', 'KEY_2', 'KEY_3'],
+          prompt: 'Hello',
+          timeoutMs: 50,
+        })
+      ).rejects.toThrow(/Quá hạn thời gian yêu cầu Gemini API/);
+    });
+
+    it('passes remaining time budget and succeeds on next key within overall deadline', async () => {
+      let firstAttemptDone = false;
+      global.fetch = vi.fn().mockImplementation(async () => {
+        if (!firstAttemptDone) {
+          firstAttemptDone = true;
+          return {
+            ok: false,
+            status: 500,
+            statusText: 'Internal Error',
+            json: async () => ({ error: { message: 'Server error' } }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: 'Success on key 2' }] } }],
+          }),
+        };
+      });
+
+      const res = await callGemini({
+        apiKeys: ['KEY_1', 'KEY_2'],
+        prompt: 'Hello',
+        timeoutMs: 10000,
+      });
+
+      expect(res.text).toBe('Success on key 2');
+      expect(res.successKeyIndex).toBe(1);
+    });
+  });
 });
 

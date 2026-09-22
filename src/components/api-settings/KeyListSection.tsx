@@ -324,7 +324,7 @@ export function KeyListSection({
       )}
 
       <p className="text-[11px] text-text-muted leading-relaxed">
-        Hệ thống tự động gom nhóm khóa theo Project / Quota Group và quản lý hạn ngạch RPM/TPM độc lập. Có thể cấu hình nhiều khóa thuộc các Project / Quota Group khác nhau để tăng khả năng dự phòng và điều phối hạn mức.
+        Hệ thống tự động gom nhóm khóa theo Project / Quota Group và điều phối giãn cách request (Local scheduler defaults). Lưu ý: Các khóa API thuộc cùng một Google Cloud Project sẽ chia sẻ chung hạn mức (RPD/RPM) do Google quản lý; chỉ khi sử dụng các khóa từ các Project khác nhau thì hạn ngạch thực tế mới được cộng gộp.
       </p>
       <p className="text-[11px] text-text-muted leading-relaxed border-t border-parchment-2/50 pt-2">
         💡 <strong className="text-text-main">Gợi ý quản lý chi phí:</strong> Bạn nên chủ động thiết lập <span className="font-semibold text-text-main">Quota Limits &amp; Billing Alerts</span> trên chính Google Cloud Console của mình để kiểm soát hạn mức chi tiêu an toàn cho từng API Key cá nhân.

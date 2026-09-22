@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
-import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem } from '../types';
+import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem, GlossaryType } from '../types';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { validateUploadFile } from '../utils/fileValidator';
 import { getChapterFromDB, saveChapterToDB } from '../services/db';
@@ -627,35 +627,42 @@ export function useWorkspaceState({
         const newlyDiscovered: GlossaryItem[] = [];
         const pendingDiscovered: PendingGlossaryItem[] = [];
         data.discoveredEntities.forEach((ent: any) => {
+          if (!ent || typeof ent.chinese !== 'string' || !ent.chinese.trim()) return;
+          const cleanChinese = ent.chinese.trim();
+          const cleanPinyin = (ent.pinyin || '').trim();
+          const cleanVietnamese = (ent.vietnamese || '').trim();
+          const cleanNote = (ent.note || '').trim();
+          const cleanType: GlossaryType = ent.type || 'other';
+
           const exists = activeProject.glossary.some(
-            (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
+            (gItem) => isHanEquivalent(gItem.chinese, cleanChinese)
           );
           if (!exists) {
             const itemPayload: GlossaryItem = {
               id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-              chinese: ent.chinese.trim(),
-              pinyin: ent.pinyin.trim(),
-              vietnamese: ent.vietnamese.trim(),
-              type: ent.type,
-              note: ent.note.trim(),
+              chinese: cleanChinese,
+              pinyin: cleanPinyin,
+              vietnamese: cleanVietnamese,
+              type: cleanType,
+              note: cleanNote,
               sourceChapter: chapterTitle || "Mặt trận dịch đơn chương",
               sourceParagraph: sourceText.split('\n').find(p =>
-                p.includes(ent.chinese.trim()) || p.replace(/\s+/g, '').includes(ent.chinese.replace(/\s+/g, '').trim())
+                p.includes(cleanChinese) || p.replace(/\s+/g, '').includes(cleanChinese.replace(/\s+/g, '').trim())
               )?.trim() || "",
               sourceChapterId: currentChapterId || undefined,
               origin: 'scanned',
               createdAt: new Date().toISOString(),
-              needsReview: ent.needsReview
+              needsReview: Boolean(ent.needsReview)
             };
 
             if (ent.needsReview) {
               pendingDiscovered.push({
                 id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-                chinese: ent.chinese.trim(),
-                pinyin: ent.pinyin.trim(),
-                vietnamese: ent.vietnamese.trim(),
-                type: ent.type,
-                note: ent.note.trim(),
+                chinese: cleanChinese,
+                pinyin: cleanPinyin,
+                vietnamese: cleanVietnamese,
+                type: cleanType,
+                note: cleanNote,
                 reason: 'AI trích xuất nghi ngờ hallucinate',
                 originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
                 importedAt: new Date().toISOString(),
@@ -730,34 +737,64 @@ export function useWorkspaceState({
 
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
         const newlyDiscovered: GlossaryItem[] = [];
+        const pendingDiscovered: PendingGlossaryItem[] = [];
         const updatedGlossary = [...activeProject.glossary];
 
         data.discoveredEntities.forEach((ent: any) => {
+          if (!ent || typeof ent.chinese !== 'string' || !ent.chinese.trim()) return;
+          const cleanChinese = ent.chinese.trim();
+          const cleanPinyin = (ent.pinyin || '').trim();
+          const cleanVietnamese = (ent.vietnamese || '').trim();
+          const cleanNote = (ent.note || '').trim();
+          const cleanType: GlossaryType = ent.type || 'other';
+
           const exists = updatedGlossary.some(
-            (gItem) => isHanEquivalent(gItem.chinese, ent.chinese)
+            (gItem) => isHanEquivalent(gItem.chinese, cleanChinese)
           );
           if (!exists) {
             const itemPayload: GlossaryItem = {
               id: 'glo_auto_polish_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-              chinese: ent.chinese.trim(),
-              pinyin: ent.pinyin.trim(),
-              vietnamese: ent.vietnamese.trim(),
-              type: ent.type,
-              note: ent.note.trim(),
+              chinese: cleanChinese,
+              pinyin: cleanPinyin,
+              vietnamese: cleanVietnamese,
+              type: cleanType,
+              note: cleanNote,
               sourceChapterId: currentChapterId || undefined,
               origin: 'scanned',
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              needsReview: Boolean(ent.needsReview),
             };
-            newlyDiscovered.push(itemPayload);
-            updatedGlossary.push(itemPayload);
+
+            if (ent.needsReview) {
+              pendingDiscovered.push({
+                id: 'pend_auto_polish_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                chinese: cleanChinese,
+                pinyin: cleanPinyin,
+                vietnamese: cleanVietnamese,
+                type: cleanType,
+                note: cleanNote,
+                reason: 'AI trích xuất nghi ngờ hallucinate',
+                originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
+                importedAt: new Date().toISOString(),
+                needsReview: true,
+                sourceChapterId: currentChapterId || undefined,
+              });
+            } else {
+              newlyDiscovered.push(itemPayload);
+              updatedGlossary.push(itemPayload);
+            }
           }
         });
 
-        if (newlyDiscovered.length > 0) {
-          setAutoDiscoveredTerms((prev) => [...prev, ...newlyDiscovered]);
+        if (newlyDiscovered.length > 0 || pendingDiscovered.length > 0) {
+          if (newlyDiscovered.length > 0) {
+            setAutoDiscoveredTerms((prev) => [...prev, ...newlyDiscovered]);
+          }
+          const updatedPending = [...(activeProject.pendingGlossary || []), ...pendingDiscovered];
           onUpdateProject({
             ...activeProject,
-            glossary: updatedGlossary
+            glossary: updatedGlossary,
+            pendingGlossary: updatedPending,
           });
         }
       }

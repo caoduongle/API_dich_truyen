@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { saveOrUpdateChapter, useWorkspaceState, UseWorkspaceStateProps } from '../useWorkspaceState';
 import { StoryProject, Chapter } from '../../types';
-import { polishTranslationDirect, qaCritiqueDirect } from '../../services/directTranslationEngine';
+import { translateRawDirect, polishTranslationDirect, qaCritiqueDirect } from '../../services/directTranslationEngine';
 import { runHeuristicQualityScan } from '../../services/hakoQualityEngine';
 
 // Notification mock
@@ -897,6 +897,113 @@ describe('useWorkspaceState Hook - Decoupled Audit Scanners & Manual Handlers', 
       expect(mockPolish).toHaveBeenCalledWith(
         expect.objectContaining({
           glossary: testGlossary,
+        })
+      );
+    });
+
+    it('handles discovered entities with missing optional fields without throwing TypeError in handlePolishTranslation', async () => {
+      const mockPolish = vi.mocked(polishTranslationDirect);
+      mockPolish.mockResolvedValueOnce({
+        polishedTranslation: 'Kết quả chuốt.',
+        discoveredEntities: [
+          {
+            chinese: '林动',
+            // missing pinyin, vietnamese, note
+          } as any,
+          {
+            chinese: '应欢欢',
+            pinyin: null,
+            vietnamese: undefined,
+            note: null,
+            needsReview: true,
+          } as any,
+        ],
+        successKeyIndex: 0,
+      });
+
+      const mockUpdate = vi.fn();
+      const props = createDefaultProps({
+        onUpdateProject: mockUpdate,
+      });
+
+      let hook = renderWorkspaceHook(props);
+      hook.setSourceText('林动与应欢欢');
+      hook.setRawTranslation('Lâm Động và Ứng Hoan Hoan');
+      hook = renderWorkspaceHook(props);
+
+      await expect(hook.handlePolishTranslation()).resolves.not.toThrow();
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          glossary: expect.arrayContaining([
+            expect.objectContaining({
+              chinese: '林动',
+              pinyin: '',
+              vietnamese: '',
+              note: '',
+            }),
+          ]),
+          pendingGlossary: expect.arrayContaining([
+            expect.objectContaining({
+              chinese: '应欢欢',
+              pinyin: '',
+              vietnamese: '',
+              note: '',
+              needsReview: true,
+            }),
+          ]),
+        })
+      );
+    });
+
+    it('handles discovered entities with missing optional fields without throwing TypeError in handleTranslateRaw', async () => {
+      const mockRaw = vi.mocked(translateRawDirect);
+      mockRaw.mockResolvedValueOnce({
+        rawTranslation: 'Bản dịch thô.',
+        discoveredEntities: [
+          {
+            chinese: '萧炎',
+            // missing pinyin, vietnamese, note
+          } as any,
+          {
+            chinese: '美杜莎',
+            pinyin: null,
+            vietnamese: undefined,
+            note: null,
+            needsReview: true,
+          } as any,
+        ],
+        successKeyIndex: 0,
+      });
+
+      const mockUpdate = vi.fn();
+      const props = createDefaultProps({
+        onUpdateProject: mockUpdate,
+      });
+
+      let hook = renderWorkspaceHook(props);
+      hook.setSourceText('第一章 萧炎\n美杜莎女王');
+      hook = renderWorkspaceHook(props);
+
+      await expect(hook.handleTranslateRaw()).resolves.not.toThrow();
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          glossary: expect.arrayContaining([
+            expect.objectContaining({
+              chinese: '萧炎',
+              pinyin: '',
+              vietnamese: '',
+              note: '',
+            }),
+          ]),
+          pendingGlossary: expect.arrayContaining([
+            expect.objectContaining({
+              chinese: '美杜莎',
+              pinyin: '',
+              vietnamese: '',
+              note: '',
+              needsReview: true,
+            }),
+          ]),
         })
       );
     });

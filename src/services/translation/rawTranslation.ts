@@ -6,13 +6,15 @@
 import { callGeminiDirect } from '../directGeminiClient';
 import { buildRawTranslationPayload } from '../ai/prompts';
 import {
-  parseGeminiStructuredResponse,
+  parseGeminiStructuredResponseWithState,
   isRawTranslationResponse,
   RawTranslationResponse,
   separateChapterTitleAndBody,
   validateTranslationOutput,
   splitTextAdaptively,
   estimateTokenCount,
+  DiscoveredEntity,
+  validateDiscoveredEntity,
 } from '../../lib/text';
 import { validateAndSnapBackEntities } from '../../lib/sinoNormalize';
 import { GlossaryItem } from '../../types';
@@ -81,7 +83,7 @@ export async function callRawDirectCore(
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const translatedParagraphs: string[] = [];
     let currentKeyIdx = startKeyIndex;
-    const discoveredEntitiesAll: any[] = [];
+    const discoveredEntitiesAll: DiscoveredEntity[] = [];
 
     for (const line of lines) {
       if (!line) continue;
@@ -125,33 +127,60 @@ export async function callRawDirectCore(
     signal,
   });
 
-  const parsed = parseGeminiStructuredResponse<RawTranslationResponse>(response.text, {
+  const parseResult = parseGeminiStructuredResponseWithState<RawTranslationResponse>(response.text, {
     validator: isRawTranslationResponse,
-    fallback: {},
     contextName: 'rawTranslation',
   });
-  let finalRawTranslation = parsed.rawTranslation || '';
 
-  if (!finalRawTranslation || finalRawTranslation.trim() === '') {
-    const altKey = parsed?.translation || parsed?.text || parsed?.vietnamese || parsed?.output || parsed?.raw_translation;
-    if (altKey && altKey.trim() !== '') {
-      finalRawTranslation = altKey;
-    } else if (response.text && response.text.trim().length > 30) {
-      if (!response.text.includes('"rawTranslation"') && !response.text.includes('"translation"')) {
-        finalRawTranslation = response.text;
+  if (parseResult.state === 'SCHEMA_INVALID') {
+    throw new Error('Dữ liệu JSON từ AI trong ngữ cảnh [rawTranslation] không thỏa mãn cấu trúc yêu cầu.');
+  }
+
+  let finalRawTranslation = '';
+  let finalDiscoveredEntitiesRaw: unknown[] = [];
+
+  if (parseResult.state === 'VALID' && parseResult.data) {
+    const parsed = parseResult.data;
+    finalRawTranslation = parsed.rawTranslation || '';
+
+    if (!finalRawTranslation || finalRawTranslation.trim() === '') {
+      const altKey = parsed.translation || parsed.text || parsed.vietnamese || parsed.output || parsed.raw_translation;
+      if (altKey && altKey.trim() !== '') {
+        finalRawTranslation = altKey;
       }
+    }
+
+    if (Array.isArray(parsed.discoveredEntities)) {
+      finalDiscoveredEntitiesRaw = parsed.discoveredEntities;
+    }
+  } else if (parseResult.state === 'PARSE_FAILED') {
+    // Chỉ khi phản hồi KHÔNG phải là JSON (văn bản thuần prose từ model không hỗ trợ JSON schema)
+    // thì mới cứu nguy bằng response.text nếu thỏa mãn điều kiện độ dài và không chứa syntax JSON
+    const trimmedText = (response.text || '').trim();
+    if (
+      trimmedText.length > 30 &&
+      !trimmedText.startsWith('{') &&
+      !trimmedText.startsWith('[') &&
+      !trimmedText.includes('"rawTranslation"') &&
+      !trimmedText.includes('"translation"')
+    ) {
+      finalRawTranslation = response.text;
+    } else {
+      throw new Error('Không thể phân tích dữ liệu JSON trả về từ AI trong ngữ cảnh [rawTranslation].');
     }
   }
 
-  let finalDiscoveredEntities = Array.isArray(parsed?.discoveredEntities) ? parsed.discoveredEntities : [];
-  finalDiscoveredEntities = validateAndSnapBackEntities(finalDiscoveredEntities, text);
+  let finalDiscoveredEntities = validateAndSnapBackEntities(finalDiscoveredEntitiesRaw, text);
+  const normalizedEntities: DiscoveredEntity[] = finalDiscoveredEntities
+    .map((ent) => validateDiscoveredEntity(ent))
+    .filter((ent): ent is DiscoveredEntity => ent !== null);
 
   finalRawTranslation = separateChapterTitleAndBody(finalRawTranslation);
   validateTranslationOutput(finalRawTranslation);
 
   return {
     rawTranslation: finalRawTranslation,
-    discoveredEntities: finalDiscoveredEntities,
+    discoveredEntities: normalizedEntities,
     successKeyIndex: response.successKeyIndex,
   };
 }
@@ -171,7 +200,7 @@ export async function rawWithContentSplitDirect(
     if (chunks.length > 1) {
       const translatedChunks: string[] = [];
       let currentKeyIdx = startKeyIndex;
-      const discoveredEntitiesAll: any[] = [];
+      const discoveredEntitiesAll: DiscoveredEntity[] = [];
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
@@ -225,7 +254,7 @@ export async function rawWithContentSplitDirect(
 
         const translatedChunks: string[] = [];
         let currentKeyIdx = startKeyIndex;
-        const discoveredEntitiesAll: any[] = [];
+        const discoveredEntitiesAll: DiscoveredEntity[] = [];
 
         for (let i = 0; i < chunks.length; i++) {
           const chunk = chunks[i];

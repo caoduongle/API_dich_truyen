@@ -1,6 +1,6 @@
 # Chính Sách Bảo Mật
 
-**Cập nhật lần cuối**: [điền ngày khi phát hành chính thức]
+**Cập nhật lần cuối**: 22/09/2026
 
 ## Tổng quan
 

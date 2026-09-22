@@ -6,7 +6,7 @@
 import { callGeminiDirect } from '../directGeminiClient';
 import { buildPolishTranslationPayload } from '../ai/prompts';
 import {
-  parseGeminiStructuredResponse,
+  parseGeminiStructuredResponseWithState,
   isPolishTranslationResponse,
   PolishTranslationResponse,
   ensureChapterTitlePreserved,
@@ -14,6 +14,8 @@ import {
   validatePolishIntegrity,
   validateParagraphParity,
   estimateTokenCount,
+  DiscoveredEntity,
+  validateDiscoveredEntity,
 } from '../../lib/text';
 import { validateAndSnapBackEntities } from '../../lib/sinoNormalize';
 import {
@@ -80,21 +82,44 @@ export async function callPolishDirectCore(
     signal,
   });
 
-  const parsed = parseGeminiStructuredResponse<PolishTranslationResponse>(response.text, {
+  const parseResult = parseGeminiStructuredResponseWithState<PolishTranslationResponse>(response.text, {
     validator: isPolishTranslationResponse,
-    fallback: {},
     contextName: 'polishTranslation',
   });
-  let finalPolishedTranslation = parsed.polishedTranslation || '';
 
-  if (!finalPolishedTranslation || finalPolishedTranslation.trim() === '') {
-    const altKey = parsed?.translation || parsed?.text || parsed?.vietnamese || parsed?.output || parsed?.polished_translation;
-    if (altKey && altKey.trim() !== '') {
-      finalPolishedTranslation = altKey;
-    } else if (response.text && response.text.trim().length > 30) {
-      if (!response.text.includes('"polishedTranslation"') && !response.text.includes('"translation"')) {
-        finalPolishedTranslation = response.text;
+  if (parseResult.state === 'SCHEMA_INVALID') {
+    throw new Error('Dữ liệu JSON từ AI trong ngữ cảnh [polishTranslation] không thỏa mãn cấu trúc yêu cầu.');
+  }
+
+  let finalPolishedTranslation = '';
+  let discoveredEntitiesRaw: unknown[] = [];
+
+  if (parseResult.state === 'VALID' && parseResult.data) {
+    const parsed = parseResult.data;
+    finalPolishedTranslation = parsed.polishedTranslation || '';
+
+    if (!finalPolishedTranslation || finalPolishedTranslation.trim() === '') {
+      const altKey = parsed.translation || parsed.text || parsed.vietnamese || parsed.output || parsed.polished_translation;
+      if (altKey && altKey.trim() !== '') {
+        finalPolishedTranslation = altKey;
       }
+    }
+
+    if (isExtractionEnabled && Array.isArray(parsed.discoveredEntities)) {
+      discoveredEntitiesRaw = parsed.discoveredEntities;
+    }
+  } else if (parseResult.state === 'PARSE_FAILED') {
+    const trimmedText = (response.text || '').trim();
+    if (
+      trimmedText.length > 30 &&
+      !trimmedText.startsWith('{') &&
+      !trimmedText.startsWith('[') &&
+      !trimmedText.includes('"polishedTranslation"') &&
+      !trimmedText.includes('"translation"')
+    ) {
+      finalPolishedTranslation = response.text;
+    } else {
+      throw new Error('Không thể phân tích dữ liệu JSON trả về từ AI trong ngữ cảnh [polishTranslation].');
     }
   }
 
@@ -103,8 +128,10 @@ export async function callPolishDirectCore(
   validatePolishIntegrity(rawTranslation, finalPolishedTranslation);
   validateParagraphParity(sourceText, finalPolishedTranslation);
 
-  const discoveredEntities = isExtractionEnabled && Array.isArray(parsed?.discoveredEntities)
-    ? validateAndSnapBackEntities(parsed.discoveredEntities, sourceText)
+  const discoveredEntities = isExtractionEnabled && Array.isArray(discoveredEntitiesRaw)
+    ? validateAndSnapBackEntities(discoveredEntitiesRaw, sourceText)
+        .map((ent) => validateDiscoveredEntity(ent))
+        .filter((ent): ent is DiscoveredEntity => ent !== null)
     : [];
 
   return {
@@ -131,7 +158,7 @@ export async function polishWithContentSplitDirect(
     if (bilingualChunks.length > 1) {
       const polishedChunks: string[] = [];
       let currentKeyIdx = startKeyIndex;
-      const discoveredEntitiesAll: any[] = [];
+      const discoveredEntitiesAll: DiscoveredEntity[] = [];
       let anyPartial = false;
 
       for (let i = 0; i < bilingualChunks.length; i++) {

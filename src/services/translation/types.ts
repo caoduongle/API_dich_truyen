@@ -2,7 +2,16 @@
  * Shared Type Definitions for Translation Pipeline Modularization
  */
 
-import { GlossaryItem } from '../../types';
+import { GlossaryItem, GlossaryType } from '../../types';
+
+export interface DiscoveredEntity {
+  chinese: string;
+  pinyin: string;
+  vietnamese: string;
+  type: GlossaryType;
+  note: string;
+  needsReview?: boolean;
+}
 
 export interface TranslationChunk {
   chunkIndex: number;
@@ -69,7 +78,7 @@ export interface DirectRawTranslationParams {
 
 export interface DirectRawTranslationResult {
   rawTranslation: string;
-  discoveredEntities: any[];
+  discoveredEntities: DiscoveredEntity[];
   successKeyIndex: number;
 }
 
@@ -95,7 +104,7 @@ export interface DirectPolishTranslationParams {
 
 export interface DirectPolishTranslationResult {
   polishedTranslation: string;
-  discoveredEntities?: any[];
+  discoveredEntities?: DiscoveredEntity[];
   successKeyIndex: number;
   isPartial?: boolean;
 }
