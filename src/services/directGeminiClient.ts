@@ -1,5 +1,11 @@
 import { DEFAULT_MODEL_ID } from '../config/models';
-import { LITERARY_TRANSLATION_FRAMING, sanitizePromptInput, parseGeminiStructuredResponse } from '../lib/text';
+import {
+  LITERARY_TRANSLATION_FRAMING,
+  sanitizePromptInput,
+  parseGeminiStructuredResponse,
+  isQuickTermResponse,
+  QuickTermResponse,
+} from '../lib/text';
 import { GlossaryType } from '../types';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 
@@ -236,7 +242,8 @@ export async function quickTranslateTermDirect(options: {
     temperature: 0.1,
   });
 
-  const parsed = parseGeminiStructuredResponse<any>(res.text, {
+  const parsed = parseGeminiStructuredResponse<QuickTermResponse>(res.text, {
+    validator: isQuickTermResponse,
     contextName: 'generateQuickTermDetailsDirect',
     fallback: {
       chinese: sanitizedTerm.trim(),

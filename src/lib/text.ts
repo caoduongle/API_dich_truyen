@@ -409,6 +409,23 @@ export function validateDiscoveredEntity(item: unknown): DiscoveredEntity | null
     return null;
   }
 
+  // Option A: If present, optional fields MUST be strings. Reject entity if non-string.
+  if (obj.pinyin !== undefined && typeof obj.pinyin !== 'string') {
+    return null;
+  }
+  if (obj.vietnamese !== undefined && typeof obj.vietnamese !== 'string') {
+    return null;
+  }
+  if (obj.note !== undefined && typeof obj.note !== 'string') {
+    return null;
+  }
+  if (obj.type !== undefined && typeof obj.type !== 'string') {
+    return null;
+  }
+  if (obj.needsReview !== undefined && typeof obj.needsReview !== 'boolean') {
+    return null;
+  }
+
   const validTypes: GlossaryType[] = ['character', 'location', 'term', 'phrase', 'other'];
   const entityType: GlossaryType =
     typeof obj.type === 'string' && validTypes.includes(obj.type as GlossaryType)
@@ -489,18 +506,51 @@ export function isPolishTranslationResponse(data: unknown): data is PolishTransl
   return hasValidTranslation && hasValidEntities && hasAtLeastOneTranslation;
 }
 
+export interface QaCritiqueIssue {
+  type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'other';
+  severity: 'critical' | 'warning' | 'info';
+  targetText: string;
+  description?: string;
+  message?: string;
+}
+
+export function isQaCritiqueIssue(item: unknown): item is QaCritiqueIssue {
+  if (typeof item !== 'object' || item === null) return false;
+  const obj = item as Record<string, unknown>;
+
+  const desc =
+    typeof obj.description === 'string'
+      ? obj.description
+      : typeof obj.message === 'string'
+      ? obj.message
+      : null;
+  if (!desc || !desc.trim()) return false;
+
+  if (obj.targetText !== undefined && typeof obj.targetText !== 'string') return false;
+
+  const validTypes = ['omission', 'addition', 'repetition', 'terminology', 'other'];
+  if (obj.type !== undefined && (typeof obj.type !== 'string' || !validTypes.includes(obj.type))) {
+    return false;
+  }
+
+  const validSeverities = ['critical', 'warning', 'info'];
+  if (obj.severity !== undefined && (typeof obj.severity !== 'string' || !validSeverities.includes(obj.severity))) {
+    return false;
+  }
+
+  return true;
+}
+
 export interface QaCritiqueResponse {
-  isValid?: boolean;
-  issues?: unknown[];
+  isValid: boolean;
+  issues: unknown[];
   [key: string]: unknown;
 }
 
 export function isQaCritiqueResponse(data: unknown): data is QaCritiqueResponse {
   if (typeof data !== 'object' || data === null) return false;
   const obj = data as Record<string, unknown>;
-  const hasValidIssues = obj.issues === undefined || Array.isArray(obj.issues);
-  const hasValidFlag = obj.isValid === undefined || typeof obj.isValid === 'boolean';
-  return hasValidIssues && hasValidFlag;
+  return typeof obj.isValid === 'boolean' && Array.isArray(obj.issues);
 }
 
 export interface SentenceRewriteResponse {
@@ -514,6 +564,80 @@ export function isSentenceRewriteResponse(data: unknown): data is SentenceRewrit
     data !== null &&
     typeof (data as Record<string, unknown>).rewrittenSentence === 'string'
   );
+}
+
+export interface QuickTermResponse {
+  chinese: string;
+  pinyin?: string;
+  vietnamese?: string;
+  type?: GlossaryType;
+  note?: string;
+  [key: string]: unknown;
+}
+
+export function isQuickTermResponse(data: unknown): data is QuickTermResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  if (typeof obj.chinese !== 'string' || !obj.chinese.trim()) return false;
+  if (obj.pinyin !== undefined && typeof obj.pinyin !== 'string') return false;
+  if (obj.vietnamese !== undefined && typeof obj.vietnamese !== 'string') return false;
+  if (obj.note !== undefined && typeof obj.note !== 'string') return false;
+  if (obj.type !== undefined && typeof obj.type !== 'string') return false;
+  return true;
+}
+
+export interface GlossarySuggestionsResponse {
+  suggestions: unknown[];
+  [key: string]: unknown;
+}
+
+export function isGlossarySuggestionsResponse(data: unknown): data is GlossarySuggestionsResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  return Array.isArray((data as Record<string, unknown>).suggestions);
+}
+
+export function isExtractGlossaryResponse(data: unknown): data is unknown[] | { suggestions: unknown[] } {
+  if (Array.isArray(data)) return true;
+  if (typeof data === 'object' && data !== null) {
+    return Array.isArray((data as Record<string, unknown>).suggestions);
+  }
+  return false;
+}
+
+export interface GuidelinesAnalysisResponse {
+  genre?: string;
+  tone?: string;
+  description?: string;
+  [key: string]: unknown;
+}
+
+export function isGuidelinesAnalysisResponse(data: unknown): data is GuidelinesAnalysisResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  if (obj.genre !== undefined && typeof obj.genre !== 'string') return false;
+  if (obj.tone !== undefined && typeof obj.tone !== 'string') return false;
+  if (obj.description !== undefined && typeof obj.description !== 'string') return false;
+  return true;
+}
+
+export interface AlignChapterResponse {
+  alignments: unknown[];
+  [key: string]: unknown;
+}
+
+export function isAlignChapterResponse(data: unknown): data is AlignChapterResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  return Array.isArray((data as Record<string, unknown>).alignments);
+}
+
+export interface HakoQualityScanResponse {
+  issues: unknown[];
+  [key: string]: unknown;
+}
+
+export function isHakoQualityScanResponse(data: unknown): data is HakoQualityScanResponse {
+  if (typeof data !== 'object' || data === null) return false;
+  return Array.isArray((data as Record<string, unknown>).issues);
 }
 
 

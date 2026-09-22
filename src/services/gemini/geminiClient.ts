@@ -45,7 +45,7 @@ async function executeLogicalGeminiCall(
     const elapsedMs = Date.now() - logicalStartTime;
     const remainingMs = overallDeadlineMs - elapsedMs;
 
-    if (remainingMs <= 0) {
+    if (remainingMs <= 50) {
       const deadlineError = new Error(
         `Quá hạn thời gian yêu cầu Gemini API (Cumulative Deadline: ${Math.round(overallDeadlineMs / 1000)}s).`
       );
@@ -70,7 +70,7 @@ async function executeLogicalGeminiCall(
     localQuotaTracker.recordProviderAttempt(currentKey, modelName, callStartTime);
     let attemptFailureRecorded = false;
 
-    const attemptTimeoutMs = Math.max(1000, Math.min(remainingMs, 60_000));
+    const attemptTimeoutMs = Math.min(remainingMs, 60_000);
 
     try {
       const response = await executeGeminiFetch(endpointUrl, currentKey, payload, options.signal, attemptTimeoutMs);
@@ -190,7 +190,7 @@ async function executeLogicalGeminiCall(
 
       if (err.name === 'TimeoutError' || err.code === 'ETIMEDOUT') {
         const currentElapsed = Date.now() - logicalStartTime;
-        if (overallDeadlineMs - currentElapsed <= 0) {
+        if (overallDeadlineMs - currentElapsed <= 50) {
           const deadlineError = new Error(
             `Quá hạn thời gian yêu cầu Gemini API (Cumulative Deadline: ${Math.round(overallDeadlineMs / 1000)}s).`
           );

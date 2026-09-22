@@ -307,6 +307,21 @@ describe('geminiClient', () => {
       expect(res.text).toBe('Success on key 2');
       expect(res.successKeyIndex).toBe(1);
     });
+
+    it('immediately aborts with TimeoutError when remaining deadline is <= 50ms without dispatching network request', async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      await expect(
+        callGemini({
+          apiKeys: ['KEY_1'],
+          prompt: 'Hello',
+          timeoutMs: 30, // <= 50ms
+        })
+      ).rejects.toThrow(/Quá hạn thời gian yêu cầu Gemini API/);
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
   });
 });
 

@@ -23,7 +23,13 @@ import {
   isRawTranslationResponse,
   isPolishTranslationResponse,
   isQaCritiqueResponse,
+  isQaCritiqueIssue,
   isSentenceRewriteResponse,
+  isQuickTermResponse,
+  isGlossarySuggestionsResponse,
+  isGuidelinesAnalysisResponse,
+  isAlignChapterResponse,
+  isHakoQualityScanResponse,
 } from '../text';
 import {
   buildRawTranslationPayload,
@@ -455,6 +461,14 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
       expect(validateDiscoveredEntity({ chinese: '   ' })).toBeNull();
       expect(validateDiscoveredEntity({ chinese: 123 })).toBeNull();
     });
+
+    it('returns null when optional fields have invalid non-string types (Option A)', () => {
+      expect(validateDiscoveredEntity({ chinese: '张三', pinyin: 123 })).toBeNull();
+      expect(validateDiscoveredEntity({ chinese: '张三', vietnamese: null })).toBeNull();
+      expect(validateDiscoveredEntity({ chinese: '张三', note: {} })).toBeNull();
+      expect(validateDiscoveredEntity({ chinese: '张三', type: 42 })).toBeNull();
+      expect(validateDiscoveredEntity({ chinese: '张三', needsReview: 'yes' })).toBeNull();
+    });
   });
 
   describe('translation structured response validators (T002 & T010)', () => {
@@ -509,13 +523,51 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
       it('validates compliant qa critique payloads', () => {
         expect(isQaCritiqueResponse({ isValid: true, issues: [] })).toBe(true);
         expect(isQaCritiqueResponse({ isValid: false, issues: [{ message: 'issue' }] })).toBe(true);
-        expect(isQaCritiqueResponse({})).toBe(true);
+      });
+
+      it('rejects empty object {} and payloads missing isValid or issues', () => {
+        expect(isQaCritiqueResponse({})).toBe(false);
+        expect(isQaCritiqueResponse({ isValid: true })).toBe(false);
+        expect(isQaCritiqueResponse({ issues: [] })).toBe(false);
       });
 
       it('rejects non-boolean isValid or non-array issues', () => {
         expect(isQaCritiqueResponse(null)).toBe(false);
-        expect(isQaCritiqueResponse({ isValid: 'yes' })).toBe(false);
-        expect(isQaCritiqueResponse({ issues: 'none' })).toBe(false);
+        expect(isQaCritiqueResponse({ isValid: 'yes', issues: [] })).toBe(false);
+        expect(isQaCritiqueResponse({ isValid: true, issues: 'none' })).toBe(false);
+      });
+    });
+
+    describe('isQaCritiqueIssue', () => {
+      it('validates compliant issue items', () => {
+        expect(
+          isQaCritiqueIssue({
+            type: 'omission',
+            severity: 'critical',
+            targetText: '',
+            description: 'Thiếu câu kết',
+          })
+        ).toBe(true);
+
+        expect(
+          isQaCritiqueIssue({
+            type: 'terminology',
+            severity: 'warning',
+            targetText: 'Sai từ',
+            message: 'Từ điển quy ước khác',
+          })
+        ).toBe(true);
+      });
+
+      it('rejects invalid or malformed issue items', () => {
+        expect(isQaCritiqueIssue(null)).toBe(false);
+        expect(isQaCritiqueIssue(123)).toBe(false);
+        expect(isQaCritiqueIssue({})).toBe(false);
+        expect(isQaCritiqueIssue({ description: '' })).toBe(false);
+        expect(isQaCritiqueIssue({ description: '   ' })).toBe(false);
+        expect(isQaCritiqueIssue({ severity: false, description: 'Lỗi' })).toBe(false);
+        expect(isQaCritiqueIssue({ type: 123, description: 'Lỗi' })).toBe(false);
+        expect(isQaCritiqueIssue({ targetText: 42, description: 'Lỗi' })).toBe(false);
       });
     });
 
@@ -530,6 +582,41 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
         expect(isSentenceRewriteResponse({})).toBe(false);
         expect(isSentenceRewriteResponse({ rewrittenSentence: 123 })).toBe(false);
         expect(isSentenceRewriteResponse({ rewrittenSentence: null })).toBe(false);
+      });
+    });
+
+    describe('secondary structured response validators (US5)', () => {
+      it('validates quick term response payloads', () => {
+        expect(isQuickTermResponse({ chinese: '李四' })).toBe(true);
+        expect(isQuickTermResponse({ chinese: '李四', vietnamese: 'Lý Tứ', type: 'character' })).toBe(true);
+        expect(isQuickTermResponse({})).toBe(false);
+        expect(isQuickTermResponse({ chinese: '' })).toBe(false);
+        expect(isQuickTermResponse({ chinese: '李四', pinyin: 123 })).toBe(false);
+      });
+
+      it('validates glossary suggestions response payloads', () => {
+        expect(isGlossarySuggestionsResponse({ suggestions: [] })).toBe(true);
+        expect(isGlossarySuggestionsResponse({ suggestions: [{ chinese: 'a' }] })).toBe(true);
+        expect(isGlossarySuggestionsResponse({})).toBe(false);
+        expect(isGlossarySuggestionsResponse({ suggestions: null })).toBe(false);
+      });
+
+      it('validates guidelines analysis response payloads', () => {
+        expect(isGuidelinesAnalysisResponse({ genre: 'Tiên hiệp', tone: 'Hùng tráng' })).toBe(true);
+        expect(isGuidelinesAnalysisResponse({})).toBe(true);
+        expect(isGuidelinesAnalysisResponse({ genre: 123 })).toBe(false);
+      });
+
+      it('validates align chapter response payloads', () => {
+        expect(isAlignChapterResponse({ alignments: [] })).toBe(true);
+        expect(isAlignChapterResponse({})).toBe(false);
+        expect(isAlignChapterResponse({ alignments: 'none' })).toBe(false);
+      });
+
+      it('validates hako quality scan response payloads', () => {
+        expect(isHakoQualityScanResponse({ issues: [] })).toBe(true);
+        expect(isHakoQualityScanResponse({})).toBe(false);
+        expect(isHakoQualityScanResponse({ issues: 'invalid' })).toBe(false);
       });
     });
   });

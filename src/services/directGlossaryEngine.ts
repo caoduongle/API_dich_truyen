@@ -7,10 +7,17 @@ import {
   buildAlignmentJsonlLines,
 } from './ai/prompts';
 import {
-  safeParseJson,
   splitTextAdaptively,
   splitTextIntoChunks,
   estimateTokenCount,
+  parseGeminiStructuredResponse,
+  isGlossarySuggestionsResponse,
+  isGuidelinesAnalysisResponse,
+  isExtractGlossaryResponse,
+  isAlignChapterResponse,
+  GlossarySuggestionsResponse,
+  GuidelinesAnalysisResponse,
+  AlignChapterResponse,
 } from '../lib/text';
 import { validateAndSnapBackEntities, isHanEquivalent } from '../lib/sinoNormalize';
 import { parseGlossaryFromMd } from '../lib/parser';
@@ -60,7 +67,11 @@ async function callGlossaryAnalysisDirect(
     signal: common.signal,
   });
 
-  const parsed = safeParseJson(response.text);
+  const parsed = parseGeminiStructuredResponse<GlossarySuggestionsResponse>(response.text, {
+    validator: isGlossarySuggestionsResponse,
+    fallback: { suggestions: [] },
+    contextName: 'callGlossaryAnalysisDirect',
+  });
   const suggestions = parsed && Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
   return { suggestions, successKeyIndex: response.successKeyIndex };
 }
@@ -210,13 +221,17 @@ export async function analyzeGuidelinesDirect(
     signal: common.signal,
   });
 
-  const aiMeta = safeParseJson(response.text);
+  const aiMeta = parseGeminiStructuredResponse<GuidelinesAnalysisResponse>(response.text, {
+    validator: isGuidelinesAnalysisResponse,
+    fallback: {},
+    contextName: 'analyzeGuidelinesDirect',
+  });
 
   return {
     extractedGlossary: parsedGlossary,
-    genre: aiMeta.genre,
-    tone: aiMeta.tone,
-    description: aiMeta.description,
+    genre: aiMeta.genre || '',
+    tone: aiMeta.tone || '',
+    description: aiMeta.description || '',
     successKeyIndex: response.successKeyIndex,
     ...(isGuidelinesTruncated
       ? { truncated: true, originalLength: text.length, analyzedLength: MAX_CHARS_FOR_GUIDELINES_ANALYSIS }
@@ -254,12 +269,11 @@ export async function extractGlossaryDirect(
       signal: common.signal,
     });
 
-    let parsed: any;
-    try {
-      parsed = safeParseJson(response.text);
-    } catch {
-      parsed = [];
-    }
+    const parsed = parseGeminiStructuredResponse<any>(response.text, {
+      validator: isExtractGlossaryResponse,
+      fallback: [],
+      contextName: 'extractGlossaryDirect',
+    });
 
     const parsedGlossary = Array.isArray(parsed) ? parsed : parsed?.suggestions || [];
     let validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text);
@@ -308,8 +322,15 @@ export async function alignChapterDirect(
     signal: common.signal,
   });
 
-  const parsed = safeParseJson(response.text);
-  const list = Array.isArray(parsed?.alignments) ? parsed.alignments : [];
+  const parsed = parseGeminiStructuredResponse<AlignChapterResponse>(response.text, {
+    validator: isAlignChapterResponse,
+    fallback: { alignments: [] },
+    contextName: 'alignChapterDirect',
+  });
+  const list = (Array.isArray(parsed?.alignments) ? parsed.alignments : []) as Array<{
+    chinese?: string;
+    vietnamese?: string;
+  }>;
   const jsonlLines = buildAlignmentJsonlLines(list);
 
   return { jsonlLines, successKeyIndex: response.successKeyIndex };

@@ -745,4 +745,77 @@ describe('src/services/directTranslationEngine.ts', () => {
       expect(res.polishedTranslation).toContain('Chương 1: Mở Đầu');
     });
   });
+
+  describe('quickTranslateTermDirect (US5)', () => {
+    it('parses valid structured quick term response', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      chinese: '张三',
+                      vietnamese: 'Trương Tam',
+                      pinyin: 'Zhāng Sān',
+                      type: 'character',
+                      note: 'Nhân vật phụ',
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+
+      const res = await directGeminiClient.quickTranslateTermDirect({
+        term: '张三',
+        apiKeys: ['KEY_1'],
+      });
+
+      expect(res).toEqual({
+        chinese: '张三',
+        vietnamese: 'Trương Tam',
+        pinyin: 'Zhāng Sān',
+        type: 'character',
+        note: 'Nhân vật phụ',
+      });
+    });
+
+    it('falls back safely to default term structure when AI returns invalid schema', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      chinese: '',
+                      invalidField: 123,
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+
+      const res = await directGeminiClient.quickTranslateTermDirect({
+        term: '李四',
+        apiKeys: ['KEY_1'],
+      });
+
+      expect(res.chinese).toBe('李四');
+      expect(res.vietnamese).toBe('');
+      expect(res.type).toBe('character');
+    });
+  });
 });
