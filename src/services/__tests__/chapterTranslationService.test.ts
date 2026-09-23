@@ -582,4 +582,64 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
       });
     });
   });
+
+  describe('Phase 3 AI QA Critique integration', () => {
+    it('executes qaCritiqueDirect and attaches strongly-typed DirectQaCritiqueIssue[] to updated chapter', async () => {
+      vi.spyOn(directEngine, 'translateRawDirect').mockResolvedValue({
+        rawTranslation: 'Chương 1: Tiêu đề\n\nBản dịch thô.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+      vi.spyOn(directEngine, 'polishTranslationDirect').mockResolvedValue({
+        polishedTranslation: 'Chương 1: Tiêu đề\n\nBản dịch chuốt.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+
+      const mockIssues = [
+        {
+          type: 'omission' as const,
+          severity: 'warning' as const,
+          targetText: 'đoạn bị thiếu',
+          description: 'Bỏ sót một câu trong đoạn 2',
+        },
+      ];
+
+      const qaCritiqueSpy = vi.spyOn(directEngine, 'qaCritiqueDirect').mockResolvedValue({
+        isValid: false,
+        issues: mockIssues,
+        successKeyIndex: 0,
+      });
+
+      const logs: string[] = [];
+      const res = await executeSingleChapterTranslation({
+        chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+        glossarySnapshot: [{ id: 'g1', chinese: '萧炎', vietnamese: 'Tiêu Viêm', type: 'character' } as any],
+        signal: new AbortController().signal,
+        logPrefix: '[Test-QA]',
+        startKeyIndex: 0,
+        projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+        apiKeys: ['AQ_USER_KEY_123'],
+        selectedModel: 'gemini-2.5-flash',
+        polishCycles: 1,
+        autoTranslateMode: 'from_scratch',
+        additionalInstructions: '',
+        isExtractionDuringTranslationEnabled: false,
+        enableAiQaCritique: true,
+        enableSegmentTranslation: false,
+        addLog: (msg) => logs.push(msg),
+      });
+
+      expect(res.success).toBe(true);
+      expect(qaCritiqueSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          glossary: expect.arrayContaining([
+            expect.objectContaining({ chinese: '萧炎', vietnamese: 'Tiêu Viêm' }),
+          ]),
+        })
+      );
+      expect(res.updatedChapter?.qaIssues).toEqual(mockIssues);
+      expect(logs.some((l) => l.includes('[OMISSION]') && l.includes('Bỏ sót một câu'))).toBe(true);
+    });
+  });
 });

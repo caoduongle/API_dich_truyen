@@ -108,5 +108,55 @@ describe('src/services/directGlossaryEngine.ts', () => {
     expect(res.glossary[0].chinese).toBe('玄阶中级斗技');
     expect(res.glossary[0].vietnamese).toBe('Huyền Giai Trung Cấp Đấu Kỹ');
   });
+
+  it('analyzeGlossaryDirect filters out malformed or empty items without emitting blank entities', async () => {
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
+      text: JSON.stringify({
+        suggestions: [
+          {},
+          { chinese: 123 },
+          { chinese: '   ', vietnamese: 'rỗng' },
+          { vietnamese: null },
+          { chinese: '乌坦城', vietnamese: 'Ô Thản Thành', type: 'location' },
+        ],
+      }),
+      successKeyIndex: 0,
+    });
+
+    const res = await analyzeGlossaryDirect({
+      text: 'Tiêu Viêm đi tới 乌坦城.',
+      apiKeys: ['AQ_TEST_KEY'],
+      model: 'gemini-2.5-flash',
+    });
+
+    expect(res.suggestions).toHaveLength(1);
+    expect(res.suggestions[0].chinese).toBe('乌坦城');
+    expect(res.suggestions[0].vietnamese).toBe('Ô Thản Thành');
+    expect(res.suggestions[0].type).toBe('location');
+  });
+
+  it('extractGlossaryDirect filters out malformed items from raw response', async () => {
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
+      text: JSON.stringify([
+        {},
+        { chinese: '', vietnamese: 'trống' },
+        { term: '   ', vietnamese: 'khoảng trắng' },
+        { chinese: '斗气', vietnamese: 456 },
+        { chinese: '斗气', vietnamese: 'Đấu Khí', type: 'term' },
+      ]),
+      successKeyIndex: 0,
+    });
+
+    const { extractGlossaryDirect } = await import('../directGlossaryEngine');
+    const res = await extractGlossaryDirect({
+      text: 'Đây là thế giới của 斗气.',
+      apiKeys: ['TEST_KEY'],
+    });
+
+    expect(res.glossary).toHaveLength(1);
+    expect(res.glossary[0].chinese).toBe('斗气');
+    expect(res.glossary[0].vietnamese).toBe('Đấu Khí');
+    expect(res.glossary[0].type).toBe('term');
+  });
 });
 

@@ -31,6 +31,7 @@ import {
   isAlignChapterResponse,
   isHakoQualityScanResponse,
   isHakoQualityScanIssue,
+  isGlossarySuggestionItem,
 } from '../text';
 import {
   buildRawTranslationPayload,
@@ -600,11 +601,36 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
         expect(isQuickTermResponse({ chinese: '李四', pinyin: 123 })).toBe(false);
       });
 
-      it('validates glossary suggestions response payloads', () => {
+      it('validates glossary suggestions response payloads and individual items', () => {
         expect(isGlossarySuggestionsResponse({ suggestions: [] })).toBe(true);
         expect(isGlossarySuggestionsResponse({ suggestions: [{ chinese: 'a' }] })).toBe(true);
         expect(isGlossarySuggestionsResponse({})).toBe(false);
         expect(isGlossarySuggestionsResponse({ suggestions: null })).toBe(false);
+
+        // Item-level tests (US1)
+        expect(isGlossarySuggestionItem({ chinese: '萧炎', vietnamese: 'Tiêu Viêm' })).toBe(true);
+        expect(isGlossarySuggestionItem({ term: '萧炎', vietnamese: 'Tiêu Viêm' })).toBe(true);
+        expect(
+          isGlossarySuggestionItem({
+            chinese: '萧炎',
+            vietnamese: 'Tiêu Viêm',
+            pinyin: 'Xiāo Yán',
+            type: 'character',
+            note: 'Nhân vật chính',
+          })
+        ).toBe(true);
+
+        expect(isGlossarySuggestionItem(null)).toBe(false);
+        expect(isGlossarySuggestionItem(undefined)).toBe(false);
+        expect(isGlossarySuggestionItem({})).toBe(false);
+        expect(isGlossarySuggestionItem({ chinese: 123, vietnamese: 'A' })).toBe(false);
+        expect(isGlossarySuggestionItem({ chinese: '', vietnamese: 'A' })).toBe(false);
+        expect(isGlossarySuggestionItem({ chinese: '   ', vietnamese: 'A' })).toBe(false);
+        expect(isGlossarySuggestionItem({ chinese: '萧炎', vietnamese: null })).toBe(false);
+        expect(isGlossarySuggestionItem({ chinese: '萧炎', vietnamese: 123 })).toBe(false);
+        expect(isGlossarySuggestionItem({ chinese: '萧炎', vietnamese: 'Tiêu Viêm', type: 'invalid_type' })).toBe(false);
+        expect(isGlossarySuggestionItem({ chinese: '萧炎', vietnamese: 'Tiêu Viêm', pinyin: 123 })).toBe(false);
+        expect(isGlossarySuggestionItem({ chinese: '萧炎', vietnamese: 'Tiêu Viêm', note: 123 })).toBe(false);
       });
 
       it('validates guidelines analysis response payloads', () => {

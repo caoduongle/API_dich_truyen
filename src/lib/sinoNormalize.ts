@@ -76,14 +76,14 @@ export function findCanonicalSubstring(haystack: string, needle: string): string
 export function validateAndSnapBackEntities(entities: any[], rawText: string): any[] {
   if (!Array.isArray(entities) || !rawText) return entities || [];
 
-  return entities.map((item: any) => {
-    if (!item || typeof item.chinese !== "string") return item;
-
-    const chineseVal = item.chinese.trim();
-    // 1. Nếu rawSourceText.includes(entity.chinese.trim()) -> giữ nguyên
-    if (rawText.includes(chineseVal)) {
-      return item;
-    }
+  return entities
+    .filter((item: any) => item && typeof item.chinese === "string" && item.chinese.trim().length > 0)
+    .map((item: any) => {
+      const chineseVal = item.chinese.trim();
+      // 1. Nếu rawSourceText.includes(entity.chinese.trim()) -> giữ nguyên
+      if (rawText.includes(chineseVal)) {
+        return item;
+      }
 
     const normRaw = canonicalizeHan(rawText);
     const normChinese = canonicalizeHan(chineseVal);

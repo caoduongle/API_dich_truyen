@@ -8,7 +8,7 @@ import {
   polishTranslationDirect,
   qaCritiqueDirect,
 } from './directTranslationEngine';
-import { DiscoveredEntity } from './translation/types';
+import { DiscoveredEntity, DirectQaCritiqueIssue } from './translation/types';
 
 export interface SingleChapterResult {
   success: boolean;
@@ -375,7 +375,7 @@ export async function executeSingleChapterTranslation({
   }
 
   // ── GIAI ĐOẠN 3: Kiểm duyệt chất lượng AI trực tiếp (Critique Phase) ──
-  let detectedQaIssues: any[] = [];
+  let detectedQaIssues: DirectQaCritiqueIssue[] = [];
   if (enableAiQaCritique) {
     addLog(`${logPrefix} [Kiểm duyệt AI] Bắt đầu rà soát thẩm định chất lượng bản dịch...`, 'info');
     try {
@@ -400,7 +400,7 @@ export async function executeSingleChapterTranslation({
         addLog(`${logPrefix} [Kiểm duyệt AI] Đạt chuẩn! Không phát hiện lỗi bỏ sót, thêm thắt hoặc lặp lại.`, 'success');
       } else if (Array.isArray(qaData.issues) && qaData.issues.length > 0) {
         addLog(`${logPrefix} [Kiểm duyệt AI] Phát hiện ${qaData.issues.length} vấn đề kiểm duyệt:`, 'warn');
-        qaData.issues.forEach((issue: any) => {
+        qaData.issues.forEach((issue) => {
           addLog(`- [${issue.type.toUpperCase()}] (${issue.severity}): ${issue.description}`, 'warn');
         });
       }

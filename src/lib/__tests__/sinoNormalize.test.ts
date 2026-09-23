@@ -122,6 +122,19 @@ describe('sinoNormalize shared utils', () => {
       expect(validateAndSnapBackEntities(entities, '')).toEqual(entities);
       expect(validateAndSnapBackEntities(entities, null as any)).toEqual(entities);
     });
+
+    it('should filter out entities with empty, whitespace, or missing chinese strings', () => {
+      const entities = [
+        { chinese: '', pinyin: 'Rỗng' },
+        { chinese: '   ', pinyin: 'Khoảng trắng' },
+        { chinese: null as any, pinyin: 'Null' },
+        { chinese: 123 as any, pinyin: 'Số' },
+        { chinese: '萧炎', pinyin: 'Tiêu Viêm' },
+      ];
+      const result = validateAndSnapBackEntities(entities, 'Đây là 萧炎 trong truyện.');
+      expect(result).toHaveLength(1);
+      expect(result[0].chinese).toBe('萧炎');
+    });
   });
 
   describe('findFuzzyCandidates', () => {

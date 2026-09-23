@@ -19,10 +19,10 @@ import {
   GuidelinesAnalysisResponse,
   AlignChapterResponse,
   GlossarySuggestion,
+  isGlossarySuggestionItem,
 } from '../lib/text';
 import { validateAndSnapBackEntities, isHanEquivalent } from '../lib/sinoNormalize';
 import { parseGlossaryFromMd } from '../lib/parser';
-import { GlossaryType } from '../types';
 import { GLOSSARY_LIMITS } from '../config/constants';
 
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
@@ -74,15 +74,16 @@ async function callGlossaryAnalysisDirect(
     fallback: { suggestions: [] },
     contextName: 'callGlossaryAnalysisDirect',
   });
-  const rawSuggestions = (parsed && Array.isArray(parsed.suggestions) ? parsed.suggestions : []) as any[];
-  const suggestions: GlossarySuggestion[] = rawSuggestions.map((item: any) => ({
-    chinese: typeof item?.chinese === 'string' ? item.chinese : (typeof item?.term === 'string' ? item.term : ''),
-    vietnamese: typeof item?.vietnamese === 'string' ? item.vietnamese : '',
-    pinyin: typeof item?.pinyin === 'string' ? item.pinyin : '',
-    type: (['character', 'location', 'term', 'phrase', 'other'].includes(item?.type) ? item.type : 'other') as GlossaryType,
-    note: typeof item?.note === 'string' ? item.note : '',
-    ...(item?.sourceChapterId ? { sourceChapterId: item.sourceChapterId } : {}),
-    ...(typeof item?.needsReview === 'boolean' ? { needsReview: item.needsReview } : {}),
+  const rawSuggestions = (parsed && Array.isArray(parsed.suggestions) ? parsed.suggestions : []) as unknown[];
+  const validSuggestions = rawSuggestions.filter(isGlossarySuggestionItem);
+  const suggestions: GlossarySuggestion[] = validSuggestions.map((item) => ({
+    chinese: item.chinese ? item.chinese.trim() : (item.term ? item.term.trim() : ''),
+    vietnamese: item.vietnamese.trim(),
+    pinyin: (item.pinyin || '').trim(),
+    type: item.type || 'other',
+    note: (item.note || '').trim(),
+    ...(item.sourceChapterId ? { sourceChapterId: item.sourceChapterId } : {}),
+    ...(typeof item.needsReview === 'boolean' ? { needsReview: item.needsReview } : {}),
   }));
   return { suggestions, successKeyIndex: response.successKeyIndex };
 }
@@ -281,21 +282,26 @@ export async function extractGlossaryDirect(
       signal: common.signal,
     });
 
-    const parsed = parseGeminiStructuredResponse<any>(response.text, {
+    const parsed = parseGeminiStructuredResponse<unknown[] | { suggestions?: unknown[] }>(response.text, {
       validator: isExtractGlossaryResponse,
       fallback: [],
       contextName: 'extractGlossaryDirect',
     });
 
-    const rawList = (Array.isArray(parsed) ? parsed : parsed?.suggestions || []) as any[];
-    const parsedGlossary: GlossarySuggestion[] = rawList.map((item: any) => ({
-      chinese: typeof item?.chinese === 'string' ? item.chinese : (typeof item?.term === 'string' ? item.term : ''),
-      vietnamese: typeof item?.vietnamese === 'string' ? item.vietnamese : '',
-      pinyin: typeof item?.pinyin === 'string' ? item.pinyin : '',
-      type: (['character', 'location', 'term', 'phrase', 'other'].includes(item?.type) ? item.type : 'other') as GlossaryType,
-      note: typeof item?.note === 'string' ? item.note : '',
-      ...(item?.sourceChapterId ? { sourceChapterId: item.sourceChapterId } : {}),
-      ...(typeof item?.needsReview === 'boolean' ? { needsReview: item.needsReview } : {}),
+    const rawList: unknown[] = Array.isArray(parsed)
+      ? parsed
+      : (parsed && Array.isArray((parsed as { suggestions?: unknown[] }).suggestions)
+        ? (parsed as { suggestions: unknown[] }).suggestions
+        : []);
+    const validList = rawList.filter(isGlossarySuggestionItem);
+    const parsedGlossary: GlossarySuggestion[] = validList.map((item) => ({
+      chinese: item.chinese ? item.chinese.trim() : (item.term ? item.term.trim() : ''),
+      vietnamese: item.vietnamese.trim(),
+      pinyin: (item.pinyin || '').trim(),
+      type: item.type || 'other',
+      note: (item.note || '').trim(),
+      ...(item.sourceChapterId ? { sourceChapterId: item.sourceChapterId } : {}),
+      ...(typeof item.needsReview === 'boolean' ? { needsReview: item.needsReview } : {}),
     }));
     let validatedGlossary = validateAndSnapBackEntities(parsedGlossary, text) as GlossarySuggestion[];
     const resolvedChapterId = sourceChapterId || chapterId;

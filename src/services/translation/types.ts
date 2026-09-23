@@ -115,7 +115,7 @@ export interface DirectQaCritiqueParams {
   genre?: string;
   tone?: string;
   description?: string;
-  glossary?: any[];
+  glossary?: GlossaryItem[];
   apiKeys: string[];
   model?: string;
   startKeyIndex?: number;

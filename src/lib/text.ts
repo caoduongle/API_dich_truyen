@@ -592,6 +592,36 @@ export interface GlossarySuggestion extends Omit<GlossaryItem, 'id'> {
   [key: string]: unknown;
 }
 
+const VALID_GLOSSARY_TYPES = new Set<string>(['character', 'location', 'term', 'phrase', 'other']);
+
+/**
+ * Kiểm định từng item gợi ý thuật ngữ (GlossarySuggestion).
+ * Bắt buộc:
+ * - chinese hoặc term phải là string không rỗng (trim().length > 0)
+ * - vietnamese phải là string
+ * - nếu có pinyin, phải là string
+ * - nếu có note, phải là string
+ * - nếu có type, phải là một trong các giá trị hợp lệ của GlossaryType
+ */
+export function isGlossarySuggestionItem(item: unknown): item is GlossarySuggestion {
+  if (typeof item !== 'object' || item === null) return false;
+  const obj = item as Record<string, unknown>;
+
+  const hasValidChinese = typeof obj.chinese === 'string' && obj.chinese.trim().length > 0;
+  const hasValidTerm = typeof obj.term === 'string' && obj.term.trim().length > 0;
+  if (!hasValidChinese && !hasValidTerm) return false;
+
+  if (typeof obj.vietnamese !== 'string') return false;
+
+  if (obj.pinyin !== undefined && typeof obj.pinyin !== 'string') return false;
+  if (obj.note !== undefined && typeof obj.note !== 'string') return false;
+  if (obj.type !== undefined && (typeof obj.type !== 'string' || !VALID_GLOSSARY_TYPES.has(obj.type))) {
+    return false;
+  }
+
+  return true;
+}
+
 export interface GlossarySuggestionsResponse {
   suggestions: unknown[];
   [key: string]: unknown;
