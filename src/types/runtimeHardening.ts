@@ -101,3 +101,19 @@ export function resolveChapterQaIssues(input: IQaIssueResolverInput): Array<{
   }
   return input.existingChapterIssues || [];
 }
+
+export type SanitizeAttemptsFn = (
+  raw: unknown,
+  minuteThreshold: number,
+  maxFutureTimestamp: number,
+  maxEntries?: number
+) => CompactRecentAttempt[];
+
+export type SanitizeTokensFn = (
+  raw: unknown,
+  minuteThreshold: number,
+  maxFutureTimestamp: number,
+  maxEntries?: number
+) => CompactRecentTokens[];
+
+export type GetErrorMessageFn = (error: unknown) => string;

@@ -1,4 +1,5 @@
 import { callGeminiDirect } from './directGeminiClient';
+import { getErrorMessage, GeminiRequestError } from './gemini/geminiErrorClassifier';
 import {
   buildAnalyzeGlossaryPayload,
   buildAnalyzeGuidelinesPayload,
@@ -29,8 +30,9 @@ import { GLOSSARY_LIMITS } from '../config/constants';
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
 const MAX_CHUNKS_TO_ANALYZE = 5;
 
-function isSafetyOrEmptyErrorDirect(err: any): boolean {
-  const msg = err?.message || '';
+function isSafetyOrEmptyErrorDirect(err: unknown): boolean {
+  if (err instanceof GeminiRequestError && err.code === 'CONTENT_BLOCKED') return true;
+  const msg = getErrorMessage(err);
   return msg.includes('bộ lọc an toàn') || msg.includes('phản hồi rỗng');
 }
 
@@ -97,7 +99,7 @@ async function analyzeGlossaryWithContentSplitDirect(
   if (estimateTokenCount(text) < 180 || depth > 4) {
     try {
       return await callGlossaryAnalysisDirect(text, common);
-    } catch (leafErr: any) {
+    } catch (leafErr: unknown) {
       if (depth > 0) {
         return { suggestions: [], successKeyIndex: common.startKeyIndex ?? 0 };
       }
@@ -107,7 +109,7 @@ async function analyzeGlossaryWithContentSplitDirect(
 
   try {
     return await callGlossaryAnalysisDirect(text, common);
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (!isSafetyOrEmptyErrorDirect(error)) {
       throw error;
     }
@@ -164,7 +166,7 @@ export async function analyzeGlossaryDirect(
   let result = { suggestions: [] as GlossarySuggestion[], successKeyIndex: common.startKeyIndex ?? 0 };
   try {
     result = await analyzeGlossaryWithContentSplitDirect(textToAnalyze, common, 0);
-  } catch (splitError: any) {
+  } catch (splitError: unknown) {
     if (isSafetyOrEmptyErrorDirect(splitError)) {
       result = { suggestions: [], successKeyIndex: common.startKeyIndex ?? 0 };
     } else {
@@ -309,7 +311,7 @@ export async function extractGlossaryDirect(
     }
 
     return { glossary: validatedGlossary, successKeyIndex: response.successKeyIndex };
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (isSafetyOrEmptyErrorDirect(error)) {
       return {
         glossary: [],

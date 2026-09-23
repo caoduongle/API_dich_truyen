@@ -215,5 +215,40 @@ describe('src/services/directGlossaryEngine.ts', () => {
     expect(res.suggestions[0].chinese).toBe('斗气');
     expect(maxConcurrent).toBeLessThanOrEqual(2);
   });
+
+  it('safely handles GeminiRequestError with CONTENT_BLOCKED without throw in extractGlossaryDirect', async () => {
+    const { GeminiRequestError } = await import('../gemini/types');
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockRejectedValue(
+      new GeminiRequestError('Prompt was blocked by safety policy', {
+        code: 'CONTENT_BLOCKED',
+        category: 'CONTENT_BLOCKED',
+        status: 200,
+        isRetryable: false,
+      })
+    );
+
+    const { extractGlossaryDirect } = await import('../directGlossaryEngine');
+    const res = await extractGlossaryDirect({
+      text: 'Sample blocked text',
+      apiKeys: ['TEST_KEY'],
+    });
+
+    expect(res.glossary).toEqual([]);
+    expect(res.warning).toContain('bộ lọc an toàn');
+  });
+
+  it('safely handles non-standard error objects in glossary analysis without crashing', async () => {
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockRejectedValue({
+      message: 'bộ lọc an toàn: custom non-error object',
+    });
+
+    const res = await analyzeGlossaryDirect({
+      text: 'Sample text with custom non-error throw',
+      apiKeys: ['AQ_TEST_KEY'],
+      model: 'gemini-2.5-flash',
+    });
+
+    expect(res.suggestions).toEqual([]);
+  });
 });
 

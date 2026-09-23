@@ -159,6 +159,9 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
       const healthBefore = localQuotaTracker.getKeyHealth(key, now);
       expect(healthBefore.state).toBe('QuotaExhausted');
 
+      // Flush debounced write to storage before reload
+      localQuotaTracker.flushToStorage(now);
+
       // Verify it was serialized to sessionStorage
       const rawStored = sessionStorage.getItem('gemini_local_quota_tracker_v1');
       expect(rawStored).toBeTruthy();
@@ -187,6 +190,9 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
       const healthBefore = localQuotaTracker.getKeyHealth(key, now);
       expect(healthBefore.state).toBe('RateLimited');
 
+      // Flush debounced write to storage before reload
+      localQuotaTracker.flushToStorage(now);
+
       // Reload
       (localQuotaTracker as any).loadFromStorage();
       const healthAfter = localQuotaTracker.getKeyHealth(key, now + 1000);
@@ -203,6 +209,9 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
         { status: 429, isRateLimit: true, message: 'Rate limit RPM exceeded' },
         now
       );
+
+      // Flush debounced write to storage before reload
+      localQuotaTracker.flushToStorage(now);
 
       // Simulate reload 60 seconds later (cooldown was 45s)
       const afterCooldown = now + 60 * 1000;
@@ -467,6 +476,61 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
       const status = localQuotaTracker.getQuotaStatus([key], now);
       expect(status.keys[0].requestsThisMinute).toBe(0);
       expect(status.keys[0].tokensThisMinute).toBe(0);
+    });
+
+    it('caps deserialized sliding window entries at 100 on loadFromStorage when stored data is bloated', () => {
+      const now = Date.now();
+      const bloatedAttempts = Array.from({ length: 250 }, (_, i) => ({
+        timestamp: now - 30_000 + i * 50,
+      }));
+      const bloatedTokens = Array.from({ length: 250 }, (_, i) => ({
+        timestamp: now - 30_000 + i * 50,
+        tokens: 10,
+      }));
+
+      const fakeData = {
+        summaryStats: { logicalRequestsTotal: 250, logicalRequestsToday: 250, lastResetDay: getDayInLosAngeles(now) },
+        keyStats: [
+          {
+            keyHash: hashApiKey(key),
+            maskedKey: 'AIzaSy...456',
+            requestsTotal: 250,
+            requestsToday: 250,
+            errorsTotal: 0,
+            tokensTotal: 2500,
+            tokensToday: 2500,
+            lastResetDay: getDayInLosAngeles(now),
+            healthState: 'Healthy',
+            circuitBreakerStatus: 'Closed',
+            cooldownUntil: 0,
+            recentAttempts: bloatedAttempts,
+            recentTokens: bloatedTokens,
+            byModel: {
+              [model]: {
+                requestsTotal: 250,
+                requestsToday: 250,
+                errorsTotal: 0,
+                tokensTotal: 2500,
+                tokensToday: 2500,
+                totalLatencyMs: 5000,
+                lastResetDay: getDayInLosAngeles(now),
+                recentAttempts: bloatedAttempts,
+                recentTokens: bloatedTokens,
+              },
+            },
+          },
+        ],
+      };
+
+      localQuotaTracker.resetMetrics();
+      mockStorage['gemini_local_quota_tracker_v1'] = JSON.stringify(fakeData);
+      localQuotaTracker.loadFromStorage(now);
+
+      const status = localQuotaTracker.getQuotaStatus([key], now);
+      expect(status.keys[0].requestsThisMinute).toBe(100);
+      expect(status.keys[0].tokensThisMinute).toBe(1000);
+      expect(status.keys[0].byModel[model].requestsThisMinute).toBe(100);
+      expect(status.keys[0].byModel[model].tokensThisMinute).toBe(1000);
     });
   });
 

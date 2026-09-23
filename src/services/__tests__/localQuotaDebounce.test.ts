@@ -98,4 +98,21 @@ describe('LocalQuotaTracker Debounced Persistence & Lifecycle Flush (User Story 
     document.dispatchEvent(new Event('visibilitychange'));
     expect(mockStorage['gemini_local_quota_tracker_v1']).toBeDefined();
   });
+
+  it('debounces recordFailure calls and writes to storage only after timer expires or on flush', () => {
+    const tracker = new LocalQuotaTracker();
+    const key = 'test-debounce-fail-key';
+    const model = 'gemini-2.5-flash';
+
+    tracker.recordFailure(key, model, { status: 429, message: 'Too Many Requests', isRateLimit: true });
+    // Should NOT be synchronously flushed
+    expect(mockStorage['gemini_local_quota_tracker_v1']).toBeUndefined();
+
+    // Advance timers by 310ms
+    vi.advanceTimersByTime(310);
+    expect(mockStorage['gemini_local_quota_tracker_v1']).toBeDefined();
+
+    const data = JSON.parse(mockStorage['gemini_local_quota_tracker_v1']);
+    expect(data.summaryStats.failedAttemptsTotal).toBe(1);
+  });
 });

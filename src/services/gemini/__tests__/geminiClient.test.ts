@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { callGemini } from '../geminiClient';
+import { GeminiRequestError } from '../types';
 import { localQuotaTracker } from '../../localQuotaTracker';
 
 describe('geminiClient', () => {
@@ -425,6 +426,104 @@ describe('geminiClient', () => {
       ).rejects.toThrow(/Quá hạn thời gian yêu cầu Gemini API/);
 
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Comprehensive Structured GeminiRequestError Taxonomy (US3)', () => {
+    it('throws typed GeminiRequestError with RESOURCE_NOT_FOUND on HTTP 404', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({
+          error: { message: 'Model not found' },
+        }),
+      });
+
+      try {
+        await callGemini({
+          apiKeys: ['KEY_404'],
+          prompt: 'Hello',
+        });
+        expect.unreachable();
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(GeminiRequestError);
+        const reqErr = err as GeminiRequestError;
+        expect(reqErr.code).toBe('RESOURCE_NOT_FOUND');
+        expect(reqErr.category).toBe('RESOURCE_NOT_FOUND');
+        expect(reqErr.status).toBe(404);
+        expect(reqErr.isRetryable).toBe(false);
+      }
+    });
+
+    it('throws typed GeminiRequestError with BAD_REQUEST on HTTP 400', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: async () => ({
+          error: { message: 'Invalid payload structure' },
+        }),
+      });
+
+      try {
+        await callGemini({
+          apiKeys: ['KEY_400'],
+          prompt: 'Hello',
+        });
+        expect.unreachable();
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(GeminiRequestError);
+        const reqErr = err as GeminiRequestError;
+        expect(reqErr.code).toBe('BAD_REQUEST');
+        expect(reqErr.status).toBe(400);
+        expect(reqErr.isRetryable).toBe(false);
+      }
+    });
+
+    it('throws typed GeminiRequestError with ALL_KEYS_EXHAUSTED when all keys 429', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        json: async () => ({
+          error: { message: 'Quota exhausted for this key' },
+        }),
+      });
+
+      try {
+        await callGemini({
+          apiKeys: ['KEY_EX_1', 'KEY_EX_2'],
+          prompt: 'Hello',
+        });
+        expect.unreachable();
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(GeminiRequestError);
+        const reqErr = err as GeminiRequestError;
+        expect(reqErr.code).toBe('ALL_KEYS_EXHAUSTED');
+        expect(reqErr.category).toBe('QUOTA_EXHAUSTED_RPD');
+        expect(reqErr.isRetryable).toBe(false);
+      }
+    });
+
+    it('throws typed GeminiRequestError with ETIMEDOUT when remaining time is depleted', async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      try {
+        await callGemini({
+          apiKeys: ['KEY_TIMEOUT'],
+          prompt: 'Hello',
+          timeoutMs: 40, // <= 50ms triggers immediate deadline throw
+        });
+        expect.unreachable();
+      } catch (err: unknown) {
+        expect(err).toBeInstanceOf(GeminiRequestError);
+        const reqErr = err as GeminiRequestError;
+        expect(reqErr.code).toBe('ETIMEDOUT');
+        expect(reqErr.category).toBe('NETWORK_FAILURE');
+        expect(reqErr.isRetryable).toBe(true);
+      }
     });
   });
 });

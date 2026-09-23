@@ -6,8 +6,26 @@
  * 3. message fallback
  */
 
-import { ClassifiedGeminiError } from './types';
+import { ClassifiedGeminiError, GeminiRequestError } from './types';
 export { GeminiRequestError } from './types';
+
+export function isGeminiRequestError(err: unknown): err is GeminiRequestError {
+  return err instanceof GeminiRequestError;
+}
+
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message;
+  }
+  return String(error || '');
+}
 
 export function classifyGeminiError(
   httpStatus: number,

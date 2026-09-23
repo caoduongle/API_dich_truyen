@@ -37,6 +37,55 @@ export interface CallTokenEntry {
 
 export type CallLogEntry = CallTokenEntry;
 
+export function sanitizeRecentAttempts(
+  raw: unknown,
+  minuteThreshold: number,
+  maxFutureTimestamp: number,
+  maxEntries: number = 100
+): CallAttemptEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const valid: CallAttemptEntry[] = [];
+  for (const a of raw) {
+    if (
+      a &&
+      typeof a === 'object' &&
+      typeof (a as { timestamp?: unknown }).timestamp === 'number' &&
+      (a as { timestamp: number }).timestamp > minuteThreshold &&
+      (a as { timestamp: number }).timestamp <= maxFutureTimestamp
+    ) {
+      valid.push({ timestamp: (a as { timestamp: number }).timestamp });
+    }
+  }
+  return valid.slice(-maxEntries);
+}
+
+export function sanitizeRecentTokens(
+  raw: unknown,
+  minuteThreshold: number,
+  maxFutureTimestamp: number,
+  maxEntries: number = 100
+): CallTokenEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const valid: CallTokenEntry[] = [];
+  for (const t of raw) {
+    if (
+      t &&
+      typeof t === 'object' &&
+      typeof (t as { timestamp?: unknown }).timestamp === 'number' &&
+      typeof (t as { tokens?: unknown }).tokens === 'number' &&
+      (t as { timestamp: number }).timestamp > minuteThreshold &&
+      (t as { timestamp: number }).timestamp <= maxFutureTimestamp &&
+      (t as { tokens: number }).tokens >= 0
+    ) {
+      valid.push({
+        timestamp: (t as { timestamp: number }).timestamp,
+        tokens: (t as { tokens: number }).tokens,
+      });
+    }
+  }
+  return valid.slice(-maxEntries);
+}
+
 export interface InternalModelStats {
   requestsTotal: number;
   requestsToday: number;
@@ -237,23 +286,16 @@ export class LocalQuotaTracker {
           const byModelMap = new Map<string, InternalModelStats>();
           if (item.byModel && typeof item.byModel === 'object') {
             for (const [mName, mStats] of Object.entries<any>(item.byModel)) {
-              const mRecentAttempts: CallAttemptEntry[] = Array.isArray(mStats.recentAttempts)
-                ? mStats.recentAttempts.filter(
-                    (a: any) =>
-                      typeof a?.timestamp === 'number' &&
-                      a.timestamp > minuteThreshold &&
-                      a.timestamp <= maxFutureTimestamp
-                  )
-                : [];
-              const mRecentTokens: CallTokenEntry[] = Array.isArray(mStats.recentTokens)
-                ? mStats.recentTokens.filter(
-                    (t: any) =>
-                      typeof t?.timestamp === 'number' &&
-                      typeof t?.tokens === 'number' &&
-                      t.timestamp > minuteThreshold &&
-                      t.timestamp <= maxFutureTimestamp
-                  )
-                : [];
+              const mRecentAttempts: CallAttemptEntry[] = sanitizeRecentAttempts(
+                mStats.recentAttempts,
+                minuteThreshold,
+                maxFutureTimestamp
+              );
+              const mRecentTokens: CallTokenEntry[] = sanitizeRecentTokens(
+                mStats.recentTokens,
+                minuteThreshold,
+                maxFutureTimestamp
+              );
 
               byModelMap.set(mName, {
                 ...mStats,
@@ -311,23 +353,16 @@ export class LocalQuotaTracker {
             keyHash = hashApiKey(keyHash);
           }
 
-          const kRecentAttempts: CallAttemptEntry[] = Array.isArray(item.recentAttempts)
-            ? item.recentAttempts.filter(
-                (a: any) =>
-                  typeof a?.timestamp === 'number' &&
-                  a.timestamp > minuteThreshold &&
-                  a.timestamp <= maxFutureTimestamp
-              )
-            : [];
-          const kRecentTokens: CallTokenEntry[] = Array.isArray(item.recentTokens)
-            ? item.recentTokens.filter(
-                (t: any) =>
-                  typeof t?.timestamp === 'number' &&
-                  typeof t?.tokens === 'number' &&
-                  t.timestamp > minuteThreshold &&
-                  t.timestamp <= maxFutureTimestamp
-              )
-            : [];
+          const kRecentAttempts: CallAttemptEntry[] = sanitizeRecentAttempts(
+            item.recentAttempts,
+            minuteThreshold,
+            maxFutureTimestamp
+          );
+          const kRecentTokens: CallTokenEntry[] = sanitizeRecentTokens(
+            item.recentTokens,
+            minuteThreshold,
+            maxFutureTimestamp
+          );
 
           this.keyStatsMap.set(keyHash, {
             ...item,
@@ -357,15 +392,12 @@ export class LocalQuotaTracker {
     if (typeof sessionStorage === 'undefined') return;
     try {
       const minuteThreshold = now - 60_000;
+      const maxFutureTimestamp = now + 5_000;
       const serializableKeys = Array.from(this.keyStatsMap.values()).map((k) => {
         const byModelObj: Record<string, any> = {};
         for (const [mName, mStats] of k.byModel.entries()) {
-          const mRecentAttempts = mStats.recentAttempts
-            .filter((a) => a.timestamp > minuteThreshold)
-            .slice(-100);
-          const mRecentTokens = mStats.recentTokens
-            .filter((t) => t.timestamp > minuteThreshold)
-            .slice(-100);
+          const mRecentAttempts = sanitizeRecentAttempts(mStats.recentAttempts, minuteThreshold, maxFutureTimestamp);
+          const mRecentTokens = sanitizeRecentTokens(mStats.recentTokens, minuteThreshold, maxFutureTimestamp);
 
           byModelObj[mName] = {
             requestsTotal: mStats.requestsTotal,
@@ -381,12 +413,8 @@ export class LocalQuotaTracker {
           };
         }
 
-        const kRecentAttempts = k.recentAttempts
-          .filter((a) => a.timestamp > minuteThreshold)
-          .slice(-100);
-        const kRecentTokens = k.recentTokens
-          .filter((t) => t.timestamp > minuteThreshold)
-          .slice(-100);
+        const kRecentAttempts = sanitizeRecentAttempts(k.recentAttempts, minuteThreshold, maxFutureTimestamp);
+        const kRecentTokens = sanitizeRecentTokens(k.recentTokens, minuteThreshold, maxFutureTimestamp);
 
         return {
           keyHash: k.keyHash,
@@ -693,7 +721,7 @@ export class LocalQuotaTracker {
       }
     }
 
-    this.flushToStorage(now);
+    this.scheduleSave(now);
   }
 
   /**

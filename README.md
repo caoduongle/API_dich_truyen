@@ -80,7 +80,7 @@ Chi tiết kiến trúc xem [`docs/architecture.md`](docs/architecture.md).
 
 ## Yêu cầu
 
-- Node.js 20 LTS.
+- Node.js 24 LTS.
 - npm
 - Trình duyệt hiện đại hỗ trợ ES2022, IndexedDB và Web Crypto API.
 

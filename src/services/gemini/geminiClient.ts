@@ -7,7 +7,7 @@ import { localQuotaTracker } from '../localQuotaTracker';
 import { DirectGeminiRequestOptions, DirectGeminiResponse, GeminiRequestError } from './types';
 import { normalizeModelName, buildEndpointUrl, buildPayload } from './geminiRequestBuilder';
 import { executeGeminiFetch, formatGeminiNetworkError } from './geminiTransport';
-import { classifyGeminiError } from './geminiErrorClassifier';
+import { classifyGeminiError, getErrorMessage } from './geminiErrorClassifier';
 import { initKeySchedule, isKeyAvailable, findNextKey } from './geminiKeyScheduler';
 
 export async function callGemini(
@@ -17,8 +17,9 @@ export async function callGemini(
 
   try {
     return await executeLogicalGeminiCall(options);
-  } catch (err: any) {
-    if (err?.name !== 'AbortError') {
+  } catch (err: unknown) {
+    const isAbort = (err as { name?: string })?.name === 'AbortError';
+    if (!isAbort) {
       localQuotaTracker.recordLogicalFailure();
     }
     throw err;
@@ -39,18 +40,21 @@ async function executeLogicalGeminiCall(
   const logicalStartTime = Date.now();
   const overallDeadlineMs = options.timeoutMs ?? 60_000;
 
-  let lastError: any = null;
+  let lastError: GeminiRequestError | Error | null = null;
 
   while (attemptsCount < rawKeys.length) {
     const elapsedMs = Date.now() - logicalStartTime;
     const remainingMs = overallDeadlineMs - elapsedMs;
 
     if (remainingMs <= 50) {
-      const deadlineError = new Error(
-        `Quá hạn thời gian yêu cầu Gemini API (Cumulative Deadline: ${Math.round(overallDeadlineMs / 1000)}s).`
+      const deadlineError = new GeminiRequestError(
+        `Quá hạn thời gian yêu cầu Gemini API (Cumulative Deadline: ${Math.round(overallDeadlineMs / 1000)}s).`,
+        {
+          code: 'ETIMEDOUT',
+          category: 'NETWORK_FAILURE',
+          isRetryable: true,
+        }
       );
-      (deadlineError as any).name = 'TimeoutError';
-      (deadlineError as any).code = 'ETIMEDOUT';
       throw deadlineError;
     }
 
@@ -82,9 +86,15 @@ async function executeLogicalGeminiCall(
         lastError = new Error(`Gemini API Error [Key #${currentKeyIdx + 1}]: ${errMsg}`);
 
         if (response.status === 404 || classified.category === 'RESOURCE_NOT_FOUND') {
-          (lastError as any).code = 'RESOURCE_NOT_FOUND';
-          (lastError as any).status = 404;
-          throw lastError;
+          throw new GeminiRequestError(
+            `Gemini API Error [Key #${currentKeyIdx + 1}]: ${errMsg}`,
+            {
+              code: 'RESOURCE_NOT_FOUND',
+              category: 'RESOURCE_NOT_FOUND',
+              status: 404,
+              isRetryable: false,
+            }
+          );
         }
 
         if (classified.category === 'CONTENT_BLOCKED') {
@@ -97,9 +107,15 @@ async function executeLogicalGeminiCall(
         }
 
         if (response.status === 400) {
-          (lastError as any).code = 'BAD_REQUEST';
-          (lastError as any).status = 400;
-          throw lastError;
+          throw new GeminiRequestError(
+            `Gemini API Error [Key #${currentKeyIdx + 1}]: ${errMsg}`,
+            {
+              code: 'BAD_REQUEST',
+              category: 'UNRECOGNIZED',
+              status: 400,
+              isRetryable: false,
+            }
+          );
         }
 
         localQuotaTracker.recordFailure(currentKey, modelName, {
@@ -126,9 +142,15 @@ async function executeLogicalGeminiCall(
           const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);
           if (nextIdx === -1 || attemptsCount >= rawKeys.length - 1) {
             if (classified.category === 'QUOTA_EXHAUSTED_RPD' || classified.category === 'RATE_LIMIT_RPM' || response.status === 429) {
-              const quotaErr = new Error(`Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${errMsg}`);
-              (quotaErr as any).code = 'ALL_KEYS_EXHAUSTED';
-              throw quotaErr;
+              throw new GeminiRequestError(
+                `Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${errMsg}`,
+                {
+                  code: 'ALL_KEYS_EXHAUSTED',
+                  category: 'QUOTA_EXHAUSTED_RPD',
+                  status: 429,
+                  isRetryable: false,
+                }
+              );
             }
             throw lastError;
           }
@@ -191,11 +213,18 @@ async function executeLogicalGeminiCall(
         text,
         successKeyIndex: currentKeyIdx,
       };
-    } catch (err: any) {
-      const msg = err?.message || '';
+    } catch (err: unknown) {
+      const errObj = (err && typeof err === 'object' ? err : {}) as {
+        name?: string;
+        code?: string;
+        category?: string;
+        message?: string;
+        status?: number;
+      };
+      const msg = getErrorMessage(err);
       if (
-        err?.code === 'CONTENT_BLOCKED' ||
-        err?.category === 'CONTENT_BLOCKED' ||
+        errObj.code === 'CONTENT_BLOCKED' ||
+        errObj.category === 'CONTENT_BLOCKED' ||
         msg.includes('bộ lọc an toàn') ||
         msg.includes('SAFETY')
       ) {
@@ -210,30 +239,35 @@ async function executeLogicalGeminiCall(
       }
 
       if (
-        err.name === 'AbortError' ||
-        err.code === 'ALL_KEYS_EXHAUSTED' ||
-        err.code === 'RESOURCE_NOT_FOUND' ||
-        err.code === 'BAD_REQUEST' ||
-        err.status === 404 ||
-        err.status === 400
+        errObj.name === 'AbortError' ||
+        errObj.code === 'ALL_KEYS_EXHAUSTED' ||
+        errObj.code === 'RESOURCE_NOT_FOUND' ||
+        errObj.code === 'BAD_REQUEST' ||
+        errObj.status === 404 ||
+        errObj.status === 400
       ) {
         throw err;
       }
 
-      if (err.name === 'TimeoutError' || err.code === 'ETIMEDOUT') {
+      if (errObj.name === 'TimeoutError' || errObj.code === 'ETIMEDOUT') {
         const currentElapsed = Date.now() - logicalStartTime;
         if (overallDeadlineMs - currentElapsed <= 50) {
-          const deadlineError = new Error(
-            `Quá hạn thời gian yêu cầu Gemini API (Cumulative Deadline: ${Math.round(overallDeadlineMs / 1000)}s).`
-          );
-          (deadlineError as any).name = 'TimeoutError';
-          (deadlineError as any).code = 'ETIMEDOUT';
-          throw deadlineError;
+          throw err instanceof GeminiRequestError
+            ? err
+            : new GeminiRequestError(
+                `Quá hạn thời gian yêu cầu Gemini API (Cumulative Deadline: ${Math.round(overallDeadlineMs / 1000)}s).`,
+                {
+                  code: 'ETIMEDOUT',
+                  category: 'NETWORK_FAILURE',
+                  isRetryable: true,
+                  cause: err,
+                }
+              );
         }
       }
       if (!attemptFailureRecorded) {
         localQuotaTracker.recordFailure(currentKey, modelName, {
-          message: err?.message,
+          message: msg,
         });
         attemptFailureRecorded = true;
       }
@@ -255,7 +289,9 @@ async function executeLogicalGeminiCall(
     throw lastError;
   }
 
-  const allExhausted = new Error('Toàn bộ API Key đã hết hạn mức (hoặc đã chạm ngưỡng cá nhân).');
-  (allExhausted as any).code = 'ALL_KEYS_EXHAUSTED';
-  throw allExhausted;
+  throw new GeminiRequestError('Toàn bộ API Key đã hết hạn mức (hoặc đã chạm ngưỡng cá nhân).', {
+    code: 'ALL_KEYS_EXHAUSTED',
+    category: 'QUOTA_EXHAUSTED_RPD',
+    isRetryable: false,
+  });
 }
