@@ -256,6 +256,110 @@ describe('geminiClient', () => {
     expect(status.keys[0].healthState).not.toBe('QuotaExhausted');
   });
 
+  describe('Content Moderation & Safety Filter Handling (User Story 3)', () => {
+    it('halts immediately and throws CONTENT_BLOCKED without rotating to subsequent keys when finishReason is SAFETY', async () => {
+      const calledKeys: string[] = [];
+      const retrySpy = vi.spyOn(localQuotaTracker, 'recordRetry');
+
+      global.fetch = vi.fn().mockImplementation(async (_url, init) => {
+        const key = init.headers['x-goog-api-key'];
+        calledKeys.push(key);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [
+              {
+                finishReason: 'SAFETY',
+                content: { parts: [{ text: '' }] },
+              },
+            ],
+          }),
+        };
+      });
+
+      await expect(
+        callGemini({
+          apiKeys: ['KEY_1', 'KEY_2', 'KEY_3'],
+          prompt: 'Content that triggers safety filter',
+        })
+      ).rejects.toMatchObject({
+        code: 'CONTENT_BLOCKED',
+        category: 'CONTENT_BLOCKED',
+      });
+
+      // Assert only KEY_1 was called, KEY_2 and KEY_3 were NEVER called
+      expect(calledKeys).toEqual(['KEY_1']);
+      expect(retrySpy).not.toHaveBeenCalled();
+    });
+
+    it('halts immediately and throws CONTENT_BLOCKED when promptFeedback blockReason is SAFETY', async () => {
+      const calledKeys: string[] = [];
+      const retrySpy = vi.spyOn(localQuotaTracker, 'recordRetry');
+
+      global.fetch = vi.fn().mockImplementation(async (_url, init) => {
+        const key = init.headers['x-goog-api-key'];
+        calledKeys.push(key);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            promptFeedback: {
+              blockReason: 'SAFETY',
+              safetyRatings: [{ category: 'HARM_CATEGORY_DANGEROUS_CONTENT', probability: 'HIGH' }],
+            },
+            candidates: [],
+          }),
+        };
+      });
+
+      await expect(
+        callGemini({
+          apiKeys: ['KEY_1', 'KEY_2'],
+          prompt: 'Unsafe prompt',
+        })
+      ).rejects.toMatchObject({
+        code: 'CONTENT_BLOCKED',
+        category: 'CONTENT_BLOCKED',
+      });
+
+      expect(calledKeys).toEqual(['KEY_1']);
+      expect(retrySpy).not.toHaveBeenCalled();
+    });
+
+    it('halts immediately on HTTP 400 with SAFETY error message without rotating keys', async () => {
+      const calledKeys: string[] = [];
+      const retrySpy = vi.spyOn(localQuotaTracker, 'recordRetry');
+
+      global.fetch = vi.fn().mockImplementation(async (_url, init) => {
+        const key = init.headers['x-goog-api-key'];
+        calledKeys.push(key);
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            error: {
+              message: 'Request blocked by SAFETY filter: policy violation',
+              status: 'INVALID_ARGUMENT',
+            },
+          }),
+        };
+      });
+
+      await expect(
+        callGemini({
+          apiKeys: ['KEY_1', 'KEY_2'],
+          prompt: 'Blocked prompt',
+        })
+      ).rejects.toMatchObject({
+        code: 'CONTENT_BLOCKED',
+      });
+
+      expect(calledKeys).toEqual(['KEY_1']);
+      expect(retrySpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Cumulative Request Deadline (US4)', () => {
     it('terminates request with TimeoutError when cumulative deadline is exceeded across key attempts', async () => {
       global.fetch = vi.fn().mockImplementation(async () => {

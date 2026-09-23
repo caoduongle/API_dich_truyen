@@ -641,5 +641,114 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
       expect(res.updatedChapter?.qaIssues).toEqual(mockIssues);
       expect(logs.some((l) => l.includes('[OMISSION]') && l.includes('Bỏ sót một câu'))).toBe(true);
     });
+
+    it('clears stale QA issues on a chapter when a new QA run succeeds with zero issues (User Story 4)', async () => {
+      const priorIssues = [
+        {
+          type: 'omission' as const,
+          severity: 'warning' as const,
+          targetText: 'câu cũ',
+          description: 'Lỗi cũ từ lần dịch trước',
+        },
+      ];
+
+      // Mock chapter having prior issues in DB
+      vi.spyOn(db, 'getChapterFromDB').mockResolvedValue({
+        ...mockChapter,
+        qaIssues: priorIssues,
+      } as any);
+
+      vi.spyOn(directEngine, 'translateRawDirect').mockResolvedValue({
+        rawTranslation: 'Chương 1: Tiêu đề\n\nNội dung thô.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+      vi.spyOn(directEngine, 'polishTranslationDirect').mockResolvedValue({
+        polishedTranslation: 'Chương 1: Tiêu đề\n\nNội dung chuốt hoàn hảo.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+
+      // QA returns clean pass with 0 issues
+      vi.spyOn(directEngine, 'qaCritiqueDirect').mockResolvedValue({
+        isValid: true,
+        issues: [],
+        successKeyIndex: 0,
+      });
+
+      const res = await executeSingleChapterTranslation({
+        chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+        glossarySnapshot: [],
+        signal: new AbortController().signal,
+        logPrefix: '[Test-QA-Clean]',
+        startKeyIndex: 0,
+        projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+        apiKeys: ['AQ_USER_KEY_123'],
+        selectedModel: 'gemini-2.5-flash',
+        polishCycles: 1,
+        autoTranslateMode: 'from_scratch',
+        additionalInstructions: '',
+        isExtractionDuringTranslationEnabled: false,
+        enableAiQaCritique: true,
+        enableSegmentTranslation: false,
+        addLog: () => {},
+      });
+
+      expect(res.success).toBe(true);
+      // All prior issues must be erased!
+      expect(res.updatedChapter?.qaIssues).toEqual([]);
+    });
+
+    it('preserves prior QA issues when QA critique execution fails with an error (User Story 4)', async () => {
+      const priorIssues = [
+        {
+          type: 'terminology' as const,
+          severity: 'error' as const,
+          targetText: 'thuật ngữ',
+          description: 'Thuật ngữ không khớp',
+        },
+      ];
+
+      vi.spyOn(db, 'getChapterFromDB').mockResolvedValue({
+        ...mockChapter,
+        qaIssues: priorIssues,
+      } as any);
+
+      vi.spyOn(directEngine, 'translateRawDirect').mockResolvedValue({
+        rawTranslation: 'Chương 1: Tiêu đề\n\nNội dung thô.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+      vi.spyOn(directEngine, 'polishTranslationDirect').mockResolvedValue({
+        polishedTranslation: 'Chương 1: Tiêu đề\n\nNội dung chuốt.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+
+      // QA throws network exception
+      vi.spyOn(directEngine, 'qaCritiqueDirect').mockRejectedValue(new Error('Network error during QA'));
+
+      const res = await executeSingleChapterTranslation({
+        chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+        glossarySnapshot: [],
+        signal: new AbortController().signal,
+        logPrefix: '[Test-QA-Fail]',
+        startKeyIndex: 0,
+        projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+        apiKeys: ['AQ_USER_KEY_123'],
+        selectedModel: 'gemini-2.5-flash',
+        polishCycles: 1,
+        autoTranslateMode: 'from_scratch',
+        additionalInstructions: '',
+        isExtractionDuringTranslationEnabled: false,
+        enableAiQaCritique: true,
+        enableSegmentTranslation: false,
+        addLog: () => {},
+      });
+
+      expect(res.success).toBe(true);
+      // Prior issues must be preserved because QA failed
+      expect(res.updatedChapter?.qaIssues).toEqual(priorIssues);
+    });
   });
 });

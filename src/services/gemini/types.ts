@@ -39,3 +39,41 @@ export interface DirectGeminiResponse {
   text: string;
   successKeyIndex: number;
 }
+
+export type GeminiErrorCode =
+  | 'CONTENT_BLOCKED'
+  | 'ALL_KEYS_EXHAUSTED'
+  | 'RESOURCE_NOT_FOUND'
+  | 'BAD_REQUEST'
+  | 'ETIMEDOUT'
+  | 'AUTH_FAILURE'
+  | 'UNRECOGNIZED';
+
+export class GeminiRequestError extends Error {
+  public readonly code: GeminiErrorCode;
+  public readonly category: ClassifiedErrorCategory;
+  public readonly status?: number;
+  public readonly isRetryable: boolean;
+
+  constructor(
+    message: string,
+    options: {
+      code: GeminiErrorCode;
+      category: ClassifiedErrorCategory;
+      status?: number;
+      isRetryable: boolean;
+      cause?: unknown;
+    }
+  ) {
+    super(message);
+    this.name = 'GeminiRequestError';
+    this.code = options.code;
+    this.category = options.category;
+    this.status = options.status;
+    this.isRetryable = options.isRetryable;
+    if (options.cause) {
+      this.cause = options.cause;
+    }
+    Object.setPrototypeOf(this, GeminiRequestError.prototype);
+  }
+}

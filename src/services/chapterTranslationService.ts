@@ -376,6 +376,7 @@ export async function executeSingleChapterTranslation({
 
   // ── GIAI ĐOẠN 3: Kiểm duyệt chất lượng AI trực tiếp (Critique Phase) ──
   let detectedQaIssues: DirectQaCritiqueIssue[] = [];
+  let qaRunSucceeded = false;
   if (enableAiQaCritique) {
     addLog(`${logPrefix} [Kiểm duyệt AI] Bắt đầu rà soát thẩm định chất lượng bản dịch...`, 'info');
     try {
@@ -392,6 +393,7 @@ export async function executeSingleChapterTranslation({
         signal,
       });
 
+      qaRunSucceeded = true;
       if (Array.isArray(qaData.issues)) {
         detectedQaIssues = qaData.issues;
       }
@@ -432,7 +434,7 @@ export async function executeSingleChapterTranslation({
     translatedLines,
     status: 'completed',
     updatedAt: new Date().toISOString(),
-    qaIssues: detectedQaIssues.length > 0 ? detectedQaIssues : chapter.qaIssues,
+    qaIssues: enableAiQaCritique && qaRunSucceeded ? detectedQaIssues : chapter.qaIssues,
   };
   await saveChapterToDB(updatedFullChapter);
 

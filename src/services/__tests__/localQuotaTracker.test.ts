@@ -369,4 +369,134 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
       expect(internalMap.has(standardSha256)).toBe(true);
     });
   });
+
+  describe('Sliding Window Continuity & Pruning across Reloads (User Story 2)', () => {
+    const key = 'test-sliding-window-key-456';
+    const model = 'gemini-2.5-flash';
+
+    it('persists and restores recentAttempts and recentTokens across tab reload', () => {
+      const now = Date.now();
+
+      // Record 5 attempts and tokens within the last 30 seconds
+      for (let i = 0; i < 5; i++) {
+        const attemptTime = now - 30_000 + i * 1000;
+        localQuotaTracker.recordProviderAttempt(key, model, attemptTime);
+        localQuotaTracker.recordSuccess(key, model, { totalTokens: 100 }, 50, attemptTime);
+      }
+
+      // Explicitly flush to storage (or wait for debounce)
+      localQuotaTracker.flushToStorage(now);
+
+      // Verify that sessionStorage has recentAttempts and recentTokens
+      const rawStored = sessionStorage.getItem('gemini_local_quota_tracker_v1');
+      expect(rawStored).toBeTruthy();
+      const parsed = JSON.parse(rawStored!);
+      expect(parsed.keyStats[0].recentAttempts).toHaveLength(5);
+      expect(parsed.keyStats[0].recentTokens).toHaveLength(5);
+
+      // Simulate a tab reload at `now + 5000` (within 60s window)
+      localQuotaTracker.resetMetrics();
+      expect(localQuotaTracker.getQuotaStatus([key], now + 5000).keys[0].requestsThisMinute).toBe(0);
+
+      // Restore from storage
+      mockStorage['gemini_local_quota_tracker_v1'] = rawStored!;
+      localQuotaTracker.loadFromStorage(now + 5000);
+
+      const statusAfterReload = localQuotaTracker.getQuotaStatus([key], now + 5000);
+      expect(statusAfterReload.keys[0].requestsThisMinute).toBe(5);
+      expect(statusAfterReload.keys[0].tokensThisMinute).toBe(500);
+      expect(statusAfterReload.keys[0].byModel[model].requestsThisMinute).toBe(5);
+      expect(statusAfterReload.keys[0].byModel[model].tokensThisMinute).toBe(500);
+    });
+
+    it('prunes records older than 60 seconds on reload and snapshot calculation', () => {
+      const now = Date.now();
+
+      // Attempt 1: 70 seconds ago (expired)
+      localQuotaTracker.recordProviderAttempt(key, model, now - 70_000);
+      localQuotaTracker.recordSuccess(key, model, { totalTokens: 200 }, 50, now - 70_000);
+
+      // Attempt 2: 20 seconds ago (active)
+      localQuotaTracker.recordProviderAttempt(key, model, now - 20_000);
+      localQuotaTracker.recordSuccess(key, model, { totalTokens: 150 }, 50, now - 20_000);
+
+      localQuotaTracker.flushToStorage(now);
+
+      // Reset and reload
+      const rawStored = sessionStorage.getItem('gemini_local_quota_tracker_v1');
+      localQuotaTracker.resetMetrics();
+      mockStorage['gemini_local_quota_tracker_v1'] = rawStored!;
+      localQuotaTracker.loadFromStorage(now);
+
+      const status = localQuotaTracker.getQuotaStatus([key], now);
+      // Only the active attempt (20s ago) should remain
+      expect(status.keys[0].requestsThisMinute).toBe(1);
+      expect(status.keys[0].tokensThisMinute).toBe(150);
+    });
+
+    it('discards entries with skewed future timestamps', () => {
+      const now = Date.now();
+      const futureTime = now + 120_000; // 2 minutes in the future (skewed clock)
+
+      const fakeData = {
+        summaryStats: { logicalRequestsTotal: 1, logicalRequestsToday: 1, lastResetDay: getDayInLosAngeles(now) },
+        keyStats: [
+          {
+            keyHash: hashApiKey(key),
+            maskedKey: 'AIzaSy...456',
+            requestsTotal: 1,
+            requestsToday: 1,
+            errorsTotal: 0,
+            tokensTotal: 50,
+            tokensToday: 50,
+            lastResetDay: getDayInLosAngeles(now),
+            healthState: 'Healthy',
+            circuitBreakerStatus: 'Closed',
+            cooldownUntil: 0,
+            recentAttempts: [{ timestamp: futureTime }],
+            recentTokens: [{ timestamp: futureTime, tokens: 50 }],
+            byModel: {},
+          },
+        ],
+      };
+
+      mockStorage['gemini_local_quota_tracker_v1'] = JSON.stringify(fakeData);
+      localQuotaTracker.resetMetrics();
+      localQuotaTracker.loadFromStorage(now);
+
+      const status = localQuotaTracker.getQuotaStatus([key], now);
+      expect(status.keys[0].requestsThisMinute).toBe(0);
+      expect(status.keys[0].tokensThisMinute).toBe(0);
+    });
+  });
+
+  describe('Asynchronous Persistence Debouncing & Flush (User Story 6)', () => {
+    const key = 'test-debounce-key-789';
+    const model = 'gemini-2.5-flash';
+
+    it('batches consecutive attempts and writes synchronously on flushToStorage', () => {
+      const now = Date.now();
+
+      // Initial clean state
+      localQuotaTracker.resetMetrics();
+      expect(sessionStorage.getItem('gemini_local_quota_tracker_v1')).toBeNull();
+
+      // Record 10 rapid provider attempts and successes
+      for (let i = 0; i < 10; i++) {
+        localQuotaTracker.recordProviderAttempt(key, model, now + i * 10);
+        localQuotaTracker.recordSuccess(key, model, { totalTokens: 50 }, 20, now + i * 10);
+      }
+
+      // Storage should NOT be written immediately because of debounce timer
+      expect(sessionStorage.getItem('gemini_local_quota_tracker_v1')).toBeNull();
+
+      // Explicit flush commits to storage immediately
+      localQuotaTracker.flushToStorage(now + 200);
+      const rawStored = sessionStorage.getItem('gemini_local_quota_tracker_v1');
+      expect(rawStored).toBeTruthy();
+      const parsed = JSON.parse(rawStored!);
+      expect(parsed.summaryStats.providerAttemptsTotal).toBe(10);
+      expect(parsed.summaryStats.successfulAttemptsTotal).toBe(10);
+    });
+  });
 });

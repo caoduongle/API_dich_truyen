@@ -150,7 +150,7 @@ import { migrateCustomLimits } from '../utils/customLimitsStorage';
 
 const STORAGE_KEY = 'gemini_local_quota_tracker_v1';
 
-class LocalQuotaTracker {
+export class LocalQuotaTracker {
   private keyStatsMap = new Map<string, InternalKeyStats>();
   private summaryStats: LogicalSummaryStats = {
     logicalRequestsTotal: 0,
@@ -169,12 +169,52 @@ class LocalQuotaTracker {
     failedAttemptsToday: 0,
     lastResetDay: getDayInLosAngeles(),
   };
+  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  private isDirty = false;
 
   constructor() {
     this.loadFromStorage();
+    this.setupLifecycleListeners();
   }
 
-  private loadFromStorage(now: number = Date.now()): void {
+  private setupLifecycleListeners(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.addEventListener('pagehide', () => {
+        this.flushToStorage();
+      });
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden') {
+            this.flushToStorage();
+          }
+        });
+      }
+    } catch {
+      // Ignore listener attachment in non-standard environments
+    }
+  }
+
+  public scheduleSave(now: number = Date.now()): void {
+    this.isDirty = true;
+    if (this.saveTimeout !== null) return;
+    this.saveTimeout = setTimeout(() => {
+      this.saveTimeout = null;
+      this.flushToStorage(now);
+    }, 300);
+  }
+
+  public flushToStorage(now: number = Date.now()): void {
+    if (this.saveTimeout !== null) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    if (!this.isDirty) return;
+    this.saveToStorage(now);
+    this.isDirty = false;
+  }
+
+  public loadFromStorage(now: number = Date.now()): void {
     if (typeof sessionStorage === 'undefined') return;
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -185,6 +225,8 @@ class LocalQuotaTracker {
       }
       if (Array.isArray(data.keyStats)) {
         const currentDay = getDayInLosAngeles(now);
+        const minuteThreshold = now - 60_000;
+        const maxFutureTimestamp = now + 5_000;
 
         for (const item of data.keyStats) {
           const isDayChanged = Boolean(item.lastResetDay && item.lastResetDay !== currentDay);
@@ -195,14 +237,32 @@ class LocalQuotaTracker {
           const byModelMap = new Map<string, InternalModelStats>();
           if (item.byModel && typeof item.byModel === 'object') {
             for (const [mName, mStats] of Object.entries<any>(item.byModel)) {
+              const mRecentAttempts: CallAttemptEntry[] = Array.isArray(mStats.recentAttempts)
+                ? mStats.recentAttempts.filter(
+                    (a: any) =>
+                      typeof a?.timestamp === 'number' &&
+                      a.timestamp > minuteThreshold &&
+                      a.timestamp <= maxFutureTimestamp
+                  )
+                : [];
+              const mRecentTokens: CallTokenEntry[] = Array.isArray(mStats.recentTokens)
+                ? mStats.recentTokens.filter(
+                    (t: any) =>
+                      typeof t?.timestamp === 'number' &&
+                      typeof t?.tokens === 'number' &&
+                      t.timestamp > minuteThreshold &&
+                      t.timestamp <= maxFutureTimestamp
+                  )
+                : [];
+
               byModelMap.set(mName, {
                 ...mStats,
                 requestsToday: isDayChanged ? 0 : (mStats.requestsToday || 0),
                 errorsToday: isDayChanged ? 0 : (mStats.errorsToday || 0),
                 tokensToday: isDayChanged ? 0 : (mStats.tokensToday || 0),
                 lastResetDay: isDayChanged ? currentDay : (mStats.lastResetDay || currentDay),
-                recentAttempts: [],
-                recentTokens: [],
+                recentAttempts: mRecentAttempts,
+                recentTokens: mRecentTokens,
               });
             }
           }
@@ -251,6 +311,24 @@ class LocalQuotaTracker {
             keyHash = hashApiKey(keyHash);
           }
 
+          const kRecentAttempts: CallAttemptEntry[] = Array.isArray(item.recentAttempts)
+            ? item.recentAttempts.filter(
+                (a: any) =>
+                  typeof a?.timestamp === 'number' &&
+                  a.timestamp > minuteThreshold &&
+                  a.timestamp <= maxFutureTimestamp
+              )
+            : [];
+          const kRecentTokens: CallTokenEntry[] = Array.isArray(item.recentTokens)
+            ? item.recentTokens.filter(
+                (t: any) =>
+                  typeof t?.timestamp === 'number' &&
+                  typeof t?.tokens === 'number' &&
+                  t.timestamp > minuteThreshold &&
+                  t.timestamp <= maxFutureTimestamp
+              )
+            : [];
+
           this.keyStatsMap.set(keyHash, {
             ...item,
             keyHash,
@@ -258,8 +336,8 @@ class LocalQuotaTracker {
             errorsToday,
             tokensToday,
             lastResetDay: isDayChanged ? currentDay : (item.lastResetDay || currentDay),
-            recentAttempts: [],
-            recentTokens: [],
+            recentAttempts: kRecentAttempts,
+            recentTokens: kRecentTokens,
             byModel: byModelMap,
             healthState,
             circuitBreakerStatus,
@@ -275,12 +353,20 @@ class LocalQuotaTracker {
     }
   }
 
-  private saveToStorage(): void {
+  private saveToStorage(now: number = Date.now()): void {
     if (typeof sessionStorage === 'undefined') return;
     try {
+      const minuteThreshold = now - 60_000;
       const serializableKeys = Array.from(this.keyStatsMap.values()).map((k) => {
         const byModelObj: Record<string, any> = {};
         for (const [mName, mStats] of k.byModel.entries()) {
+          const mRecentAttempts = mStats.recentAttempts
+            .filter((a) => a.timestamp > minuteThreshold)
+            .slice(-100);
+          const mRecentTokens = mStats.recentTokens
+            .filter((t) => t.timestamp > minuteThreshold)
+            .slice(-100);
+
           byModelObj[mName] = {
             requestsTotal: mStats.requestsTotal,
             requestsToday: mStats.requestsToday,
@@ -290,8 +376,18 @@ class LocalQuotaTracker {
             tokensToday: mStats.tokensToday,
             totalLatencyMs: mStats.totalLatencyMs,
             lastResetDay: mStats.lastResetDay,
+            recentAttempts: mRecentAttempts,
+            recentTokens: mRecentTokens,
           };
         }
+
+        const kRecentAttempts = k.recentAttempts
+          .filter((a) => a.timestamp > minuteThreshold)
+          .slice(-100);
+        const kRecentTokens = k.recentTokens
+          .filter((t) => t.timestamp > minuteThreshold)
+          .slice(-100);
+
         return {
           keyHash: k.keyHash,
           maskedKey: k.maskedKey,
@@ -308,6 +404,8 @@ class LocalQuotaTracker {
           cooldownUntil: k.cooldownUntil,
           transitionReason: k.transitionReason,
           lastTransitionAt: k.lastTransitionAt,
+          recentAttempts: kRecentAttempts,
+          recentTokens: kRecentTokens,
           byModel: byModelObj,
         };
       });
@@ -429,7 +527,7 @@ class LocalQuotaTracker {
     this.checkPstReset(now);
     this.summaryStats.logicalRequestsTotal++;
     this.summaryStats.logicalRequestsToday++;
-    this.saveToStorage();
+    this.scheduleSave(now);
   }
 
   /**
@@ -447,7 +545,7 @@ class LocalQuotaTracker {
     this.checkPstReset(now);
     this.summaryStats.failedRequestsTotal++;
     this.summaryStats.failedRequestsToday++;
-    this.saveToStorage();
+    this.scheduleSave(now);
   }
 
   /**
@@ -457,7 +555,7 @@ class LocalQuotaTracker {
     this.checkPstReset(now);
     this.summaryStats.retriesTotal++;
     this.summaryStats.retriesToday++;
-    this.saveToStorage();
+    this.scheduleSave(now);
   }
 
   /**
@@ -479,7 +577,7 @@ class LocalQuotaTracker {
     mStats.requestsToday++;
     mStats.recentAttempts.push({ timestamp: now });
 
-    this.saveToStorage();
+    this.scheduleSave(now);
   }
 
   /**
@@ -524,7 +622,7 @@ class LocalQuotaTracker {
     mStats.totalLatencyMs += latencyMs;
     mStats.recentTokens.push({ timestamp: now, tokens: totalTokens });
 
-    this.saveToStorage();
+    this.scheduleSave(now);
   }
 
   /**
@@ -595,7 +693,7 @@ class LocalQuotaTracker {
       }
     }
 
-    this.saveToStorage();
+    this.flushToStorage(now);
   }
 
   /**
@@ -852,6 +950,11 @@ class LocalQuotaTracker {
    * Đặt lại toàn bộ số liệu thống kê (phục vụ test hoặc reset thủ công)
    */
   public resetMetrics(): void {
+    if (this.saveTimeout !== null) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    this.isDirty = false;
     this.keyStatsMap.clear();
     this.summaryStats = {
       logicalRequestsTotal: 0,

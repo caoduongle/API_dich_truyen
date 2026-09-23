@@ -4,7 +4,7 @@
  */
 
 import { localQuotaTracker } from '../localQuotaTracker';
-import { DirectGeminiRequestOptions, DirectGeminiResponse } from './types';
+import { DirectGeminiRequestOptions, DirectGeminiResponse, GeminiRequestError } from './types';
 import { normalizeModelName, buildEndpointUrl, buildPayload } from './geminiRequestBuilder';
 import { executeGeminiFetch, formatGeminiNetworkError } from './geminiTransport';
 import { classifyGeminiError } from './geminiErrorClassifier';
@@ -87,6 +87,15 @@ async function executeLogicalGeminiCall(
           throw lastError;
         }
 
+        if (classified.category === 'CONTENT_BLOCKED') {
+          throw new GeminiRequestError(errMsg || 'Nội dung văn bản bị bộ lọc an toàn của AI từ chối.', {
+            code: 'CONTENT_BLOCKED',
+            category: 'CONTENT_BLOCKED',
+            status: response.status,
+            isRetryable: false,
+          });
+        }
+
         if (response.status === 400) {
           (lastError as any).code = 'BAD_REQUEST';
           (lastError as any).status = 400;
@@ -151,8 +160,14 @@ async function executeLogicalGeminiCall(
 
       if (!text || text.trim().length === 0) {
         const finishReason = candidate?.finishReason || '';
-        if (finishReason === 'SAFETY') {
-          throw new Error('Nội dung văn bản bị bộ lọc an toàn của AI từ chối.');
+        const blockReason = data?.promptFeedback?.blockReason || '';
+        if (finishReason === 'SAFETY' || blockReason === 'SAFETY') {
+          throw new GeminiRequestError('Nội dung văn bản bị bộ lọc an toàn của AI từ chối.', {
+            code: 'CONTENT_BLOCKED',
+            category: 'CONTENT_BLOCKED',
+            status: 200,
+            isRetryable: false,
+          });
         }
         throw new Error('AI trả về phản hồi rỗng.');
       }
@@ -177,6 +192,23 @@ async function executeLogicalGeminiCall(
         successKeyIndex: currentKeyIdx,
       };
     } catch (err: any) {
+      const msg = err?.message || '';
+      if (
+        err?.code === 'CONTENT_BLOCKED' ||
+        err?.category === 'CONTENT_BLOCKED' ||
+        msg.includes('bộ lọc an toàn') ||
+        msg.includes('SAFETY')
+      ) {
+        throw err instanceof GeminiRequestError
+          ? err
+          : new GeminiRequestError(msg, {
+              code: 'CONTENT_BLOCKED',
+              category: 'CONTENT_BLOCKED',
+              isRetryable: false,
+              cause: err,
+            });
+      }
+
       if (
         err.name === 'AbortError' ||
         err.code === 'ALL_KEYS_EXHAUSTED' ||

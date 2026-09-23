@@ -158,5 +158,62 @@ describe('src/services/directGlossaryEngine.ts', () => {
     expect(res.glossary[0].vietnamese).toBe('Đấu Khí');
     expect(res.glossary[0].type).toBe('term');
   });
+
+  it('bounds concurrency to 2 when performing recursive split analysis on safety or empty error', async () => {
+    const concurrencyModule = await import('../../lib/concurrency');
+    const spyConcurrency = vi.spyOn(concurrencyModule, 'mapWithConcurrencyLimit');
+
+    let callCount = 0;
+    let currentConcurrent = 0;
+    let maxConcurrent = 0;
+
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async () => {
+      callCount++;
+      currentConcurrent++;
+      maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
+
+      try {
+        if (callCount === 1) {
+          // Trigger content split fallback
+          throw new Error('bộ lọc an toàn: content blocked');
+        }
+
+        // Simulate async work for split parts
+        await new Promise((r) => setTimeout(r, 20));
+
+        return {
+          text: JSON.stringify({
+            suggestions: [
+              {
+                chinese: '斗气',
+                vietnamese: 'Đấu Khí',
+                type: 'term',
+              },
+            ],
+          }),
+          successKeyIndex: 0,
+        };
+      } finally {
+        currentConcurrent--;
+      }
+    });
+
+    const paragraph = '第一段这是一个非常长的小说段落用于测试分析术语提取并发限制。'.repeat(15);
+    const text = `${paragraph}\n\n${paragraph}\n\n${paragraph}\n\n${paragraph}`;
+
+    const res = await analyzeGlossaryDirect({
+      text,
+      apiKeys: ['AQ_TEST_KEY'],
+      model: 'gemini-2.5-flash',
+    });
+
+    expect(spyConcurrency).toHaveBeenCalled();
+    const callsWithLimit2 = spyConcurrency.mock.calls.filter((call) => call[1] === 2);
+    expect(callsWithLimit2.length).toBeGreaterThanOrEqual(1);
+
+    expect(res.suggestions.length).toBeGreaterThanOrEqual(1);
+    expect(res.suggestions[0].chinese).toBe('斗气');
+    expect(maxConcurrent).toBeLessThanOrEqual(2);
+  });
 });
 

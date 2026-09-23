@@ -7,6 +7,7 @@
  */
 
 import { ClassifiedGeminiError } from './types';
+export { GeminiRequestError } from './types';
 
 export function classifyGeminiError(
   httpStatus: number,
@@ -177,11 +178,22 @@ export function classifyGeminiError(
   }
 
   // 5. Nội dung bị chặn bởi Safety Filter
-  if (message.includes('SAFETY') || message.includes('bộ lọc an toàn')) {
+  const blockReason: string =
+    responseBody?.promptFeedback?.blockReason ||
+    responseBody?.candidates?.[0]?.finishReason ||
+    errObj?.blockReason ||
+    '';
+
+  if (
+    blockReason === 'SAFETY' ||
+    message.includes('SAFETY') ||
+    message.includes('bộ lọc an toàn') ||
+    message.includes('chặn bởi bộ lọc an toàn')
+  ) {
     return {
       category: 'CONTENT_BLOCKED',
       httpStatus,
-      rpcStatus,
+      rpcStatus: rpcStatus || 'SAFETY_BLOCKED',
       reason: 'SafetyBlocked',
       details,
       recommendedCooldownMs: 0,

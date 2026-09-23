@@ -23,6 +23,7 @@ import {
 } from '../lib/text';
 import { validateAndSnapBackEntities, isHanEquivalent } from '../lib/sinoNormalize';
 import { parseGlossaryFromMd } from '../lib/parser';
+import { mapWithConcurrencyLimit } from '../lib/concurrency';
 import { GLOSSARY_LIMITS } from '../config/constants';
 
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
@@ -121,15 +122,13 @@ async function analyzeGlossaryWithContentSplitDirect(
       throw error;
     }
 
-    const results = await Promise.all(
-      parts.map(async (part) => {
-        try {
-          return await analyzeGlossaryWithContentSplitDirect(part, common, depth + 1);
-        } catch {
-          return { suggestions: [], successKeyIndex: common.startKeyIndex ?? 0 };
-        }
-      })
-    );
+    const results = await mapWithConcurrencyLimit(parts, 2, async (part) => {
+      try {
+        return await analyzeGlossaryWithContentSplitDirect(part, common, depth + 1);
+      } catch {
+        return { suggestions: [], successKeyIndex: common.startKeyIndex ?? 0 };
+      }
+    });
 
     const combinedSuggestions = results.flatMap((r) => r.suggestions || []);
     const lastSuccessKey = results[results.length - 1].successKeyIndex;
