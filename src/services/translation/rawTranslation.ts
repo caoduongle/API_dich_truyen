@@ -15,6 +15,7 @@ import {
   estimateTokenCount,
   DiscoveredEntity,
   validateDiscoveredEntity,
+  verifySourceCoverage,
 } from '../../lib/text';
 import { validateAndSnapBackEntities } from '../../lib/sinoNormalize';
 import { GlossaryItem } from '../../types';
@@ -22,7 +23,15 @@ import {
   DirectRawTranslationParams,
   DirectRawTranslationResult,
 } from './types';
-import { isAdaptiveSplitRetryableError } from './translationValidation';
+import {
+  classifyTranslationOutcome,
+} from './translationValidation';
+import { mapWithConcurrencyLimit } from '../../lib/concurrency';
+import {
+  createEmptyTelemetry,
+  mergeBranchTelemetry,
+  recordSplitEvent,
+} from './telemetry';
 
 /**
  * Tầng Cứu nguy: Thay thế các thuật ngữ và chữ Hán bằng bản dịch từ điển hoặc phiên âm Hán-Việt
@@ -195,95 +204,176 @@ export async function rawWithContentSplitDirect(
 ): Promise<DirectRawTranslationResult> {
   const { text, apiKeys, startKeyIndex = 0, onSplitRetry } = params;
 
+  if (params.signal?.aborted) {
+    const abortErr = new Error('Quá trình dịch đã bị hủy bởi người dùng.');
+    abortErr.name = 'AbortError';
+    throw abortErr;
+  }
+
+  const callStartTime = Date.now();
+
   if (retryDepth === 0 && !isPreSplit && estimateTokenCount(text) > 2000) {
     const chunks = splitTextAdaptively(text, 2);
     if (chunks.length > 1) {
-      const translatedChunks: string[] = [];
-      let currentKeyIdx = startKeyIndex;
-      const discoveredEntitiesAll: DiscoveredEntity[] = [];
+      verifySourceCoverage(text, chunks);
 
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        const staggeredKey = Array.isArray(apiKeys) && apiKeys.length > 0
-          ? (currentKeyIdx + i) % apiKeys.length
-          : currentKeyIdx;
+      const results = await mapWithConcurrencyLimit(
+        chunks,
+        params.concurrencyLimit || 2,
+        async (chunk, i) => {
+          if (params.signal?.aborted) {
+            const abortErr = new Error('Quá trình dịch đã bị hủy bởi người dùng.');
+            abortErr.name = 'AbortError';
+            throw abortErr;
+          }
 
-        const res = await rawWithContentSplitDirect(
-          {
-            ...params,
-            text: chunk,
-            startKeyIndex: staggeredKey,
-          },
-          0,
-          true
-        );
-        translatedChunks.push(res.rawTranslation);
-        currentKeyIdx = res.successKeyIndex;
-        if (Array.isArray(res.discoveredEntities)) {
-          discoveredEntitiesAll.push(...res.discoveredEntities);
+          const elapsed = Date.now() - callStartTime;
+          const remainingDeadlineMs = typeof params.cumulativeTimeoutMs === 'number'
+            ? Math.max(0, params.cumulativeTimeoutMs - elapsed)
+            : undefined;
+
+          const staggeredKey = Array.isArray(apiKeys) && apiKeys.length > 0
+            ? (startKeyIndex + i) % apiKeys.length
+            : startKeyIndex;
+
+          return await rawWithContentSplitDirect(
+            {
+              ...params,
+              text: chunk,
+              startKeyIndex: staggeredKey,
+              cumulativeTimeoutMs: remainingDeadlineMs,
+            },
+            0,
+            true
+          );
         }
+      );
+
+      const translatedChunks = results.map((r) => r.rawTranslation);
+      const discoveredEntitiesAll = results.flatMap((r) => r.discoveredEntities || []);
+      const anyPartial = results.some((r) => r.isPartial);
+      const lastSuccessKey = results.findLast((r) => !r.isPartial)?.successKeyIndex ?? results[results.length - 1].successKeyIndex;
+
+      let accumulatedTelemetry = createEmptyTelemetry();
+      for (const res of results) {
+        accumulatedTelemetry = mergeBranchTelemetry(accumulatedTelemetry, res.telemetry);
       }
+      accumulatedTelemetry.executionDurationMs = Date.now() - callStartTime;
 
       return {
         rawTranslation: separateChapterTitleAndBody(translatedChunks.join('\n\n').trim()),
         discoveredEntities: discoveredEntitiesAll,
-        successKeyIndex: currentKeyIdx,
+        successKeyIndex: lastSuccessKey,
+        isPartial: anyPartial,
+        telemetry: accumulatedTelemetry,
       };
     }
   }
 
   try {
-    return await callRawDirectCore(params);
+    const coreResult = await callRawDirectCore(params);
+    return {
+      ...coreResult,
+      isPartial: false,
+      telemetry: {
+        ...createEmptyTelemetry(),
+        executionDurationMs: Date.now() - callStartTime,
+      },
+    };
   } catch (error: any) {
-    if (!isAdaptiveSplitRetryableError(error)) {
+    const outcome = classifyTranslationOutcome(error);
+    if (!outcome.canSplitRetry) {
       throw error;
     }
 
-    if (retryDepth < 4) {
+    const effectiveMaxDepth = Math.min(4, Math.max(1, params.maxDepth ?? 3));
+
+    if (retryDepth < effectiveMaxDepth) {
       const partsCount = 2;
       const chunks = splitTextAdaptively(text, partsCount);
+      verifySourceCoverage(text, chunks);
 
       if (chunks.length > 1) {
         onSplitRetry?.({
           stage: 'raw',
           depth: retryDepth,
           partsCount: chunks.length,
-          reason: error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER',
+          reason: outcome.isContentBlocked ? 'CONTENT_BLOCKED' : (error?.message || 'UNTRANSLATED_CHINESE_LEFTOVER'),
           tier: 'split',
         });
 
-        const translatedChunks: string[] = [];
-        let currentKeyIdx = startKeyIndex;
-        const discoveredEntitiesAll: DiscoveredEntity[] = [];
+        const results = await mapWithConcurrencyLimit(
+          chunks,
+          params.concurrencyLimit || 2,
+          async (chunk, i) => {
+            if (params.signal?.aborted) {
+              const abortErr = new Error('Quá trình dịch đã bị hủy bởi người dùng.');
+              abortErr.name = 'AbortError';
+              throw abortErr;
+            }
 
-        for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-          const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
-            ? (currentKeyIdx + i) % apiKeys.length
-            : currentKeyIdx;
+            const elapsed = Date.now() - callStartTime;
+            const remainingDeadlineMs = typeof params.cumulativeTimeoutMs === 'number'
+              ? Math.max(0, params.cumulativeTimeoutMs - elapsed)
+              : undefined;
 
-          const res = await rawWithContentSplitDirect(
-            {
-              ...params,
-              text: chunk,
-              startKeyIndex: staggeredKeyIndex,
-              isRetry: true,
-            },
-            retryDepth + 1,
-            true
-          );
+            if (typeof remainingDeadlineMs === 'number' && remainingDeadlineMs <= 100) {
+              const rescuedText = fallbackSinoVietnameseLine(chunk, params.glossary);
+              const timeoutTel = recordSplitEvent(createEmptyTelemetry(), {
+                isFallback: true,
+                failedKey: `raw-timeout-${retryDepth}`,
+              });
+              timeoutTel.executionDurationMs = Date.now() - callStartTime;
+              return {
+                rawTranslation: separateChapterTitleAndBody(rescuedText.trim()),
+                discoveredEntities: [],
+                successKeyIndex: startKeyIndex,
+                isPartial: true,
+                telemetry: timeoutTel,
+              };
+            }
 
-          translatedChunks.push(res.rawTranslation);
-          currentKeyIdx = res.successKeyIndex;
-          if (Array.isArray(res.discoveredEntities)) {
-            discoveredEntitiesAll.push(...res.discoveredEntities);
+            // Đối với lỗi CONTENT_BLOCKED (tất định do nội dung), TUYỆT ĐỐI không xoay vòng key
+            const staggeredKeyIndex = outcome.isContentBlocked
+              ? startKeyIndex
+              : (Array.isArray(apiKeys) && apiKeys.length > 0
+                  ? (startKeyIndex + i) % apiKeys.length
+                  : startKeyIndex);
+
+            return await rawWithContentSplitDirect(
+              {
+                ...params,
+                text: chunk,
+                startKeyIndex: staggeredKeyIndex,
+                isRetry: true,
+                cumulativeTimeoutMs: remainingDeadlineMs,
+              },
+              retryDepth + 1,
+              true
+            );
           }
+        );
+
+        const translatedChunks = results.map((r) => r.rawTranslation);
+        const discoveredEntitiesAll = results.flatMap((r) => r.discoveredEntities || []);
+        const anyPartial = results.some((r) => r.isPartial);
+        const lastSuccessKey = results.findLast((r) => !r.isPartial)?.successKeyIndex ?? results[results.length - 1].successKeyIndex;
+
+        let accumulatedTelemetry = createEmptyTelemetry();
+        accumulatedTelemetry = recordSplitEvent(accumulatedTelemetry, {
+          failedKey: `depth-${retryDepth}`,
+        });
+        for (const res of results) {
+          accumulatedTelemetry = mergeBranchTelemetry(accumulatedTelemetry, res.telemetry);
         }
+        accumulatedTelemetry.executionDurationMs = Date.now() - callStartTime;
 
         return {
           rawTranslation: separateChapterTitleAndBody(translatedChunks.join('\n\n').trim()),
           discoveredEntities: discoveredEntitiesAll,
-          successKeyIndex: currentKeyIdx,
+          successKeyIndex: lastSuccessKey,
+          isPartial: anyPartial,
+          telemetry: accumulatedTelemetry,
         };
       }
     }
@@ -292,15 +382,23 @@ export async function rawWithContentSplitDirect(
       stage: 'raw',
       depth: retryDepth,
       partsCount: 1,
-      reason: error?.message || 'SINO_FALLBACK_RESCUE',
+      reason: outcome.isContentBlocked ? 'CONTENT_BLOCKED_FALLBACK_RESCUE' : (error?.message || 'SINO_FALLBACK_RESCUE'),
       tier: 'sino-fallback',
     });
 
     const rescuedText = fallbackSinoVietnameseLine(text, params.glossary);
+    const terminalTelemetry = recordSplitEvent(createEmptyTelemetry(), {
+      isFallback: true,
+      failedKey: `terminal-${retryDepth}`,
+    });
+    terminalTelemetry.executionDurationMs = Date.now() - callStartTime;
+
     return {
       rawTranslation: separateChapterTitleAndBody(rescuedText.trim()),
       discoveredEntities: [],
       successKeyIndex: startKeyIndex,
+      isPartial: true,
+      telemetry: terminalTelemetry,
     };
   }
 }

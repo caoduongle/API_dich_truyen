@@ -409,6 +409,7 @@ describe('src/services/directTranslationEngine.ts', () => {
       tone: 'U ám ly kỳ',
       glossary: [],
       apiKeys: ['KEY_1', 'KEY_2'],
+      concurrencyLimit: 1,
       onSplitRetry: (info) => {
         retryEvents.push(info);
       },
@@ -856,6 +857,108 @@ describe('src/services/directTranslationEngine.ts', () => {
       expect(systemInstruction).toContain('Tiên Hiệp');
       expect(systemInstruction).not.toContain('\u200B');
       expect(systemInstruction).not.toContain('\uFEFF');
+    });
+  });
+
+  describe('Spec 162 User Story 1: Translation Resilience & Lossless Recovery', () => {
+    it('handles CONTENT_BLOCKED without rotating keys and rescues failed branch with isPartial=true', async () => {
+      const source = '第一章 激战\n\n楚风挥剑斩杀强敌，鲜血染红了大地。\n\n战斗结束后，他静静地坐在石阶上疗伤。';
+      let callCount = 0;
+      const keyIndicesUsed: number[] = [];
+
+      vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (options) => {
+        callCount++;
+        keyIndicesUsed.push(options.startKeyIndex ?? 0);
+
+        // First call with whole text fails with CONTENT_BLOCKED
+        if (callCount === 1) {
+          throw new directGeminiClient.GeminiRequestError('Safety filter blocked content', {
+            code: 'CONTENT_BLOCKED',
+            category: 'CONTENT_BLOCKED',
+            isRetryable: false,
+          });
+        }
+
+        // Branch 1 (violent fight scene) fails again with CONTENT_BLOCKED
+        if (options.prompt.includes('斩杀强敌')) {
+          throw new directGeminiClient.GeminiRequestError('Safety filter blocked branch', {
+            code: 'CONTENT_BLOCKED',
+            category: 'CONTENT_BLOCKED',
+            isRetryable: false,
+          });
+        }
+
+        // Branch 2 (healing on stone steps) succeeds
+        return {
+          text: JSON.stringify({
+            rawTranslation: 'Chiến đấu kết thúc, hắn lẳng lặng ngồi trên bậc đá chữa thương.',
+            discoveredEntities: [],
+          }),
+          successKeyIndex: options.startKeyIndex ?? 0,
+        };
+      });
+
+      const res = await translateRawDirect({
+        text: source,
+        genre: 'Tiên Hiệp',
+        tone: 'Trang nghiêm',
+        glossary: [
+          {
+            id: '1',
+            chinese: '第一章',
+            vietnamese: 'Chương 1',
+            pinyin: 'Đệ nhất chương',
+            type: 'term' as any,
+            note: '',
+          },
+          {
+            id: '2',
+            chinese: '楚风',
+            vietnamese: 'Sở Phong',
+            pinyin: 'Sở Phong',
+            type: 'character' as any,
+            note: '',
+          },
+        ],
+        apiKeys: ['KEY_1', 'KEY_2', 'KEY_3'],
+        maxDepth: 1, // Terminal after 1 split
+      });
+
+      expect(callCount).toBeGreaterThan(1);
+      // For CONTENT_BLOCKED, keys must not be rotated (should stick to startKeyIndex 0)
+      expect(keyIndicesUsed.every((k) => k === 0)).toBe(true);
+      // Sibling that succeeded via AI is present
+      expect(res.rawTranslation).toContain('bậc đá chữa thương');
+      // Failed branch is rescued via Sino-Vietnamese fallback
+      expect(res.rawTranslation).toContain('Chương 1');
+      // Overall result is marked isPartial
+      expect(res.isPartial).toBe(true);
+    });
+
+    it('polishTranslationDirect preserves raw translation when terminal depth is reached with isPartial=true', async () => {
+      const source = '第一章 初始\n\n楚风看着天空。';
+      const raw = 'Chương 1: Khởi Đầu\n\nSở Phong nhìn bầu trời.';
+
+      vi.spyOn(directGeminiClient, 'callGeminiDirect').mockRejectedValue(
+        new directGeminiClient.GeminiRequestError('Safety blocked', {
+          code: 'CONTENT_BLOCKED',
+          category: 'CONTENT_BLOCKED',
+          isRetryable: false,
+        })
+      );
+
+      const res = await polishTranslationDirect({
+        sourceText: source,
+        rawTranslation: raw,
+        genre: 'Tiên Hiệp',
+        tone: 'Trang nghiêm',
+        glossary: [],
+        apiKeys: ['KEY_1'],
+        maxDepth: 1,
+      });
+
+      expect(res.polishedTranslation).toBe(raw);
+      expect(res.isPartial).toBe(true);
     });
   });
 });

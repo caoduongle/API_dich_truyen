@@ -11,6 +11,8 @@ import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 
 export { getStoredCustomLimits };
 
+import { GeminiSafetySetting } from './gemini/types';
+
 export interface DirectGeminiRequestOptions {
   apiKeys: string[];
   model?: string;
@@ -20,6 +22,8 @@ export interface DirectGeminiRequestOptions {
   temperature?: number;
   startKeyIndex?: number;
   signal?: AbortSignal;
+  safetySettings?: GeminiSafetySetting[];
+  cumulativeDeadline?: number;
 }
 
 export interface DirectGeminiResponse {
@@ -29,8 +33,9 @@ export interface DirectGeminiResponse {
 
 import { formatGeminiNetworkError } from './gemini/geminiTransport';
 import { callGemini } from './gemini/geminiClient';
+import { GeminiRequestError } from './gemini/types';
 
-export { formatGeminiNetworkError };
+export { formatGeminiNetworkError, GeminiRequestError };
 
 /**
  * Gọi trực tiếp REST API của Google Gemini từ trình duyệt người dùng với API key cá nhân

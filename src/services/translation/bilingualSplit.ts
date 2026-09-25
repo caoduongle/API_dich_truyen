@@ -190,27 +190,32 @@ export function splitBilingualAdaptively(
   }
 
   const chunks: TranslationChunk[] = [];
+  let prevSrcEnd = 0;
+  let prevRawEnd = 0;
+
   for (let i = 0; i < parts; i++) {
-    const srcStart = Math.round((i * sourceParas.length) / parts);
-    const srcEnd = i === parts - 1 ? sourceParas.length : Math.round(((i + 1) * sourceParas.length) / parts);
+    const srcStart = prevSrcEnd;
+    const srcEnd = i === parts - 1
+      ? sourceParas.length
+      : Math.min(sourceParas.length, Math.max(srcStart + 1, Math.round(((i + 1) * sourceParas.length) / parts)));
+    prevSrcEnd = srcEnd;
 
-    const rawStart = Math.round((i * rawParas.length) / parts);
-    const rawEnd = i === parts - 1 ? rawParas.length : Math.round(((i + 1) * rawParas.length) / parts);
+    const rawStart = prevRawEnd;
+    const rawEnd = i === parts - 1
+      ? rawParas.length
+      : Math.min(rawParas.length, Math.max(rawStart + 1, Math.round(((i + 1) * rawParas.length) / parts)));
+    prevRawEnd = rawEnd;
 
-    // Safeguard đảm bảo mỗi khối có ít nhất 1 đoạn văn khi có thể
-    const actualSrcEnd = Math.max(srcStart + 1, srcEnd);
-    const actualRawEnd = Math.max(rawStart + 1, rawEnd);
-
-    const srcChunkText = sourceParas.slice(srcStart, Math.min(sourceParas.length, actualSrcEnd)).join('\n\n').trim();
-    const rawChunkText = rawParas.slice(rawStart, Math.min(rawParas.length, actualRawEnd)).join('\n\n').trim();
+    const srcChunkText = sourceParas.slice(srcStart, srcEnd).join('\n\n').trim();
+    const rawChunkText = rawParas.slice(rawStart, rawEnd).join('\n\n').trim();
 
     chunks.push({
       chunkIndex: i,
       totalChunks: parts,
       sourceText: srcChunkText,
       rawText: rawChunkText,
-      sourceParagraphRange: { start: srcStart, end: Math.min(sourceParas.length, actualSrcEnd) },
-      rawParagraphRange: { start: rawStart, end: Math.min(rawParas.length, actualRawEnd) },
+      sourceParagraphRange: { start: srcStart, end: srcEnd },
+      rawParagraphRange: { start: rawStart, end: rawEnd },
       estimatedTokens: estimateTokenCount(srcChunkText),
     });
   }

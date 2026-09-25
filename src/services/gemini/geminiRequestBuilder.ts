@@ -4,7 +4,37 @@
  */
 
 import { DEFAULT_MODEL_ID } from '../../config/models';
-import { DirectGeminiRequestOptions } from './types';
+import {
+  DirectGeminiRequestOptions,
+  GeminiSafetySetting,
+  HarmCategory,
+  HarmBlockThreshold,
+} from './types';
+
+/**
+ * Cấu hình an toàn tối đa cho tiểu thuyết mạng:
+ * Hạ mức kiểm duyệt xuống thấp nhất để tránh chặn nhầm văn cảnh kiếm hiệp/huyền huyễn.
+ */
+export function getPermissiveSafetySettings(): GeminiSafetySetting[] {
+  return [
+    {
+      category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+      threshold: HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+      threshold: HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+      threshold: HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+      threshold: HarmBlockThreshold.BLOCK_NONE,
+    },
+  ];
+}
 
 export function normalizeModelName(model?: string): string {
   let modelName = (model || DEFAULT_MODEL_ID).trim();
@@ -30,6 +60,9 @@ export function buildPayload(options: DirectGeminiRequestOptions & { schema?: Re
     generationConfig: {
       temperature: typeof options.temperature === 'number' ? options.temperature : 0.3,
     },
+    safetySettings: Array.isArray(options.safetySettings) && options.safetySettings.length > 0
+      ? options.safetySettings
+      : getPermissiveSafetySettings(),
   };
 
   if (options.systemInstruction && options.systemInstruction.trim()) {

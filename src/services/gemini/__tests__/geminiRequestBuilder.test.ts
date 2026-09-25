@@ -3,6 +3,7 @@ import {
   normalizeModelName,
   buildEndpointUrl,
   buildPayload,
+  getPermissiveSafetySettings,
 } from '../geminiRequestBuilder';
 
 describe('geminiRequestBuilder', () => {
@@ -39,5 +40,37 @@ describe('geminiRequestBuilder', () => {
 
     expect(payload.generationConfig.responseMimeType).toBe('application/json');
     expect(payload.generationConfig.responseSchema).toEqual(schema);
+    expect(payload.safetySettings).toHaveLength(4);
+  });
+
+  describe('Permissive Safety Settings (Spec 162 US2)', () => {
+    it('returns permissive BLOCK_NONE settings for 4 harm categories', () => {
+      const settings = getPermissiveSafetySettings();
+      expect(settings).toHaveLength(4);
+      expect(settings.every((s) => s.threshold === 'BLOCK_NONE')).toBe(true);
+      const categories = settings.map((s) => s.category);
+      expect(categories).toContain('HARM_CATEGORY_HARASSMENT');
+      expect(categories).toContain('HARM_CATEGORY_HATE_SPEECH');
+      expect(categories).toContain('HARM_CATEGORY_SEXUALLY_EXPLICIT');
+      expect(categories).toContain('HARM_CATEGORY_DANGEROUS_CONTENT');
+    });
+
+    it('injects permissive safetySettings into payload by default', () => {
+      const payload = buildPayload({ prompt: 'Võ thuật chiến đấu' });
+      expect(payload.safetySettings).toBeDefined();
+      expect(payload.safetySettings).toHaveLength(4);
+      expect(payload.safetySettings[0].threshold).toBe('BLOCK_NONE');
+    });
+
+    it('allows caller to override safetySettings when explicitly supplied', () => {
+      const custom = [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+      ];
+      const payload = buildPayload({
+        prompt: 'Custom test',
+        safetySettings: custom,
+      });
+      expect(payload.safetySettings).toEqual(custom);
+    });
   });
 });

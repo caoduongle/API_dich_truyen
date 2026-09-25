@@ -16,15 +16,23 @@ import {
   estimateTokenCount,
   DiscoveredEntity,
   validateDiscoveredEntity,
+  verifySourceCoverage,
 } from '../../lib/text';
 import { validateAndSnapBackEntities } from '../../lib/sinoNormalize';
 import {
   DirectPolishTranslationParams,
   DirectPolishTranslationResult,
 } from './types';
-import { isAdaptiveSplitRetryableError } from './translationValidation';
+import {
+  classifyTranslationOutcome,
+} from './translationValidation';
 import { splitBilingualAdaptively } from './bilingualSplit';
 import { mapWithConcurrencyLimit } from '../../lib/concurrency';
+import {
+  createEmptyTelemetry,
+  mergeBranchTelemetry,
+  recordSplitEvent,
+} from './telemetry';
 
 /**
  * Gọi Gemini API đơn lẻ cho 1 khối văn bản chuốt văn
@@ -138,6 +146,8 @@ export async function callPolishDirectCore(
     polishedTranslation: finalPolishedTranslation,
     discoveredEntities,
     successKeyIndex: response.successKeyIndex,
+    isPartial: false,
+    telemetry: createEmptyTelemetry(),
   };
 }
 
@@ -151,6 +161,14 @@ export async function polishWithContentSplitDirect(
 ): Promise<DirectPolishTranslationResult> {
   const { sourceText, rawTranslation, apiKeys, startKeyIndex = 0 } = params;
 
+  if (params.signal?.aborted) {
+    const abortErr = new Error('Quá trình chuốt văn đã bị hủy bởi người dùng.');
+    abortErr.name = 'AbortError';
+    throw abortErr;
+  }
+
+  const callStartTime = Date.now();
+
   // Tiền phân đoạn (Pre-split) nếu văn bản dài (> 1500 token tiếng Trung hoặc > 1800 token tiếng Việt) ở lượt gọi đầu
   if (depth === 0 && !isPreSplit && (estimateTokenCount(sourceText) > 1500 || estimateTokenCount(rawTranslation) > 1800)) {
     const bilingualChunks = splitBilingualAdaptively(sourceText, rawTranslation, 2);
@@ -160,6 +178,7 @@ export async function polishWithContentSplitDirect(
       let currentKeyIdx = startKeyIndex;
       const discoveredEntitiesAll: DiscoveredEntity[] = [];
       let anyPartial = false;
+      let preSplitTelemetry = createEmptyTelemetry();
 
       for (let i = 0; i < bilingualChunks.length; i++) {
         const chunk = bilingualChunks[i];
@@ -184,45 +203,74 @@ export async function polishWithContentSplitDirect(
         if (Array.isArray(res.discoveredEntities)) {
           discoveredEntitiesAll.push(...res.discoveredEntities);
         }
+        preSplitTelemetry = mergeBranchTelemetry(preSplitTelemetry, res.telemetry);
       }
 
       const combined = polishedChunks.map((c) => c.trim()).filter(Boolean).join('\n\n').trim();
       const formatted = ensureChapterTitlePreserved(rawTranslation, combined);
+      preSplitTelemetry.executionDurationMs = Date.now() - callStartTime;
 
       return {
         polishedTranslation: formatted,
         discoveredEntities: discoveredEntitiesAll,
         successKeyIndex: currentKeyIdx,
         isPartial: anyPartial,
+        telemetry: preSplitTelemetry,
       };
     }
   }
 
   try {
-    return await callPolishDirectCore(params);
+    const coreResult = await callPolishDirectCore(params);
+    return {
+      ...coreResult,
+      isPartial: false,
+      telemetry: {
+        ...createEmptyTelemetry(),
+        executionDurationMs: Date.now() - callStartTime,
+      },
+    };
   } catch (error: any) {
-    if (!isAdaptiveSplitRetryableError(error)) {
+    const outcome = classifyTranslationOutcome(error);
+    if (!outcome.canSplitRetry) {
       throw error;
     }
 
-    if (depth >= 4) {
+    const effectiveMaxDepth = Math.min(4, Math.max(1, params.maxDepth ?? 3));
+
+    if (depth >= effectiveMaxDepth) {
+      const terminalTelemetry = recordSplitEvent(createEmptyTelemetry(), {
+        isFallback: true,
+        failedKey: `polish-terminal-${depth}`,
+      });
+      terminalTelemetry.executionDurationMs = Date.now() - callStartTime;
+
       return {
         polishedTranslation: rawTranslation,
         discoveredEntities: [],
         successKeyIndex: startKeyIndex,
         isPartial: true,
+        telemetry: terminalTelemetry,
       };
     }
 
     const partsCount = 2;
     const chunks = splitBilingualAdaptively(sourceText, rawTranslation, partsCount);
+    verifySourceCoverage(sourceText, chunks.map(c => c.sourceText));
 
     if (chunks.length <= 1) {
+      const fallbackTel = recordSplitEvent(createEmptyTelemetry(), {
+        isFallback: true,
+        failedKey: `polish-nosplit-${depth}`,
+      });
+      fallbackTel.executionDurationMs = Date.now() - callStartTime;
+
       return {
         polishedTranslation: rawTranslation,
         discoveredEntities: [],
         successKeyIndex: startKeyIndex,
         isPartial: true,
+        telemetry: fallbackTel,
       };
     }
 
@@ -230,17 +278,46 @@ export async function polishWithContentSplitDirect(
       stage: 'polish',
       depth,
       partsCount: chunks.length,
-      reason: error?.message || 'POLISH_TRUNCATION_DETECTED',
+      reason: outcome.isContentBlocked ? 'CONTENT_BLOCKED' : (error?.message || 'POLISH_TRUNCATION_DETECTED'),
       tier: 'split',
     });
 
     const results = await mapWithConcurrencyLimit(
       chunks,
-      2,
+      params.concurrencyLimit || 2,
       async (chunk, index) => {
-        const staggeredKeyIndex = Array.isArray(apiKeys) && apiKeys.length > 0
-          ? (startKeyIndex + index) % apiKeys.length
-          : startKeyIndex;
+        if (params.signal?.aborted) {
+          const abortErr = new Error('Quá trình chuốt văn đã bị hủy bởi người dùng.');
+          abortErr.name = 'AbortError';
+          throw abortErr;
+        }
+
+        const elapsed = Date.now() - callStartTime;
+        const remainingDeadlineMs = typeof params.cumulativeTimeoutMs === 'number'
+          ? Math.max(0, params.cumulativeTimeoutMs - elapsed)
+          : undefined;
+
+        const staggeredKeyIndex = outcome.isContentBlocked
+          ? startKeyIndex
+          : (Array.isArray(apiKeys) && apiKeys.length > 0
+              ? (startKeyIndex + index) % apiKeys.length
+              : startKeyIndex);
+
+        if (typeof remainingDeadlineMs === 'number' && remainingDeadlineMs <= 100) {
+          const timeoutTel = recordSplitEvent(createEmptyTelemetry(), {
+            isFallback: true,
+            failedKey: `polish-timeout-${depth}`,
+          });
+          timeoutTel.executionDurationMs = Date.now() - callStartTime;
+          return {
+            polishedTranslation: chunk.rawText,
+            discoveredEntities: [],
+            successKeyIndex: staggeredKeyIndex,
+            isPartial: true,
+            telemetry: timeoutTel,
+          };
+        }
+
         try {
           return await polishWithContentSplitDirect(
             {
@@ -248,17 +325,25 @@ export async function polishWithContentSplitDirect(
               sourceText: chunk.sourceText,
               rawTranslation: chunk.rawText,
               startKeyIndex: staggeredKeyIndex,
+              cumulativeTimeoutMs: remainingDeadlineMs,
             },
             depth + 1,
             true
           );
         } catch (partErr: any) {
-          if (isAdaptiveSplitRetryableError(partErr)) {
+          const partOutcome = classifyTranslationOutcome(partErr);
+          if (partOutcome.canSplitRetry || partOutcome.isContentBlocked) {
+            const errFallbackTel = recordSplitEvent(createEmptyTelemetry(), {
+              isFallback: true,
+              failedKey: `polish-chunk-err-${depth}`,
+            });
+            errFallbackTel.executionDurationMs = Date.now() - callStartTime;
             return {
               polishedTranslation: chunk.rawText,
               discoveredEntities: [],
               successKeyIndex: staggeredKeyIndex,
               isPartial: true,
+              telemetry: errFallbackTel,
             };
           }
           throw partErr;
@@ -273,11 +358,21 @@ export async function polishWithContentSplitDirect(
 
     const formattedPolished = ensureChapterTitlePreserved(rawTranslation, combinedPolished);
 
+    let accumulatedTelemetry = createEmptyTelemetry();
+    accumulatedTelemetry = recordSplitEvent(accumulatedTelemetry, {
+      failedKey: `polish-depth-${depth}`,
+    });
+    for (const res of results) {
+      accumulatedTelemetry = mergeBranchTelemetry(accumulatedTelemetry, res.telemetry);
+    }
+    accumulatedTelemetry.executionDurationMs = Date.now() - callStartTime;
+
     return {
       polishedTranslation: formattedPolished,
       discoveredEntities: combinedEntities,
       successKeyIndex: lastSuccessKey,
       isPartial: hasPartial,
+      telemetry: accumulatedTelemetry,
     };
   }
 }

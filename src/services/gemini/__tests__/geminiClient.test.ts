@@ -526,5 +526,43 @@ describe('geminiClient', () => {
       }
     });
   });
+
+  describe('Spec 162 User Story 2: Permissive Safety Configuration', () => {
+    it('sends permissive safetySettings with BLOCK_NONE in request payload to Gemini API', async () => {
+      let capturedPayload: any = null;
+      global.fetch = vi.fn().mockImplementation(async (_url, init) => {
+        capturedPayload = JSON.parse(init.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: 'Bản dịch an toàn' }],
+                  role: 'model',
+                },
+              },
+            ],
+          }),
+        };
+      });
+
+      const res = await callGemini({
+        apiKeys: ['KEY_SAFETY_TEST'],
+        prompt: 'Chương 1: Trảm yêu trừ ma, đao quang kiếm ảnh',
+      });
+
+      expect(res.text).toBe('Bản dịch an toàn');
+      expect(capturedPayload).toBeDefined();
+      expect(capturedPayload.safetySettings).toHaveLength(4);
+      expect(capturedPayload.safetySettings.every((s: any) => s.threshold === 'BLOCK_NONE')).toBe(true);
+      const categories = capturedPayload.safetySettings.map((s: any) => s.category);
+      expect(categories).toContain('HARM_CATEGORY_HARASSMENT');
+      expect(categories).toContain('HARM_CATEGORY_HATE_SPEECH');
+      expect(categories).toContain('HARM_CATEGORY_SEXUALLY_EXPLICIT');
+      expect(categories).toContain('HARM_CATEGORY_DANGEROUS_CONTENT');
+    });
+  });
 });
 

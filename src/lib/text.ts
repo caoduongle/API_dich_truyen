@@ -1,5 +1,6 @@
 import { GlossaryItem, GlossaryType } from '../types';
 import type { QualityIssueCategory, QualityIssueSeverity } from '../types/hakoChecker';
+import type { SourceCoverageReport } from '../services/translation/types';
 
 export const ANTI_INJECTION_DEFENSE_DIRECTIVE =
   "[CHỈ THỊ BẢO VỆ AN TOÀN VÀ PHÒNG THỦ DỮ LIỆU ĐẦU VÀO]\n" +
@@ -729,7 +730,38 @@ export function isHakoQualityScanResponse(data: unknown): data is HakoQualitySca
 
 
 
-// Định vị điểm phân tách văn bản an toàn không làm đứt câu
+/**
+ * Kiểm tra xem một chỉ số ký tự có đang nằm bên trong một thực thể được bảo vệ bằng ngoặc vuông [...] hoặc placeholder không
+ */
+export function isIndexInsideProtectedToken(text: string, index: number): boolean {
+  if (index <= 0 || index >= text.length) return false;
+  const lastOpen = text.lastIndexOf('[', index - 1);
+  if (lastOpen === -1) return false;
+  const nextClose = text.indexOf(']', lastOpen);
+  if (nextClose === -1) return false;
+  return index > lastOpen && index <= nextClose;
+}
+
+/**
+ * Điều chỉnh điểm cắt nếu nó rơi vào giữa một thực thể [...] hoặc placeholder
+ */
+export function adjustSplitPointOutsideProtected(text: string, point: number): number {
+  if (point <= 0 || point >= text.length) return point;
+  const lastOpen = text.lastIndexOf('[', point - 1);
+  if (lastOpen !== -1) {
+    const nextClose = text.indexOf(']', lastOpen);
+    if (nextClose !== -1 && point > lastOpen && point <= nextClose) {
+      if (lastOpen > 0) {
+        return lastOpen;
+      } else if (nextClose + 1 < text.length) {
+        return nextClose + 1;
+      }
+    }
+  }
+  return point;
+}
+
+// Định vị điểm phân tách văn bản an toàn không làm đứt câu và không cắt ngang ngoặc vuông [...]
 export function findSplitPoint(text: string): number {
   const mid = Math.floor(text.length / 2);
   const searchRange = Math.floor(text.length * 0.3);
@@ -737,6 +769,7 @@ export function findSplitPoint(text: string): number {
   let minDiff = Infinity;
   for (let i = mid - searchRange; i <= mid + searchRange; i++) {
     if (i < 0 || i >= text.length) continue;
+    if (isIndexInsideProtectedToken(text, i)) continue;
     if (text[i] === '\n') {
       const diff = Math.abs(i - mid);
       if (diff < minDiff) {
@@ -750,6 +783,7 @@ export function findSplitPoint(text: string): number {
     minDiff = Infinity;
     for (let i = mid - searchRange; i <= mid + searchRange; i++) {
       if (i < 0 || i >= text.length) continue;
+      if (isIndexInsideProtectedToken(text, i)) continue;
       if (text[i] === '.' || text[i] === '。' || text[i] === '?' || text[i] === '？' || text[i] === '!' || text[i] === '！') {
         const diff = Math.abs(i - mid);
         if (diff < minDiff) {
@@ -764,6 +798,7 @@ export function findSplitPoint(text: string): number {
     minDiff = Infinity;
     for (let i = mid - searchRange; i <= mid + searchRange; i++) {
       if (i < 0 || i >= text.length) continue;
+      if (isIndexInsideProtectedToken(text, i)) continue;
       if (text[i] === ' ' || text[i] === '\t') {
         const diff = Math.abs(i - mid);
         if (diff < minDiff) {
@@ -774,7 +809,45 @@ export function findSplitPoint(text: string): number {
     }
   }
 
-  return bestIdx !== -1 ? bestIdx : mid;
+  const rawChosen = bestIdx !== -1 ? bestIdx : mid;
+  return adjustSplitPointOutsideProtected(text, rawChosen);
+}
+
+/**
+ * Xác thực tính bao phủ nguồn và tính toàn vẹn phân vùng (100% Source Coverage Invariant)
+ */
+export function verifySourceCoverage(
+  originalText: string,
+  partitionChunks: string[]
+): SourceCoverageReport {
+  const original = originalText || '';
+  const originalLength = original.length;
+
+  if (!partitionChunks || partitionChunks.length === 0) {
+    return {
+      isComplete: originalLength === 0,
+      originalLength,
+      concatenatedLength: 0,
+      isExactMatch: originalLength === 0,
+      droppedCharsCount: originalLength,
+    };
+  }
+
+  const normalizedOriginal = original.replace(/\s+/g, '');
+  const normalizedJoined = partitionChunks.join('').replace(/\s+/g, '');
+
+  const concatenatedLength = partitionChunks.reduce((acc, c) => acc + (c ? c.length : 0), 0);
+  const droppedCharsCount = Math.max(0, normalizedOriginal.length - normalizedJoined.length);
+  const isComplete = normalizedOriginal === normalizedJoined;
+  const isExactMatch = original === partitionChunks.join('\n\n') || original === partitionChunks.join('\n') || original === partitionChunks.join('');
+
+  return {
+    isComplete,
+    originalLength,
+    concatenatedLength,
+    isExactMatch,
+    droppedCharsCount,
+  };
 }
 
 /**

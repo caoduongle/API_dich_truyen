@@ -61,6 +61,34 @@ export interface SplitRetryEventInfo {
   tier?: 'split' | 'line-by-line' | 'sino-fallback';
 }
 
+export type TranslationOutcomeType = 'SUCCESS' | 'PARTIAL' | 'RETRYABLE' | 'TERMINAL';
+
+export interface SplitBranchTelemetry {
+  totalSplits: number;
+  retriedBranches: number;
+  fallbackBranches: number;
+  failedBranchKeys: string[];
+  executionDurationMs: number;
+  outcome: 'SUCCESS' | 'PARTIAL';
+}
+
+export interface MonotonicTextPartition {
+  index: number;
+  totalPartitions: number;
+  text: string;
+  charStart: number;
+  charEnd: number;
+  estimatedTokens: number;
+}
+
+export interface SourceCoverageReport {
+  isComplete: boolean;
+  originalLength: number;
+  concatenatedLength: number;
+  isExactMatch: boolean;
+  droppedCharsCount: number;
+}
+
 export interface DirectRawTranslationParams {
   text: string;
   genre: string;
@@ -74,12 +102,17 @@ export interface DirectRawTranslationParams {
   signal?: AbortSignal;
   onSplitRetry?: (info: SplitRetryEventInfo) => void;
   isRetry?: boolean;
+  maxDepth?: number;
+  concurrencyLimit?: number;
+  cumulativeTimeoutMs?: number;
 }
 
 export interface DirectRawTranslationResult {
   rawTranslation: string;
   discoveredEntities: DiscoveredEntity[];
   successKeyIndex: number;
+  isPartial?: boolean;
+  telemetry?: SplitBranchTelemetry;
 }
 
 export interface DirectPolishTranslationParams {
@@ -100,6 +133,9 @@ export interface DirectPolishTranslationParams {
   totalRounds?: number;
   temperature?: number;
   onSplitRetry?: (info: SplitRetryEventInfo) => void;
+  maxDepth?: number;
+  concurrencyLimit?: number;
+  cumulativeTimeoutMs?: number;
 }
 
 export interface DirectPolishTranslationResult {
@@ -107,6 +143,7 @@ export interface DirectPolishTranslationResult {
   discoveredEntities?: DiscoveredEntity[];
   successKeyIndex: number;
   isPartial?: boolean;
+  telemetry?: SplitBranchTelemetry;
 }
 
 export interface DirectQaCritiqueParams {
