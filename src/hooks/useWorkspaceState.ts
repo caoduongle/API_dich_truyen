@@ -1,10 +1,18 @@
 import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
-import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem, GlossaryType } from '../types';
+import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem } from '../types';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { validateUploadFile } from '../utils/fileValidator';
 import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
+import { classifyDiscoveredEntitiesForGlossary, countHanChars } from '../lib/glossaryMatch';
+import {
+  buildChapterContinuityContext,
+  evaluatePolishRoundFidelity,
+  runDeterministicTranslationChecks,
+  mergeAndDeduplicateQaIssues,
+} from '../services/translation/translationValidation';
+import { repairChapterCriticalIssuesDirect } from '../services/translation/targetedRepair';
 import {
   translateRawDirect,
   polishTranslationDirect,
@@ -593,6 +601,19 @@ export function useWorkspaceState({
     showToast({ message: msg, type: 'success' });
   }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast, currentChapterId]);
 
+  const resolvePreviousChapterContinuity = async () => {
+    if (!currentChapterId) return undefined;
+    const chaps = activeProject.chapters || [];
+    const idx = chaps.findIndex((c) => c.id === currentChapterId);
+    if (idx <= 0) return undefined;
+    try {
+      const prevChap = await getChapterFromDB(chaps[idx - 1].id);
+      return buildChapterContinuityContext(prevChap);
+    } catch {
+      return undefined;
+    }
+  };
+
   const handleTranslateRaw = async () => {
     const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
     if (!hasValidKeys) {
@@ -609,6 +630,7 @@ export function useWorkspaceState({
     setActiveStage('raw');
 
     try {
+      const continuity = await resolvePreviousChapterContinuity();
       const data = await translateRawDirect({
         text: sourceText,
         genre: activeProject.genre,
@@ -617,74 +639,34 @@ export function useWorkspaceState({
         glossary: activeProject.glossary,
         apiKeys,
         model: selectedModel,
-        enableSegmentTranslation
+        enableSegmentTranslation,
+        ...(continuity ? { continuity } : {}),
       });
 
       handleRawTranslationChange(data.rawTranslation || "");
       crdt.updateMetadata?.({ sourceText, title: chapterTitle });
 
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
-        const newlyDiscovered: GlossaryItem[] = [];
-        const pendingDiscovered: PendingGlossaryItem[] = [];
-        data.discoveredEntities.forEach((ent: any) => {
-          if (!ent || typeof ent.chinese !== 'string' || !ent.chinese.trim()) return;
-          const cleanChinese = ent.chinese.trim();
-          const cleanPinyin = (ent.pinyin || '').trim();
-          const cleanVietnamese = (ent.vietnamese || '').trim();
-          const cleanNote = (ent.note || '').trim();
-          const cleanType: GlossaryType = ent.type || 'other';
-
-          const exists = activeProject.glossary.some(
-            (gItem) => isHanEquivalent(gItem.chinese, cleanChinese)
-          );
-          if (!exists) {
-            const itemPayload: GlossaryItem = {
-              id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-              chinese: cleanChinese,
-              pinyin: cleanPinyin,
-              vietnamese: cleanVietnamese,
-              type: cleanType,
-              note: cleanNote,
-              sourceChapter: chapterTitle || "Mặt trận dịch đơn chương",
-              sourceParagraph: sourceText.split('\n').find(p =>
-                p.includes(cleanChinese) || p.replace(/\s+/g, '').includes(cleanChinese.replace(/\s+/g, '').trim())
-              )?.trim() || "",
-              sourceChapterId: currentChapterId || undefined,
-              origin: 'scanned',
-              createdAt: new Date().toISOString(),
-              needsReview: Boolean(ent.needsReview)
-            };
-
-            if (ent.needsReview) {
-              pendingDiscovered.push({
-                id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-                chinese: cleanChinese,
-                pinyin: cleanPinyin,
-                vietnamese: cleanVietnamese,
-                type: cleanType,
-                note: cleanNote,
-                reason: 'AI trích xuất nghi ngờ hallucinate',
-                originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
-                importedAt: new Date().toISOString(),
-                needsReview: true,
-                sourceChapterId: currentChapterId || undefined
-              });
-            } else {
-              newlyDiscovered.push(itemPayload);
-            }
-          }
+        const { newGlossaryItems, newPendingItems } = classifyDiscoveredEntitiesForGlossary({
+          discoveredEntities: data.discoveredEntities,
+          existingGlossary: activeProject.glossary,
+          sourceText,
+          chapterTitle: chapterTitle || "Mặt trận dịch đơn chương",
+          chapterId: currentChapterId || undefined,
+          idPrefix: 'auto',
+          defaultPinyinToVietnamese: false,
         });
 
-        if (newlyDiscovered.length > 0 || pendingDiscovered.length > 0) {
-          const updatedGlossary = [...activeProject.glossary, ...newlyDiscovered];
-          const updatedPending = [...(activeProject.pendingGlossary || []), ...pendingDiscovered];
+        if (newGlossaryItems.length > 0 || newPendingItems.length > 0) {
+          const updatedGlossary = [...activeProject.glossary, ...newGlossaryItems];
+          const updatedPending = [...(activeProject.pendingGlossary || []), ...newPendingItems];
           onUpdateProject({
             ...activeProject,
             glossary: updatedGlossary,
             pendingGlossary: updatedPending,
           });
-          if (newlyDiscovered.length > 0) {
-            setAutoDiscoveredTerms(newlyDiscovered);
+          if (newGlossaryItems.length > 0) {
+            setAutoDiscoveredTerms(newGlossaryItems);
           }
         }
       }
@@ -715,6 +697,7 @@ export function useWorkspaceState({
     const currentRound = isRePolish ? 2 : 1;
 
     try {
+      const continuity = await resolvePreviousChapterContinuity();
       const data = await polishTranslationDirect({
         sourceText: sourceText,
         rawTranslation: textToPolish,
@@ -729,68 +712,47 @@ export function useWorkspaceState({
         enableSegmentTranslation,
         roundIndex: currentRound,
         totalRounds: 2,
+        ...(continuity ? { continuity } : {}),
       });
 
       const polishedResult = data.polishedTranslation || "";
+      if (polishedResult) {
+        const fidelity = evaluatePolishRoundFidelity({
+          sourceText,
+          previousDraft: textToPolish,
+          candidatePolished: polishedResult,
+          glossary: activeProject.glossary,
+          roundIndex: currentRound,
+        });
+        if (!fidelity.isAcceptable) {
+          showToast({
+            message: `Đã giữ lại bản dịch trước đó vì lượt chuốt làm giảm độ trung thành (${fidelity.rejectionReason || 'sai lệch từ điển/tên riêng'}).`,
+            type: 'warning',
+          });
+          return;
+        }
+      }
+
       handlePolishedTranslationChange(polishedResult);
       crdt.updateMetadata?.({ sourceText, title: chapterTitle });
 
       if (data.discoveredEntities && Array.isArray(data.discoveredEntities) && data.discoveredEntities.length > 0) {
-        const newlyDiscovered: GlossaryItem[] = [];
-        const pendingDiscovered: PendingGlossaryItem[] = [];
-        const updatedGlossary = [...activeProject.glossary];
-
-        data.discoveredEntities.forEach((ent: any) => {
-          if (!ent || typeof ent.chinese !== 'string' || !ent.chinese.trim()) return;
-          const cleanChinese = ent.chinese.trim();
-          const cleanPinyin = (ent.pinyin || '').trim();
-          const cleanVietnamese = (ent.vietnamese || '').trim();
-          const cleanNote = (ent.note || '').trim();
-          const cleanType: GlossaryType = ent.type || 'other';
-
-          const exists = updatedGlossary.some(
-            (gItem) => isHanEquivalent(gItem.chinese, cleanChinese)
-          );
-          if (!exists) {
-            const itemPayload: GlossaryItem = {
-              id: 'glo_auto_polish_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-              chinese: cleanChinese,
-              pinyin: cleanPinyin,
-              vietnamese: cleanVietnamese,
-              type: cleanType,
-              note: cleanNote,
-              sourceChapterId: currentChapterId || undefined,
-              origin: 'scanned',
-              createdAt: new Date().toISOString(),
-              needsReview: Boolean(ent.needsReview),
-            };
-
-            if (ent.needsReview) {
-              pendingDiscovered.push({
-                id: 'pend_auto_polish_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-                chinese: cleanChinese,
-                pinyin: cleanPinyin,
-                vietnamese: cleanVietnamese,
-                type: cleanType,
-                note: cleanNote,
-                reason: 'AI trích xuất nghi ngờ hallucinate',
-                originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
-                importedAt: new Date().toISOString(),
-                needsReview: true,
-                sourceChapterId: currentChapterId || undefined,
-              });
-            } else {
-              newlyDiscovered.push(itemPayload);
-              updatedGlossary.push(itemPayload);
-            }
-          }
+        const { newGlossaryItems, newPendingItems } = classifyDiscoveredEntitiesForGlossary({
+          discoveredEntities: data.discoveredEntities,
+          existingGlossary: activeProject.glossary,
+          sourceText,
+          chapterTitle: chapterTitle || undefined,
+          chapterId: currentChapterId || undefined,
+          idPrefix: 'auto_polish',
+          defaultPinyinToVietnamese: false,
         });
 
-        if (newlyDiscovered.length > 0 || pendingDiscovered.length > 0) {
-          if (newlyDiscovered.length > 0) {
-            setAutoDiscoveredTerms((prev) => [...prev, ...newlyDiscovered]);
+        if (newGlossaryItems.length > 0 || newPendingItems.length > 0) {
+          const updatedGlossary = [...activeProject.glossary, ...newGlossaryItems];
+          const updatedPending = [...(activeProject.pendingGlossary || []), ...newPendingItems];
+          if (newGlossaryItems.length > 0) {
+            setAutoDiscoveredTerms((prev) => [...prev, ...newGlossaryItems]);
           }
-          const updatedPending = [...(activeProject.pendingGlossary || []), ...pendingDiscovered];
           onUpdateProject({
             ...activeProject,
             glossary: updatedGlossary,
@@ -835,7 +797,17 @@ export function useWorkspaceState({
         model: selectedModel,
         startKeyIndex: 0,
       });
-      const issues = qaData.issues || [];
+      const aiIssues = Array.isArray(qaData.issues) ? qaData.issues : [];
+      const deterministicIssues = runDeterministicTranslationChecks({
+        sourceText,
+        translatedText: polishedTranslation,
+        glossary: activeProject.glossary,
+      });
+      const issues = mergeAndDeduplicateQaIssues({
+        deterministicIssues,
+        aiIssues,
+        translatedText: polishedTranslation,
+      });
       setQaIssues(issues);
 
       if (currentChapterId) {
@@ -852,7 +824,7 @@ export function useWorkspaceState({
         }
       }
 
-      if (!qaData.isValid && issues.length > 0) {
+      if ((!qaData.isValid || deterministicIssues.length > 0) && issues.length > 0) {
         showToast({
           message: `Phát hiện ${issues.length} vấn đề cần lưu ý khi kiểm duyệt chất lượng dịch.`,
           type: 'warning',
@@ -867,6 +839,85 @@ export function useWorkspaceState({
       console.error("Lỗi gọi API QA Critique:", qaErr);
       showToast({
         message: qaErr?.message || "Lỗi khi thực hiện kiểm định QA Critique.",
+        type: 'error',
+      });
+    } finally {
+      setIsCheckingQa(false);
+    }
+  };
+
+  /**
+   * Sửa có mục tiêu tối đa 1 lượt đối với các lỗi nghiêm trọng có paragraphIndex
+   */
+  const handleRepairCriticalQaIssues = async () => {
+    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    if (!hasValidKeys) {
+      setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để sửa lỗi.");
+      showToast({ message: "Vui lòng cấu hình API Key để thực hiện sửa lỗi mục tiêu.", type: 'warning' });
+      return;
+    }
+    if (!polishedTranslation.trim()) {
+      showToast({ message: "Chưa có bản dịch hoàn thiện để sửa lỗi.", type: 'warning' });
+      return;
+    }
+    const repairable = qaIssues.filter(
+      (i) => i.severity === 'critical' && typeof i.paragraphIndex === 'number'
+    );
+    if (repairable.length === 0) {
+      showToast({ message: "Không có lỗi nghiêm trọng định vị theo đoạn để tự động sửa.", type: 'info' });
+      return;
+    }
+
+    setIsCheckingQa(true);
+    try {
+      const repairRes = await repairChapterCriticalIssuesDirect({
+        sourceText,
+        translatedText: polishedTranslation,
+        issues: qaIssues,
+        glossary: activeProject.glossary,
+        genre: activeProject.genre,
+        tone: activeProject.tone,
+        description: activeProject.description,
+        apiKeys,
+        model: selectedModel,
+        startKeyIndex: 0,
+      });
+
+      setPolishedTranslation(repairRes.repairedTranslatedText);
+      crdt.updatePolishedTranslation(repairRes.repairedTranslatedText);
+      setQaIssues(repairRes.updatedIssues);
+
+      if (currentChapterId) {
+        try {
+          const existingChap = await getChapterFromDB(currentChapterId);
+          if (existingChap) {
+            await saveChapterToDB({
+              ...existingChap,
+              polishedTranslation: repairRes.repairedTranslatedText,
+              qaIssues: repairRes.updatedIssues,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } catch (dbErr) {
+          console.error("Lỗi khi lưu bản sửa mục tiêu vào IndexedDB:", dbErr);
+        }
+      }
+
+      if (repairRes.repairedParagraphIndices.length > 0) {
+        showToast({
+          message: `Đã sửa an toàn ${repairRes.repairedParagraphIndices.length} đoạn lỗi nghiêm trọng.`,
+          type: 'success',
+        });
+      } else {
+        showToast({
+          message: "Không có đoạn nào đạt điều kiện thay thế an toàn; giữ nguyên bản trước sửa.",
+          type: 'warning',
+        });
+      }
+    } catch (repairErr: any) {
+      console.error("Lỗi khi sửa lỗi mục tiêu:", repairErr);
+      showToast({
+        message: repairErr?.message || "Lỗi khi sửa lỗi mục tiêu.",
         type: 'error',
       });
     } finally {
@@ -1028,6 +1079,7 @@ export function useWorkspaceState({
       sortedGlossary.forEach((item) => {
         if (item.chinese && item.vietnamese) {
           const cleanChinese = item.chinese.trim();
+          if (countHanChars(cleanChinese) < 2) return;
           glossaryMap.set(cleanChinese, item.vietnamese.trim());
           terms.push(cleanChinese);
         }
@@ -1208,6 +1260,7 @@ export function useWorkspaceState({
     handleTranslateRaw,
     handlePolishTranslation,
     handleRunAiQaCritique,
+    handleRepairCriticalQaIssues,
     handleRunHakoScan,
     handleSaveChapter,
     handleApplyGlossaryToSource,

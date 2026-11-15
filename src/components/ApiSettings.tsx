@@ -39,6 +39,8 @@ export interface ApiSettingsProps {
   setWarningParagraphMismatch: (b: boolean) => void;
   enableAiQaCritique: boolean;
   setEnableAiQaCritique: (b: boolean) => void;
+  enableAutoTargetedRepair?: boolean;
+  setEnableAutoTargetedRepair?: (b: boolean) => void;
   enableSegmentTranslation: boolean;
   setEnableSegmentTranslation: (b: boolean) => void;
 }
@@ -59,6 +61,8 @@ export default function ApiSettings({
   setWarningParagraphMismatch,
   enableAiQaCritique,
   setEnableAiQaCritique,
+  enableAutoTargetedRepair = false,
+  setEnableAutoTargetedRepair,
   enableSegmentTranslation,
   setEnableSegmentTranslation,
 }: ApiSettingsProps) {
@@ -354,6 +358,8 @@ export default function ApiSettings({
               setWarningParagraphMismatch={setWarningParagraphMismatch}
               enableAiQaCritique={enableAiQaCritique}
               setEnableAiQaCritique={setEnableAiQaCritique}
+              enableAutoTargetedRepair={enableAutoTargetedRepair}
+              setEnableAutoTargetedRepair={setEnableAutoTargetedRepair}
               enableSegmentTranslation={enableSegmentTranslation}
               setEnableSegmentTranslation={setEnableSegmentTranslation}
             />

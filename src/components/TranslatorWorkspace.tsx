@@ -113,6 +113,8 @@ export default function TranslatorWorkspace({
     handleTranslateRaw,
     handlePolishTranslation,
     handleRunAiQaCritique,
+    handleRepairCriticalQaIssues,
+    handleApplyAuditFix,
     handleSaveChapter,
     handleApplyGlossaryToSource,
     handleCopyText,
@@ -247,6 +249,8 @@ export default function TranslatorWorkspace({
         hakoIssues={hakoIssues}
         isCheckingQa={isCheckingQa}
         onRunAiQaCritique={handleRunAiQaCritique}
+        onRepairCriticalIssues={handleRepairCriticalQaIssues}
+        onApplyFix={handleApplyAuditFix}
       />
 
       <SuggestionsDrawer

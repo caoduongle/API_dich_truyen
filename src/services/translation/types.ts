@@ -2,7 +2,36 @@
  * Shared Type Definitions for Translation Pipeline Modularization
  */
 
-import { GlossaryItem, GlossaryType } from '../../types';
+import { GlossaryItem, GlossaryType, QaIssueType } from '../../types';
+
+export interface ContinuityContext {
+  /** 1-2 đoạn văn tiếng Trung cuối cùng của phân đoạn hoặc chương liền trước (tối đa 350 ký tự) */
+  previousSourceTail?: string;
+  /** 1-2 đoạn văn tiếng Việt cuối cùng của phân đoạn hoặc chương liền trước (tối đa 500 ký tự) */
+  previousTranslationTail?: string;
+  /** Nhãn nguồn ngữ cảnh để ghi log/debug */
+  sourceKind?: 'previous-chunk' | 'previous-chapter';
+}
+
+export interface PolishFidelityReport {
+  isAcceptable: boolean;
+  previousGlossaryViolations: number;
+  candidateGlossaryViolations: number;
+  ungroundedProperNouns: string[];
+  paragraphCountDelta: number;
+  rejectionReason?: string;
+}
+
+export interface QualityEvaluationMetrics {
+  sampleId: string;
+  glossaryComplianceRate: number;
+  falseSubstitutionCount: number;
+  chineseLeftoverRatio: number;
+  paragraphParityPassed: boolean;
+  pronounConsistencyRate: number;
+  ungroundedProperNounCount: number;
+  promptGlossaryCharCount: number;
+}
 
 export interface DiscoveredEntity {
   chinese: string;
@@ -100,6 +129,7 @@ export interface DirectRawTranslationParams {
   description?: string;
   enableSegmentTranslation?: boolean;
   signal?: AbortSignal;
+  continuity?: ContinuityContext;
   onSplitRetry?: (info: SplitRetryEventInfo) => void;
   isRetry?: boolean;
   maxDepth?: number;
@@ -132,6 +162,7 @@ export interface DirectPolishTranslationParams {
   roundIndex?: number;
   totalRounds?: number;
   temperature?: number;
+  continuity?: ContinuityContext;
   onSplitRetry?: (info: SplitRetryEventInfo) => void;
   maxDepth?: number;
   concurrencyLimit?: number;
@@ -160,10 +191,14 @@ export interface DirectQaCritiqueParams {
 }
 
 export interface DirectQaCritiqueIssue {
-  type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'other';
+  type: QaIssueType;
   severity: 'critical' | 'warning' | 'info';
   targetText: string;
   description: string;
+  paragraphIndex?: number;
+  source?: 'deterministic' | 'ai_critique';
+  expectedTerm?: { chinese: string; vietnamese: string };
+  repaired?: boolean;
 }
 
 export interface DirectQaCritiqueResult {

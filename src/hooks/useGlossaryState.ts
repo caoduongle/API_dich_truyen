@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue } from 'react';
-import { GlossaryItem, GlossaryType, PendingGlossaryItem, ChapterMetadata, StoryProject } from '../types';
+import { CharacterProfile, GlossaryItem, GlossaryType, PendingGlossaryItem, ChapterMetadata, StoryProject } from '../types';
+import { normalizeCharacterProfile } from '../lib/glossaryMatch';
 import { useNotifications } from '../context/NotificationContext';
 import { triggerDownload } from '../utils/download';
 import { isHanEquivalent } from '../lib/sinoNormalize';
@@ -184,13 +185,16 @@ export function useGlossaryState({
     }
   }, [selectedItem, fullChapters, glossary, scanOccurrences, setSearchContextMatches]);
 
-  const handleAddFormSave = useCallback((fields: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }, force?: boolean) => {
+  const handleAddFormSave = useCallback((fields: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string; isPinned?: boolean; characterProfile?: CharacterProfile }, force?: boolean) => {
+    const normalizedProfile = fields.type === 'character' ? normalizeCharacterProfile(fields.characterProfile) : undefined;
     onAddGlossaryItem({
       chinese:    fields.chinese.trim(),
       pinyin:     fields.pinyin.trim() || fields.vietnamese.trim(),
       vietnamese: fields.vietnamese.trim(),
       type:       fields.type,
       note:       fields.note.trim(),
+      ...(fields.isPinned ? { isPinned: true } : {}),
+      ...(normalizedProfile ? { characterProfile: normalizedProfile } : {}),
       origin:     'manual',
       createdAt:  new Date().toISOString()
     }, force);

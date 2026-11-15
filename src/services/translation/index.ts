@@ -10,3 +10,4 @@ export * from './polishTranslation';
 export * from './qaCritique';
 export * from './sentenceRewrite';
 export * from './translationValidation';
+export * from './targetedRepair';

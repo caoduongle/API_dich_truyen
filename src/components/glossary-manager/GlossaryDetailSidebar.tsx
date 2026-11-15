@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { BookOpen, X, Edit2, Save, Hash } from 'lucide-react';
-import { GlossaryItem, GlossaryType } from '../../types';
+import { CharacterProfile, GlossaryItem, GlossaryType } from '../../types';
+import { normalizeCharacterProfile } from '../../lib/glossaryMatch';
 import { useNotifications } from '../NotificationSystem';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import CharacterProfileFields from './CharacterProfileFields';
 
 interface DetailEditPanelProps {
   item: GlossaryItem;
@@ -12,24 +14,31 @@ interface DetailEditPanelProps {
 
 const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: DetailEditPanelProps) {
   const { showToast } = useNotifications();
-  const [chinese, setChinese]       = useState(item.chinese);
-  const [pinyin, setPinyin]         = useState(item.pinyin);
-  const [vietnamese, setVietnamese] = useState(item.vietnamese);
-  const [type, setType]             = useState<GlossaryType>(item.type);
-  const [note, setNote]             = useState(item.note);
+  const [chinese, setChinese]                   = useState(item.chinese);
+  const [pinyin, setPinyin]                     = useState(item.pinyin);
+  const [vietnamese, setVietnamese]             = useState(item.vietnamese);
+  const [type, setType]                         = useState<GlossaryType>(item.type);
+  const [note, setNote]                         = useState(item.note);
+  const [isPinned, setIsPinned]                 = useState<boolean>(!!item.isPinned);
+  const [characterProfile, setCharacterProfile] = useState<CharacterProfile>(
+    () => item.characterProfile || { gender: 'unknown' }
+  );
 
   const handleSave = () => {
     if (!chinese.trim() || !vietnamese.trim()) {
       showToast({ message: "Vui lòng nhập đầy đủ tiếng Trung gốc và dịch tiếng Việt.", type: 'warning' });
       return;
     }
+    const normalizedProfile = type === 'character' ? normalizeCharacterProfile(characterProfile) : undefined;
     onSave({
       ...item,
-      chinese:     chinese.trim(),
-      pinyin:      pinyin.trim() || vietnamese.trim(),
-      vietnamese:  vietnamese.trim(),
+      chinese:          chinese.trim(),
+      pinyin:           pinyin.trim() || vietnamese.trim(),
+      vietnamese:       vietnamese.trim(),
       type,
-      note:        note.trim(),
+      note:             note.trim(),
+      ...(isPinned ? { isPinned: true } : { isPinned: undefined }),
+      characterProfile: normalizedProfile,
     });
   };
 
@@ -77,6 +86,15 @@ const DetailEditPanel = React.memo(function DetailEditPanel({ item, onSave }: De
                   className="w-full text-xs bg-ink border border-parchment-2 text-text-main rounded-[2px] px-2.5 py-1.5 focus:outline-none focus:border-polish transition-all resize-none"
                   placeholder="Xưng hô bá đạo, nàng, phu nhân..." />
       </div>
+
+      <CharacterProfileFields
+        type={type}
+        isPinned={isPinned}
+        onChangePinned={setIsPinned}
+        characterProfile={characterProfile}
+        onChangeProfile={setCharacterProfile}
+        compact
+      />
 
       <Button
         type="button"

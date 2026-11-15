@@ -83,6 +83,7 @@ export function TabContent({
     warningParagraphMismatch,
     enableAiQaCritique,
     enableSegmentTranslation,
+    enableAutoTargetedRepair,
   } = useAIConfigContext();
 
   const handleSelectProjectAndSwitch = (id: string) => {
@@ -151,6 +152,7 @@ export function TabContent({
                     onProcessingChange={onAutoTranslateProcessingChange}
                     enableAiQaCritique={enableAiQaCritique}
                     enableSegmentTranslation={enableSegmentTranslation}
+                    enableAutoTargetedRepair={enableAutoTargetedRepair}
                   />
                 </ErrorBoundary>
               )}

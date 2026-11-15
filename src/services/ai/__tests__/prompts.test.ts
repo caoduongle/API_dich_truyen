@@ -276,4 +276,79 @@ describe('AI Prompts Construction Pipeline', () => {
       expect(payload.systemInstruction).toContain('Quy tắc QA');
     });
   });
+
+  describe('Prompt Structure Clarity, Single Source Emission & Priority Hierarchy (US5 / FR-019)', () => {
+    it('keeps each numbered rule cleanly separated on its own line in buildRawTranslationPayload', () => {
+      const payload = buildRawTranslationPayload({
+        text: '罗峰拔出影刃。',
+        genre: 'Tiên Hiệp',
+        tone: 'Hào hùng',
+        description: 'Giữ đúng tên gọi.',
+        glossary: sampleGlossary,
+      });
+
+      const ruleNumbers = payload.systemInstruction
+        .split('\n')
+        .map((line) => line.match(/^(\d+)\.\s/)?.[1])
+        .filter((n): n is string => Boolean(n));
+
+      expect(ruleNumbers).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
+      expect(payload.systemInstruction).not.toContain('6. Phong cách phù hợp thể loại:.*Trích xuất');
+    });
+
+    it('emits source text block only once (no duplicate raw/marked blocks) in buildRawTranslationPayload', () => {
+      const uniqueSnippet = '星辰大海之间矗立着古老神殿。';
+      const plainPayload = buildRawTranslationPayload({
+        text: uniqueSnippet,
+        genre: 'Khoa Huyễn',
+        tone: 'Hùng vĩ',
+      });
+
+      expect(plainPayload.prompt.split(uniqueSnippet).length - 1).toBe(1);
+      expect(plainPayload.prompt.match(/--- VĂN BẢN TIẾNG TRUNG/g)).toHaveLength(1);
+
+      const bracketPayload = buildRawTranslationPayload({
+        text: `[Thánh Điện] ${uniqueSnippet}`,
+        genre: 'Khoa Huyễn',
+        tone: 'Hùng vĩ',
+      });
+
+      expect(bracketPayload.prompt.split(uniqueSnippet).length - 1).toBe(1);
+      expect(bracketPayload.prompt.match(/--- VĂN BẢN TIẾNG TRUNG/g)).toHaveLength(1);
+    });
+
+    it('declares consistent explicit priority hierarchy (#1 Fidelity -> #2 Pronouns -> #3 Style) across Phases 1, 2, and 3', () => {
+      const rawPayload = buildRawTranslationPayload({
+        text: '罗峰点头。',
+        genre: 'Tiên Hiệp',
+        tone: 'Trang nghiêm',
+      });
+      const polishPayload = buildPolishTranslationPayload({
+        sourceText: '罗峰点头。',
+        rawTranslation: 'La Phong gật đầu.',
+        genre: 'Tiên Hiệp',
+        tone: 'Trang nghiêm',
+      });
+      const qaPayload = buildQaCritiquePayload({
+        sourceText: '罗峰点头。',
+        translatedText: 'La Phong gật đầu.',
+        genre: 'Tiên Hiệp',
+        tone: 'Trang nghiêm',
+      });
+
+      for (const payload of [rawPayload, polishPayload, qaPayload]) {
+        expect(payload.systemInstruction).toContain('[THỨ TỰ ƯU TIÊN TUYỆT ĐỐI');
+        expect(payload.systemInstruction).toContain('- ƯU TIÊN #1 (BẤT KHẢ XÂM PHẠM):');
+        expect(payload.systemInstruction).toContain('Cẩm nang & quy tắc xưng hô của truyện > Hồ sơ nhân vật');
+        expect(payload.systemInstruction).toContain('> Yêu cầu biên tập bổ sung');
+        expect(payload.systemInstruction).toContain('- ƯU TIÊN #3');
+
+        const pos1 = payload.systemInstruction.indexOf('ƯU TIÊN #1');
+        const pos2 = payload.systemInstruction.indexOf('ƯU TIÊN #2');
+        const pos3 = payload.systemInstruction.indexOf('ƯU TIÊN #3');
+        expect(pos1).toBeLessThan(pos2);
+        expect(pos2).toBeLessThan(pos3);
+      }
+    });
+  });
 });

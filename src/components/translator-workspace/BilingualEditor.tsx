@@ -70,6 +70,8 @@ export interface BilingualEditorProps {
   hakoIssues: QualityIssue[];
   isCheckingQa: boolean;
   onRunAiQaCritique: () => void;
+  onRepairCriticalIssues?: () => void | Promise<void>;
+  onApplyFix?: (issue: UnifiedAuditIssue) => boolean | Promise<boolean>;
   onIssueClick?: (issue: UnifiedAuditIssue) => void;
   qaError?: string | null;
   crdtStatus?: CRDTSyncStatus;
@@ -129,6 +131,8 @@ export const BilingualEditor = React.memo(function BilingualEditor({
   hakoIssues,
   isCheckingQa,
   onRunAiQaCritique,
+  onRepairCriticalIssues,
+  onApplyFix,
   onIssueClick,
   qaError,
   crdtStatus,
@@ -520,6 +524,8 @@ export const BilingualEditor = React.memo(function BilingualEditor({
               qaIssues={qaIssues}
               isCheckingQa={isCheckingQa}
               onRunAiQaCritique={onRunAiQaCritique}
+              onRepairCriticalIssues={onRepairCriticalIssues}
+              onApplyFix={onApplyFix}
               onIssueClick={onIssueClick}
               isMismatch={isMismatch}
               sourceParaCount={sourceParaCount}

@@ -154,6 +154,14 @@ export function useAIConfig() {
         return stored === 'true';
     });
 
+    const [enableAutoTargetedRepair, setEnableAutoTargetedRepair] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('enable_auto_targeted_repair') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
     const [enableSegmentTranslation, setEnableSegmentTranslation] = useState<boolean>(() => {
         const stored = localStorage.getItem('enable_segment_translation');
         return stored === 'true';
@@ -189,6 +197,12 @@ export function useAIConfig() {
     useEffect(() => {
         localStorage.setItem('enable_ai_qa_critique', String(enableAiQaCritique));
     }, [enableAiQaCritique]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('enable_auto_targeted_repair', String(enableAutoTargetedRepair));
+        } catch {}
+    }, [enableAutoTargetedRepair]);
 
     useEffect(() => {
         localStorage.setItem('enable_segment_translation', String(enableSegmentTranslation));
@@ -317,6 +331,8 @@ export function useAIConfig() {
         setWarningParagraphMismatch,
         enableAiQaCritique,
         setEnableAiQaCritique,
+        enableAutoTargetedRepair,
+        setEnableAutoTargetedRepair,
         enableSegmentTranslation,
         setEnableSegmentTranslation
     };

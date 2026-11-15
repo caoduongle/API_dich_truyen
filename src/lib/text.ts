@@ -509,7 +509,7 @@ export function isPolishTranslationResponse(data: unknown): data is PolishTransl
 }
 
 export interface QaCritiqueIssue {
-  type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'other';
+  type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'mistranslation' | 'pronoun' | 'raw_leak' | 'other';
   severity: 'critical' | 'warning' | 'info';
   targetText: string;
   description?: string;
@@ -530,7 +530,16 @@ export function isQaCritiqueIssue(item: unknown): item is QaCritiqueIssue {
 
   if (typeof obj.targetText !== 'string') return false;
 
-  const validTypes = ['omission', 'addition', 'repetition', 'terminology', 'other'];
+  const validTypes = [
+    'omission',
+    'addition',
+    'repetition',
+    'terminology',
+    'mistranslation',
+    'pronoun',
+    'raw_leak',
+    'other',
+  ];
   if (typeof obj.type !== 'string' || !validTypes.includes(obj.type)) {
     return false;
   }
@@ -1325,5 +1334,70 @@ export function isTextConverged(
   threshold: number = 0.96
 ): boolean {
   return calculateTextSimilarity(prevText, newText, threshold).isConverged;
+}
+
+/**
+ * Loại bỏ đoạn mở đầu bị dịch lặp từ khối ngữ cảnh liền trước (`previousTranslationTail`).
+ * Chỉ loại bỏ khi bản dịch mới có nhiều hơn 1 đoạn văn và đoạn đầu trùng khớp >= 85%
+ * với đoạn cuối của ngữ cảnh liền trước.
+ */
+export function stripDuplicatedContinuityOverlap(
+  translatedText: string,
+  previousTranslationTail?: string
+): string {
+  if (!translatedText || !previousTranslationTail || !previousTranslationTail.trim()) {
+    return translatedText;
+  }
+
+  const normalizedNew = translatedText.replace(/\r\n/g, '\n');
+  const usesDoubleNewline = normalizedNew.includes('\n\n');
+  const separator = usesDoubleNewline ? '\n\n' : '\n';
+  const rawParagraphs = usesDoubleNewline
+    ? normalizedNew.split(/\n{2,}/)
+    : normalizedNew.split(/\n/);
+  const paragraphs = rawParagraphs.map((p) => p.trim()).filter(Boolean);
+
+  if (paragraphs.length <= 1) {
+    return translatedText;
+  }
+
+  const tailNormalized = previousTranslationTail.replace(/\r\n/g, '\n');
+  const tailRaw = tailNormalized.includes('\n\n')
+    ? tailNormalized.split(/\n{2,}/)
+    : tailNormalized.split(/\n/);
+  const tailParagraphs = tailRaw.map((p) => p.trim()).filter(Boolean).slice(-2);
+
+  if (tailParagraphs.length === 0) {
+    return translatedText;
+  }
+
+  const isOverlapMatch = (candidate: string, tailPara: string): boolean => {
+    const a = candidate.replace(/\s+/g, ' ').trim();
+    const b = tailPara.replace(/\s+/g, ' ').trim();
+    if (a.length < 12 || b.length < 12) return false;
+    if (a.toLowerCase() === b.toLowerCase()) return true;
+    return calculateTextSimilarity(a, b, 0.85).isConverged;
+  };
+
+  let startIndex = 0;
+  if (
+    tailParagraphs.length === 2 &&
+    paragraphs.length - startIndex >= 3 &&
+    isOverlapMatch(paragraphs[startIndex], tailParagraphs[0]) &&
+    isOverlapMatch(paragraphs[startIndex + 1], tailParagraphs[1])
+  ) {
+    startIndex += 2;
+  } else if (
+    paragraphs.length - startIndex >= 2 &&
+    isOverlapMatch(paragraphs[startIndex], tailParagraphs[tailParagraphs.length - 1])
+  ) {
+    startIndex += 1;
+  }
+
+  if (startIndex === 0) {
+    return translatedText;
+  }
+
+  return paragraphs.slice(startIndex).join(separator);
 }
 

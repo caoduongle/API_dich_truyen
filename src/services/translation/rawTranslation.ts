@@ -10,6 +10,7 @@ import {
   isRawTranslationResponse,
   RawTranslationResponse,
   separateChapterTitleAndBody,
+  stripDuplicatedContinuityOverlap,
   validateTranslationOutput,
   splitTextAdaptively,
   estimateTokenCount,
@@ -18,6 +19,7 @@ import {
   verifySourceCoverage,
 } from '../../lib/text';
 import { validateAndSnapBackEntities } from '../../lib/sinoNormalize';
+import { substituteGlossaryTermsSafely } from '../../lib/glossaryMatch';
 import { GlossaryItem } from '../../types';
 import {
   DirectRawTranslationParams,
@@ -33,6 +35,18 @@ import {
   recordSplitEvent,
 } from './telemetry';
 
+function buildContinuityTail(text: string | undefined, maxChars: number): string {
+  if (!text || !text.trim()) return '';
+  const tail = text
+    .replace(/\r\n/g, '\n')
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .slice(-2)
+    .join('\n\n');
+  return tail.length > maxChars ? tail.slice(-maxChars) : tail;
+}
+
 /**
  * Tầng Cứu nguy: Thay thế các thuật ngữ và chữ Hán bằng bản dịch từ điển hoặc phiên âm Hán-Việt
  */
@@ -40,27 +54,21 @@ export function fallbackSinoVietnameseLine(
   line: string,
   glossary: GlossaryItem[] = []
 ): string {
-  let result = line;
-  if (Array.isArray(glossary) && glossary.length > 0) {
-    const sorted = [...glossary].sort((a, b) => (b.chinese || '').length - (a.chinese || '').length);
-    for (const g of sorted) {
-      if (!g.chinese || !g.chinese.trim()) continue;
-      const mainZh = g.chinese.trim();
-      const vi = (g.vietnamese || g.pinyin || '').trim();
-      if (vi) {
-        result = result.replaceAll(mainZh, vi);
-      }
-      if (Array.isArray(g.variants)) {
-        for (const v of g.variants) {
-          if (v && v.trim()) {
-            result = result.replaceAll(v.trim(), vi);
-          }
-        }
-      }
-    }
+  const unbracketed = (line || '').replace(/\[([^\]]+)\]/g, '$1');
+  if (!Array.isArray(glossary) || glossary.length === 0) {
+    return unbracketed;
   }
-  result = result.replace(/\[([^\]]+)\]/g, '$1');
-  return result;
+
+  const normalizedGlossary = glossary.map((g) => ({
+    ...g,
+    vietnamese: (g.vietnamese || g.pinyin || '').trim(),
+  }));
+
+  const { substitutedText } = substituteGlossaryTermsSafely(unbracketed, normalizedGlossary, {
+    minHanLength: 2,
+  });
+
+  return substitutedText.replace(/\[([^\]]+)\]/g, '$1');
 }
 
 /**
@@ -94,13 +102,27 @@ export async function callRawDirectCore(
     let currentKeyIdx = startKeyIndex;
     const discoveredEntitiesAll: DiscoveredEntity[] = [];
 
-    for (const line of lines) {
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const line = lines[lineIdx];
       if (!line) continue;
+      const lineContinuity =
+        lineIdx > 0
+          ? {
+              previousSourceTail: buildContinuityTail(lines[lineIdx - 1], 350),
+              previousTranslationTail: buildContinuityTail(
+                translatedParagraphs[translatedParagraphs.length - 1],
+                500
+              ),
+              sourceKind: 'previous-chunk' as const,
+            }
+          : params.continuity;
+
       const res = await translateRawDirect({
         ...params,
         text: line,
         enableSegmentTranslation: false,
         startKeyIndex: currentKeyIdx,
+        ...(lineContinuity ? { continuity: lineContinuity } : {}),
       });
       translatedParagraphs.push(res.rawTranslation);
       currentKeyIdx = res.successKeyIndex;
@@ -123,6 +145,7 @@ export async function callRawDirectCore(
     description,
     glossary,
     isRetry,
+    ...(params.continuity ? { continuity: params.continuity } : {}),
   });
 
   const response = await callGeminiDirect({
@@ -185,6 +208,10 @@ export async function callRawDirectCore(
     .filter((ent): ent is DiscoveredEntity => ent !== null);
 
   finalRawTranslation = separateChapterTitleAndBody(finalRawTranslation);
+  finalRawTranslation = stripDuplicatedContinuityOverlap(
+    finalRawTranslation,
+    params.continuity?.previousTranslationTail
+  );
   validateTranslationOutput(finalRawTranslation);
 
   return {
@@ -236,12 +263,21 @@ export async function rawWithContentSplitDirect(
             ? (startKeyIndex + i) % apiKeys.length
             : startKeyIndex;
 
+          const chunkContinuity =
+            i > 0
+              ? {
+                  previousSourceTail: buildContinuityTail(chunks[i - 1], 350),
+                  sourceKind: 'previous-chunk' as const,
+                }
+              : params.continuity;
+
           return await rawWithContentSplitDirect(
             {
               ...params,
               text: chunk,
               startKeyIndex: staggeredKey,
               cumulativeTimeoutMs: remainingDeadlineMs,
+              ...(chunkContinuity ? { continuity: chunkContinuity } : {}),
             },
             0,
             true
@@ -347,6 +383,8 @@ export async function rawWithContentSplitDirect(
                 startKeyIndex: staggeredKeyIndex,
                 isRetry: true,
                 cumulativeTimeoutMs: remainingDeadlineMs,
+                // Không truyền ngữ cảnh nhánh trước khi chia nhỏ để cô lập lỗi (như CONTENT_BLOCKED)
+                continuity: undefined,
               },
               retryDepth + 1,
               true

@@ -1,14 +1,22 @@
 import { Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryItem } from '../types';
 import { getChapterFromDB, saveChapterToDB } from './db';
-import { isHanEquivalent } from '../lib/sinoNormalize';
+import { classifyDiscoveredEntitiesForGlossary, selectRelevantGlossary } from '../lib/glossaryMatch';
 import { separateChapterTitleAndBody } from '../utils/textCleaner';
 import { getPolishStrategyForRound, calculateTextSimilarity } from '../lib/text';
 import {
   translateRawDirect,
   polishTranslationDirect,
   qaCritiqueDirect,
+  buildChapterContinuityContext,
+  resolvePreviousChapterId,
+  evaluatePolishRoundFidelity,
+  runDeterministicTranslationChecks,
+  mergeAndDeduplicateQaIssues,
+  repairChapterCriticalIssuesDirect,
 } from './directTranslationEngine';
-import { DiscoveredEntity, DirectQaCritiqueIssue } from './translation/types';
+import { ContinuityContext, DiscoveredEntity, DirectQaCritiqueIssue } from './translation/types';
+
+export { buildChapterContinuityContext, resolvePreviousChapterId };
 
 export interface SingleChapterResult {
   success: boolean;
@@ -35,6 +43,9 @@ export interface TranslateChapterParams {
   isExtractionDuringTranslationEnabled: boolean;
   enableAiQaCritique: boolean;
   enableSegmentTranslation: boolean;
+  enableAutoTargetedRepair?: boolean;
+  previousChapterContinuity?: ContinuityContext;
+  projectChapters?: ChapterMetadata[];
   addLog: (message: string, type?: 'info' | 'gemini' | 'success' | 'warn' | 'error') => void;
 }
 
@@ -86,6 +97,9 @@ export async function executeSingleChapterTranslation({
   isExtractionDuringTranslationEnabled,
   enableAiQaCritique,
   enableSegmentTranslation,
+  enableAutoTargetedRepair = false,
+  previousChapterContinuity,
+  projectChapters,
   addLog,
 }: TranslateChapterParams): Promise<SingleChapterResult> {
   const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
@@ -120,7 +134,31 @@ export async function executeSingleChapterTranslation({
   const isRawTruncated = hasRawTranslation ? isDraftTruncated(rawCandidate, chapter.sourceText) : true;
   const hasProcessedText = !!(chapter.processedSourceText && chapter.processedSourceText.trim());
 
+  let effectiveContinuity = previousChapterContinuity;
+  if (!effectiveContinuity && Array.isArray(projectChapters)) {
+    const prevId = resolvePreviousChapterId(projectChapters, chapterMeta.id);
+    if (prevId) {
+      const prevChap = await getChapterFromDB(prevId).catch(() => null);
+      effectiveContinuity = buildChapterContinuityContext(prevChap);
+    }
+  }
+
   let hasFreshRaw = false;
+
+  const { conflicts: glossaryConflicts } = selectRelevantGlossary(chapter.sourceText, localGlossary);
+  if (glossaryConflicts.length > 0) {
+    addLog(
+      `${logPrefix} [Cảnh báo Từ điển] Phát hiện ${glossaryConflicts.length} xung đột ánh xạ thuật ngữ trong chương (${glossaryConflicts
+        .map(
+          (c) =>
+            `${c.winningItem.chinese}: ${c.winningItem.vietnamese} vs ${c.shadowedItems
+              .map((s) => s.vietnamese)
+              .join('/')}`
+        )
+        .join('; ')}). Đã ưu tiên bản ghi ghim/mới nhất.`,
+      'warn'
+    );
+  }
 
   // ── GIAI ĐOẠN 1: Dịch thô trực tiếp ──
   // Mode 'repolish': Cho phép tái sử dụng bản dịch thô ĐÃ CÓ nếu bản thô hợp lệ và không bị cụt.
@@ -154,6 +192,7 @@ export async function executeSingleChapterTranslation({
         startKeyIndex: currentKeyIndex,
         enableSegmentTranslation,
         signal,
+        ...(effectiveContinuity ? { continuity: effectiveContinuity } : {}),
         onSplitRetry: (info) => {
           const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
             ? 'Bản dịch sót nhiều chữ Hán'
@@ -200,79 +239,43 @@ export async function executeSingleChapterTranslation({
     }
     addLog(`${logPrefix} Đã hoàn thành biểu mẫu dịch thô GĐ1.`, 'success');
 
-    // Trích xuất entity mới
+    const rawComplianceIssues = runDeterministicTranslationChecks({
+      sourceText: chapter.sourceText,
+      translatedText: firstDraft,
+      glossary: localGlossary,
+      isPartialFallback: Boolean((rawData as { isPartial?: boolean }).isPartial),
+    });
+    if (rawComplianceIssues.length > 0) {
+      addLog(
+        `${logPrefix} [Kiểm tra tuân thủ GĐ1] Phát hiện ${rawComplianceIssues.length} điểm lệch từ điển/xưng hô hoặc sót chữ Hán trong bản dịch thô.`,
+        'warn'
+      );
+    }
+
+    // Trích xuất entity mới qua logic phân loại dùng chung (FR-021)
     if (isExtractionDuringTranslationEnabled && rawData.discoveredEntities && Array.isArray(rawData.discoveredEntities) && rawData.discoveredEntities.length > 0) {
-      rawData.discoveredEntities.forEach((ent: DiscoveredEntity) => {
-        if (!ent || typeof ent.chinese !== 'string' || !ent.chinese.trim() || typeof ent.vietnamese !== 'string') return;
-
-        const cleanChinese = ent.chinese.replace(/\s+/g, '').trim();
-        const cleanVietnamese = ent.vietnamese.trim();
-        const cleanPinyin = (ent.pinyin || '').trim();
-        const cleanNote = (ent.note || '').trim();
-        const cleanType = ent.type || 'other';
-
-        const matchedByCn = localGlossary.find((gItem) => isHanEquivalent(gItem.chinese, ent.chinese));
-        const matchedByVi = localGlossary.find((gItem) => (gItem.vietnamese || '').trim().toLowerCase() === cleanVietnamese.toLowerCase());
-
-        const rawChinese = ent.chinese.trim();
-        const originParagraph = chapter.sourceText.split('\n').find((p) =>
-          p.includes(rawChinese) || p.replace(/\s+/g, '').includes(cleanChinese)
-        )?.trim() || '';
-
-        if (!matchedByCn && !matchedByVi && !ent.needsReview) {
-          const itemPayload: GlossaryItem = {
-            id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-            chinese: cleanChinese,
-            pinyin: cleanPinyin || cleanVietnamese,
-            vietnamese: cleanVietnamese,
-            type: cleanType,
-            note: cleanNote,
-            sourceChapter: chapter.title,
-            sourceParagraph: originParagraph,
-            sourceChapterId: chapter.id,
-            origin: 'scanned',
-            createdAt: new Date().toISOString(),
-          };
-          newGlossaryItems.push(itemPayload);
-          localGlossary.push(itemPayload);
-        } else {
-          let reason: PendingGlossaryItem['reason'] = 'Duplicate Chinese';
-          let originalValue = '';
-
-          if (ent.needsReview) {
-            reason = 'AI trích xuất nghi ngờ hallucinate';
-            originalValue = 'Không tìm thấy cụm từ này trong văn bản gốc của chương.';
-          } else if (matchedByCn && matchedByVi) {
-            reason = 'Duplicate Both';
-            originalValue = `Trùng cả cụm: Gốc "${matchedByCn.chinese}" -> Nghĩa "${matchedByCn.vietnamese}"`;
-          } else if (matchedByCn) {
-            reason = 'Duplicate Chinese';
-            originalValue = `Trùng chữ Trung gốc: "${matchedByCn.chinese}" đã dịch là "${matchedByCn.vietnamese}"`;
-          } else if (matchedByVi) {
-            reason = 'Duplicate Vietnamese';
-            originalValue = `Trùng nghĩa dịch Việt: "${matchedByVi.vietnamese}" đã được dùng cho gốc "${matchedByVi.chinese}"`;
-          }
-
-          newPendingItems.push({
-            id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-            chinese: cleanChinese,
-            pinyin: cleanPinyin,
-            vietnamese: cleanVietnamese,
-            type: ent.type || 'other',
-            note: cleanNote,
-            reason,
-            originalValue,
-            importedAt: new Date().toISOString(),
-            needsReview: !!ent.needsReview,
-            sourceChapterId: chapter.id,
-          });
-        }
+      const classified = classifyDiscoveredEntitiesForGlossary({
+        discoveredEntities: rawData.discoveredEntities,
+        existingGlossary: localGlossary,
+        sourceText: chapter.sourceText,
+        chapterTitle: chapter.title,
+        chapterId: chapter.id,
+        idPrefix: 'auto',
+        defaultPinyinToVietnamese: true,
       });
+      if (classified.newGlossaryItems.length > 0) {
+        newGlossaryItems.push(...classified.newGlossaryItems);
+        localGlossary.push(...classified.newGlossaryItems);
+      }
+      if (classified.newPendingItems.length > 0) {
+        newPendingItems.push(...classified.newPendingItems);
+      }
     }
   }
 
   // ── GIAI ĐOẠN 2: Chuốt văn phong trực tiếp ──
   let currentTextToPolish = firstDraft;
+  let lastPolishIsPartial = false;
   addLog(`${logPrefix} Kích hoạt chu trình mài giũa văn phong (${polishCycles} lượt)...`, 'info');
   for (let j = 1; j <= polishCycles; j++) {
     const strategy = getPolishStrategyForRound(j, polishCycles);
@@ -281,12 +284,12 @@ export async function executeSingleChapterTranslation({
       addLog(`${logPrefix} [Rà soát từ điển] Kích hoạt rà soát thuật ngữ bị sót (chỉ chạy 1 lần/chương tại lượt polish đầu tiên).`, 'info');
     }
 
-    addLog(`${logPrefix} Biên tập chuốt chữ trực tiếp Lần ${j}/${polishCycles} [${strategy.stageName}]...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
-    let polishData: { polishedTranslation?: string; successKeyIndex?: number };
+    addLog(`${logPrefix} Biên tập chuốt chữ trực tiếp Lần ${j}/${polishCycles} [${strategy.stageName}]...`, 'gemini');
+    let polishData: { polishedTranslation?: string; successKeyIndex?: number; isPartial?: boolean };
 
     try {
       polishData = await polishTranslationDirect({
-        sourceText: (hasProcessedText ? chapter.processedSourceText : chapter.sourceText) || '',
+        sourceText: chapter.sourceText,
         rawTranslation: currentTextToPolish,
         genre: projState.genre,
         tone: projState.tone,
@@ -301,6 +304,7 @@ export async function executeSingleChapterTranslation({
         signal,
         roundIndex: j,
         totalRounds: polishCycles,
+        ...(effectiveContinuity ? { continuity: effectiveContinuity } : {}),
         onSplitRetry: (info) => {
           const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
             ? 'Bản chuốt văn sót nhiều chữ Hán'
@@ -349,10 +353,31 @@ export async function executeSingleChapterTranslation({
     }
 
     const previousRoundText = currentTextToPolish;
-    currentTextToPolish = polishData.polishedTranslation || currentTextToPolish;
+    const candidatePolished = polishData.polishedTranslation || currentTextToPolish;
     if (typeof polishData.successKeyIndex === 'number') {
       currentKeyIndex = polishData.successKeyIndex;
     }
+
+    if (polishData.polishedTranslation && previousRoundText) {
+      const fidelity = evaluatePolishRoundFidelity({
+        sourceText: chapter.sourceText,
+        previousDraft: previousRoundText,
+        candidatePolished,
+        glossary: localGlossary,
+        roundIndex: j,
+      });
+      if (!fidelity.isAcceptable) {
+        addLog(
+          `${logPrefix} [Hậu kiểm GĐ2 Lượt ${j}] Từ chối bản chuốt vì làm suy giảm độ trung thành (${fidelity.rejectionReason || 'regression'}). Khôi phục bản lượt trước và dừng chuốt sớm.`,
+          'warn'
+        );
+        currentTextToPolish = previousRoundText;
+        break;
+      }
+    }
+
+    currentTextToPolish = candidatePolished;
+    lastPolishIsPartial = Boolean(polishData.isPartial);
 
     // Kiểm tra độ tương đồng và phát hiện hội tụ từ lượt 2 trở đi
     if (j > 1 && previousRoundText) {
@@ -372,6 +397,19 @@ export async function executeSingleChapterTranslation({
     } else {
       addLog(`${logPrefix} Hoàn tất chuốt mịn lượt thứ ${j}!`, 'success');
     }
+  }
+
+  const postPolishDeterministicIssues = runDeterministicTranslationChecks({
+    sourceText: chapter.sourceText,
+    translatedText: currentTextToPolish,
+    glossary: localGlossary,
+    isPartialFallback: lastPolishIsPartial,
+  });
+  if (postPolishDeterministicIssues.length > 0) {
+    addLog(
+      `${logPrefix} [Kiểm tra tuân thủ GĐ2] Phát hiện ${postPolishDeterministicIssues.length} điểm lệch từ điển/xưng hô hoặc sót chữ Hán sau chuốt văn phong.`,
+      'warn'
+    );
   }
 
   // ── GIAI ĐOẠN 3: Kiểm duyệt chất lượng AI trực tiếp (Critique Phase) ──
@@ -394,21 +432,72 @@ export async function executeSingleChapterTranslation({
       });
 
       qaRunSucceeded = true;
-      if (Array.isArray(qaData.issues)) {
-        detectedQaIssues = qaData.issues;
-      }
+      const aiIssues = Array.isArray(qaData.issues) ? qaData.issues : [];
+      detectedQaIssues = mergeAndDeduplicateQaIssues({
+        deterministicIssues: postPolishDeterministicIssues,
+        aiIssues,
+        translatedText: currentTextToPolish,
+      });
 
-      if (qaData.isValid) {
+      if (qaData.isValid && detectedQaIssues.length === 0) {
         addLog(`${logPrefix} [Kiểm duyệt AI] Đạt chuẩn! Không phát hiện lỗi bỏ sót, thêm thắt hoặc lặp lại.`, 'success');
-      } else if (Array.isArray(qaData.issues) && qaData.issues.length > 0) {
-        addLog(`${logPrefix} [Kiểm duyệt AI] Phát hiện ${qaData.issues.length} vấn đề kiểm duyệt:`, 'warn');
-        qaData.issues.forEach((issue) => {
+      } else if (detectedQaIssues.length > 0) {
+        addLog(`${logPrefix} [Kiểm duyệt AI] Phát hiện ${detectedQaIssues.length} vấn đề kiểm duyệt:`, 'warn');
+        detectedQaIssues.forEach((issue) => {
           addLog(`- [${issue.type.toUpperCase()}] (${issue.severity}): ${issue.description}`, 'warn');
         });
       }
 
       if (typeof qaData.successKeyIndex === 'number') {
         currentKeyIndex = qaData.successKeyIndex;
+      }
+
+      if (enableAutoTargetedRepair) {
+        const repairableCritical = detectedQaIssues.filter(
+          (i) => i.severity === 'critical' && typeof i.paragraphIndex === 'number'
+        );
+        if (repairableCritical.length > 0) {
+          addLog(
+            `${logPrefix} [Sửa đoạn QA] Bắt đầu 1 lượt tự động sửa ${repairableCritical.length} lỗi nghiêm trọng...`,
+            'info'
+          );
+          try {
+            const repairRes = await repairChapterCriticalIssuesDirect({
+              sourceText: chapter.sourceText,
+              translatedText: currentTextToPolish,
+              issues: detectedQaIssues,
+              glossary: localGlossary,
+              genre: projState.genre,
+              tone: projState.tone,
+              description: projState.description,
+              apiKeys,
+              model: selectedModel,
+              startKeyIndex: currentKeyIndex,
+              signal,
+            });
+            currentTextToPolish = repairRes.repairedTranslatedText;
+            detectedQaIssues = repairRes.updatedIssues;
+            currentKeyIndex = repairRes.successKeyIndex;
+
+            if (repairRes.repairedParagraphIndices.length > 0) {
+              addLog(
+                `${logPrefix} [Sửa đoạn QA] Đã sửa an toàn ${repairRes.repairedParagraphIndices.length} đoạn (${repairRes.rejectedParagraphIndices.length} đoạn bị từ chối/hoàn tác).`,
+                'success'
+              );
+            } else if (repairRes.rejectedParagraphIndices.length > 0) {
+              addLog(
+                `${logPrefix} [Sửa đoạn QA] Giữ nguyên bản trước sửa (${repairRes.rejectedParagraphIndices.length} đoạn không đạt kiểm tra an toàn).`,
+                'warn'
+              );
+            }
+          } catch (repairErr: any) {
+            if (signal?.aborted) throw repairErr;
+            addLog(
+              `${logPrefix} [Sửa đoạn QA] Lỗi khi tự động sửa đoạn: ${repairErr?.message || repairErr}`,
+              'warn'
+            );
+          }
+        }
       }
     } catch (qaErr: any) {
       addLog(`${logPrefix} [Kiểm duyệt AI] Lỗi gọi API QA Critique: ${qaErr.message || qaErr}`, 'warn');

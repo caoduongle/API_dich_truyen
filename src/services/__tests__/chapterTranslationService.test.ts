@@ -751,4 +751,72 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
       expect(res.updatedChapter?.qaIssues).toEqual(priorIssues);
     });
   });
+
+  describe('Polish Round Fidelity Gate integration (Spec 163 US3)', () => {
+    it('reverts to previousRoundText and stops early when polish round 2 introduces an ungrounded proper noun', async () => {
+      vi.spyOn(db, 'getChapterFromDB').mockResolvedValue({
+        ...mockChapter,
+        sourceText: '第一章 初始\n\n楚风站在山门前。',
+      } as any);
+
+      vi.spyOn(directEngine, 'translateRawDirect').mockResolvedValue({
+        rawTranslation: 'Chương 1: Khởi đầu\n\nSở Phong đứng trước cổng núi.',
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+
+      const roundsCalled: number[] = [];
+      vi.spyOn(directEngine, 'polishTranslationDirect').mockImplementation(async (params) => {
+        roundsCalled.push(params.roundIndex || 1);
+        if (params.roundIndex === 1) {
+          return {
+            polishedTranslation: 'Chương 1: Khởi đầu\n\nSở Phong lặng lẽ đứng trước cổng núi cao vút.',
+            successKeyIndex: 0,
+          };
+        }
+        return {
+          polishedTranslation:
+            'Chương 1: Khởi đầu\n\nSở Phong đứng trước cổng núi của Huyết Sát Thần Điện gặp Lý Vô Song.',
+          successKeyIndex: 0,
+        };
+      });
+
+      const logs: string[] = [];
+      const res = await executeSingleChapterTranslation({
+        chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+        glossarySnapshot: [
+          {
+            id: 'g1',
+            chinese: '楚风',
+            pinyin: 'Sở Phong',
+            vietnamese: 'Sở Phong',
+            type: 'character',
+            note: '',
+            origin: 'manual',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+        signal: new AbortController().signal,
+        logPrefix: '[Test-Fidelity]',
+        startKeyIndex: 0,
+        projState: { genre: 'Tiên Hiệp', tone: 'Trang nghiêm', description: '' },
+        apiKeys: ['AQ_USER_KEY_123'],
+        selectedModel: 'gemini-2.5-flash',
+        polishCycles: 3,
+        autoTranslateMode: 'from_scratch',
+        additionalInstructions: '',
+        isExtractionDuringTranslationEnabled: false,
+        enableAiQaCritique: false,
+        enableSegmentTranslation: false,
+        addLog: (msg) => logs.push(msg),
+      });
+
+      expect(res.success).toBe(true);
+      expect(roundsCalled).toEqual([1, 2]);
+      expect(res.updatedChapter?.polishedTranslation).toBe(
+        'Chương 1: Khởi đầu\n\nSở Phong lặng lẽ đứng trước cổng núi cao vút.'
+      );
+      expect(logs.some((l) => l.includes('Hậu kiểm GĐ2 Lượt 2'))).toBe(true);
+    });
+  });
 });

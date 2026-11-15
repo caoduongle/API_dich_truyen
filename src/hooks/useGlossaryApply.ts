@@ -3,6 +3,7 @@ import { StoryProject, Chapter } from '../types';
 import { saveChaptersToDB, getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../context/NotificationContext';
+import { countHanChars } from '../lib/glossaryMatch';
 
 export interface UseGlossaryApplyProps {
   activeProject: StoryProject;
@@ -62,7 +63,8 @@ export function useGlossaryApply({
           const allForms = [item.chinese, ...(item.variants || [])].filter(Boolean);
           allForms.forEach(form => {
             const clean = form.trim();
-            if (clean) {
+            // Bỏ qua từ đơn 1 ký tự Hán để tránh thay cứng làm vỡ từ ghép tiếng Trung (FR-002)
+            if (clean && countHanChars(clean) >= 2) {
               forms.push({
                 form: clean,
                 vietnamese: item.vietnamese.trim()

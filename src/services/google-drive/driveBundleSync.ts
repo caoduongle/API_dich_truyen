@@ -20,6 +20,7 @@ import {
   uint8ArrayToBase64,
 } from '../crdtDocManager';
 import { DriveRestClient } from './driveRestClient';
+import { mergeGlossaryPreservingProfiles } from '../../lib/glossaryMatch';
 
 export class DriveBundleSync {
   /**
@@ -232,6 +233,10 @@ export class DriveBundleSync {
         ...(localProject || {}),
         ...bundle.project,
         id: projectId,
+        glossary: mergeGlossaryPreservingProfiles(
+          localProject?.glossary || [],
+          bundle.project.glossary || []
+        ),
         chapters: updatedChaptersMeta,
         driveFileId,
         driveStorageFormat: 'bundle',

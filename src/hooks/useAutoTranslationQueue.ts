@@ -45,6 +45,7 @@ export interface UseAutoTranslationQueueProps {
 
   enableAiQaCritique: boolean;
   enableSegmentTranslation: boolean;
+  enableAutoTargetedRepair?: boolean;
 }
 
 export interface LogEntry {

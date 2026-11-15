@@ -1,6 +1,7 @@
 /**
  * QA Critique Service (Phase 3)
- * Kiểm duyệt đối chiếu song ngữ, phát hiện câu sót, từ sai nghĩa hoặc lệch văn cảnh
+ * Kiểm duyệt đối chiếu song ngữ 8 nhóm lỗi: omission, addition, repetition, terminology,
+ * mistranslation, pronoun, raw_leak, other
  */
 
 import { callGeminiDirect } from '../directGeminiClient';

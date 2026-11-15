@@ -35,6 +35,7 @@ interface AutoTranslatorProps {
   onProcessingChange?: (processing: boolean) => void;
   enableAiQaCritique: boolean;
   enableSegmentTranslation: boolean;
+  enableAutoTargetedRepair?: boolean;
 }
 
 export default function AutoTranslator({
@@ -45,6 +46,7 @@ export default function AutoTranslator({
   onProcessingChange,
   enableAiQaCritique,
   enableSegmentTranslation,
+  enableAutoTargetedRepair = false,
 }: AutoTranslatorProps) {
   const totalChapters = activeProject.chapters.length || 0;
 
@@ -185,6 +187,7 @@ export default function AutoTranslator({
     concurrency,
     enableAiQaCritique,
     enableSegmentTranslation,
+    enableAutoTargetedRepair,
   });
 
   // addLog cục bộ dùng chung cho panel ZumiNovel — cùng định dạng timestamp

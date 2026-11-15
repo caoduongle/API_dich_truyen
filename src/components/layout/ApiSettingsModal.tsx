@@ -16,9 +16,11 @@ export function ApiSettingsModal({ isOpen, onClose }: ApiSettingsModalProps) {
     selectedModel,
     warningParagraphMismatch,
     enableAiQaCritique,
+    enableAutoTargetedRepair,
     enableSegmentTranslation,
     setWarningParagraphMismatch,
     setEnableAiQaCritique,
+    setEnableAutoTargetedRepair,
     setEnableSegmentTranslation,
     handleSaveModel,
     handleAddApiKey,
@@ -48,6 +50,8 @@ export function ApiSettingsModal({ isOpen, onClose }: ApiSettingsModalProps) {
         setWarningParagraphMismatch={setWarningParagraphMismatch}
         enableAiQaCritique={enableAiQaCritique}
         setEnableAiQaCritique={setEnableAiQaCritique}
+        enableAutoTargetedRepair={enableAutoTargetedRepair}
+        setEnableAutoTargetedRepair={setEnableAutoTargetedRepair}
         enableSegmentTranslation={enableSegmentTranslation}
         setEnableSegmentTranslation={setEnableSegmentTranslation}
       />

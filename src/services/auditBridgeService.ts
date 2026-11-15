@@ -30,6 +30,9 @@ const QA_TYPE_TITLES: Record<DirectQaCritiqueIssue['type'], string> = {
   addition: 'Thêm thắt nội dung',
   repetition: 'Lặp lại câu chữ',
   terminology: 'Sai lệch thuật ngữ',
+  mistranslation: 'Dịch sai lệch nghĩa gốc',
+  pronoun: 'Sai đại từ nhân xưng / giới tính',
+  raw_leak: 'Sót chữ Hán chưa dịch',
   other: 'Lỗi kiểm duyệt khác',
 };
 
@@ -100,7 +103,7 @@ export function mapQaIssueToUnified(
     targetText: issue.targetText !== undefined ? issue.targetText : undefined,
     suggestion: undefined,
     autoFixable: false,
-    status: 'pending',
+    status: issue.repaired ? 'resolved' : 'pending',
   };
 }
 

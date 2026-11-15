@@ -5,6 +5,8 @@ export interface TranslationQualitySectionProps {
   setWarningParagraphMismatch: (b: boolean) => void;
   enableAiQaCritique: boolean;
   setEnableAiQaCritique: (b: boolean) => void;
+  enableAutoTargetedRepair?: boolean;
+  setEnableAutoTargetedRepair?: (b: boolean) => void;
   enableSegmentTranslation: boolean;
   setEnableSegmentTranslation: (b: boolean) => void;
 }
@@ -14,6 +16,8 @@ export function TranslationQualitySection({
   setWarningParagraphMismatch,
   enableAiQaCritique,
   setEnableAiQaCritique,
+  enableAutoTargetedRepair = false,
+  setEnableAutoTargetedRepair,
   enableSegmentTranslation,
   setEnableSegmentTranslation,
 }: TranslationQualitySectionProps) {
@@ -68,6 +72,27 @@ export function TranslationQualitySection({
           <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${enableSegmentTranslation ? 'translate-x-4' : 'translate-x-0'}`} />
         </button>
       </div>
+
+      {/* Auto Targeted Repair (opt-in, max 1 pass/chapter) */}
+      {setEnableAutoTargetedRepair && (
+        <div className="flex items-center justify-between py-1 border-t border-parchment-2 pt-2">
+          <div className="flex flex-col pr-2">
+            <span className="text-xs font-bold text-text-main">Tự động sửa đoạn lỗi nghiêm trọng sau QA</span>
+            <span className="text-[10px] text-text-muted leading-relaxed">
+              Chỉ dịch sửa tối đa 1 lượt các đoạn có lỗi nghiêm trọng khi QA hoàn tất (tốn thêm 1–2 lượt gọi API cho chương lỗi).
+            </span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enableAutoTargetedRepair}
+            onClick={() => setEnableAutoTargetedRepair(!enableAutoTargetedRepair)}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${enableAutoTargetedRepair ? 'bg-polish' : 'bg-parchment-2'}`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${enableAutoTargetedRepair ? 'translate-x-4' : 'translate-x-0'}`} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

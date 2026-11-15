@@ -5,7 +5,14 @@ import { LogEntry } from './useAutoTranslationQueue';
 import { triggerDownload } from '../utils/download';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
-import { executeSingleChapterTranslation, SingleChapterResult } from '../services/chapterTranslationService';
+import {
+  executeSingleChapterTranslation,
+  SingleChapterResult,
+} from '../services/chapterTranslationService';
+import {
+  buildChapterContinuityContext,
+  resolvePreviousChapterId,
+} from '../services/translation/translationValidation';
 import { getDynamicPacingInterval } from '../utils/modelRegistry';
 import { localQuotaTracker } from '../services/localQuotaTracker';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
@@ -39,6 +46,7 @@ export interface UseTranslationProcessProps {
 
   enableAiQaCritique: boolean;
   enableSegmentTranslation: boolean;
+  enableAutoTargetedRepair?: boolean;
 }
 
 export function useTranslationProcess({
@@ -61,6 +69,7 @@ export function useTranslationProcess({
   concurrency,
   enableAiQaCritique,
   enableSegmentTranslation,
+  enableAutoTargetedRepair = false,
 }: UseTranslationProcessProps) {
   const { showToast } = useNotifications();
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -84,7 +93,8 @@ export function useTranslationProcess({
     isExtractionDuringTranslationEnabled,
     skipFailedChapters,
     enableAiQaCritique,
-    enableSegmentTranslation
+    enableSegmentTranslation,
+    enableAutoTargetedRepair,
   });
 
   useEffect(() => {
@@ -125,9 +135,10 @@ export function useTranslationProcess({
       isExtractionDuringTranslationEnabled,
       skipFailedChapters,
       enableAiQaCritique,
-      enableSegmentTranslation
+      enableSegmentTranslation,
+      enableAutoTargetedRepair,
     };
-  }, [apiKeys, selectedModel, polishCycles, autoTranslateMode, additionalInstructions, isExtractionDuringTranslationEnabled, skipFailedChapters]);
+  }, [apiKeys, selectedModel, polishCycles, autoTranslateMode, additionalInstructions, isExtractionDuringTranslationEnabled, skipFailedChapters, enableAiQaCritique, enableSegmentTranslation, enableAutoTargetedRepair]);
 
   const triggerExportDownload = useCallback(async () => {
     addLog("ĐANG TIẾN HÀNH XUẤT SAO LƯU DỰ ÁN DẠNG CẤU TRÚC (.JSON) VỀ MÁY...", "warn");
@@ -198,6 +209,17 @@ export function useTranslationProcess({
     startKeyIndex: number,
     projState: { genre: string; tone: string; description: string }
   ): Promise<SingleChapterResult> => {
+    let previousChapterContinuity;
+    const prevChapterId = resolvePreviousChapterId(projectRef.current.chapters || [], chapterMeta.id);
+    if (prevChapterId) {
+      try {
+        const prevChapter = await getChapterFromDB(prevChapterId);
+        previousChapterContinuity = buildChapterContinuityContext(prevChapter);
+      } catch {
+        previousChapterContinuity = undefined;
+      }
+    }
+
     return executeSingleChapterTranslation({
       chapterMeta,
       glossarySnapshot,
@@ -213,6 +235,8 @@ export function useTranslationProcess({
       isExtractionDuringTranslationEnabled: paramsRef.current.isExtractionDuringTranslationEnabled,
       enableAiQaCritique: paramsRef.current.enableAiQaCritique,
       enableSegmentTranslation: paramsRef.current.enableSegmentTranslation,
+      enableAutoTargetedRepair: paramsRef.current.enableAutoTargetedRepair,
+      ...(previousChapterContinuity ? { previousChapterContinuity } : {}),
       addLog,
     });
   }, [addLog]);

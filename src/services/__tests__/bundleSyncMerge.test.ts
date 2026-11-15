@@ -9,7 +9,8 @@ import {
   uint8ArrayToBase64,
   base64ToUint8Array,
 } from '../crdtDocManager';
-import { Chapter } from '../../types';
+import { Chapter, GlossaryItem } from '../../types';
+import { mergeGlossaryPreservingProfiles } from '../../lib/glossaryMatch';
 
 describe('bundleSyncMerge (CRDT Merge on Pull)', () => {
   const baseLocalChapter: Chapter = {
@@ -162,5 +163,118 @@ describe('bundleSyncMerge (CRDT Merge on Pull)', () => {
     expect(result.mergedChapter.rawTranslation).toBeDefined();
     expect(result.crdtState).toBeInstanceOf(Uint8Array);
     expect(result.crdtState.length).toBeGreaterThan(0);
+  });
+
+  describe('mergeGlossaryPreservingProfiles (cross-version metadata preservation)', () => {
+    it('preserves local characterProfile and isPinned when incoming legacy remote item lacks them', () => {
+      const localItems: GlossaryItem[] = [
+        {
+          id: 'g1',
+          chinese: '林雪',
+          pinyin: 'lín xuě',
+          vietnamese: 'Lâm Tuyết',
+          type: 'character',
+          note: 'Nữ chính',
+          origin: 'manual',
+          createdAt: '2026-01-01T00:00:00Z',
+          isPinned: true,
+          characterProfile: {
+            gender: 'female',
+            defaultSelfPronoun: 'muội',
+            defaultNarrativePronoun: 'nàng',
+            relations: [{ targetName: 'Trần Phong', selfPronoun: 'muội', targetPronoun: 'sư huynh' }],
+          },
+        },
+      ];
+
+      const legacyRemoteItems: GlossaryItem[] = [
+        {
+          id: 'g1',
+          chinese: '林雪',
+          pinyin: 'lín xuě',
+          vietnamese: 'Lâm Tuyết (cập nhật)',
+          type: 'character',
+          note: 'Cập nhật từ thiết bị cũ',
+          origin: 'manual',
+          createdAt: '2026-01-02T00:00:00Z',
+        },
+      ];
+
+      const merged = mergeGlossaryPreservingProfiles(localItems, legacyRemoteItems);
+      expect(merged).toHaveLength(1);
+      expect(merged[0].vietnamese).toBe('Lâm Tuyết (cập nhật)');
+      expect(merged[0].note).toBe('Cập nhật từ thiết bị cũ');
+      expect(merged[0].isPinned).toBe(true);
+      expect(merged[0].characterProfile?.gender).toBe('female');
+      expect(merged[0].characterProfile?.defaultNarrativePronoun).toBe('nàng');
+      expect(merged[0].characterProfile?.relations).toHaveLength(1);
+    });
+
+    it('lets explicit incoming characterProfile and isPinned override older local profile while preserving pinned flags on legacy siblings', () => {
+      const localItems: GlossaryItem[] = [
+        {
+          id: 'g1',
+          chinese: '林雪',
+          pinyin: 'lín xuě',
+          vietnamese: 'Lâm Tuyết',
+          type: 'character',
+          note: '',
+          origin: 'manual',
+          createdAt: '2026-01-01T00:00:00Z',
+          isPinned: false,
+          characterProfile: {
+            gender: 'unknown',
+            defaultNarrativePronoun: 'cô',
+          },
+        },
+        {
+          id: 'g2',
+          chinese: '青云宗',
+          pinyin: 'qīng yún zōng',
+          vietnamese: 'Thanh Vân Tông',
+          type: 'location',
+          note: '',
+          origin: 'manual',
+          createdAt: '2026-01-01T00:00:00Z',
+          isPinned: true,
+        },
+      ];
+
+      const remoteItems: GlossaryItem[] = [
+        {
+          id: 'g1',
+          chinese: '林雪',
+          pinyin: 'lín xuě',
+          vietnamese: 'Lâm Tuyết',
+          type: 'character',
+          note: 'Hồ sơ mới',
+          origin: 'manual',
+          createdAt: '2026-01-03T00:00:00Z',
+          isPinned: true,
+          characterProfile: {
+            gender: 'female',
+            defaultNarrativePronoun: 'nàng',
+          },
+        },
+        {
+          id: 'g2',
+          chinese: '青云宗',
+          pinyin: 'qīng yún zōng',
+          vietnamese: 'Thanh Vân Tông',
+          type: 'location',
+          note: 'Tông môn chính',
+          origin: 'manual',
+          createdAt: '2026-01-02T00:00:00Z',
+        },
+      ];
+
+      const mergedIncoming = mergeGlossaryPreservingProfiles(localItems, remoteItems);
+      expect(mergedIncoming).toHaveLength(2);
+      const updated = mergedIncoming.find((g) => g.chinese === '林雪');
+      expect(updated?.isPinned).toBe(true);
+      expect(updated?.characterProfile?.gender).toBe('female');
+      expect(updated?.characterProfile?.defaultNarrativePronoun).toBe('nàng');
+      expect(mergedIncoming.find((g) => g.chinese === '青云宗')?.isPinned).toBe(true);
+    });
   });
 });

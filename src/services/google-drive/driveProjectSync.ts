@@ -12,6 +12,7 @@ import {
   saveChapterToDB,
 } from '../db';
 import { DriveRestClient, MANIFEST_FILE_NAME } from './driveRestClient';
+import { mergeGlossaryPreservingProfiles } from '../../lib/glossaryMatch';
 
 /**
  * So sánh thời điểm cập nhật giữa bản ghi local và remote ở cấp dự án.
@@ -258,7 +259,20 @@ export class DriveProjectSync {
         }
 
         if (projectData) {
-          await atomicSaveProjectBundle(projectData, chaptersData);
+          const existingProjects = await getProjectsFromDB().catch(() => [] as StoryProject[]);
+          const existingLocal = Array.isArray(existingProjects)
+            ? existingProjects.find((p) => p.id === projectData!.id)
+            : undefined;
+          const preservedProject: StoryProject = existingLocal
+            ? {
+                ...projectData,
+                glossary: mergeGlossaryPreservingProfiles(
+                  existingLocal.glossary || [],
+                  projectData.glossary || []
+                ),
+              }
+            : projectData;
+          await atomicSaveProjectBundle(preservedProject, chaptersData);
         } else if (chaptersData.length > 0) {
           for (const chap of chaptersData) {
             const effectiveProjectId = chap.projectId || summary.id;
@@ -440,7 +454,16 @@ export class DriveProjectSync {
           }
 
           if (projectData) {
-            await atomicSaveProjectBundle(projectData, chaptersData);
+            const preservedProject: StoryProject = local
+              ? {
+                  ...projectData,
+                  glossary: mergeGlossaryPreservingProfiles(
+                    local.glossary || [],
+                    projectData.glossary || []
+                  ),
+                }
+              : projectData;
+            await atomicSaveProjectBundle(preservedProject, chaptersData);
           } else if (chaptersData.length > 0) {
             for (const chap of chaptersData) {
               const effectiveProjectId = chap.projectId || remote.id;

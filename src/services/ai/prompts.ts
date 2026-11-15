@@ -2,11 +2,17 @@ import {
   LITERARY_TRANSLATION_FRAMING,
   getGenreStyleGuide,
   sanitizePromptInput,
-  escapeRegex,
   getPolishStrategyForRound,
 } from '../../lib/text';
-import { findCanonicalSubstring } from '../../lib/sinoNormalize';
+import {
+  normalizeCharacterProfile,
+  selectRelevantGlossary,
+  substituteGlossaryTermsSafely,
+} from '../../lib/glossaryMatch';
 import { buildEntityExtractionInstruction, buildEntitySchema } from './glossaryPrompts';
+
+import { ContinuityContext } from "../translation/types";
+import { CharacterProfile } from "../../types";
 
 export interface GlossaryEntry {
   chinese: string;
@@ -15,6 +21,8 @@ export interface GlossaryEntry {
   type?: string;
   note?: string;
   variants?: string[];
+  isPinned?: boolean;
+  characterProfile?: CharacterProfile;
   [key: string]: any;
 }
 
@@ -25,6 +33,7 @@ export interface BuildRawTranslationPromptParams {
   description?: string;
   glossary?: GlossaryEntry[];
   isRetry?: boolean;
+  continuity?: ContinuityContext;
 }
 
 export interface BuildPolishTranslationPromptParams {
@@ -38,6 +47,7 @@ export interface BuildPolishTranslationPromptParams {
   isExtractionEnabled?: boolean;
   roundIndex?: number;
   totalRounds?: number;
+  continuity?: ContinuityContext;
 }
 
 export interface BuildQaCritiquePromptParams {
@@ -49,100 +59,152 @@ export interface BuildQaCritiquePromptParams {
   glossary?: GlossaryEntry[];
 }
 
+function buildInstructionPriorityBlock(stageHeading: string, priority3Line: string): string {
+  return (
+    `[THỨ TỰ ƯU TIÊN TUYỆT ĐỐI ${stageHeading}]:\n` +
+    "- ƯU TIÊN #1 (BẤT KHẢ XÂM PHẠM): TRUNG THÀNH TUYỆT ĐỐI 100% VỚI NGUYÊN TÁC TIẾNG TRUNG, BẢNG TỪ ĐIỂN & BẢO TOÀN CẤU TRÚC PHÂN ĐOẠN 1-1. KHÔNG bịa đặt thêm tên riêng nhân vật/địa danh/chiêu thức ngoài nguyên tác, KHÔNG thêm thắt tình tiết mới, KHÔNG bỏ sót câu đoạn hay lời thoại.\n" +
+    "- ƯU TIÊN #2: Cẩm nang & quy tắc xưng hô của truyện > Hồ sơ nhân vật (giới tính, tự xưng, quan hệ xưng hô) > Yêu cầu biên tập bổ sung.\n" +
+    `- ƯU TIÊN #3 (thấp hơn #1 và #2): Hướng dẫn thể loại & tông giọng mặc định — ${priority3Line}\n`
+  );
+}
+
+function sanitizeGlossaryEntries(glossary: GlossaryEntry[] | undefined): GlossaryEntry[] {
+  if (!Array.isArray(glossary)) return [];
+  return glossary
+    .filter((g) => g && typeof g.chinese === 'string' && g.chinese.trim().length > 0)
+    .map((g) => ({
+      ...g,
+      chinese: sanitizePromptInput(g.chinese.trim()),
+      vietnamese: sanitizePromptInput((g.vietnamese || '').trim()),
+      pinyin: sanitizePromptInput((g.pinyin || '').trim()),
+      type: sanitizePromptInput((g.type || 'other').trim()),
+      note: sanitizePromptInput((g.note || '').trim()),
+      variants: Array.isArray(g.variants)
+        ? g.variants.map((v) => sanitizePromptInput(String(v || '').trim())).filter(Boolean)
+        : undefined,
+      characterProfile: normalizeCharacterProfile(g.characterProfile),
+    }));
+}
+
+const GENDER_LABEL_VI: Record<string, string> = {
+  male: 'Nam',
+  female: 'Nữ',
+  neutral: 'Trung lập',
+  unknown: 'Chưa rõ',
+};
+
+function formatCharacterProfileSuffix(entry: GlossaryEntry): string {
+  if (entry.type !== 'character' && !entry.characterProfile) return '';
+  const profile = normalizeCharacterProfile(entry.characterProfile);
+  if (!profile) return '';
+
+  const parts: string[] = [];
+  if (profile.gender && profile.gender !== 'unknown') {
+    parts.push(`Giới tính: ${GENDER_LABEL_VI[profile.gender] || profile.gender}`);
+  }
+  if (profile.defaultNarrativePronoun) {
+    parts.push(`Đại từ tự sự (ngôi thứ 3): "${profile.defaultNarrativePronoun}"`);
+  }
+  if (profile.defaultSelfPronoun) {
+    parts.push(`Tự xưng: "${profile.defaultSelfPronoun}"`);
+  }
+  if (profile.relations && profile.relations.length > 0) {
+    const relStr = profile.relations
+      .map(
+        (r) =>
+          `với ${r.targetName} (xưng "${r.selfPronoun}" - gọi "${r.targetPronoun}"${r.note ? `; ${r.note}` : ''})`
+      )
+      .join(', ');
+    parts.push(`Quan hệ xưng hô: ${relStr}`);
+  }
+  return parts.length > 0 ? ` | Hồ sơ nhân vật: [${parts.join(' | ')}]` : '';
+}
+
+function formatContinuityContextBlock(continuity?: ContinuityContext): string {
+  if (!continuity) return '';
+  const rawSourceTail = sanitizePromptInput((continuity.previousSourceTail || '').trim());
+  const rawTranslationTail = sanitizePromptInput((continuity.previousTranslationTail || '').trim());
+  const sourceTail = rawSourceTail.length > 350 ? rawSourceTail.slice(-350) : rawSourceTail;
+  const translationTail =
+    rawTranslationTail.length > 500 ? rawTranslationTail.slice(-500) : rawTranslationTail;
+
+  if (!sourceTail && !translationTail) return '';
+
+  const lines = [
+    '[NGỮ CẢNH LIỀN TRƯỚC — CHỈ ĐỌC ĐỂ GIỮ MẠCH XƯNG HÔ, TUYỆT ĐỐI KHÔNG DỊCH LẠI ĐOẠN NÀY]',
+  ];
+  if (sourceTail) {
+    lines.push(`Đoạn tiếng Trung liền trước:\n${sourceTail}`);
+  }
+  if (translationTail) {
+    lines.push(`Bản dịch liền trước:\n${translationTail}`);
+  }
+  lines.push('[HẾT NGỮ CẢNH LIỀN TRƯỚC]');
+  return lines.join('\n') + '\n\n';
+}
+
 /**
  * Xây dựng payload prompt và schema cho Giai đoạn 1: Dịch thô + Trích xuất thực thể
  */
 export function buildRawTranslationPayload(params: BuildRawTranslationPromptParams) {
-  const { text, genre, tone, description, glossary = [], isRetry } = params;
+  const { text, genre, tone, description, glossary = [], isRetry, continuity } = params;
 
   const cleanGenre = sanitizePromptInput(genre || "Tiên Hiệp");
   const cleanTone = sanitizePromptInput(tone || "Trang nghiêm cổ kính");
   const cleanDescription = sanitizePromptInput(description || "");
+  const cleanText = sanitizePromptInput(text || "");
+
+  const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
+
+  const { entries: relevantGlossary } = selectRelevantGlossary(cleanText, sanitizedGlossary);
 
   let glossaryStr = "";
-  if (Array.isArray(glossary) && glossary.length > 0) {
-    glossaryStr = glossary
-      .map((g: any) => {
-        const cn = sanitizePromptInput(g.chinese || '');
-        const variants = Array.isArray(g.variants)
-          ? g.variants.map((v: string) => sanitizePromptInput(v)).filter(Boolean)
-          : [];
-        const py = sanitizePromptInput(g.pinyin || '');
-        const vi = sanitizePromptInput(g.vietnamese || '');
-        const tp = sanitizePromptInput(g.type || 'other');
-        const nt = sanitizePromptInput(g.note || '');
-        return `- Trung: [${cn}${variants.length ? ' / ' + variants.join(' / ') : ''}] -> Hán Việt: [${py}] -> Việt: [${vi}] (Loại: ${tp}, Ghi chú: ${nt})`;
+  if (sanitizedGlossary.length === 0) {
+    glossaryStr = "(Không có từ điển tùy chọn, dịch tự động dựa trên âm Hán-Việt phổ thông và ngữ cảnh)";
+  } else if (relevantGlossary.length === 0) {
+    glossaryStr = "(Không có thuật ngữ trong từ điển xuất hiện trực tiếp ở phân đoạn này)";
+  } else {
+    glossaryStr = relevantGlossary
+      .map((g) => {
+        const cn = g.chinese;
+        const variants = Array.isArray(g.variants) ? g.variants : [];
+        const py = g.pinyin || '';
+        const vi = g.vietnamese || '';
+        const tp = g.type || 'other';
+        const nt = g.note || '';
+        const profileSuffix = formatCharacterProfileSuffix(g);
+        return `- Trung: [${cn}${variants.length ? ' / ' + variants.join(' / ') : ''}] -> Hán Việt: [${py}] -> Việt: [${vi}] (Loại: ${tp}, Ghi chú: ${nt}${profileSuffix})`;
       })
       .join("\n");
-  } else {
-    glossaryStr = "(Không có từ điển tùy chọn, dịch tự động dựa trên âm Hán-Việt phổ thông và ngữ cảnh)";
   }
 
-  // Pre-substitution: thay thế cứng từ điển vào source text trước khi dịch
-  const cleanText = sanitizePromptInput(text || "");
-  let substitutedText = cleanText;
-  if (Array.isArray(glossary) && glossary.length > 0) {
-    const glossaryMap = new Map<string, string>();
-    const terms: string[] = [];
-
-    const sortedGlossary = [...glossary].sort((a, b) => (b.chinese || "").length - (a.chinese || "").length);
-    for (const item of sortedGlossary) {
-      if (!item.chinese?.trim() || !item.vietnamese?.trim()) continue;
-      const mainZh = sanitizePromptInput(item.chinese.trim());
-      const vi = sanitizePromptInput(item.vietnamese.trim());
-      if (!glossaryMap.has(mainZh)) {
-        glossaryMap.set(mainZh, vi);
-        terms.push(mainZh);
-      }
-      if (Array.isArray(item.variants) && item.variants.length > 0) {
-        for (const variant of item.variants) {
-          if (!variant?.trim()) continue;
-          const varZh = sanitizePromptInput(variant.trim());
-          if (!glossaryMap.has(varZh)) {
-            glossaryMap.set(varZh, vi);
-            terms.push(varZh);
-          }
-        }
-      }
-    }
-
-    terms.sort((a, b) => b.length - a.length);
-
-    if (terms.length > 0) {
-      const escapedTerms = terms.map(t => escapeRegex(t));
-      const pattern = new RegExp(escapedTerms.join('|'), 'g');
-      substitutedText = substitutedText.replace(pattern, (match) => `[${glossaryMap.get(match) || match}]`);
-    }
-
-    // Dò các biến thể Hán tự phồn thể / giản thể qua canonical mapping
-    for (const item of sortedGlossary) {
-      if (!item.chinese?.trim() || !item.vietnamese?.trim()) continue;
-      const canonicalSub = findCanonicalSubstring(substitutedText, sanitizePromptInput(item.chinese));
-      if (canonicalSub && !canonicalSub.startsWith('[')) {
-        const escCanon = escapeRegex(canonicalSub);
-        const regexCanon = new RegExp(escCanon, 'g');
-        substitutedText = substitutedText.replace(regexCanon, `[${sanitizePromptInput(item.vietnamese)}]`);
-      }
-    }
-  }
+  // Đánh dấu nội tuyến an toàn Chữ_Hán[Tên_Việt] cho cụm >= 2 ký tự Hán (giữ nguyên chữ Hán gốc)
+  const { substitutedText } = substituteGlossaryTermsSafely(cleanText, relevantGlossary, {
+    minHanLength: 2,
+    annotationStyle: 'inline-pair',
+  });
 
   let systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "Bạn là hệ thống dịch thuật AI cao cấp chuyên dịch truyện chữ Trung Quốc sang tiếng Việt.\n" +
     "Nhiệm vụ của bạn là thực hiện dịch thô Giai đoạn 1 (Translation Draft 1) từ đoạn văn bản tiếng Trung được cung cấp.\n" +
+    buildInstructionPriorityBlock(
+      "KHI DỊCH THÔ",
+      "DỊCH SÁT NGHĨA MẠCH LẠC sang tiếng Việt tự nhiên, bảo tồn đủ 100% phân đoạn và trích xuất thực thể mới."
+    ) +
     "YÊU CẦU QUAN TRỌNG NHẤT:\n" +
     "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN 1-1 (PARAGRAPH BREAKS): Bản gốc có bao nhiêu đoạn văn/dòng thoại thì bản dịch PHẢI có bấy nhiêu đoạn văn tương ứng, ngăn cách nhau bằng đúng 2 dấu xuống dòng (\\n\\n). TUYỆT ĐỐI KHÔNG gộp các đoạn văn ngắn hoặc lời thoại nhân vật vào đoạn văn tự sự xung quanh. Tiêu đề chương PHẢI đứng riêng biệt trên dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
     "2. Tôn trọng Tuyệt đối các từ khóa, thực thể và đại từ trong bảng Từ điển (Glossary) được cung cấp. Nếu một từ Trung Quốc xuất hiện trong Glossary, bạn PHẢI dịch chính xác bằng từ tiếng Việt tương ứng.\n" +
     "3. Dịch chính xác nghĩa đơn và bối cảnh câu chữ. Phân biệt rõ ràng người nam là 'hắn/y/chàng', người nữ là 'nàng/cô/y', người già là 'lão', v.v. dựa trên giới tính quy định.\n" +
     "4. Bản dịch thô này cần đủ sát nghĩa gốc chữ Trung, cấu trúc dễ hiểu, không bỏ sót bất kỳ chi tiết hay câu văn nào.\n" +
-    "5. Trong quá trình đọc hiểu tiếng Trung gốc, hãy tinh mắt phát hiện NGAY các tên nhân vật mới, địa danh mới, chiêu thức võ công/ma thuật/bí kĩ mới xuất hiện mà CHƯA có trong Từ điển (Glossary) được đối chiếu.\n" +
-    `\n6. Phong cách phù hợp thể loại: ${getGenreStyleGuide(cleanGenre)}` +
-    "Trích xuất chúng và điền vào trường 'vietnamese' như sau: NẾU là phiên âm từ tên tiếng Anh/phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIẾNG ANH.\n" +
-    "Nếu có kèm danh từ chỉ loại hoặc đồ vật đi liền phía sau (như 茶, 镇, 城, 国), bắt buộc phải dịch danh từ đó sang tiếng Việt và đưa lên đứng trước tên tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio' chứ không phải 'Abbacchio Tea', 伦敦城 -> 'Thành London').\n" +
-    "NẾU là tên thuần Trung không có gốc tiếng Anh, dùng phiên âm Hán-Việt hoặc nghĩa tiếng Việt mượt mà.\n" +
-    "7. ĐẶC BIỆT QUAN TRỌNG về trường 'chinese' trong discoveredEntities: Bạn PHẢI copy CHÍNH XÁC ký tự Hán như chúng xuất hiện trong VĂN BẢN TIẾNG TRUNG GỐC được cung cấp. TUYỆT ĐỐI KHÔNG tự ý chuyển đổi giữa phồn thể và giản thể. Nếu văn bản gốc viết phồn thể thì trả về phồn thể, giản thể thì trả về giản thể." +
-    "8. Khi sử dụng thuật ngữ từ ngoặc vuông [Tên_Việt] trong văn bản đánh dấu, hãy viết KHÔNG có ngoặc vuông trong bản dịch cuối cùng. Ví dụ: [Philomena] → viết 'Philomena', KHÔNG viết '[Philomena]'." +
-    (cleanDescription && cleanDescription.trim() ? `\n9. BẮT BUỘC TUÂN THỦ nguyên tắc xưng hô và phong cách dịch đặc biệt của truyện: ${cleanDescription.trim()}` : "");
+    "5. TRÍCH XUẤT THỰC THỂ MỚI: Trong quá trình đọc hiểu tiếng Trung gốc, hãy tinh mắt phát hiện NGAY các tên nhân vật mới, địa danh mới, chiêu thức võ công/ma thuật/bí kĩ mới xuất hiện mà CHƯA có trong Từ điển (Glossary) được đối chiếu và điền vào `discoveredEntities`.\n" +
+    "6. KHÔI PHỤC TÊN GỐC TIẾNG ANH/PHƯƠNG TÂY: Khi điền trường 'vietnamese' của `discoveredEntities`, NẾU là phiên âm từ tên tiếng Anh/phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIẾNG ANH. Nếu kèm danh từ chỉ loại hoặc đồ vật đi liền phía sau (như 茶, 镇, 城, 国), bắt buộc dịch danh từ sang tiếng Việt đặt trước tên tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio', 伦敦城 -> 'Thành London'). Nếu là tên thuần Trung, dùng phiên âm Hán-Việt hoặc nghĩa tiếng Việt mượt mà.\n" +
+    "7. BẢO TOÀN DẠNG CHỮ HÁN GỐC: Về trường 'chinese' trong `discoveredEntities`, bạn PHẢI copy CHÍNH XÁC ký tự Hán như xuất hiện trong VĂN BẢN TIẾNG TRUNG GỐC. TUYỆT ĐỐI KHÔNG tự ý chuyển đổi giữa phồn thể và giản thể (văn bản gốc phồn thể thì trả về phồn thể, giản thể thì trả về giản thể).\n" +
+    "8. LOẠI BỎ NGOẶC CHÚ THÍCH NHÁP: Khi gặp thuật ngữ được chú thích dạng Chữ_Hán[Tên_Việt] hoặc [Tên_Việt] trong văn bản, chỉ viết 'Tên_Việt' KHÔNG có ngoặc vuông và KHÔNG giữ lại chữ Hán trong bản dịch cuối cùng. Ví dụ: 罗峰[La Phong] hoặc [Philomena] → viết 'La Phong', 'Philomena'.\n" +
+    `9. PHONG CÁCH THỂ LOẠI: ${getGenreStyleGuide(cleanGenre)}\n` +
+    (cleanDescription && cleanDescription.trim()
+      ? `10. BẮT BUỘC TUÂN THỦ nguyên tắc xưng hô và phong cách dịch đặc biệt của truyện: ${cleanDescription.trim()}\n`
+      : "");
 
   if (isRetry) {
     systemInstruction +=
@@ -150,23 +212,14 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
   }
 
   const hasBrackets = /\[[^\]]+\]/.test(cleanText);
-  let textPromptBlock = "";
-  if (hasBrackets) {
-    textPromptBlock = `--- VĂN BẢN TIẾNG TRUNG (ĐÃ ĐÁNH DẤU TỪ ĐIỂN) ---
+  const textPromptBlock = hasBrackets
+    ? `--- VĂN BẢN TIẾNG TRUNG (ĐÃ ĐÁNH DẤU TỪ ĐIỂN) ---
 (Các tên đã được thay sẵn trong ngoặc vuông [Tên_Việt]. Bắt buộc dùng đúng tên này khi dịch)
+${substitutedText}`
+    : `--- VĂN BẢN TIẾNG TRUNG GỐC ---
 ${substitutedText}`;
-  } else if (substitutedText !== cleanText) {
-    textPromptBlock = `--- VĂN BẢN TIẾNG TRUNG GỐC ---
-${cleanText}
 
---- VĂN BẢN TIẾNG TRUNG ĐÃ ĐÁNH DẤU TỪ ĐIỂN ---
-(Các tên đã được thay sẵn trong ngoặc vuông [Tên_Việt]. Bắt buộc dùng đúng tên này khi dịch)
-${substitutedText}`;
-  } else {
-    textPromptBlock = `--- VĂN BẢN TIẾNG TRUNG GỐC ---
-${cleanText}`;
-  }
-
+  const continuityBlock = formatContinuityContextBlock(continuity);
   const prompt = `--- THÔNG TIN TRUYỆN ---
 Thể loại: ${cleanGenre}
 Tông giọng: ${cleanTone}
@@ -175,7 +228,7 @@ ${cleanDescription && cleanDescription.trim() ? `Nguyên tắc dịch thuật & 
 --- TỪ ĐIỂN TÊN NHÂN VẬT & THUẬT NGỮ (ĐÃ CÓ - BẮT BUỘC TUÂN THỦ) ---
 ${glossaryStr}
 
-${textPromptBlock}`;
+${continuityBlock}${textPromptBlock}`;
 
   const schema = {
     type: "OBJECT",
@@ -228,6 +281,7 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     isExtractionEnabled = false,
     roundIndex = 1,
     totalRounds = 1,
+    continuity,
   } = params;
 
   const cleanGenre = sanitizePromptInput(genre || "Tiên Hiệp");
@@ -237,63 +291,32 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
 
   const strategy = getPolishStrategyForRound(roundIndex, totalRounds);
 
-  let substitutedSourceText = sanitizePromptInput(sourceText || "");
+  const cleanSourceText = sanitizePromptInput(sourceText || "");
   const cleanRawTranslation = sanitizePromptInput(rawTranslation);
-  const matchedTermsList: string[] = [];
-  let totalMatchOccurrences = 0;
 
-  if (Array.isArray(glossary) && glossary.length > 0) {
-    const glossaryMap = new Map<string, string>();
-    const terms: string[] = [];
+  const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
+  const { entries: relevantGlossary, matchedInSource } = selectRelevantGlossary(
+    cleanSourceText,
+    sanitizedGlossary
+  );
 
-    const sortedGlossary = [...glossary].sort((a, b) => {
-      const lenA = (a.chinese || "").length;
-      const lenB = (b.chinese || "").length;
-      return lenB - lenA;
-    });
+  const {
+    substitutedText: substitutedSourceText,
+    totalReplacements: totalMatchOccurrences,
+  } = substituteGlossaryTermsSafely(cleanSourceText, relevantGlossary, {
+    minHanLength: 2,
+    annotationStyle: 'inline-pair',
+  });
 
-    for (const item of sortedGlossary) {
-      if (!item.chinese || !item.chinese.trim()) continue;
-      const mainZh = sanitizePromptInput(item.chinese.trim());
-      const vi = sanitizePromptInput((item.vietnamese || '').trim());
-      if (!glossaryMap.has(mainZh)) {
-        glossaryMap.set(mainZh, vi);
-        terms.push(mainZh);
-      }
-      if (Array.isArray(item.variants) && item.variants.length > 0) {
-        for (const variant of item.variants) {
-          if (!variant || !variant.trim()) continue;
-          const varZh = sanitizePromptInput(variant.trim());
-          if (!glossaryMap.has(varZh)) {
-            glossaryMap.set(varZh, vi);
-            terms.push(varZh);
-          }
-        }
-      }
-    }
-
-    terms.sort((a, b) => b.length - a.length);
-
-    if (terms.length > 0) {
-      const matchCounts = new Map<string, number>();
-      const escapedTerms = terms.map(t => escapeRegex(t));
-      const pattern = new RegExp(escapedTerms.join('|'), 'g');
-      substitutedSourceText = substitutedSourceText.replace(pattern, (match) => {
-        const count = (matchCounts.get(match) || 0) + 1;
-        matchCounts.set(match, count);
-        totalMatchOccurrences++;
-        return `[${glossaryMap.get(match) || match}]`;
-      });
-
-      matchCounts.forEach((_count, term) => {
-        matchedTermsList.push(term);
-      });
-    }
-  }
+  const pinnedOnlyEntries = relevantGlossary.filter((e) => !matchedInSource.includes(e));
 
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "BẠN LÀ MỘT BIÊN TẬP VIÊN VĂN HỌC VÀ DỊCH GIẢ TRUNG - VIỆT ĐẠI TÀI.\n" +
+    buildInstructionPriorityBlock(
+      "KHI CHUỐT VĂN PHONG",
+      "TRAU CHUỐT VĂN PHONG thuần Việt mượt mà, chỉ cải thiện diễn đạt trong phạm vi ý nghĩa nguyên gốc."
+    ) +
     (roundIndex > 1
       ? `ĐÂY LÀ LƯỢT CHUỐT VĂN THỨ ${strategy.round}/${Math.max(strategy.round, totalRounds)} (${strategy.stageName.toUpperCase()}).\n` +
         `CHỈ ĐẠO TRỌNG TÂM LƯỢT NÀY: ${strategy.directive}\n`
@@ -304,11 +327,26 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     "3. Diễn đạt mượt mà thuần Việt, loại bỏ hoàn toàn cấu trúc câu 'sượng', ngữ pháp dịch máy thô cứng (convert/quick translator vibe).\n" +
     "4. Giữ đúng sắc thái, đại từ nhân xưng phù hợp thể loại và tông giọng được yêu cầu.\n" +
     "5. Tôn trọng triệt để các thuật ngữ trong Từ điển riêng đã được định nghĩa.\n" +
-    "6. Khi sử dụng thuật ngữ từ ngoặc vuông [Tên_Việt], hãy viết KHÔNG có ngoặc vuông trong bản dịch cuối cùng (ví dụ: [Philomena] → viết 'Philomena').\n" +
+    "6. Khi sử dụng thuật ngữ từ ngoặc vuông Chữ_Hán[Tên_Việt] hoặc [Tên_Việt], hãy chỉ viết 'Tên_Việt' KHÔNG có ngoặc vuông và KHÔNG giữ lại chữ Hán trong bản dịch cuối cùng (ví dụ: [Philomena] → viết 'Philomena').\n" +
     `7. Phong cách phù hợp thể loại: ${getGenreStyleGuide(cleanGenre)}` +
     (cleanDescription && cleanDescription.trim() ? `\n8. BẮT BUỘC TUÂN THỦ NGUYÊN TẮC DỊCH THUẬT & QUY TẮC XƯNG HÔ ĐẶC THÙ CỦA TRUYỆN:\n${cleanDescription.trim()}` : "") +
     (isExtractionEnabled ? "\n9. Trong quá trình rà soát đối chiếu, nếu phát hiện thêm thực thể/tên riêng nào chưa có trong từ điển, hãy trích xuất vào discoveredEntities. ĐẶC BIỆT LƯU Ý: Khôi phục tên gốc tiếng Anh nếu là phiên âm phương Tây; dịch danh từ chỉ loại tiếng Trung lên trước tên tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio'); và giữ nguyên dạng chữ Hán phồn/giản thể như trong bản gốc." : "");
 
+  const formatPolishGlossaryLine = (g: GlossaryEntry): string => {
+    const variants = Array.isArray(g.variants) ? g.variants : [];
+    const profileSuffix = formatCharacterProfileSuffix(g);
+    return `- [${g.chinese}${variants.length ? ' / ' + variants.join(' / ') : ''}] -> [${g.vietnamese}] (Bắt buộc dùng bản dịch này${profileSuffix})`;
+  };
+
+  const matchedGlossaryBlock = matchedInSource.length > 0
+    ? `\n[TỪ ĐIỂN RIÊNG ĐÃ XUẤT HIỆN TRONG ĐOẠN NÀY (${matchedInSource.length} thuật ngữ, ${totalMatchOccurrences} lần xuất hiện)]:\n${matchedInSource.map(formatPolishGlossaryLine).join('\n')}`
+    : '';
+
+  const pinnedGlossaryBlock = pinnedOnlyEntries.length > 0
+    ? `\n[TỪ ĐIỂN GHIM BẮT BUỘC (${pinnedOnlyEntries.length} thuật ngữ)]:\n${pinnedOnlyEntries.map(formatPolishGlossaryLine).join('\n')}`
+    : '';
+
+  const continuityBlock = formatContinuityContextBlock(continuity);
   const prompt = `[THÔNG TIN BẢN THẢO]
 Thể loại: ${cleanGenre}
 Tông giọng: ${cleanTone}
@@ -316,21 +354,12 @@ ${cleanDescription && cleanDescription.trim() ? `[NGUYÊN TẮC DỊCH THUẬT &
 [YÊU CẦU BIÊN TẬP BỔ SUNG TỪ NGƯỜI DÙNG]
 ${cleanAdditionalInstructions && cleanAdditionalInstructions.trim() ? cleanAdditionalInstructions.trim() : 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể, giữ trọn vẹn văn phong tiểu thuyết.'}
 
-${strategy.inputLabel}
+${continuityBlock}${strategy.inputLabel}
 ${cleanRawTranslation}
 
 [BẢN GỐC TIẾNG TRUNG ĐỐI CHIẾU]
 ${substitutedSourceText}
-
-${matchedTermsList.length > 0 ? `\n[TỪ ĐIỂN RIÊNG ĐÃ XUẤT HIỆN TRONG ĐOẠN NÀY (${matchedTermsList.length} thuật ngữ, ${totalMatchOccurrences} lần xuất hiện)]:
-${matchedTermsList.map(term => {
-  const g = glossary.find((item: any) => item.chinese === term || (Array.isArray(item.variants) && item.variants.includes(term)));
-  if (!g) return '';
-  const cn = sanitizePromptInput(g.chinese || '');
-  const variants = Array.isArray(g.variants) ? g.variants.map((v: string) => sanitizePromptInput(v)).filter(Boolean) : [];
-  const vi = sanitizePromptInput(g.vietnamese || '');
-  return `- [${cn}${variants.length ? ' / ' + variants.join(' / ') : ''}] -> [${vi}] (Bắt buộc dùng bản dịch này)`;
-}).filter(Boolean).join('\n')}` : ''}
+${matchedGlossaryBlock}${pinnedGlossaryBlock}
 
 [HƯỚNG DẪN BIÊN TẬP VĂN HỌC]
 ${getGenreStyleGuide(cleanGenre)}
@@ -391,16 +420,18 @@ export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
   const cleanDescription = sanitizePromptInput(description || "");
 
   let glossarySection = "";
-  if (Array.isArray(glossary) && glossary.length > 0) {
-    const glossaryLines = glossary
-      .filter((g: any) => g.chinese && g.vietnamese)
-      .slice(0, 150)
-      .map((g: any) => {
-        const cn = sanitizePromptInput(g.chinese || '');
-        const vi = sanitizePromptInput(g.vietnamese || '');
-        const tp = sanitizePromptInput(g.type || 'other');
-        const nt = sanitizePromptInput(g.note || '');
-        return `- Trung: [${cn}] -> Việt: [${vi}] (Loại: ${tp}${nt ? `, Ghi chú: ${nt}` : ''})`;
+  const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
+  if (sanitizedGlossary.length > 0) {
+    const { entries: relevantGlossary } = selectRelevantGlossary(sourceText, sanitizedGlossary);
+    const glossaryLines = relevantGlossary
+      .filter((g) => g.chinese && g.vietnamese)
+      .map((g) => {
+        const cn = g.chinese;
+        const vi = g.vietnamese;
+        const tp = g.type || 'other';
+        const nt = g.note || '';
+        const profileSuffix = formatCharacterProfileSuffix(g);
+        return `- Trung: [${cn}] -> Việt: [${vi}] (Loại: ${tp}${nt ? `, Ghi chú: ${nt}` : ''}${profileSuffix})`;
       })
       .join("\n");
     if (glossaryLines) {
@@ -418,23 +449,33 @@ export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "Bạn là một chuyên gia kiểm định chất lượng (QA) dịch thuật Trung - Việt chuyên nghiệp.\n" +
-    "Nhiệm vụ của bạn là kiểm tra xem bản dịch tiếng Việt có đầy đủ, chính xác so với văn bản gốc tiếng Trung hay không.\n" +
+    "Nhiệm vụ của bạn là kiểm tra xem bản dịch tiếng Việt có đầy đủ, trung thực và chính xác so với văn bản gốc tiếng Trung hay không.\n" +
+    buildInstructionPriorityBlock(
+      "KHI KIỂM DUYỆT QA",
+      "TÔN TRỌNG VĂN PHONG BIÊN TẬP thuần Việt khi nghĩa gốc, từ điển và xưng hô đều đã chính xác."
+    ) +
     (contextDirectives ? `BỐI CẢNH DỰ ÁN:${contextDirectives}\n\n` : "") +
-    "Hãy đối chiếu kỹ văn bản gốc tiếng Trung và bản dịch tiếng Việt để phát hiện các lỗi sau:\n" +
-    "1. Bỏ sót / cắt xén (Omissions): Những câu, đoạn hoặc chi tiết quan trọng trong bản gốc tiếng Trung bị thiếu trong bản dịch.\n" +
-    "2. Thêm thắt / ảo giác (Additions/Hallucinations): Thông tin tự vẽ ra, không hề có trong bản gốc tiếng Trung.\n" +
-    "3. Lặp lại nội dung (Repetitions): Câu chữ bị lặp đi lặp lại nhiều lần vô nghĩa trong bản dịch.\n" +
-    "4. Sai thuật ngữ / từ điển (Terminology): Dịch sai các thuật ngữ, danh từ riêng hoặc nhân vật đã được quy ước rõ trong bảng từ điển đính kèm.\n\n" +
+    "Hãy đối chiếu kỹ văn bản gốc tiếng Trung và bản dịch tiếng Việt để phát hiện đủ 8 nhóm lỗi sau:\n" +
+    "1. Bỏ sót / cắt xén (omission / Omissions): Câu, đoạn hoặc chi tiết quan trọng trong bản gốc tiếng Trung bị thiếu trong bản dịch.\n" +
+    "2. Thêm thắt / ảo giác (addition / Additions): Tình tiết, nhân vật hoặc tên riêng tự vẽ ra, không hề có trong bản gốc tiếng Trung.\n" +
+    "3. Lặp lại nội dung (repetition / Repetitions): Câu chữ bị lặp đi lặp lại nhiều lần vô nghĩa trong bản dịch.\n" +
+    "4. Sai thuật ngữ / từ điển (terminology / Terminology): Dịch sai hoặc bỏ quên tên riêng, thuật ngữ đã quy ước trong bảng từ điển.\n" +
+    "5. Dịch sai nghĩa (mistranslation): Hiểu nhầm ngữ pháp/thành ngữ tiếng Trung dẫn tới sai lệch hoàn toàn ý nghĩa câu gốc.\n" +
+    "6. Sai đại từ / xưng hô (pronoun): Dùng nhầm giới tính đại từ (hắn/nàng), ngôi tự xưng hoặc quan hệ xưng hô so với hồ sơ nhân vật và cẩm nang.\n" +
+    "7. Sót chữ Hán / rác dịch thô (raw_leak): Còn sót ký tự chữ Hán chưa dịch hoặc ngoặc chú thích thô như [Tên] trong bản dịch cuối.\n" +
+    "8. Lỗi khác (other): Lỗi nghiêm trọng khác làm hỏng trải nghiệm đọc.\n\n" +
     "Yêu cầu về trích dẫn lỗi (targetText):\n" +
     "- Với mỗi lỗi phát hiện, bạn BẮT BUỘC phải trích dẫn NGUYÊN VĂN (copy chính xác từng ký tự, không diễn giải, không sửa từ, không thêm dấu ngoặc kép) câu hoặc đoạn văn bản tiếng Việt trong bản dịch trực tiếp liên quan đến lỗi vào trường 'targetText'.\n" +
     "- Trường hợp ĐẶC BIỆT: Nếu lỗi là BỎ SÓT (omission) mà câu/đoạn hoàn toàn không xuất hiện trong bản dịch tiếng Việt để trích dẫn, bạn ĐƯỢC PHÉP để 'targetText' là chuỗi rỗng (\"\").\n\n" +
     "Bạn PHẢI trả về kết quả dưới định dạng JSON theo schema được yêu cầu, chứa danh sách các lỗi phát hiện được (hoặc mảng trống nếu không có lỗi). Hãy phản hồi cực kỳ nghiêm ngặt và chính xác.";
 
+  const cleanSourceText = sanitizePromptInput(sourceText);
+  const cleanTranslatedText = sanitizePromptInput(translatedText);
   const prompt = `--- VĂN BẢN TRUNG GỐC ---
-${sourceText}
+${cleanSourceText}
 
 --- BẢN DỊCH TIẾNG VIỆT ---
-${translatedText}${glossarySection}
+${cleanTranslatedText}${glossarySection}
 
 Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản dịch đối chiếu với bối cảnh và từ điển trên.`;
 
@@ -443,7 +484,7 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
     properties: {
       isValid: {
         type: "BOOLEAN",
-        description: "true nếu không phát hiện bất kỳ lỗi nghiêm trọng nào về bỏ sót, thêm thắt hoặc lặp lại. false nếu phát hiện lỗi."
+        description: "true nếu không phát hiện bất kỳ lỗi nghiêm trọng nào. false nếu phát hiện lỗi."
       },
       issues: {
         type: "ARRAY",
@@ -453,8 +494,18 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
           properties: {
             type: {
               type: "STRING",
-              enum: ["omission", "addition", "repetition", "terminology", "other"],
-              description: "Loại lỗi phát hiện: omission (bỏ sót), addition (thêm thắt), repetition (lặp lại), terminology (sai từ điển), other (khác)."
+              enum: [
+                "omission",
+                "addition",
+                "repetition",
+                "terminology",
+                "mistranslation",
+                "pronoun",
+                "raw_leak",
+                "other"
+              ],
+              description:
+                "Loại lỗi: omission (bỏ sót), addition (thêm thắt), repetition (lặp lại), terminology (sai từ điển), mistranslation (dịch sai nghĩa), pronoun (sai xưng hô/giới tính), raw_leak (sót chữ Hán/ngoặc thô), other (khác)."
             },
             severity: {
               type: "STRING",

@@ -5,6 +5,30 @@
 
 export type GlossaryType = 'character' | 'location' | 'term' | 'phrase' | 'other';
 
+export type CharacterGender = 'male' | 'female' | 'neutral' | 'unknown';
+
+export interface CharacterRelationRule {
+    /** Tên tiếng Trung, tên tiếng Việt hoặc vai trò của đối phương */
+    targetName: string;
+    /** Đại từ nhân vật này tự xưng với đối phương */
+    selfPronoun: string;
+    /** Đại từ nhân vật này gọi đối phương */
+    targetPronoun: string;
+    /** Ghi chú hoàn cảnh áp dụng tùy chọn */
+    note?: string;
+}
+
+export interface CharacterProfile {
+    /** Giới tính nhân vật để cố định đại từ ngôi thứ 3 và xưng hô */
+    gender?: CharacterGender;
+    /** Ngôi tự xưng mặc định khi nói chuyện chung */
+    defaultSelfPronoun?: string;
+    /** Đại từ ngôi thứ 3 trong lời dẫn tự sự */
+    defaultNarrativePronoun?: string;
+    /** Danh sách quy tắc xưng hô cụ thể với các nhân vật/vai trò khác */
+    relations?: CharacterRelationRule[];
+}
+
 export interface GlossaryItem {
     id: string;
     chinese: string;      // Original Chinese characters, e.g. "萧炎"
@@ -19,6 +43,8 @@ export interface GlossaryItem {
     origin?: 'guideline' | 'scanned' | 'manual';
     variants?: string[];  // Traditional/Simplified variants under canonicalization
     needsReview?: boolean;
+    isPinned?: boolean;
+    characterProfile?: CharacterProfile;
 }
 
 /**
@@ -37,6 +63,8 @@ export interface PendingGlossaryItem {
     importedAt: string;
     needsReview?: boolean;
     sourceChapterId?: string;
+    isPinned?: boolean;
+    characterProfile?: CharacterProfile;
 }
 
 export type ChapterStatus = 'not_started' | 'in_progress' | 'completed';
@@ -46,6 +74,27 @@ export type ChapterStatus = 'not_started' | 'in_progress' | 'completed';
 // 'out_of_date' = chương đã đăng nhưng bản dịch local đã sửa sau đó; 'error' = lần đăng/cập nhật gần nhất thất bại.
 export type ZuminovelSyncStatus = 'never_published' | 'synced' | 'out_of_date' | 'error';
 
+export type QaIssueType =
+    | 'omission'
+    | 'addition'
+    | 'repetition'
+    | 'terminology'
+    | 'mistranslation'
+    | 'pronoun'
+    | 'raw_leak'
+    | 'other';
+
+export interface ChapterQaIssue {
+    type: QaIssueType;
+    severity: 'critical' | 'warning' | 'info';
+    targetText: string;
+    description: string;
+    paragraphIndex?: number;
+    source?: 'deterministic' | 'ai_critique';
+    expectedTerm?: { chinese: string; vietnamese: string };
+    repaired?: boolean;
+}
+
 export interface ChapterMetadata {
     id: string;
     title: string;
@@ -54,12 +103,7 @@ export interface ChapterMetadata {
     updatedAt: string;
     zuminovelChapterId?: string;
     zuminovelSyncStatus?: ZuminovelSyncStatus;
-    qaIssues?: Array<{
-        type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'other';
-        severity: 'critical' | 'warning' | 'info';
-        targetText: string;
-        description: string;
-    }>;
+    qaIssues?: ChapterQaIssue[];
 }
 
 export interface Chapter {
@@ -83,12 +127,7 @@ export interface Chapter {
     zuminovelSyncStatus?: ZuminovelSyncStatus;
     zuminovelPublishedAt?: string;       // ISO timestamp lần đăng/cập nhật thành công gần nhất
     // --- QA Critique results (optional, additive) ---
-    qaIssues?: Array<{
-        type: 'omission' | 'addition' | 'repetition' | 'terminology' | 'other';
-        severity: 'critical' | 'warning' | 'info';
-        targetText: string;
-        description: string;
-    }>;
+    qaIssues?: ChapterQaIssue[];
 }
 
 export interface StoryProject {

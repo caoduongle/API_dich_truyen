@@ -10,10 +10,12 @@ import {
   isPolishTranslationResponse,
   PolishTranslationResponse,
   ensureChapterTitlePreserved,
+  stripDuplicatedContinuityOverlap,
   validateTranslationOutput,
   validatePolishIntegrity,
   validateParagraphParity,
   estimateTokenCount,
+  getPolishStrategyForRound,
   DiscoveredEntity,
   validateDiscoveredEntity,
   verifySourceCoverage,
@@ -33,6 +35,18 @@ import {
   mergeBranchTelemetry,
   recordSplitEvent,
 } from './telemetry';
+
+function buildContinuityTail(text: string | undefined, maxChars: number): string {
+  if (!text || !text.trim()) return '';
+  const tail = text
+    .replace(/\r\n/g, '\n')
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .slice(-2)
+    .join('\n\n');
+  return tail.length > maxChars ? tail.slice(-maxChars) : tail;
+}
 
 /**
  * Gọi Gemini API đơn lẻ cho 1 khối văn bản chuốt văn
@@ -64,7 +78,9 @@ export async function callPolishDirectCore(
 
   const effectiveTemperature = typeof temperature === 'number'
     ? temperature
-    : (roundIndex === 2 ? 0.5 : 0.3);
+    : (params.roundIndex !== undefined
+        ? getPolishStrategyForRound(roundIndex, totalRounds).temperature
+        : 0.3);
 
   const { systemInstruction, prompt, schema } = buildPolishTranslationPayload({
     sourceText,
@@ -77,6 +93,7 @@ export async function callPolishDirectCore(
     isExtractionEnabled,
     roundIndex,
     totalRounds,
+    ...(params.continuity ? { continuity: params.continuity } : {}),
   });
 
   const response = await callGeminiDirect({
@@ -131,6 +148,10 @@ export async function callPolishDirectCore(
     }
   }
 
+  finalPolishedTranslation = stripDuplicatedContinuityOverlap(
+    finalPolishedTranslation,
+    params.continuity?.previousTranslationTail
+  );
   finalPolishedTranslation = ensureChapterTitlePreserved(rawTranslation, finalPolishedTranslation);
   validateTranslationOutput(finalPolishedTranslation);
   validatePolishIntegrity(rawTranslation, finalPolishedTranslation);
@@ -186,12 +207,22 @@ export async function polishWithContentSplitDirect(
           ? (currentKeyIdx + i) % apiKeys.length
           : currentKeyIdx;
 
+        const chunkContinuity =
+          i > 0
+            ? {
+                previousSourceTail: buildContinuityTail(bilingualChunks[i - 1].sourceText, 350),
+                previousTranslationTail: buildContinuityTail(polishedChunks[polishedChunks.length - 1], 500),
+                sourceKind: 'previous-chunk' as const,
+              }
+            : params.continuity;
+
         const res = await polishWithContentSplitDirect(
           {
             ...params,
             sourceText: chunk.sourceText,
             rawTranslation: chunk.rawText,
             startKeyIndex: staggeredKey,
+            ...(chunkContinuity ? { continuity: chunkContinuity } : {}),
           },
           0,
           true
@@ -326,6 +357,8 @@ export async function polishWithContentSplitDirect(
               rawTranslation: chunk.rawText,
               startKeyIndex: staggeredKeyIndex,
               cumulativeTimeoutMs: remainingDeadlineMs,
+              // Không truyền ngữ cảnh nhánh trước khi chia nhỏ phục hồi lỗi để cô lập nhánh sạch
+              continuity: undefined,
             },
             depth + 1,
             true

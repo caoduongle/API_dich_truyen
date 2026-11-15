@@ -1,13 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { GlossaryType, GlossaryItem } from '../../types';
+import { CharacterProfile, GlossaryType, GlossaryItem } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { isHanEquivalent } from '../../lib/sinoNormalize';
+import { normalizeCharacterProfile } from '../../lib/glossaryMatch';
 import { Button } from '../ui/Button';
 import { cn } from '../../lib/cn';
+import CharacterProfileFields from './CharacterProfileFields';
 
 interface AddGlossaryFormProps {
   glossary: GlossaryItem[];
-  onSave: (item: { chinese: string; pinyin: string; vietnamese: string; type: GlossaryType; note: string }, force?: boolean) => void;
+  onSave: (
+    item: {
+      chinese: string;
+      pinyin: string;
+      vietnamese: string;
+      type: GlossaryType;
+      note: string;
+      isPinned?: boolean;
+      characterProfile?: CharacterProfile;
+    },
+    force?: boolean
+  ) => void;
   onCancel: () => void;
   onSelectExistingItem: (item: GlossaryItem) => void;
 }
@@ -24,6 +37,8 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
   const [vietnamese, setVietnamese] = useState('');
   const [type, setType] = useState<GlossaryType>('character');
   const [note, setNote] = useState('');
+  const [isPinned, setIsPinned] = useState(false);
+  const [characterProfile, setCharacterProfile] = useState<CharacterProfile>({ gender: 'unknown' });
   const [warningItem, setWarningItem] = useState<GlossaryItem | null>(null);
   const [errors, setErrors] = useState<{ chinese?: string; vietnamese?: string }>({});
 
@@ -71,7 +86,16 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
       showToast({ message: "Thuật ngữ trùng lặp phát hiện. Vui lòng chọn 'Vẫn tạo mới' hoặc 'Dùng entry đó'.", type: 'warning' });
       return;
     }
-    onSave({ chinese, pinyin, vietnamese, type, note });
+    const normalizedProfile = type === 'character' ? normalizeCharacterProfile(characterProfile) : undefined;
+    onSave({
+      chinese,
+      pinyin,
+      vietnamese,
+      type,
+      note,
+      ...(isPinned ? { isPinned: true } : {}),
+      ...(normalizedProfile ? { characterProfile: normalizedProfile } : {}),
+    });
   };
 
   const handleUseExisting = () => {
@@ -90,7 +114,16 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
       showToast({ message: "Vui lòng nhập đầy đủ các trường bắt buộc.", type: 'warning' });
       return;
     }
-    onSave({ chinese, pinyin, vietnamese, type, note }, true);
+    const normalizedProfile = type === 'character' ? normalizeCharacterProfile(characterProfile) : undefined;
+    onSave({
+      chinese,
+      pinyin,
+      vietnamese,
+      type,
+      note,
+      ...(isPinned ? { isPinned: true } : {}),
+      ...(normalizedProfile ? { characterProfile: normalizedProfile } : {}),
+    }, true);
   };
 
   return (
@@ -197,6 +230,14 @@ export const AddGlossaryForm = React.memo(function AddGlossaryForm({
           className="w-full text-xs bg-ink border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-text-main focus:outline-none focus:border-polish"
         />
       </div>
+
+      <CharacterProfileFields
+        type={type}
+        isPinned={isPinned}
+        onChangePinned={setIsPinned}
+        characterProfile={characterProfile}
+        onChangeProfile={setCharacterProfile}
+      />
 
       {warningItem && (
         <div

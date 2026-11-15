@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Sparkles, Loader2 } from 'lucide-react';
-import { GlossaryItem, GlossaryType, StoryProject } from '../../types';
+import { CharacterProfile, GlossaryItem, GlossaryType, StoryProject } from '../../types';
 import { useNotifications } from '../NotificationSystem';
 import { isHanEquivalent } from '../../lib/sinoNormalize';
 import { quickTranslateTermDirect } from '../../services/directGeminiClient';
+import { normalizeCharacterProfile } from '../../lib/glossaryMatch';
+import { CharacterProfileFields } from '../glossary-manager/CharacterProfileFields';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 
@@ -33,6 +35,13 @@ export function QuickAddTermModal({
   const [quickVietnamese, setQuickVietnamese] = useState('');
   const [quickType, setQuickType] = useState<GlossaryType>('character');
   const [quickNote, setQuickNote] = useState('');
+  const [quickIsPinned, setQuickIsPinned] = useState(false);
+  const [quickCharacterProfile, setQuickCharacterProfile] = useState<CharacterProfile>({
+    gender: 'unknown',
+    defaultSelfPronoun: '',
+    defaultNarrativePronoun: '',
+    relations: [],
+  });
 
   const handleTriggerQuickAdd = async () => {
     if (!selectedTerm) return;
@@ -42,6 +51,13 @@ export function QuickAddTermModal({
     setQuickVietnamese('');
     setQuickType('character');
     setQuickNote('');
+    setQuickIsPinned(false);
+    setQuickCharacterProfile({
+      gender: 'unknown',
+      defaultSelfPronoun: '',
+      defaultNarrativePronoun: '',
+      relations: [],
+    });
 
     try {
       const termData = await quickTranslateTermDirect({
@@ -91,6 +107,11 @@ export function QuickAddTermModal({
       return;
     }
 
+    const normalizedProfile =
+      quickType === 'character'
+        ? normalizeCharacterProfile(quickCharacterProfile)
+        : undefined;
+
     const newItem: GlossaryItem = {
       id: 'term_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       chinese: trimmedChinese,
@@ -100,6 +121,8 @@ export function QuickAddTermModal({
       note: quickNote.trim(),
       origin: 'manual',
       createdAt: new Date().toISOString(),
+      ...(quickIsPinned ? { isPinned: true } : {}),
+      ...(normalizedProfile ? { characterProfile: normalizedProfile } : {}),
     };
 
     const updated = {
@@ -217,6 +240,15 @@ export function QuickAddTermModal({
                   className="w-full text-xs bg-ink border border-parchment-2 rounded-[2px] px-2.5 py-1.5 text-text-main focus:outline-none focus:border-polish font-semibold"
                 />
               </div>
+
+              <CharacterProfileFields
+                type={quickType}
+                isPinned={quickIsPinned}
+                onChangePinned={setQuickIsPinned}
+                characterProfile={quickCharacterProfile}
+                onChangeProfile={setQuickCharacterProfile}
+                compact
+              />
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-parchment-2">

@@ -41,6 +41,8 @@ export interface UnifiedAuditPanelProps {
   isCheckingQa: boolean;
   /** Hàm kích hoạt kiểm định chất lượng AI thủ công */
   onRunAiQaCritique: () => void;
+  /** Hàm sửa mục tiêu các đoạn văn bị lỗi nghiêm trọng (Feature 163) */
+  onRepairCriticalIssues?: () => void | Promise<void>;
   /** Callback khi người dùng click vào thẻ lỗi */
   onIssueClick?: (issue: UnifiedAuditIssue) => void;
   /** Cảnh báo lệch đoạn văn bản giữa bản gốc và bản dịch */
@@ -147,6 +149,7 @@ export function UnifiedAuditPanel({
   qaIssues = [],
   isCheckingQa,
   onRunAiQaCritique,
+  onRepairCriticalIssues,
   onIssueClick,
   isMismatch = false,
   sourceParaCount = 0,
@@ -511,23 +514,42 @@ export function UnifiedAuditPanel({
             </div>
           </div>
 
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            onClick={onRunAiQaCritique}
-            disabled={isCheckingQa}
-            icon={
-              isCheckingQa ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="w-3.5 h-3.5" />
-              )
-            }
-            className="text-xs font-bold shrink-0 cursor-pointer"
-          >
-            {isCheckingQa ? 'Đang thẩm định AI...' : 'Chạy AI Thẩm định'}
-          </Button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onRepairCriticalIssues &&
+              qaIssues.some(
+                (i) => i.severity === 'critical' && typeof i.paragraphIndex === 'number' && !i.repaired
+              ) && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={onRepairCriticalIssues}
+                  disabled={isCheckingQa}
+                  icon={<Wand2 className="w-3.5 h-3.5 text-polish" />}
+                  className="text-xs font-bold shrink-0 cursor-pointer"
+                  title="Dịch và chuốt lại chỉ riêng các đoạn văn bị đánh dấu lỗi nghiêm trọng"
+                >
+                  Sửa đoạn lỗi nghiêm trọng
+                </Button>
+              )}
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={onRunAiQaCritique}
+              disabled={isCheckingQa}
+              icon={
+                isCheckingQa ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )
+              }
+              className="text-xs font-bold shrink-0 cursor-pointer"
+            >
+              {isCheckingQa ? 'Đang thẩm định AI...' : 'Chạy AI Thẩm định'}
+            </Button>
+          </div>
         </div>
 
         {/* Tab lọc danh mục */}
