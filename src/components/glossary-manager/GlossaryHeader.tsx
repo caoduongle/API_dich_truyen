@@ -5,6 +5,7 @@ import { Badge } from '../ui/Badge';
 
 export interface GlossaryHeaderProps {
   exportGlossaryToMd: () => void;
+  onOpenExportModal?: () => void;
   glossaryLength: number;
   showDuplicatePanel: boolean;
   duplicateGroupsLength: number;
@@ -20,6 +21,7 @@ export interface GlossaryHeaderProps {
 
 export const GlossaryHeader = React.memo(function GlossaryHeader({
   exportGlossaryToMd,
+  onOpenExportModal,
   glossaryLength,
   showDuplicatePanel,
   duplicateGroupsLength,
@@ -49,12 +51,12 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
           id="btn-export-glossary-md"
           variant="secondary"
           size="sm"
-          onClick={exportGlossaryToMd}
+          onClick={onOpenExportModal ?? exportGlossaryToMd}
           disabled={glossaryLength === 0}
           icon={<Download className="w-3.5 h-3.5 text-polish" />}
-          title={glossaryLength === 0 ? 'Từ điển đang trống' : `Xuất ${glossaryLength} thuật ngữ ra file .md`}
+          title={glossaryLength === 0 ? 'Từ điển đang trống' : `Xuất ${glossaryLength} thuật ngữ ra file (.md / .csv / .json)`}
         >
-          Xuất từ điển (.md)
+          Xuất từ điển
         </Button>
 
         <Button
@@ -111,7 +113,7 @@ export const GlossaryHeader = React.memo(function GlossaryHeader({
           }}
           icon={<UploadCloud className="w-3.5 h-3.5 text-polish" />}
         >
-          Nhập file cẩm nang (.md)
+          Nhập file cẩm nang
         </Button>
 
         <Button

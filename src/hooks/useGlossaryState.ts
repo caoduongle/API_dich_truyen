@@ -3,8 +3,16 @@ import { CharacterProfile, GlossaryItem, GlossaryType, PendingGlossaryItem, Chap
 import { normalizeCharacterProfile } from '../lib/glossaryMatch';
 import { useNotifications } from '../context/NotificationContext';
 import { triggerDownload } from '../utils/download';
-import { isHanEquivalent } from '../lib/sinoNormalize';
 import { analyzeGuidelinesDirect } from '../services/directGlossaryEngine';
+import {
+  analyzeGlossaryImportConflicts,
+  DuplicateResolutionStrategy,
+  GlossaryExportOptions,
+  GlossaryImportPreview,
+  MAX_GLOSSARY_IMPORT_FILE_BYTES,
+  parseStructuredGlossaryFile,
+  serializeGlossary,
+} from '../services/glossaryIO';
 import { useGlossaryDuplicates } from './useGlossaryDuplicates';
 import { useGlossaryContextSearch } from './useGlossaryContextSearch';
 
@@ -126,9 +134,12 @@ export function useGlossaryState({
   }, [deferredSearchTerm, selectedType, selectedOrigin, searchDate, pageSize]);
 
   const [isAdding, setIsAdding] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [mdFileName, setMdFileName] = useState('');
   const [isAnalyzingMd, setIsAnalyzingMd] = useState(false);
+  const [importPreview, setImportPreview] = useState<GlossaryImportPreview | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<GlossaryItem | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const mdInputRef = useRef<HTMLInputElement>(null);
@@ -201,108 +212,235 @@ export function useGlossaryState({
     setIsAdding(false);
   }, [onAddGlossaryItem]);
 
-  const handleMdImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const resetImportPreview = useCallback(() => {
+    setImportPreview(null);
+    setImportError(null);
+    setMdFileName('');
+  }, []);
+
+  const handleImportFile = useCallback(async (file: File) => {
+    if (!file || isAnalyzingMd) return;
+
+    setImportError(null);
+    setImportPreview(null);
+
+    if (file.size === 0) {
+      const msg = 'Tệp đang rỗng, không có dữ liệu để nhập.';
+      setImportError(msg);
+      showToast({ message: msg, type: 'warning' });
+      return;
+    }
+
+    if (file.size > MAX_GLOSSARY_IMPORT_FILE_BYTES) {
+      const msg = 'Tệp vượt quá giới hạn 10 MB. Vui lòng chia nhỏ tệp trước khi nhập.';
+      setImportError(msg);
+      showToast({ message: msg, type: 'error' });
+      return;
+    }
 
     setMdFileName(file.name);
     setIsAnalyzingMd(true);
 
     try {
-      const mdText = await file.text();
-      const data = await analyzeGuidelinesDirect({ text: mdText, apiKeys: apiKeys, model: selectedModel });
-      if (data.truncated) {
-        showToast({
-          message: `Lưu ý: Chỉ ${data.analyzedLength!.toLocaleString()} / ${data.originalLength!.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích để tối ưu hiệu suất.`,
-          type: 'warning'
-        });
-      }
-      const extractedList: Omit<GlossaryItem, 'id'>[] = data.extractedGlossary || [];
-      if (extractedList.length === 0) {
-        showToast({ message: "Không tìm thấy thuật ngữ nào có thể trích xuất từ tệp chỉ dẫn này.", type: 'warning' });
+      const text = await file.text();
+      if (!text.trim()) {
+        const msg = 'Nội dung tệp rỗng, không có thuật ngữ nào để nhập.';
+        setImportError(msg);
+        showToast({ message: msg, type: 'warning' });
         return;
       }
 
-      const cleanItemsToAdd: Omit<GlossaryItem, 'id'>[] = [];
-      const duplicateReviewList: Array<GlossaryItem & { reason: string }> = [];
-      const fileCh = new Map<string, Omit<GlossaryItem, 'id'>>();
-      const fileVi = new Map<string, Omit<GlossaryItem, 'id'>>();
-
-      extractedList.forEach((item, idx) => {
-        if (!item.chinese || !item.vietnamese) return;
-
-        const cleanChKey = item.chinese.replace(/\s+/g, '').trim().toLowerCase();
-        const cleanViKey = item.vietnamese.trim().toLowerCase();
-
-        let hasConflict = false;
-        let reason = '';
-
-        const systemCnMatch = glossary.find(g => isHanEquivalent(g.chinese, item.chinese));
-        const systemViMatch = glossary.find(g => g.vietnamese.trim().toLowerCase() === cleanViKey);
-        const fileChMatch = Array.from(fileCh.values()).find(fItem => isHanEquivalent(fItem.chinese, item.chinese));
-
-        if (systemCnMatch) {
-          hasConflict = true;
-          reason = `Trùng từ điển: Chữ gốc '${item.chinese}' đã có bản dịch là '${systemCnMatch.vietnamese}'.`;
-        } else if (systemViMatch) {
-          hasConflict = true;
-          reason = `Trùng định nghĩa: Nghĩa Việt '${item.vietnamese}' đã được gán cho từ gốc '${systemViMatch.chinese}'.`;
-        } else if (fileChMatch) {
-          hasConflict = true;
-          reason = `Lặp nội bộ tệp: Chữ Trung '${item.chinese}' xuất hiện nhiều lần trong file .MD.`;
-        } else if (fileVi.has(cleanViKey)) {
-          hasConflict = true;
-          reason = `Trùng nội bộ tệp: Nghĩa tiếng Việt '${item.vietnamese}' bị gán trùng lặp trong file .MD.`;
+      const structured = parseStructuredGlossaryFile(text, file.name);
+      if (structured) {
+        if (structured.items.length === 0) {
+          const msg = 'Không tìm thấy thuật ngữ hợp lệ nào trong bảng dữ liệu của tệp.';
+          setImportError(msg);
+          showToast({ message: msg, type: 'warning' });
+          return;
         }
-
-        if (hasConflict) {
-          duplicateReviewList.push({
-            id: 'glo_md_review_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).substring(2, 6),
-            chinese: item.chinese.trim(),
-            pinyin: item.pinyin?.trim() || item.vietnamese.trim(),
-            vietnamese: item.vietnamese.trim(),
-            type: item.type || 'character',
-            note: item.note?.trim() || '',
-            reason: reason,
-            createdAt: new Date().toISOString()
-          });
-        } else {
-          fileCh.set(cleanChKey, item);
-          fileVi.set(cleanViKey, item);
-          cleanItemsToAdd.push({ ...item, origin: 'guideline', createdAt: new Date().toISOString() });
-        }
-      });
-
-      let directsSavedCount = cleanItemsToAdd.length;
-      if (onAddGlossaryItems && cleanItemsToAdd.length > 0) {
-        onAddGlossaryItems(cleanItemsToAdd);
-      } else {
-        cleanItemsToAdd.forEach((item) => onAddGlossaryItem(item));
-      }
-
-      if (duplicateReviewList.length > 0) {
-        setReviewQueue(prev => [...prev, ...duplicateReviewList]);
-        showToast({
-          message: `Phân tích xong! Thêm thành công ${directsSavedCount} từ. Phát hiện ${duplicateReviewList.length} từ trùng lặp đã chuyển vào mục 'Rà soát trùng lặp'.`,
-          type: 'info'
+        const { cleanItems, conflicts } = analyzeGlossaryImportConflicts(structured.items, glossary);
+        setImportPreview({
+          fileName: file.name,
+          mode: 'direct',
+          sourceFormat: structured.sourceFormat,
+          cleanItems,
+          conflicts,
+          skippedRows: structured.skippedRows,
+          warnings: structured.warnings,
+          rawTextForAiFallback: structured.sourceFormat === 'md' || structured.sourceFormat === 'txt' ? text : undefined,
         });
-      } else {
-        showToast({ message: `Thành công mỹ mãn! Đã tải toàn bộ ${directsSavedCount} từ mượt mà từ tệp .MD vào từ điển.`, type: 'success' });
+        return;
       }
 
-      setIsImporting(false);
-      setMdFileName('');
+      // Unstructured prose (.md / .txt) -> AI extraction
+      const data = await analyzeGuidelinesDirect({ text, apiKeys, model: selectedModel });
+      const warnings: string[] = [];
+      if (data.truncated) {
+        warnings.push(
+          `Chỉ ${data.analyzedLength!.toLocaleString()} / ${data.originalLength!.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích bằng AI.`
+        );
+      }
 
+      const extractedList: Omit<GlossaryItem, 'id'>[] = (data.extractedGlossary || []).map((item) => ({
+        ...item,
+        origin: 'guideline' as const,
+        createdAt: item.createdAt || new Date().toISOString(),
+      }));
+
+      if (extractedList.length === 0) {
+        const msg = 'Không tìm thấy thuật ngữ nào có thể trích xuất từ tệp chỉ dẫn này.';
+        setImportError(msg);
+        showToast({ message: msg, type: 'warning' });
+        return;
+      }
+
+      const { cleanItems, conflicts } = analyzeGlossaryImportConflicts(extractedList, glossary);
+      setImportPreview({
+        fileName: file.name,
+        mode: 'ai',
+        sourceFormat: file.name.toLowerCase().endsWith('.txt') ? 'txt' : 'md',
+        cleanItems,
+        conflicts,
+        skippedRows: 0,
+        warnings,
+      });
     } catch (err: any) {
       console.error(err);
-      showToast({ message: "Đã xảy ra lỗi khi phân tích: " + err.message, type: 'error' });
+      const msg = err?.message ? `Đã xảy ra lỗi khi đọc tệp: ${err.message}` : 'Đã xảy ra lỗi khi đọc tệp cẩm nang.';
+      setImportError(msg);
+      showToast({ message: msg, type: 'error' });
     } finally {
       setIsAnalyzingMd(false);
-      if (e.target) {
-        e.target.value = '';
+    }
+  }, [isAnalyzingMd, glossary, apiKeys, selectedModel, showToast]);
+
+  const retryImportWithAi = useCallback(async () => {
+    if (!importPreview?.rawTextForAiFallback || isAnalyzingMd) return;
+    setIsAnalyzingMd(true);
+    setImportError(null);
+
+    try {
+      const data = await analyzeGuidelinesDirect({
+        text: importPreview.rawTextForAiFallback,
+        apiKeys,
+        model: selectedModel,
+      });
+      const warnings: string[] = [];
+      if (data.truncated) {
+        warnings.push(
+          `Chỉ ${data.analyzedLength!.toLocaleString()} / ${data.originalLength!.toLocaleString()} ký tự đầu tiên của cẩm nang được phân tích bằng AI.`
+        );
+      }
+      const extractedList: Omit<GlossaryItem, 'id'>[] = (data.extractedGlossary || []).map((item) => ({
+        ...item,
+        origin: 'guideline' as const,
+        createdAt: item.createdAt || new Date().toISOString(),
+      }));
+      if (extractedList.length === 0) {
+        showToast({ message: 'AI không trích xuất được thêm thuật ngữ nào từ tệp này.', type: 'warning' });
+        return;
+      }
+      const { cleanItems, conflicts } = analyzeGlossaryImportConflicts(extractedList, glossary);
+      setImportPreview({
+        fileName: importPreview.fileName,
+        mode: 'ai',
+        sourceFormat: importPreview.sourceFormat,
+        cleanItems,
+        conflicts,
+        skippedRows: 0,
+        warnings,
+      });
+    } catch (err: any) {
+      console.error(err);
+      const msg = err?.message ? `Lỗi phân tích AI: ${err.message}` : 'Lỗi phân tích AI.';
+      setImportError(msg);
+      showToast({ message: msg, type: 'error' });
+    } finally {
+      setIsAnalyzingMd(false);
+    }
+  }, [importPreview, isAnalyzingMd, apiKeys, selectedModel, glossary, showToast]);
+
+  const confirmImport = useCallback((strategy: DuplicateResolutionStrategy) => {
+    if (!importPreview) return;
+
+    const { cleanItems, conflicts } = importPreview;
+    let addedCount = 0;
+    let overwrittenCount = 0;
+    let reviewCount = 0;
+    let skippedConflictCount = 0;
+
+    if (cleanItems.length > 0) {
+      if (onAddGlossaryItems) {
+        onAddGlossaryItems(cleanItems);
+      } else {
+        cleanItems.forEach((item) => onAddGlossaryItem(item));
+      }
+      addedCount = cleanItems.length;
+    }
+
+    if (conflicts.length > 0) {
+      if (strategy === 'review') {
+        const reviewItems = conflicts.map((c) => c.item);
+        setReviewQueue((prev) => [...prev, ...reviewItems]);
+        reviewCount = reviewItems.length;
+      } else if (strategy === 'overwrite') {
+        const updatesById = new Map<string, GlossaryItem>();
+        conflicts.forEach((c) => {
+          if (c.conflictKind === 'system_chinese' && c.existingId && c.existingItem) {
+            updatesById.set(c.existingId, {
+              ...c.existingItem,
+              pinyin: c.item.pinyin,
+              vietnamese: c.item.vietnamese,
+              type: c.item.type,
+              note: c.item.note,
+              ...(c.item.variants && c.item.variants.length > 0 ? { variants: c.item.variants } : {}),
+              ...(c.item.characterProfile ? { characterProfile: c.item.characterProfile } : {}),
+              createdAt: c.item.createdAt || c.existingItem.createdAt,
+            });
+          } else {
+            skippedConflictCount++;
+          }
+        });
+
+        overwrittenCount = updatesById.size;
+        if (overwrittenCount > 0) {
+          if (activeProject && onUpdateProject) {
+            const nextGlossary = activeProject.glossary.map((g) => updatesById.get(g.id) ?? g);
+            onUpdateProject({ ...activeProject, glossary: nextGlossary });
+          } else {
+            updatesById.forEach((updated, id) => onUpdateGlossaryItem(id, updated));
+          }
+        }
+      } else {
+        skippedConflictCount = conflicts.length;
       }
     }
-  };
+
+    const parts: string[] = [];
+    if (addedCount > 0) parts.push(`thêm mới ${addedCount} từ`);
+    if (overwrittenCount > 0) parts.push(`cập nhật ${overwrittenCount} từ trùng`);
+    if (reviewCount > 0) parts.push(`chuyển ${reviewCount} từ vào mục 'Rà soát trùng lặp'`);
+    if (skippedConflictCount > 0) parts.push(`bỏ qua ${skippedConflictCount} từ trùng/lặp`);
+
+    showToast({
+      message: parts.length > 0
+        ? `Hoàn tất nhập từ điển: ${parts.join(', ')}.`
+        : 'Không có thuật ngữ nào được thay đổi.',
+      type: reviewCount > 0 ? 'info' : 'success',
+    });
+
+    setIsImporting(false);
+    resetImportPreview();
+  }, [importPreview, onAddGlossaryItems, onAddGlossaryItem, activeProject, onUpdateProject, onUpdateGlossaryItem, showToast, resetImportPreview]);
+
+  const handleMdImportFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleImportFile(file);
+    if (e.target) {
+      e.target.value = '';
+    }
+  }, [handleImportFile]);
 
   const handleAcceptReviewItem = useCallback((reviewId: string) => {
     const item = reviewQueue.find(r => r.id === reviewId);
@@ -356,56 +494,6 @@ export function useGlossaryState({
     }));
   }, []);
 
-  const exportGlossaryToMd = useCallback(() => {
-    if (glossary.length === 0) {
-      showToast({ message: 'Từ điển đang trống, không có gì để xuất!', type: 'warning' });
-      return;
-    }
-
-    const typeOrder: GlossaryType[] = ['character', 'location', 'term', 'phrase', 'other'];
-    const typeLabel: Record<GlossaryType, string> = {
-      character: 'Nhân vật', location: 'Địa danh', term: 'Bí kíp / Vật phẩm',
-      phrase: 'Thành ngữ / Cụm từ', other: 'Thuật ngữ khác',
-    };
-    const grouped: Record<string, GlossaryItem[]> = {};
-    typeOrder.forEach((t) => { grouped[t] = []; });
-    glossary.forEach((item) => {
-      if (grouped[item.type]) grouped[item.type].push(item);
-      else grouped['other'].push(item);
-    });
-    const now = new Date().toLocaleString('vi-VN');
-    const lines: string[] = [];
-
-    lines.push(`# Từ Điển Dự Án`);
-    lines.push('');
-    lines.push(`> Xuất tự động lúc: **${now}** `);
-    lines.push(`> Tổng số thuật ngữ: **${glossary.length}**`);
-    lines.push('');
-    lines.push('---');
-    lines.push('');
-    typeOrder.forEach((type) => {
-      const items = grouped[type];
-      if (items.length === 0) return;
-
-      lines.push(`## ${typeLabel[type]} (${items.length})`);
-      lines.push('');
-      lines.push('| Tiếng Trung | Phiên âm | Tiếng Việt | Ghi chú |');
-      lines.push('|-------------|----------|------------|---------|');
-
-      items.forEach((item) => {
-        const esc = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
-        lines.push(`| ${esc(item.chinese)} | ${esc(item.pinyin)} | ${esc(item.vietnamese)} | ${esc(item.note)} |`);
-      });
-      lines.push('');
-    });
-
-    const mdContent = lines.join('\n');
-    const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    triggerDownload(url, `tu-dien-du-an-${Date.now()}.md`);
-    URL.revokeObjectURL(url);
-  }, [glossary, showToast]);
-
   const startEdit = useCallback((item: GlossaryItem) => {
     setEditingId(item.id);
   }, []);
@@ -449,6 +537,37 @@ export function useGlossaryState({
       return matchesSearch && matchesType && matchesOrigin && matchesDate;
     });
   }, [glossary, deferredSearchTerm, selectedType, selectedOrigin, searchDate]);
+
+  const exportGlossary = useCallback((options: GlossaryExportOptions) => {
+    const scope = options.scope || 'all';
+    const targetItems = scope === 'filtered' ? filteredGlossary : glossary;
+    if (targetItems.length === 0) {
+      showToast({
+        message: scope === 'filtered'
+          ? 'Danh sách đang lọc không có thuật ngữ nào để xuất!'
+          : 'Từ điển đang trống, không có gì để xuất!',
+        type: 'warning',
+      });
+      return;
+    }
+
+    const { content, mimeType, filename } = serializeGlossary(targetItems, {
+      ...options,
+      projectName: options.projectName ?? activeProject?.title,
+    });
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, filename);
+    URL.revokeObjectURL(url);
+    showToast({
+      message: `Đã xuất ${targetItems.length} thuật ngữ ra tệp ${filename}.`,
+      type: 'success',
+    });
+  }, [glossary, filteredGlossary, activeProject?.title, showToast]);
+
+  const exportGlossaryToMd = useCallback(() => {
+    exportGlossary({ format: 'md', scope: 'all', projectName: activeProject?.title });
+  }, [exportGlossary, activeProject?.title]);
 
   const highlightWordInText = useCallback((text: string, word: string) => {
     if (!word || !text) return text;
@@ -494,10 +613,14 @@ export function useGlossaryState({
     setCurrentPage,
     isAdding,
     setIsAdding,
+    isExportModalOpen,
+    setIsExportModalOpen,
     isImporting,
     setIsImporting,
     mdFileName,
     isAnalyzingMd,
+    importPreview,
+    importError,
     selectedItem,
     setSelectedItem,
     editingId,
@@ -522,10 +645,15 @@ export function useGlossaryState({
     handleSelectItem,
     handleDetailSave,
     handleAddFormSave,
+    handleImportFile,
     handleMdImportFileChange,
+    confirmImport,
+    retryImportWithAi,
+    resetImportPreview,
     handleAcceptReviewItem,
     handleDiscardReviewItem,
     handleUpdateReviewItem,
+    exportGlossary,
     exportGlossaryToMd,
     startEdit,
     cancelEdit,

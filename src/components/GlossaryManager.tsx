@@ -9,6 +9,7 @@ export { computeDuplicateGroups, computeMergeHanGroups };
 // Sub-components
 import { GlossaryHeader } from './glossary-manager/GlossaryHeader';
 import { AddGlossaryForm } from './glossary-manager/AddGlossaryForm';
+import { ExportGlossaryModal } from './glossary-manager/ExportGlossaryModal';
 import { ImportGuidelinesModal } from './glossary-manager/ImportGuidelinesModal';
 import { ReviewQueuePanel } from './glossary-manager/ReviewQueuePanel';
 import { DuplicatePanel } from './glossary-manager/DuplicatePanel';
@@ -69,10 +70,14 @@ function GlossaryManager({
     setCurrentPage,
     isAdding,
     setIsAdding,
+    isExportModalOpen,
+    setIsExportModalOpen,
     isImporting,
     setIsImporting,
     mdFileName,
     isAnalyzingMd,
+    importPreview,
+    importError,
     selectedItem,
     setSelectedItem,
     editingId,
@@ -97,10 +102,15 @@ function GlossaryManager({
     handleSelectItem,
     handleDetailSave,
     handleAddFormSave,
+    handleImportFile,
     handleMdImportFileChange,
+    confirmImport,
+    retryImportWithAi,
+    resetImportPreview,
     handleAcceptReviewItem,
     handleDiscardReviewItem,
     handleUpdateReviewItem,
+    exportGlossary,
     exportGlossaryToMd,
     startEdit,
     cancelEdit,
@@ -162,6 +172,7 @@ function GlossaryManager({
     <div id="glossary-manager-root" className="space-y-4 animate-fadeIn">
       <GlossaryHeader
         exportGlossaryToMd={exportGlossaryToMd}
+        onOpenExportModal={() => setIsExportModalOpen(true)}
         glossaryLength={glossary.length}
         showDuplicatePanel={showDuplicatePanel}
         duplicateGroupsLength={duplicateGroups.length}
@@ -175,6 +186,20 @@ function GlossaryManager({
         setIsAdding={setIsAdding}
       />
 
+      <ExportGlossaryModal
+        open={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        totalCount={glossary.length}
+        filteredCount={filteredGlossary.length}
+        isFiltered={
+          Boolean(searchTerm.trim()) ||
+          selectedType !== 'all' ||
+          selectedOrigin !== 'all' ||
+          Boolean(searchDate)
+        }
+        onExport={exportGlossary}
+      />
+
       <ImportGuidelinesModal
         isImporting={isImporting}
         setIsImporting={setIsImporting}
@@ -182,6 +207,12 @@ function GlossaryManager({
         isAnalyzingMd={isAnalyzingMd}
         mdInputRef={mdInputRef}
         handleMdImportFileChange={handleMdImportFileChange}
+        handleImportFile={handleImportFile}
+        importPreview={importPreview}
+        importError={importError}
+        confirmImport={confirmImport}
+        retryImportWithAi={retryImportWithAi}
+        resetImportPreview={resetImportPreview}
       />
 
       {isAdding && (
