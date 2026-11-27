@@ -35,7 +35,11 @@ out/
 coverage/
 .nyc_output/
 .vitest/
+.vitest-cache/
 test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # ------------------------------------------------------------------------------
 # 5. Environment Variables & Secrets
@@ -46,7 +50,12 @@ test-results/
 *.key
 *.cert
 *.crt
+*.pfx
+*.p12
 id_rsa*
+client_secret*.json
+*service-account*.json
+credentials*.json
 
 # ------------------------------------------------------------------------------
 # 6. Patches, Diffs & Temporary Working Files
@@ -57,6 +66,7 @@ id_rsa*
 *.rej
 *.tmp
 *.temp
+*.bak
 
 # ------------------------------------------------------------------------------
 # 7. Tooling & Build Caches
@@ -65,6 +75,7 @@ id_rsa*
 .cache/
 .parcel-cache/
 .turbo/
+.eslintcache
 
 # ------------------------------------------------------------------------------
 # 8. Python Runtime & Cache (e.g. merge.py / auxiliary tools)
@@ -75,6 +86,8 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.venv/
+venv/
 
 # ------------------------------------------------------------------------------
 # 9. Databases & Local Runtime Storage
@@ -85,11 +98,14 @@ dump.rdb
 *.db
 
 # ------------------------------------------------------------------------------
-# 10. Editor & IDE Settings
+# 10. Editor, IDE & AI Tooling Settings
 # ------------------------------------------------------------------------------
 .idea/
 .vscode/*
 !.vscode/extensions.json
+.gemini/
+.claude/
+.cursor/
 *.suo
 *.ntvs*
 *.njsproj
