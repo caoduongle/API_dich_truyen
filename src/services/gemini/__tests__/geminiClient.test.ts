@@ -481,13 +481,13 @@ describe('geminiClient', () => {
       }
     });
 
-    it('throws typed GeminiRequestError with ALL_KEYS_EXHAUSTED when all keys 429', async () => {
+    it('throws typed GeminiRequestError with ALL_KEYS_EXHAUSTED when all keys hit genuine daily quota 429', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 429,
         statusText: 'Too Many Requests',
         json: async () => ({
-          error: { message: 'Quota exhausted for this key' },
+          error: { message: 'Daily quota exhausted for this key' },
         }),
       });
 
@@ -504,6 +504,35 @@ describe('geminiClient', () => {
         expect(reqErr.category).toBe('QUOTA_EXHAUSTED_RPD');
         expect(reqErr.isRetryable).toBe(false);
       }
+    });
+
+    it('treats first ambiguous 429 quota message at low daily usage as recoverable RateLimited instead of QuotaExhausted', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        json: async () => ({
+          error: { message: 'Quota exhausted for this key' },
+        }),
+      });
+
+      let caught: unknown;
+      try {
+        await callGemini({
+          apiKeys: ['KEY_AMB_1'],
+          prompt: 'Hello',
+        });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(GeminiRequestError);
+      const reqErr = caught as GeminiRequestError;
+      expect(reqErr.code).toBe('ALL_KEYS_EXHAUSTED');
+      expect(reqErr.category).toBe('RATE_LIMIT_RPM');
+      expect(reqErr.isRetryable).toBe(true);
+      const status = localQuotaTracker.getQuotaStatus(['KEY_AMB_1']);
+      expect(status.keys[0].healthState).toBe('RateLimited');
     });
 
     it('throws typed GeminiRequestError with ETIMEDOUT when remaining time is depleted', async () => {

@@ -3,12 +3,22 @@
  * Bộ điều phối thực thi yêu cầu gọi API Gemini kèm xoay vòng khóa tự động và xử lý thử lại
  */
 
-import { localQuotaTracker } from '../localQuotaTracker';
+import { localQuotaTracker, type KeyHealthOptions } from '../localQuotaTracker';
+import { AI_SERVICE_CONFIG, RATE_LIMIT_RECOVERY_CONFIG } from '../../config/constants';
+import { getStoredCustomLimits } from '../../utils/customLimitsStorage';
 import { DirectGeminiRequestOptions, DirectGeminiResponse, GeminiRequestError } from './types';
 import { normalizeModelName, buildEndpointUrl, buildPayload } from './geminiRequestBuilder';
 import { executeGeminiFetch, formatGeminiNetworkError } from './geminiTransport';
 import { classifyGeminiError, getErrorMessage } from './geminiErrorClassifier';
-import { initKeySchedule, isKeyAvailable, findNextKey, buildAllKeysUnavailableError } from './geminiKeyScheduler';
+import {
+  initKeySchedule,
+  isKeyAvailable,
+  findNextKey,
+  buildAllKeysUnavailableError,
+  inspectKeyPoolCooldown,
+  waitWithAbort,
+  createServiceOverloadError,
+} from './geminiKeyScheduler';
 
 export async function callGemini(
   options: DirectGeminiRequestOptions & { schema?: Record<string, any> }
@@ -16,7 +26,7 @@ export async function callGemini(
   localQuotaTracker.recordLogicalStart();
 
   try {
-    return await executeLogicalGeminiCall(options);
+    return await executeLogicalGeminiCallWithRecovery(options);
   } catch (err: unknown) {
     const isAbort = (err as { name?: string })?.name === 'AbortError';
     if (!isAbort) {
@@ -26,10 +36,125 @@ export async function callGemini(
   }
 }
 
-async function executeLogicalGeminiCall(
+async function executeLogicalGeminiCallWithRecovery(
   options: DirectGeminiRequestOptions & { schema?: Record<string, any> }
 ): Promise<DirectGeminiResponse> {
-  const schedule = initKeySchedule(options.apiKeys || [], options.startKeyIndex);
+  const useProactivePacing = Boolean(options.enableProactivePacing);
+  const autoWait = Boolean(options.autoWaitForCooldown);
+  const keyHealthOptions: KeyHealthOptions | undefined = useProactivePacing
+    ? { enforceProactiveLimits: true }
+    : undefined;
+
+  const maxCooldownWaits = options.maxCooldownWaits ?? RATE_LIMIT_RECOVERY_CONFIG.MAX_COOLDOWN_WAITS_PER_CHAPTER;
+  const maxOverloadRetries = options.maxOverloadRetries ?? AI_SERVICE_CONFIG.MAX_OVERLOAD_RETRIES;
+
+  let proactiveWaitCount = 0;
+  let passiveCooldownWaits = 0;
+  let overloadRetries = 0;
+
+  while (true) {
+    if (options.signal?.aborted) {
+      const abortErr = new Error('Quá trình đã bị hủy bởi người dùng.');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
+
+    try {
+      return await executeLogicalGeminiCallAttempt(options, keyHealthOptions);
+    } catch (err: unknown) {
+      const errObj = (err && typeof err === 'object' ? err : {}) as {
+        name?: string;
+        code?: string;
+        category?: string;
+        message?: string;
+      };
+      if (errObj.name === 'AbortError') {
+        throw err;
+      }
+
+      if (err instanceof GeminiRequestError && err.code === 'ALL_KEYS_EXHAUSTED' && err.category === 'RATE_LIMIT_RPM') {
+        const cleanKeys = (options.apiKeys || []).map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean);
+        const customLimits = getStoredCustomLimits(cleanKeys);
+        const pool = inspectKeyPoolCooldown(cleanKeys, customLimits, Date.now(), keyHealthOptions);
+
+        // Nếu có khóa vừa mở lại tức thì (ví dụ trong cuộc gọi song song), thử lại ngay không tốn budget
+        if (pool.availableKeyIndex !== -1) {
+          continue;
+        }
+
+        // Nhịp chờ chủ động cửa sổ 60s (Proactive Pacing): tách riêng và không giới hạn số lần chờ
+        if (pool.isProactivePacingOnly && (useProactivePacing || autoWait)) {
+          const waitMs = Math.max(250, pool.minCooldownRemainingMs);
+          proactiveWaitCount++;
+          options.onWaitStatus?.({
+            kind: 'proactive_pacing',
+            waitMs,
+            attempt: proactiveWaitCount,
+            reason: err.message,
+            nextKeyIndex: pool.nextRecoveringKeyIndex >= 0 ? pool.nextRecoveringKeyIndex : undefined,
+          });
+          await waitWithAbort(waitMs, options.signal);
+          continue;
+        }
+
+        // Nhịp chờ bị động sau khi thực sự chạm cooldown 429 RPM từ nhà cung cấp: có trần an toàn
+        if (autoWait && pool.hasRecoverableCooldown && pool.minCooldownRemainingMs > 0) {
+          if (passiveCooldownWaits >= maxCooldownWaits) {
+            throw err;
+          }
+          passiveCooldownWaits++;
+          const waitMs = pool.minCooldownRemainingMs;
+          options.onWaitStatus?.({
+            kind: 'rate_limit_cooldown',
+            waitMs,
+            attempt: passiveCooldownWaits,
+            maxAttempts: maxCooldownWaits,
+            reason: err.message,
+            nextKeyIndex: pool.nextRecoveringKeyIndex >= 0 ? pool.nextRecoveringKeyIndex : undefined,
+          });
+          await waitWithAbort(waitMs, options.signal);
+          continue;
+        }
+
+        throw err;
+      }
+
+      if (err instanceof GeminiRequestError && err.category === 'SERVICE_OVERLOAD') {
+        if (!autoWait || overloadRetries >= maxOverloadRetries) {
+          throw err;
+        }
+        overloadRetries++;
+        const cleanKeys = (options.apiKeys || []).map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean);
+        const customLimits = getStoredCustomLimits(cleanKeys);
+        const pool = inspectKeyPoolCooldown(cleanKeys, customLimits, Date.now(), keyHealthOptions);
+        const expBackoffMs = 3_000 * Math.pow(2, overloadRetries - 1);
+        const minWaitForOpenKey =
+          pool.availableKeyIndex === -1 && pool.minCooldownRemainingMs > 0
+            ? pool.minCooldownRemainingMs + 100
+            : 0;
+        const backoffMs = Math.min(20_000, Math.max(expBackoffMs, minWaitForOpenKey));
+        options.onWaitStatus?.({
+          kind: 'service_overload',
+          waitMs: backoffMs,
+          attempt: overloadRetries,
+          maxAttempts: maxOverloadRetries,
+          reason: err.message,
+          ...(pool.nextRecoveringKeyIndex >= 0 ? { nextKeyIndex: pool.nextRecoveringKeyIndex } : {}),
+        });
+        await waitWithAbort(backoffMs, options.signal);
+        continue;
+      }
+
+      throw err;
+    }
+  }
+}
+
+async function executeLogicalGeminiCallAttempt(
+  options: DirectGeminiRequestOptions & { schema?: Record<string, any> },
+  keyHealthOptions?: KeyHealthOptions
+): Promise<DirectGeminiResponse> {
+  const schedule = initKeySchedule(options.apiKeys || [], options.startKeyIndex, keyHealthOptions);
   const { rawKeys, customLimits } = schedule;
   let { currentKeyIdx, attemptsCount } = schedule;
 
@@ -60,8 +185,8 @@ async function executeLogicalGeminiCall(
 
     const currentKey = rawKeys[currentKeyIdx];
 
-    if (!isKeyAvailable(currentKey, customLimits)) {
-      const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);
+    if (!isKeyAvailable(currentKey, customLimits, keyHealthOptions)) {
+      const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits, keyHealthOptions);
       if (nextIdx === -1 || (nextIdx === schedule.currentKeyIdx && attemptsCount > 0)) {
         break;
       }
@@ -142,10 +267,13 @@ async function executeLogicalGeminiCall(
             response.status === 500);
 
         if (isRateLimitOrOverload) {
-          const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);
+          const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits, keyHealthOptions);
           if (nextIdx === -1 || attemptsCount >= rawKeys.length - 1) {
             if (classified.category === 'QUOTA_EXHAUSTED_RPD' || classified.category === 'RATE_LIMIT_RPM' || response.status === 429) {
-              throw buildAllKeysUnavailableError(rawKeys, customLimits, errMsg);
+              throw buildAllKeysUnavailableError(rawKeys, customLimits, errMsg, keyHealthOptions);
+            }
+            if (classified.category === 'SERVICE_OVERLOAD' || response.status === 503 || response.status === 500) {
+              throw createServiceOverloadError(lastError?.message || errMsg, classified.recommendedCooldownMs);
             }
             throw lastError;
           }
@@ -161,7 +289,7 @@ async function executeLogicalGeminiCall(
         if (response.status === 400) {
           throw lastError;
         }
-        const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);
+        const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits, keyHealthOptions);
         if (nextIdx === -1) {
           throw lastError;
         }
@@ -270,7 +398,7 @@ async function executeLogicalGeminiCall(
       if (attemptsCount === rawKeys.length - 1) {
         throw lastError;
       }
-      const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);
+      const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits, keyHealthOptions);
       if (nextIdx === -1) {
         throw lastError;
       }
@@ -284,5 +412,5 @@ async function executeLogicalGeminiCall(
     throw lastError;
   }
 
-  throw buildAllKeysUnavailableError(rawKeys, customLimits);
+  throw buildAllKeysUnavailableError(rawKeys, customLimits, undefined, keyHealthOptions);
 }

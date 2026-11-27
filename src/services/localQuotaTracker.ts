@@ -16,12 +16,23 @@ import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 import { classifyGeminiError } from './gemini/geminiErrorClassifier';
 import { RATE_LIMIT_RECOVERY_CONFIG } from '../config/constants';
 
+const DEFAULT_FALLBACK_MAX_RPM = 15;
+const DEFAULT_AMBIGUOUS_429_DAILY_REF = 500;
+const MAX_PROACTIVE_WAIT_MS = 65_000;
+
+function sanitizePositiveLimit(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : undefined;
+}
+
 export interface PoolCooldownAnalysis {
   availableKeyIndex: number;
   minCooldownRemainingMs: number;
   nextRecoveringKeyIndex: number;
   hasRecoverableCooldown: boolean;
   allPermanentlyExhausted: boolean;
+  isProactivePacingOnly?: boolean;
 }
 
 export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
@@ -33,6 +44,11 @@ export interface KeyHealthResult {
   transitionReason?: string;
   isAvailable: boolean;
   isCustomLimitReached?: boolean;
+  isProactivePacing?: boolean;
+}
+
+export interface KeyHealthOptions {
+  enforceProactiveLimits?: boolean;
 }
 
 export interface CallAttemptEntry {
@@ -126,6 +142,7 @@ export interface InternalKeyStats {
   transitionReason?: string;
   lastTransitionAt: number;
   consecutiveSuccesses: number;
+  consecutiveAmbiguous429?: number;
   circuitBreakerStatus: CircuitBreakerStatus;
   cooldownUntil: number;
 }
@@ -388,6 +405,7 @@ export class LocalQuotaTracker {
             cooldownUntil,
             consecutiveErrors: isDayChanged ? 0 : (item.consecutiveErrors || 0),
             consecutiveSuccesses: item.consecutiveSuccesses || 0,
+            consecutiveAmbiguous429: isDayChanged ? 0 : (item.consecutiveAmbiguous429 || 0),
             lastTransitionAt: item.lastTransitionAt || now,
           });
         }
@@ -433,6 +451,7 @@ export class LocalQuotaTracker {
           errorsTotal: k.errorsTotal,
           consecutiveErrors: k.consecutiveErrors,
           consecutiveSuccesses: k.consecutiveSuccesses,
+          consecutiveAmbiguous429: k.consecutiveAmbiguous429 || 0,
           tokensTotal: k.tokensTotal,
           tokensToday: k.tokensToday,
           lastResetDay: k.lastResetDay,
@@ -492,6 +511,7 @@ export class LocalQuotaTracker {
         transitionReason: 'Khởi tạo trạng thái ban đầu',
         lastTransitionAt: now,
         consecutiveSuccesses: 0,
+        consecutiveAmbiguous429: 0,
         circuitBreakerStatus: 'Closed',
         cooldownUntil: 0,
       };
@@ -502,6 +522,7 @@ export class LocalQuotaTracker {
     if (stats.lastResetDay !== currentDay) {
       stats.requestsToday = 0;
       stats.tokensToday = 0;
+      stats.consecutiveAmbiguous429 = 0;
       stats.lastResetDay = currentDay;
       if (stats.healthState === 'QuotaExhausted') {
         stats.healthState = 'Healthy';
@@ -639,6 +660,7 @@ export class LocalQuotaTracker {
     keyStats.tokensTotal += totalTokens;
     keyStats.tokensToday += totalTokens;
     keyStats.consecutiveErrors = 0;
+    keyStats.consecutiveAmbiguous429 = 0;
     keyStats.consecutiveSuccesses++;
     keyStats.recentTokens.push({ timestamp: now, tokens: totalTokens });
 
@@ -719,6 +741,25 @@ export class LocalQuotaTracker {
       keyStats.circuitBreakerStatus = 'Open';
       keyStats.cooldownUntil = getNextPstMidnight(now);
       keyStats.transitionReason = '429: Hạn mức ngày đã hết (RPD Quota Exhausted)';
+    } else if (classified.reason === 'MessageFallback_AmbiguousQuota') {
+      const nextAmbiguousCount = (keyStats.consecutiveAmbiguous429 || 0) + 1;
+      keyStats.consecutiveAmbiguous429 = nextAmbiguousCount;
+      const customLimits = getStoredCustomLimits();
+      const customMaxRpd = sanitizePositiveLimit(customLimits?.[keyStats.keyHash]?.maxRpd);
+      const dailyReference = customMaxRpd ?? DEFAULT_AMBIGUOUS_429_DAILY_REF;
+
+      if (nextAmbiguousCount === 1 && keyStats.requestsToday < dailyReference) {
+        const waitMs = dynamicCooldownMs ?? 50 * 1000;
+        keyStats.healthState = 'RateLimited';
+        keyStats.circuitBreakerStatus = 'Open';
+        keyStats.cooldownUntil = now + waitMs;
+        keyStats.transitionReason = `429: Tạm nghỉ nghi ngờ giới hạn tốc độ RPM (~${Math.ceil(waitMs / 1000)}s)`;
+      } else {
+        keyStats.healthState = 'QuotaExhausted';
+        keyStats.circuitBreakerStatus = 'Open';
+        keyStats.cooldownUntil = getNextPstMidnight(now);
+        keyStats.transitionReason = '429: Hạn mức ngày đã hết sau xác nhận lặp lại (RPD Quota Exhausted)';
+      }
     } else if (error.isRateLimit || classified.category === 'RATE_LIMIT_RPM') {
       const waitMs = dynamicCooldownMs ?? 45 * 1000;
       keyStats.healthState = 'RateLimited';
@@ -752,20 +793,23 @@ export class LocalQuotaTracker {
   public getKeyHealth(
     key: string,
     now: number = Date.now(),
-    customLimit?: CustomLimit
+    customLimit?: CustomLimit,
+    options?: KeyHealthOptions
   ): KeyHealthResult {
     const stats = this.getOrCreateKeyStats(key, now);
+    const configuredMaxRpd = sanitizePositiveLimit(customLimit?.maxRpd);
 
     // 1. Kiểm tra nếu vi phạm giới hạn cá nhân tự đặt (Max RPD)
-    if (customLimit && typeof customLimit.maxRpd === 'number' && customLimit.maxRpd > 0) {
-      if (stats.requestsToday >= customLimit.maxRpd) {
+    if (configuredMaxRpd !== undefined) {
+      if (stats.requestsToday >= configuredMaxRpd) {
         return {
           state: 'QuotaExhausted',
           circuitBreaker: stats.circuitBreakerStatus,
           cooldownRemainingMs: 0,
-          transitionReason: `Đã chạm ngưỡng giới hạn cá nhân trong ngày (${stats.requestsToday}/${customLimit.maxRpd} RPD)`,
+          transitionReason: `Đã chạm ngưỡng giới hạn cá nhân trong ngày (${stats.requestsToday}/${configuredMaxRpd} RPD)`,
           isAvailable: false,
           isCustomLimitReached: true,
+          isProactivePacing: false,
         };
       }
     }
@@ -779,6 +823,7 @@ export class LocalQuotaTracker {
         transitionReason: stats.transitionReason,
         isAvailable: false,
         isCustomLimitReached: false,
+        isProactivePacing: false,
       };
     }
 
@@ -792,6 +837,7 @@ export class LocalQuotaTracker {
         transitionReason: stats.transitionReason,
         isAvailable: false,
         isCustomLimitReached: false,
+        isProactivePacing: false,
       };
     }
 
@@ -809,6 +855,7 @@ export class LocalQuotaTracker {
           transitionReason: stats.transitionReason,
           isAvailable: false,
           isCustomLimitReached: false,
+          isProactivePacing: false,
         };
       } else {
         // Cooldown đã kết thúc -> chuyển sang HalfOpen để thử nghiệm
@@ -823,6 +870,50 @@ export class LocalQuotaTracker {
 
     const isAvail = stats.healthState === 'Healthy' || stats.healthState === 'Degraded';
 
+    // 5. Cổng điều tiết chủ động cửa sổ trượt 60s (Proactive RPM/TPM Gate) — giữ nguyên HealthState trên UI
+    if (isAvail && (customLimit !== undefined || options?.enforceProactiveLimits)) {
+      const minuteThreshold = now - 60_000;
+      const effectiveMaxRpm =
+        sanitizePositiveLimit(customLimit?.maxRpm) ??
+        (options?.enforceProactiveLimits ? DEFAULT_FALLBACK_MAX_RPM : undefined);
+      const effectiveMaxTpm = sanitizePositiveLimit(customLimit?.maxTpm);
+
+      if (effectiveMaxRpm !== undefined) {
+        const activeAttempts = stats.recentAttempts.filter((a) => a.timestamp > minuteThreshold);
+        if (activeAttempts.length >= effectiveMaxRpm) {
+          const oldestTs = Math.min(...activeAttempts.map((a) => a.timestamp));
+          const waitMs = Math.min(MAX_PROACTIVE_WAIT_MS, Math.max(250, oldestTs + 60_000 - now + 200));
+          return {
+            state: stats.healthState,
+            circuitBreaker: stats.circuitBreakerStatus,
+            cooldownRemainingMs: waitMs,
+            transitionReason: `Điều tiết chủ động: đạt ngưỡng ${activeAttempts.length}/${effectiveMaxRpm} RPM trong 60s`,
+            isAvailable: false,
+            isCustomLimitReached: false,
+            isProactivePacing: true,
+          };
+        }
+      }
+
+      if (effectiveMaxTpm !== undefined) {
+        const activeTokens = stats.recentTokens.filter((t) => t.timestamp > minuteThreshold);
+        const tokensThisMinute = activeTokens.reduce((acc, t) => acc + t.tokens, 0);
+        if (tokensThisMinute >= effectiveMaxTpm && activeTokens.length > 0) {
+          const oldestTs = Math.min(...activeTokens.map((t) => t.timestamp));
+          const waitMs = Math.min(MAX_PROACTIVE_WAIT_MS, Math.max(250, oldestTs + 60_000 - now + 200));
+          return {
+            state: stats.healthState,
+            circuitBreaker: stats.circuitBreakerStatus,
+            cooldownRemainingMs: waitMs,
+            transitionReason: `Điều tiết chủ động: đạt ngưỡng ${tokensThisMinute}/${effectiveMaxTpm} TPM trong 60s`,
+            isAvailable: false,
+            isCustomLimitReached: false,
+            isProactivePacing: true,
+          };
+        }
+      }
+    }
+
     return {
       state: stats.healthState,
       circuitBreaker: stats.circuitBreakerStatus,
@@ -830,6 +921,7 @@ export class LocalQuotaTracker {
       transitionReason: stats.transitionReason,
       isAvailable: isAvail,
       isCustomLimitReached: false,
+      isProactivePacing: false,
     };
   }
 
@@ -862,14 +954,15 @@ export class LocalQuotaTracker {
   }
 
   /**
-   * Quét danh sách các keys bắt đầu từ startIndex để tìm key đầu tiên khả dụng (chưa chạm quota/cooldown)
-   * Trả về -1 nếu toàn bộ keys đều không khả dụng.
+   * Quét danh sách các keys, ưu tiên khóa khả dụng nguội nhất (ít RPM 60s gần nhất và lastRequestTimestamp cũ nhất),
+   * dùng khoảng cách vòng tròn từ startIndex để phá hòa. Trả về -1 nếu toàn bộ keys đều không khả dụng.
    */
   public findNextAvailableKeyIndex(
     keys: string[],
     startIndex: number = 0,
     customLimits?: Record<string, CustomLimit>,
-    now: number = Date.now()
+    now: number = Date.now(),
+    options?: KeyHealthOptions
   ): number {
     const cleanKeys = Array.isArray(keys)
       ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
@@ -882,20 +975,44 @@ export class LocalQuotaTracker {
 
     const effectiveLimits = customLimits || getStoredCustomLimits();
     const safeStart = startIndex >= 0 ? startIndex % cleanKeys.length : 0;
+    const minuteThreshold = now - 60_000;
 
-    for (let attempt = 0; attempt < cleanKeys.length; attempt++) {
-      const idx = (safeStart + attempt) % cleanKeys.length;
+    let bestIdx = -1;
+    let bestRpmCount = Number.MAX_SAFE_INTEGER;
+    let bestLastTs = Number.MAX_SAFE_INTEGER;
+    let bestOffset = Number.MAX_SAFE_INTEGER;
+
+    for (let offset = 0; offset < cleanKeys.length; offset++) {
+      const idx = (safeStart + offset) % cleanKeys.length;
       const key = cleanKeys[idx];
       const keyHash = hashApiKey(key);
       const limit = effectiveLimits ? effectiveLimits[keyHash] : undefined;
-      const health = this.getKeyHealth(key, now, limit);
+      const health = this.getKeyHealth(key, now, limit, options);
 
-      if (health.isAvailable) {
-        return idx;
+      if (!health.isAvailable) {
+        continue;
+      }
+
+      const stats = this.keyStatsMap.get(keyHash);
+      const rpmCount = stats
+        ? stats.recentAttempts.filter((a) => a.timestamp > minuteThreshold).length
+        : 0;
+      const lastTs = stats?.lastRequestTimestamp ?? 0;
+
+      if (
+        bestIdx === -1 ||
+        rpmCount < bestRpmCount ||
+        (rpmCount === bestRpmCount && lastTs < bestLastTs) ||
+        (rpmCount === bestRpmCount && lastTs === bestLastTs && offset < bestOffset)
+      ) {
+        bestIdx = idx;
+        bestRpmCount = rpmCount;
+        bestLastTs = lastTs;
+        bestOffset = offset;
       }
     }
 
-    return -1;
+    return bestIdx;
   }
 
   /**
@@ -904,7 +1021,8 @@ export class LocalQuotaTracker {
   public getPoolCooldownAnalysis(
     keys: string[],
     customLimits?: Record<string, CustomLimit>,
-    now: number = Date.now()
+    now: number = Date.now(),
+    options?: KeyHealthOptions
   ): PoolCooldownAnalysis {
     const cleanKeys = Array.isArray(keys)
       ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
@@ -917,6 +1035,7 @@ export class LocalQuotaTracker {
         nextRecoveringKeyIndex: -1,
         hasRecoverableCooldown: false,
         allPermanentlyExhausted: true,
+        isProactivePacingOnly: false,
       };
     }
 
@@ -924,13 +1043,15 @@ export class LocalQuotaTracker {
     this.migrateLegacyKeyStats(cleanKeys);
     const effectiveLimits = customLimits || getStoredCustomLimits();
 
-    let minCooldownRemainingMs = Number.MAX_SAFE_INTEGER;
-    let nextRecoveringKeyIndex = -1;
+    let minProactiveMs = Number.MAX_SAFE_INTEGER;
+    let nextProactiveIndex = -1;
+    let minErrorCooldownMs = Number.MAX_SAFE_INTEGER;
+    let nextErrorIndex = -1;
 
     for (let idx = 0; idx < cleanKeys.length; idx++) {
       const key = cleanKeys[idx];
       const limit = effectiveLimits ? effectiveLimits[hashApiKey(key)] : undefined;
-      const health = this.getKeyHealth(key, now, limit);
+      const health = this.getKeyHealth(key, now, limit, options);
 
       if (health.isAvailable) {
         return {
@@ -939,7 +1060,16 @@ export class LocalQuotaTracker {
           nextRecoveringKeyIndex: idx,
           hasRecoverableCooldown: false,
           allPermanentlyExhausted: false,
+          isProactivePacingOnly: false,
         };
+      }
+
+      if (health.isProactivePacing && health.cooldownRemainingMs > 0) {
+        if (health.cooldownRemainingMs < minProactiveMs) {
+          minProactiveMs = health.cooldownRemainingMs;
+          nextProactiveIndex = idx;
+        }
+        continue;
       }
 
       if (
@@ -947,23 +1077,27 @@ export class LocalQuotaTracker {
         (health.state === 'RateLimited' || health.state === 'Cooldown' || health.state === 'Degraded') &&
         health.cooldownRemainingMs > 0
       ) {
-        if (health.cooldownRemainingMs < minCooldownRemainingMs) {
-          minCooldownRemainingMs = health.cooldownRemainingMs;
-          nextRecoveringKeyIndex = idx;
+        if (health.cooldownRemainingMs < minErrorCooldownMs) {
+          minErrorCooldownMs = health.cooldownRemainingMs;
+          nextErrorIndex = idx;
         }
       }
     }
 
-    if (nextRecoveringKeyIndex === -1) {
+    if (nextProactiveIndex === -1 && nextErrorIndex === -1) {
       return {
         availableKeyIndex: -1,
         minCooldownRemainingMs: 0,
         nextRecoveringKeyIndex: -1,
         hasRecoverableCooldown: false,
         allPermanentlyExhausted: true,
+        isProactivePacingOnly: false,
       };
     }
 
+    const useProactive = nextProactiveIndex !== -1 && minProactiveMs <= minErrorCooldownMs;
+    const minCooldownRemainingMs = useProactive ? minProactiveMs : minErrorCooldownMs;
+    const nextRecoveringKeyIndex = useProactive ? nextProactiveIndex : nextErrorIndex;
     const isRecoverable =
       minCooldownRemainingMs <= RATE_LIMIT_RECOVERY_CONFIG.MAX_AUTO_WAIT_COOLDOWN_MS;
 
@@ -973,6 +1107,7 @@ export class LocalQuotaTracker {
       nextRecoveringKeyIndex,
       hasRecoverableCooldown: isRecoverable,
       allPermanentlyExhausted: !isRecoverable,
+      isProactivePacingOnly: useProactive,
     };
   }
 
@@ -1030,13 +1165,18 @@ export class LocalQuotaTracker {
       }
 
       const runtime: KeyRuntimeStatus = {
-        isBlacklisted: !health.isAvailable,
-        blacklistRemainingMs: health.cooldownRemainingMs,
+        isBlacklisted: !health.isAvailable && !health.isProactivePacing,
+        blacklistRemainingMs: health.isProactivePacing ? 0 : health.cooldownRemainingMs,
         isRateLimited: health.state === 'RateLimited',
-        nextAllowedRemainingMs: health.state === 'RateLimited' ? health.cooldownRemainingMs : 0,
+        nextAllowedRemainingMs: health.state === 'RateLimited'
+          ? health.cooldownRemainingMs
+          : health.isProactivePacing
+            ? health.cooldownRemainingMs
+            : 0,
         healthState: health.state,
         transitionReason: health.transitionReason,
         isCustomLimitReached: health.isCustomLimitReached,
+        isProactivePacing: health.isProactivePacing,
       };
 
       return {

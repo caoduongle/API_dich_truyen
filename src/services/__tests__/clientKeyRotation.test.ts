@@ -107,7 +107,7 @@ describe('src/services/clientKeyRotation.test.ts', () => {
     // Simulate exhaustedKey previously receiving 429 daily quota exhausted
     localQuotaTracker.recordFailure(exhaustedKey, 'gemini-2.5-flash', {
       status: 429,
-      message: 'Resource has been exhausted (e.g. check quota)',
+      message: 'Quota exceeded for quota metric Generate Content API requests per day',
       isRateLimit: true,
     });
 

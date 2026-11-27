@@ -121,6 +121,9 @@ export async function callPolishDirectCore(
     temperature: effectiveTemperature,
     startKeyIndex,
     signal,
+    enableProactivePacing: true,
+    autoWaitForCooldown: true,
+    ...(params.onWaitStatus ? { onWaitStatus: params.onWaitStatus } : {}),
   });
 
   const parseResult = parseGeminiStructuredResponseWithState<PolishTranslationResponse>(response.text, {
@@ -198,7 +201,13 @@ export async function callPolishDirectCore(
       : rawTranslation;
   finalPolishedTranslation = realignParagraphStructure(alignRef, finalPolishedTranslation);
   validateTranslationOutput(finalPolishedTranslation);
-  validatePolishIntegrity(rawTranslation, finalPolishedTranslation);
+  const rawCountForIntegrity = countParagraphs(rawTranslation);
+  const polishedCountForIntegrity = countParagraphs(finalPolishedTranslation);
+  const contextualMinRatio =
+    rawCountForIntegrity >= 3 && rawCountForIntegrity === polishedCountForIntegrity
+      ? 0.72
+      : 0.80;
+  validatePolishIntegrity(rawTranslation, finalPolishedTranslation, 300, contextualMinRatio);
   validateParagraphParity(sourceText, finalPolishedTranslation);
   if (!params.isRetry) {
     validateStrictStructureParity(sourceText, finalPolishedTranslation, {
@@ -238,6 +247,18 @@ export async function polishWithContentSplitDirect(
   }
 
   const callStartTime = Date.now();
+  let accumulatedWaitMs = 0;
+  const wrappedOnWaitStatus: DirectPolishTranslationParams['onWaitStatus'] = (info) => {
+    if (typeof info.waitMs === 'number' && info.waitMs > 0) {
+      accumulatedWaitMs += info.waitMs;
+    }
+    params.onWaitStatus?.(info);
+  };
+  const paramsWithWaitTracking: DirectPolishTranslationParams = {
+    ...params,
+    onWaitStatus: wrappedOnWaitStatus,
+  };
+  const getActiveElapsedMs = () => Math.max(0, Date.now() - callStartTime - accumulatedWaitMs);
 
   // Tiền phân đoạn (Pre-split) nếu văn bản dài (> 1500 token tiếng Trung hoặc > 1800 token tiếng Việt) ở lượt gọi đầu
   if (depth === 0 && !isPreSplit && (estimateTokenCount(sourceText) > 1500 || estimateTokenCount(rawTranslation) > 1800)) {
@@ -267,7 +288,7 @@ export async function polishWithContentSplitDirect(
 
         const res = await polishWithContentSplitDirect(
           {
-            ...params,
+            ...paramsWithWaitTracking,
             sourceText: chunk.sourceText,
             rawTranslation: chunk.rawText,
             startKeyIndex: staggeredKey,
@@ -301,7 +322,7 @@ export async function polishWithContentSplitDirect(
   }
 
   try {
-    const coreResult = await callPolishDirectCore(params);
+    const coreResult = await callPolishDirectCore(paramsWithWaitTracking);
     return {
       ...coreResult,
       isPartial: false,
@@ -372,7 +393,7 @@ export async function polishWithContentSplitDirect(
           throw abortErr;
         }
 
-        const elapsed = Date.now() - callStartTime;
+        const elapsed = getActiveElapsedMs();
         const remainingDeadlineMs = typeof params.cumulativeTimeoutMs === 'number'
           ? Math.max(0, params.cumulativeTimeoutMs - elapsed)
           : undefined;
@@ -401,7 +422,7 @@ export async function polishWithContentSplitDirect(
         try {
           return await polishWithContentSplitDirect(
             {
-              ...params,
+              ...paramsWithWaitTracking,
               sourceText: chunk.sourceText,
               rawTranslation: chunk.rawText,
               startKeyIndex: staggeredKeyIndex,

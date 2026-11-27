@@ -437,12 +437,14 @@ export function useTranslationProcess({
           const isAllKeysExhausted =
             (err as any)?.code === 'ALL_KEYS_EXHAUSTED' ||
             errMsg.includes('Toàn bộ API Key đã hết hạn mức') ||
+            errMsg.includes('Toàn bộ API Key đang tạm nghỉ') ||
+            errMsg.includes('Toàn bộ API Key đang giãn cách') ||
             errMsg.includes('ALL_KEYS_EXHAUSTED');
 
           if (isAllKeysExhausted) {
             allKeysExhausted = true;
             batchFailedIds.push(chapterId);
-            addLog(`Dừng tiến trình tại chương "${chapTitle}" do toàn bộ API Key đã cạn kiệt hạn mức quota.`, 'error');
+            addLog(`Dừng tiến trình tại chương "${chapTitle}" do toàn bộ API Key không thể hồi phục trong khung chờ an toàn (${errMsg}).`, 'error');
             continue;
           }
 
@@ -541,7 +543,7 @@ export function useTranslationProcess({
 
       // ── Dừng nếu all keys exhausted hoặc abort ──
       if (allKeysExhausted) {
-        addLog("⚠️ TẤT CẢ API KEY ĐÃ CẠN KIỆT HẠN MỨC QUOTA!", 'error');
+        addLog("⚠️ TẤT CẢ API KEY ĐÃ CẠN KIỆT HẠN MỨC QUOTA! Tiến trình dừng an toàn để tránh lỗi dây chuyền.", 'error');
         triggerExportDownload();
         break;
       }

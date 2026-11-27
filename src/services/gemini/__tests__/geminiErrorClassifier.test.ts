@@ -141,5 +141,21 @@ describe('classifyGeminiError', () => {
     const fromHeader = extractRetryDelayMs('Too many requests', [], '18');
     expect(fromHeader).toBe(19_500);
   });
+
+  it('classifies ambiguous 429 quota message without daily keywords as MessageFallback_AmbiguousQuota (RATE_LIMIT_RPM)', () => {
+    const classified = classifyGeminiError(429, {
+      error: {
+        code: 429,
+        status: 'RESOURCE_EXHAUSTED',
+        message: 'You exceeded your current quota, please check your plan and billing details.',
+      },
+    });
+
+    expect(classified.category).toBe('RATE_LIMIT_RPM');
+    expect(classified.reason).toBe('MessageFallback_AmbiguousQuota');
+    expect(classified.isRetryable).toBe(true);
+    expect(classified.recommendedCooldownMs).toBeGreaterThanOrEqual(45_000);
+    expect(classified.recommendedCooldownMs).toBeLessThanOrEqual(60_000);
+  });
 });
 

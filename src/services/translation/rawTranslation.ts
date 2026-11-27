@@ -13,6 +13,8 @@ import {
   stripDuplicatedContinuityOverlap,
   validateTranslationOutput,
   calculateChineseCharRatio,
+  countChineseCharacters,
+  countParagraphs,
   splitTextAdaptively,
   estimateTokenCount,
   DiscoveredEntity,
@@ -28,6 +30,7 @@ import {
 } from './types';
 import {
   classifyTranslationOutcome,
+  isNonSplittableInfrastructureError,
 } from './translationValidation';
 import {
   normalizeTranslatedPunctuation,
@@ -226,6 +229,9 @@ export async function callRawDirectCore(
     temperature: 0.3,
     startKeyIndex,
     signal,
+    enableProactivePacing: true,
+    autoWaitForCooldown: true,
+    ...(params.onWaitStatus ? { onWaitStatus: params.onWaitStatus } : {}),
   });
 
   const parseResult = parseGeminiStructuredResponseWithState<RawTranslationResponse>(response.text, {
@@ -358,7 +364,27 @@ export async function callRawDirectCore(
   }
 
   if (!isRetry || anchorParsed.usedAnchors) {
-    validateStrictStructureParity(text, finalRawTranslation);
+    try {
+      validateStrictStructureParity(text, finalRawTranslation);
+    } catch (parityErr: any) {
+      const msg = parityErr?.message || '';
+      if (msg.includes('PARAGRAPH_STRUCTURE_DIVERGENCE')) {
+        const srcCount = countParagraphs(text);
+        const tgtCount = countParagraphs(finalRawTranslation);
+        const delta = Math.abs(srcCount - tgtCount);
+        const minHealthyLength = Math.max(200, Math.round(text.trim().length * 0.8));
+        const canTolerateMinorVariance =
+          srcCount >= 8 &&
+          delta <= 1 &&
+          finalRawTranslation.trim().length >= minHealthyLength &&
+          countChineseCharacters(finalRawTranslation) === 0;
+        if (!canTolerateMinorVariance) {
+          throw parityErr;
+        }
+      } else {
+        throw parityErr;
+      }
+    }
   }
 
   return {
@@ -385,6 +411,18 @@ export async function rawWithContentSplitDirect(
   }
 
   const callStartTime = Date.now();
+  let accumulatedWaitMs = 0;
+  const wrappedOnWaitStatus: DirectRawTranslationParams['onWaitStatus'] = (info) => {
+    if (typeof info.waitMs === 'number' && info.waitMs > 0) {
+      accumulatedWaitMs += info.waitMs;
+    }
+    params.onWaitStatus?.(info);
+  };
+  const paramsWithWaitTracking: DirectRawTranslationParams = {
+    ...params,
+    onWaitStatus: wrappedOnWaitStatus,
+  };
+  const getActiveElapsedMs = () => Math.max(0, Date.now() - callStartTime - accumulatedWaitMs);
 
   if (retryDepth === 0 && !isPreSplit && estimateTokenCount(text) > 2000) {
     const chunks = splitTextAdaptively(text, 2);
@@ -402,7 +440,7 @@ export async function rawWithContentSplitDirect(
             throw abortErr;
           }
 
-          const elapsed = Date.now() - callStartTime;
+          const elapsed = getActiveElapsedMs();
           const remainingDeadlineMs = typeof params.cumulativeTimeoutMs === 'number'
             ? Math.max(0, params.cumulativeTimeoutMs - elapsed)
             : undefined;
@@ -421,7 +459,7 @@ export async function rawWithContentSplitDirect(
 
           return await rawWithContentSplitDirect(
             {
-              ...params,
+              ...paramsWithWaitTracking,
               text: chunk,
               rawSourceText: rawChunkSlices[i],
               startKeyIndex: staggeredKey,
@@ -456,7 +494,7 @@ export async function rawWithContentSplitDirect(
   }
 
   try {
-    const coreResult = await callRawDirectCore(params);
+    const coreResult = await callRawDirectCore(paramsWithWaitTracking);
     return {
       ...coreResult,
       isPartial: false,
@@ -469,7 +507,7 @@ export async function rawWithContentSplitDirect(
     // Sửa phẫu thuật cục bộ ở retryDepth === 0 nếu chỉ thiếu 1–3 đoạn neo hoặc sót chữ Hán ở 1–4 đoạn đơn lẻ
     if (retryDepth === 0 && error instanceof SurgicalRawRecoveryError && !params.signal?.aborted) {
       const remainingAtStart = typeof params.cumulativeTimeoutMs === 'number'
-        ? params.cumulativeTimeoutMs - (Date.now() - callStartTime)
+        ? params.cumulativeTimeoutMs - getActiveElapsedMs()
         : undefined;
       if (remainingAtStart === undefined || remainingAtStart > 200) {
         try {
@@ -488,7 +526,7 @@ export async function rawWithContentSplitDirect(
               throw abortErr;
             }
             const remMs = typeof params.cumulativeTimeoutMs === 'number'
-              ? params.cumulativeTimeoutMs - (Date.now() - callStartTime)
+              ? params.cumulativeTimeoutMs - getActiveElapsedMs()
               : undefined;
             if (typeof remMs === 'number' && remMs <= 100) {
               allRepairedCleanly = false;
@@ -501,7 +539,7 @@ export async function rawWithContentSplitDirect(
                 : undefined;
 
             const subRes = await callRawDirectCore({
-              ...params,
+              ...paramsWithWaitTracking,
               text: targetSrcPara,
               ...(matchingRawPara ? { rawSourceText: matchingRawPara } : {}),
               startKeyIndex: lastKey,
@@ -545,7 +583,7 @@ export async function rawWithContentSplitDirect(
             }
           }
         } catch (surgicalErr: any) {
-          if (surgicalErr?.name === 'AbortError') {
+          if (isNonSplittableInfrastructureError(surgicalErr)) {
             throw surgicalErr;
           }
           // Rơi xuống chiến lược chia đoạn đệ quy chuẩn nếu sửa phẫu thuật cục bộ chưa giải quyết hết
@@ -585,7 +623,7 @@ export async function rawWithContentSplitDirect(
               throw abortErr;
             }
 
-            const elapsed = Date.now() - callStartTime;
+            const elapsed = getActiveElapsedMs();
             const remainingDeadlineMs = typeof params.cumulativeTimeoutMs === 'number'
               ? Math.max(0, params.cumulativeTimeoutMs - elapsed)
               : undefined;
@@ -615,7 +653,7 @@ export async function rawWithContentSplitDirect(
 
             return await rawWithContentSplitDirect(
               {
-                ...params,
+                ...paramsWithWaitTracking,
                 text: chunk,
                 rawSourceText: rawChunkSlices[i],
                 startKeyIndex: staggeredKeyIndex,

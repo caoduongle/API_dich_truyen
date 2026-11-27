@@ -4,6 +4,7 @@ import {
   isKeyAvailable,
   findNextKey,
   inspectKeyPoolCooldown,
+  waitWithAbort,
 } from '../geminiKeyScheduler';
 import {
   saveStoredCustomLimits,
@@ -97,5 +98,16 @@ describe('geminiKeyScheduler & Runtime Custom Limits Migration', () => {
     expect(caught.isRetryable).toBe(true);
     expect(caught.retryAfterMs).toBeGreaterThan(20_000);
     expect(caught.retryAfterMs).toBeLessThanOrEqual(25_000);
+  });
+
+  it('aborts waitWithAbort immediately (< 200ms) when signal fires during long cooldown wait', async () => {
+    const controller = new AbortController();
+    const start = Date.now();
+    setTimeout(() => controller.abort(), 30);
+
+    await expect(waitWithAbort(45_000, controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(Date.now() - start).toBeLessThan(200);
   });
 });

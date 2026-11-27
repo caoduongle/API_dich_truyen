@@ -51,6 +51,9 @@ export async function qaCritiqueDirect(
     temperature: 0.15,
     startKeyIndex,
     signal,
+    enableProactivePacing: true,
+    autoWaitForCooldown: true,
+    ...(params.onWaitStatus ? { onWaitStatus: params.onWaitStatus } : {}),
   });
 
   const parsed = parseGeminiStructuredResponse<QaCritiqueResponse>(response.text, {

@@ -1066,7 +1066,7 @@ export function classifyTranslationOutcome(err: unknown): ClassifiedTranslationO
       return {
         type: 'RETRYABLE',
         isRetryable: true,
-        canSplitRetry: true,
+        canSplitRetry: false,
         reason: err.category,
         isContentBlocked: false,
       };
@@ -1088,6 +1088,26 @@ export function classifyTranslationOutcome(err: unknown): ClassifiedTranslationO
   // 3. Kiểm tra các lỗi nghiệp vụ xác thực (Domain Validation Errors)
   const msg = errObj?.message || String(err || '');
   const lowerMsg = msg.toLowerCase();
+
+  if (
+    lowerMsg.includes('high demand') ||
+    lowerMsg.includes('service_overload') ||
+    lowerMsg.includes('too many requests') ||
+    lowerMsg.includes('resource_exhausted') ||
+    lowerMsg.includes('toàn bộ api key') ||
+    lowerMsg.includes('chạm hạn mức') ||
+    lowerMsg.includes('quá tải')
+  ) {
+    return {
+      type: 'RETRYABLE',
+      isRetryable: true,
+      canSplitRetry: false,
+      reason: lowerMsg.includes('high demand') || lowerMsg.includes('service_overload') || lowerMsg.includes('quá tải')
+        ? 'SERVICE_OVERLOAD'
+        : 'RATE_LIMIT_RPM',
+      isContentBlocked: false,
+    };
+  }
 
   const isSafetyMsg =
     lowerMsg.includes('bộ lọc an toàn') ||
@@ -1157,4 +1177,120 @@ export function isAdaptiveSplitRetryableError(err: any): boolean {
 
 export function isSafetyOrEmptyErrorDirect(err: any): boolean {
   return isAdaptiveSplitRetryableError(err);
+}
+
+/**
+ * Kiểm tra xem lỗi có thuộc nhóm sự cố hạ tầng, xác thực, hạn mức hoặc hủy của người dùng hay không
+ * (nhóm lỗi bắt buộc ném thẳng lên trên, tuyệt đối không nuốt vào nhánh chia nhỏ hay sino-fallback).
+ */
+export function isNonSplittableInfrastructureError(err: unknown): boolean {
+  if (!err) return false;
+  const errObj = err as { name?: string; code?: string; category?: string; message?: string };
+  if (errObj.name === 'AbortError') return true;
+  if (err instanceof GeminiRequestError) {
+    return (
+      err.category === 'RATE_LIMIT_RPM' ||
+      err.category === 'QUOTA_EXHAUSTED_RPD' ||
+      err.category === 'SERVICE_OVERLOAD' ||
+      err.category === 'NETWORK_FAILURE' ||
+      err.category === 'AUTH_FAILURE' ||
+      err.category === 'RESOURCE_NOT_FOUND' ||
+      err.code === 'ALL_KEYS_EXHAUSTED' ||
+      err.code === 'ETIMEDOUT'
+    );
+  }
+  const outcome = classifyTranslationOutcome(err);
+  return (
+    outcome.reason === 'RATE_LIMIT_RPM' ||
+    outcome.reason === 'SERVICE_OVERLOAD' ||
+    outcome.reason === 'NETWORK_FAILURE' ||
+    outcome.reason === 'QUOTA_EXHAUSTED_RPD' ||
+    outcome.reason === 'AUTH_FAILURE' ||
+    outcome.reason === 'RESOURCE_NOT_FOUND' ||
+    outcome.reason === 'AbortError'
+  );
+}
+
+export interface FinalPartialFallbackInput {
+  sourceText: string;
+  finalText: string;
+  hasPolishedOutput: boolean;
+  rawHasPartialFallback: boolean;
+  lastPolishIsPartial: boolean;
+  qaRunSucceeded: boolean;
+  unresolvedCriticals: DirectQaCritiqueIssue[];
+}
+
+export interface FinalPartialFallbackResult {
+  isPartialFallback: boolean;
+  reason?: string;
+}
+
+/**
+ * Đánh giá lại trạng thái cảnh báo `còn đoạn dùng phiên âm dự phòng` trên bản dịch cuối cùng
+ * sau khi hoàn tất GĐ2 + GĐ3 thay vì giữ cố định cờ tạm từ GĐ1.
+ */
+export function evaluateFinalPartialFallback(
+  params: FinalPartialFallbackInput
+): FinalPartialFallbackResult {
+  const {
+    sourceText,
+    finalText,
+    hasPolishedOutput,
+    rawHasPartialFallback,
+    lastPolishIsPartial,
+    qaRunSucceeded,
+    unresolvedCriticals,
+  } = params;
+
+  if (!rawHasPartialFallback && !lastPolishIsPartial) {
+    return { isPartialFallback: false };
+  }
+
+  const cleanFinal = (finalText || '').trim();
+  if (!cleanFinal) {
+    return { isPartialFallback: true, reason: 'Bản dịch cuối cùng bị rỗng' };
+  }
+
+  const finalParas = splitNonEmptyParagraphs(cleanFinal);
+  const hasHanLeftover = finalParas.some((p) => HAN_RUN_RE.test(p)) || countHanChars(cleanFinal) > 0;
+  if (hasHanLeftover) {
+    return { isPartialFallback: true, reason: 'Bản dịch cuối vẫn còn sót chữ Hán chưa chuyển ngữ' };
+  }
+
+  const hasUnresolvedLeakOrOmission = (unresolvedCriticals || []).some(
+    (iss) =>
+      iss &&
+      iss.severity === 'critical' &&
+      !iss.repaired &&
+      (iss.type === 'raw_leak' || iss.type === 'omission')
+  );
+  if (hasUnresolvedLeakOrOmission) {
+    return { isPartialFallback: true, reason: 'Kiểm duyệt vẫn còn lỗi sót nội dung hoặc sót chữ Hán' };
+  }
+
+  if (!hasPolishedOutput && rawHasPartialFallback) {
+    return { isPartialFallback: true, reason: 'Chưa được chuốt văn phong GĐ2 từ bản dự phòng thô' };
+  }
+
+  const parityReport = sourceText?.trim()
+    ? analyzeStructureParity(sourceText, cleanFinal)
+    : undefined;
+  if (
+    parityReport &&
+    parityReport.sourceBodyCount >= 3 &&
+    parityReport.targetBodyCount < Math.ceil(parityReport.sourceBodyCount * 0.7)
+  ) {
+    return { isPartialFallback: true, reason: 'Bản dịch cuối bị hụt cấu trúc đoạn đáng kể so với bản gốc' };
+  }
+
+  if (hasPolishedOutput && !lastPolishIsPartial) {
+    return { isPartialFallback: false };
+  }
+
+  if (qaRunSucceeded && (!unresolvedCriticals || unresolvedCriticals.length === 0)) {
+    return { isPartialFallback: false };
+  }
+
+  return { isPartialFallback: true, reason: 'Còn nhánh chưa phục hồi hoàn chỉnh từ tầng dự phòng' };
 }

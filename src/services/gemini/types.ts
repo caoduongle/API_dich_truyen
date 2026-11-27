@@ -42,9 +42,19 @@ export interface GeminiSafetySetting {
   threshold: HarmBlockThreshold | string;
 }
 
+export interface GeminiWaitStatusInfo {
+  kind: 'proactive_pacing' | 'rate_limit_cooldown' | 'service_overload';
+  waitMs: number;
+  attempt: number;
+  maxAttempts?: number;
+  reason: string;
+  nextKeyIndex?: number;
+}
+
 export interface DirectGeminiRequestOptions {
   prompt: string;
   systemInstruction?: string;
+  schema?: Record<string, any>;
   model?: string;
   temperature?: number;
   topP?: number;
@@ -53,6 +63,11 @@ export interface DirectGeminiRequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   safetySettings?: GeminiSafetySetting[];
+  enableProactivePacing?: boolean;
+  autoWaitForCooldown?: boolean;
+  maxCooldownWaits?: number;
+  maxOverloadRetries?: number;
+  onWaitStatus?: (info: GeminiWaitStatusInfo) => void;
 }
 
 export interface DirectGeminiResponse {

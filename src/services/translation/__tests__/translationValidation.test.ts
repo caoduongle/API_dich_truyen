@@ -44,7 +44,7 @@ describe('classifyTranslationOutcome', () => {
       expect(outcome.canSplitRetry).toBe(false);
     });
 
-    it('classifies RATE_LIMIT_RPM as RETRYABLE with canSplitRetry=true', () => {
+    it('classifies RATE_LIMIT_RPM as RETRYABLE with canSplitRetry=false (infrastructure wait instead of split storm)', () => {
       const err = new GeminiRequestError('Rate limit exceeded', {
         code: 'UNRECOGNIZED',
         category: 'RATE_LIMIT_RPM',
@@ -54,10 +54,10 @@ describe('classifyTranslationOutcome', () => {
       const outcome = classifyTranslationOutcome(err);
       expect(outcome.type).toBe('RETRYABLE');
       expect(outcome.isRetryable).toBe(true);
-      expect(outcome.canSplitRetry).toBe(true);
+      expect(outcome.canSplitRetry).toBe(false);
     });
 
-    it('classifies SERVICE_OVERLOAD as RETRYABLE', () => {
+    it('classifies SERVICE_OVERLOAD as RETRYABLE with canSplitRetry=false', () => {
       const err = new GeminiRequestError('Backend 503 unavailable', {
         code: 'UNRECOGNIZED',
         category: 'SERVICE_OVERLOAD',
@@ -67,7 +67,7 @@ describe('classifyTranslationOutcome', () => {
       const outcome = classifyTranslationOutcome(err);
       expect(outcome.type).toBe('RETRYABLE');
       expect(outcome.isRetryable).toBe(true);
-      expect(outcome.canSplitRetry).toBe(true);
+      expect(outcome.canSplitRetry).toBe(false);
     });
   });
 

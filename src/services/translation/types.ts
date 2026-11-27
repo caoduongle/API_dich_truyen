@@ -3,6 +3,7 @@
  */
 
 import { GlossaryItem, GlossaryType, QaIssueType } from '../../types';
+import type { GeminiWaitStatusInfo } from '../gemini/types';
 
 export interface ContinuityContext {
   /** 1-2 đoạn văn tiếng Trung cuối cùng của phân đoạn hoặc chương liền trước (tối đa 350 ký tự) */
@@ -148,6 +149,7 @@ export interface DirectRawTranslationParams {
   signal?: AbortSignal;
   continuity?: ContinuityContext;
   onSplitRetry?: (info: SplitRetryEventInfo) => void;
+  onWaitStatus?: (info: GeminiWaitStatusInfo) => void;
   isRetry?: boolean;
   maxDepth?: number;
   concurrencyLimit?: number;
@@ -184,6 +186,7 @@ export interface DirectPolishTranslationParams {
   temperature?: number;
   continuity?: ContinuityContext;
   onSplitRetry?: (info: SplitRetryEventInfo) => void;
+  onWaitStatus?: (info: GeminiWaitStatusInfo) => void;
   maxDepth?: number;
   concurrencyLimit?: number;
   cumulativeTimeoutMs?: number;
@@ -208,6 +211,7 @@ export interface DirectQaCritiqueParams {
   model?: string;
   startKeyIndex?: number;
   signal?: AbortSignal;
+  onWaitStatus?: (info: GeminiWaitStatusInfo) => void;
 }
 
 export interface DirectQaCritiqueIssue {

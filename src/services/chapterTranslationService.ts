@@ -15,8 +15,51 @@ import {
   repairChapterCriticalIssuesDirect,
 } from './directTranslationEngine';
 import { ContinuityContext, DiscoveredEntity, DirectQaCritiqueIssue } from './translation/types';
+import { evaluateFinalPartialFallback } from './translation/translationValidation';
+import type { GeminiWaitStatusInfo } from './gemini/types';
 
 export { buildChapterContinuityContext, resolvePreviousChapterId };
+
+/**
+ * Chuẩn hóa nhãn chẩn đoán hiển thị cho nhật ký cứu nguy (tuyệt đối không gán nhầm lỗi hạ tầng thành 'Phản hồi rỗng').
+ */
+export function formatRescueReasonLabel(
+  reason: string,
+  stage: 'raw' | 'polish' = 'raw'
+): string {
+  const r = reason || '';
+  if (r.includes('UNTRANSLATED_CHINESE_LEFTOVER')) {
+    return stage === 'polish' ? 'Bản chuốt văn sót nhiều chữ Hán' : 'Bản dịch sót nhiều chữ Hán';
+  }
+  if (r.includes('PARAGRAPH_STRUCTURE_DIVERGENCE')) return 'Lệch cấu trúc đoạn 1-1';
+  if (r.includes('POLISH_TRUNCATION_DETECTED')) return 'Bản chuốt văn bị cắt cụt';
+  if (r.includes('CONTENT_BLOCKED') || r.includes('SAFETY') || r.includes('bộ lọc an toàn')) {
+    return 'Vi phạm bộ lọc an toàn';
+  }
+  if (
+    r.includes('RATE_LIMIT_RPM') ||
+    r.includes('429') ||
+    r.includes('RESOURCE_EXHAUSTED') ||
+    r.includes('tạm nghỉ') ||
+    r.includes('hạn mức')
+  ) {
+    return 'Chạm hạn mức tốc độ 429 RPM';
+  }
+  if (r.includes('SERVICE_OVERLOAD') || r.includes('503') || r.includes('high demand') || r.includes('quá tải')) {
+    return 'Máy chủ AI quá tải tạm thời (503)';
+  }
+  if (r.includes('NETWORK_FAILURE') || r.includes('ETIMEDOUT') || r.includes('kết nối mạng')) {
+    return 'Lỗi kết nối / quá hạn thời gian mạng';
+  }
+  if (
+    r.includes('EMPTY_RESPONSE') ||
+    r.toLowerCase().includes('phản hồi rỗng') ||
+    r.toLowerCase().includes('trả về trống')
+  ) {
+    return 'Phản hồi rỗng';
+  }
+  return 'Phản hồi bất thường cần phục hồi';
+}
 
 export interface SingleChapterResult {
   success: boolean;
@@ -128,6 +171,26 @@ export async function executeSingleChapterTranslation({
 
   let currentKeyIndex = startKeyIndex;
   let firstDraft = '';
+  const createWaitLogger = (stageLabel: string) => (info: GeminiWaitStatusInfo) => {
+    const waitSec = Math.max(1, Math.ceil(info.waitMs / 1000));
+    const keyNote = typeof info.nextKeyIndex === 'number' ? ` (khóa kế #${info.nextKeyIndex + 1})` : '';
+    if (info.kind === 'proactive_pacing') {
+      addLog(
+        `${logPrefix} [Điều tiết RPM/TPM ${stageLabel}] Nhóm khóa đạt ngưỡng cửa sổ 60s. Tự chờ ${waitSec}s để mở khóa liên tục${keyNote}...`,
+        'info'
+      );
+    } else if (info.kind === 'service_overload') {
+      addLog(
+        `${logPrefix} [Chờ quá tải ${stageLabel}] Máy chủ AI cao điểm (${info.attempt}/${info.maxAttempts ?? '?'}). Tự chờ ${waitSec}s rồi thử lại...`,
+        'warn'
+      );
+    } else {
+      addLog(
+        `${logPrefix} [Chờ hồi phục RPM ${stageLabel}] Khóa tạm nghỉ 429 RPM (${info.attempt}/${info.maxAttempts ?? '?'}). Tự chờ ${waitSec}s${keyNote} rồi thử lại...`,
+        'warn'
+      );
+    }
+  };
   const localGlossary = [...glossarySnapshot];
   const newGlossaryItems: GlossaryItem[] = [];
   const newPendingItems: PendingGlossaryItem[] = [];
@@ -205,14 +268,9 @@ export async function executeSingleChapterTranslation({
         enableSegmentTranslation,
         signal,
         ...(effectiveContinuity ? { continuity: effectiveContinuity } : {}),
+        onWaitStatus: createWaitLogger('GĐ1'),
         onSplitRetry: (info) => {
-          const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
-            ? 'Bản dịch sót nhiều chữ Hán'
-            : info.reason.includes('PARAGRAPH_STRUCTURE_DIVERGENCE')
-            ? 'Lệch cấu trúc đoạn 1-1'
-            : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY') || info.reason.includes('CONTENT_BLOCKED')
-            ? 'Vi phạm bộ lọc an toàn'
-            : 'Phản hồi rỗng';
+          const reasonSummary = formatRescueReasonLabel(info.reason, 'raw');
 
           if (info.tier === 'line-by-line') {
             addLog(
@@ -238,8 +296,11 @@ export async function executeSingleChapterTranslation({
       }
       const isAllKeysExhausted =
         err?.code === 'ALL_KEYS_EXHAUSTED' ||
-        (typeof err?.message === 'string' && err.message.includes('Toàn bộ API Key đã hết hạn mức'));
-      const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
+        (typeof err?.message === 'string' &&
+          (err.message.includes('Toàn bộ API Key đã hết hạn mức') ||
+            err.message.includes('Toàn bộ API Key đang tạm nghỉ') ||
+            err.message.includes('Toàn bộ API Key đang giãn cách')));
+      const isOverload = err?.message && /429|503|RESOURCE_EXHAUSTED|SERVICE_OVERLOAD|high demand|hạn mức|quá tải/i.test(err.message);
       throw Object.assign(new Error(err?.message || 'Lỗi dịch thô từ hệ thống AI trực tiếp.'), {
         isOverload,
         code: isAllKeysExhausted ? 'ALL_KEYS_EXHAUSTED' : err?.code,
@@ -328,16 +389,9 @@ export async function executeSingleChapterTranslation({
         totalRounds: polishCycles,
         ...(handoffIssues.length > 0 ? { complianceIssuesToFix: handoffIssues } : {}),
         ...(effectiveContinuity ? { continuity: effectiveContinuity } : {}),
+        onWaitStatus: createWaitLogger(`GĐ2 Lượt ${j}`),
         onSplitRetry: (info) => {
-          const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
-            ? 'Bản chuốt văn sót nhiều chữ Hán'
-            : info.reason.includes('PARAGRAPH_STRUCTURE_DIVERGENCE')
-            ? 'Lệch cấu trúc đoạn 1-1'
-            : info.reason.includes('POLISH_TRUNCATION_DETECTED')
-            ? 'Bản chuốt văn bị cắt cụt'
-            : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY') || info.reason.includes('CONTENT_BLOCKED')
-            ? 'Vi phạm bộ lọc an toàn'
-            : 'Phản hồi rỗng';
+          const reasonSummary = formatRescueReasonLabel(info.reason, 'polish');
           addLog(
             `${logPrefix} [Cứu nguy GĐ2 Lượt ${j}] Phát hiện sự cố (${reasonSummary}). Tự động kích hoạt phân đoạn thích ứng cấp ${info.depth + 1} (chia ${info.partsCount} phần) để chuốt lại...`,
             'warn'
@@ -350,8 +404,11 @@ export async function executeSingleChapterTranslation({
       }
       const isAllKeysExhausted =
         err?.code === 'ALL_KEYS_EXHAUSTED' ||
-        (typeof err?.message === 'string' && err.message.includes('Toàn bộ API Key đã hết hạn mức'));
-      const isOverload = err?.message && /429|RESOURCE_EXHAUSTED|hạn mức|quá tải/i.test(err.message);
+        (typeof err?.message === 'string' &&
+          (err.message.includes('Toàn bộ API Key đã hết hạn mức') ||
+            err.message.includes('Toàn bộ API Key đang tạm nghỉ') ||
+            err.message.includes('Toàn bộ API Key đang giãn cách')));
+      const isOverload = err?.message && /429|503|RESOURCE_EXHAUSTED|SERVICE_OVERLOAD|high demand|hạn mức|quá tải/i.test(err.message);
       if (isAllKeysExhausted || isOverload) {
         throw Object.assign(
           new Error(`${logPrefix} Thất bại tại vòng biên tập thứ ${j}: ` + (err?.message || 'Lỗi không xác định')),
@@ -469,6 +526,7 @@ export async function executeSingleChapterTranslation({
         model: selectedModel,
         startKeyIndex: currentKeyIndex,
         signal,
+        onWaitStatus: createWaitLogger('GĐ3 QA'),
       });
 
       qaRunSucceeded = true;
@@ -514,6 +572,7 @@ export async function executeSingleChapterTranslation({
               model: selectedModel,
               startKeyIndex: currentKeyIndex,
               signal,
+              onWaitStatus: createWaitLogger('Sửa QA'),
             });
             currentTextToPolish = repairRes.repairedTranslatedText;
             detectedQaIssues = repairRes.updatedIssues;
@@ -549,7 +608,14 @@ export async function executeSingleChapterTranslation({
         }
       }
     } catch (qaErr: any) {
-      addLog(`${logPrefix} [Kiểm duyệt AI] Lỗi gọi API QA Critique: ${qaErr.message || qaErr}`, 'warn');
+      if (qaErr?.name === 'AbortError' || (qaErr instanceof DOMException && qaErr.name === 'AbortError')) {
+        throw qaErr;
+      }
+      const qaMsg = qaErr?.message || String(qaErr || '');
+      addLog(
+        `${logPrefix} [Kiểm duyệt AI] Chưa thể hoàn tất kiểm duyệt AI (${qaMsg}) — đã bảo toàn bản chuốt hoàn chỉnh từ Giai đoạn 2.`,
+        'warn'
+      );
     }
   }
 
@@ -599,7 +665,20 @@ export async function executeSingleChapterTranslation({
       summaryParts.push(`${cnt} ${labelMap[t] || t}`);
     }
   }
-  const hasPartialFallback = rawHasPartialFallback || lastPolishIsPartial;
+  const effectiveCriticalsForFallback =
+    enableAiQaCritique && qaRunSucceeded
+      ? unresolvedCriticals
+      : postPolishDeterministicIssues.filter((iss) => iss && iss.severity === 'critical' && !iss.repaired);
+  const finalFallbackEval = evaluateFinalPartialFallback({
+    sourceText: chapter.sourceText,
+    finalText: cleanPolished || cleanRaw,
+    hasPolishedOutput: Boolean(cleanPolished.trim()),
+    rawHasPartialFallback,
+    lastPolishIsPartial,
+    qaRunSucceeded,
+    unresolvedCriticals: effectiveCriticalsForFallback,
+  });
+  const hasPartialFallback = finalFallbackEval.isPartialFallback;
 
   addLog(`${logPrefix} Đã biên phiên dịch hoàn chỉnh chương: ${chapter.title}`, 'success');
 

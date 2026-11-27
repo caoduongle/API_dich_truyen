@@ -29,6 +29,7 @@ export interface KeyRuntimeStatus {
   healthState?: KeyHealthState;
   transitionReason?: string;
   isCustomLimitReached?: boolean;
+  isProactivePacing?: boolean;
 }
 
 export interface ModelUsageStats {

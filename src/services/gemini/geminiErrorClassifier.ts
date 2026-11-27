@@ -254,13 +254,9 @@ export function classifyGeminiError(
       };
     }
 
-    // 4c. Fallback sang chuỗi thông báo cho lỗi cạn hạn mức theo ngày / tổng thể không kèm retryDelay phút
+    // 4c. Phân tách thông báo 429 nêu rõ giới hạn theo ngày với lỗi 429 mơ hồ chưa ghi rõ theo ngày
     const lowerMsg = message.toLowerCase();
-    if (
-      hasDailyMessageSignal ||
-      lowerMsg.includes('quota') ||
-      lowerMsg.includes('exhausted')
-    ) {
+    if (hasDailyMessageSignal) {
       return {
         category: 'QUOTA_EXHAUSTED_RPD',
         httpStatus,
@@ -268,6 +264,19 @@ export function classifyGeminiError(
         reason: 'MessageFallback_DailyLimit',
         details,
         recommendedCooldownMs: -1,
+        isRetryable: true,
+        message,
+      };
+    }
+
+    if (lowerMsg.includes('quota') || lowerMsg.includes('exhausted')) {
+      return {
+        category: 'RATE_LIMIT_RPM',
+        httpStatus,
+        rpcStatus,
+        reason: 'MessageFallback_AmbiguousQuota',
+        details,
+        recommendedCooldownMs: extractedRetryDelayMs ?? 50_000,
         isRetryable: true,
         message,
       };

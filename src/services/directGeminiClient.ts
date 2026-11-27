@@ -11,25 +11,20 @@ import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 
 export { getStoredCustomLimits };
 
-import { GeminiSafetySetting } from './gemini/types';
+import type {
+  GeminiSafetySetting,
+  DirectGeminiRequestOptions as ModularDirectGeminiRequestOptions,
+  DirectGeminiResponse,
+  GeminiWaitStatusInfo,
+} from './gemini/types';
 
-export interface DirectGeminiRequestOptions {
+export interface DirectGeminiRequestOptions extends ModularDirectGeminiRequestOptions {
   apiKeys: string[];
-  model?: string;
   prompt: string;
-  systemInstruction?: string;
-  schema?: Record<string, any>;
-  temperature?: number;
-  startKeyIndex?: number;
-  signal?: AbortSignal;
-  safetySettings?: GeminiSafetySetting[];
   cumulativeDeadline?: number;
 }
 
-export interface DirectGeminiResponse {
-  text: string;
-  successKeyIndex: number;
-}
+export type { DirectGeminiResponse, GeminiSafetySetting, GeminiWaitStatusInfo };
 
 import { formatGeminiNetworkError } from './gemini/geminiTransport';
 import { callGemini } from './gemini/geminiClient';

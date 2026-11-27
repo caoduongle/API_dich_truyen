@@ -14,6 +14,7 @@ import {
   sanitizePromptInput,
 } from '../../lib/text';
 import { callGeminiDirect } from '../directGeminiClient';
+import type { GeminiWaitStatusInfo } from '../gemini/types';
 import {
   mapTranslatedParagraphToSourceWindow,
   runDeterministicTranslationChecks,
@@ -39,6 +40,7 @@ export interface TargetedParagraphRepairParams {
   startKeyIndex?: number;
   signal?: AbortSignal;
   targetIssueIndices?: number[];
+  onWaitStatus?: (info: GeminiWaitStatusInfo) => void;
 }
 
 export interface TargetedParagraphRepairResult {
@@ -221,6 +223,7 @@ export async function repairChapterCriticalIssuesDirect(
     startKeyIndex = 0,
     signal,
     targetIssueIndices,
+    onWaitStatus,
   } = params;
 
   const spans = scanParagraphSpans(translatedText || '');
@@ -351,6 +354,9 @@ export async function repairChapterCriticalIssuesDirect(
           temperature: 0.2,
           startKeyIndex: currentKeyIndex,
           signal,
+          enableProactivePacing: true,
+          autoWaitForCooldown: true,
+          ...(onWaitStatus ? { onWaitStatus } : {}),
         });
 
         if (typeof response.successKeyIndex === 'number') {
@@ -417,6 +423,9 @@ export async function repairChapterCriticalIssuesDirect(
         repairedTextForPara = candidatePara;
         break;
       } catch (err: any) {
+        if (err?.name === 'AbortError' || signal?.aborted) {
+          throw err;
+        }
         lastRejectReason = `Lỗi gọi AI khi sửa đoạn (${err?.message || 'không xác định'}).`;
         break;
       }
@@ -532,6 +541,9 @@ export async function repairChapterCriticalIssuesDirect(
           temperature: 0.2,
           startKeyIndex: currentKeyIndex,
           signal,
+          enableProactivePacing: true,
+          autoWaitForCooldown: true,
+          ...(onWaitStatus ? { onWaitStatus } : {}),
         });
         if (typeof response.successKeyIndex === 'number') {
           currentKeyIndex = response.successKeyIndex;
@@ -581,7 +593,10 @@ export async function repairChapterCriticalIssuesDirect(
           recoveredOmissionIssueIndices.add(idx);
           recoveredOmissionCount++;
         }
-      } catch {
+      } catch (omissionErr: any) {
+        if (omissionErr?.name === 'AbortError' || signal?.aborted) {
+          throw omissionErr;
+        }
         // Bỏ qua an toàn nếu gọi API phục hồi đoạn thiếu thất bại
       }
     }
