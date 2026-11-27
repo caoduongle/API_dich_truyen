@@ -4,6 +4,11 @@ import { getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../context/NotificationContext';
 import { isHanEquivalent } from '../lib/sinoNormalize';
+import {
+  inferCharacterGenderFromContext,
+  isNoisyGlossaryTerm,
+  prioritizeKnownTermsForChapter,
+} from '../lib/glossaryMatch';
 import { analyzeGlossaryDirect } from '../services/directGlossaryEngine';
 import { inspectKeyPoolCooldown } from '../services/gemini/geminiKeyScheduler';
 import { RATE_LIMIT_RECOVERY_CONFIG } from '../config/constants';
@@ -275,9 +280,11 @@ export function useGlossaryScan({
           while (!chapterAttemptDone && !isStopScanRequestedRef.current && !stoppedDueToQuota && isMountedRef.current) {
             try {
               hasDispatchedChapterCall = true;
-              const knownChineseTerms = loop > 1 ? updatedGlossary.map((g) => g.chinese) : [];
+              const chapterInputText = `${chap.title}\n\n${chap.sourceText}`;
+              const knownChineseTerms =
+                loop > 1 ? prioritizeKnownTermsForChapter(chapterInputText, updatedGlossary, 150) : [];
               const data = await analyzeGlossaryDirect({
-                text: `${chap.title}\n\n${chap.sourceText}`,
+                text: chapterInputText,
                 apiKeys,
                 model: selectedModel,
                 startKeyIndex: currentApiKeyIndexRef.current,
@@ -307,19 +314,31 @@ export function useGlossaryScan({
                 suggestions.forEach((ent: any) => {
                   const chineseTrimmed = ent.chinese?.trim() || "";
                   if (!chineseTrimmed) return;
+                  if (isNoisyGlossaryTerm(chineseTrimmed, ent.type)) return;
 
                   const exists = updatedGlossary.some((gItem) => isHanEquivalent(gItem.chinese, chineseTrimmed));
                   const originParagraph = chap.sourceText.split('\n').find(p =>
                       p.includes(chineseTrimmed) || p.replace(/\s+/g, '').includes(chineseTrimmed.replace(/\s+/g, ''))
                   )?.trim() || "";
                   if (!exists) {
+                    const entryType = ent.type || "other";
+                    const trimmedNote = (ent.note || "").trim();
+                    const inferredGender =
+                      entryType === 'character'
+                        ? inferCharacterGenderFromContext({
+                            chinese: chineseTrimmed,
+                            note: trimmedNote,
+                            sourceParagraph: originParagraph,
+                          })
+                        : undefined;
                     const itemPayload: GlossaryItem = {
                       id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
                       chinese: chineseTrimmed,
                       pinyin: (ent.pinyin || "").trim(),
                       vietnamese: (ent.vietnamese || "").trim(),
-                      type: ent.type || "other",
-                      note: (ent.note || "").trim(),
+                      type: entryType,
+                      note: trimmedNote,
+                      ...(inferredGender ? { characterProfile: { gender: inferredGender } } : {}),
                       sourceChapter: chap.title,
                       sourceParagraph: originParagraph,
                       sourceChapterId: chap.id,

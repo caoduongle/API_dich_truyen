@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  checkGlossaryCompliance,
   classifyTranslationOutcome,
   isAdaptiveSplitRetryableError,
 } from '../translationValidation';
 import { GeminiRequestError } from '../../gemini/types';
+import { GlossaryItem } from '../../../types';
 
 describe('classifyTranslationOutcome', () => {
   it('returns SUCCESS when there is no error', () => {
@@ -124,6 +126,78 @@ describe('classifyTranslationOutcome', () => {
         isRetryable: false,
       });
       expect(isAdaptiveSplitRetryableError(authErr)).toBe(false);
+    });
+  });
+
+  describe('checkGlossaryCompliance longest-match span masking (Feature 169)', () => {
+    const mk = (id: string, chinese: string, vietnamese: string): GlossaryItem => ({
+      id,
+      chinese,
+      pinyin: vietnamese,
+      vietnamese,
+      type: 'character',
+      note: '',
+    });
+
+    it('produces zero false-positive terminology errors when shorter term is strictly inside matched longer term', () => {
+      const glossary = [
+        mk('g_long', '张三丰', 'Trương Tam Phong'),
+        mk('g_short', '三丰', 'Tam Phong'),
+        mk('g_single', '张', 'Trương'),
+      ];
+
+      // Note: "Trương Tam Phong" contains "Tam Phong" or suppose distinct Vietnamese like "Thần Kiếm Môn" vs "Kiếm"
+      const distinctViGlossary = [
+        mk('g_long', '天煞宗', 'Ám Ảnh Môn'),
+        mk('g_short', '煞宗', 'Sát Tông'),
+      ];
+
+      const issues = checkGlossaryCompliance({
+        sourceText: '天煞宗来了。',
+        translatedText: 'Ám Ảnh Môn đã tới.',
+        glossary: distinctViGlossary,
+      });
+      expect(issues).toEqual([]);
+      expect(
+        checkGlossaryCompliance({
+          sourceText: '张三丰来了。',
+          translatedText: 'Trương Tam Phong đã tới.',
+          glossary,
+        })
+      ).toEqual([]);
+    });
+
+    it('still flags shorter term when it appears independently outside the longer term in same paragraph', () => {
+      const glossary = [
+        mk('g_long', '天煞宗', 'Ám Ảnh Môn'),
+        mk('g_short', '煞宗', 'Sát Tông'),
+      ];
+
+      const issues = checkGlossaryCompliance({
+        sourceText: '天煞宗围攻煞宗。',
+        translatedText: 'Ám Ảnh Môn bao vây đối phương.',
+        glossary,
+      });
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0].type).toBe('terminology');
+      expect(issues[0].expectedTerm?.chinese).toBe('煞宗');
+    });
+
+    it('does not let an incomplete long term with empty vietnamese shadow a valid shorter term inside it', () => {
+      const glossary = [
+        mk('g_empty', '天煞宗', ''),
+        mk('g_valid', '煞宗', 'Sát Tông'),
+      ];
+
+      const issues = checkGlossaryCompliance({
+        sourceText: '天煞宗来了。',
+        translatedText: 'Bọn họ đã tới.',
+        glossary,
+      });
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0].expectedTerm?.chinese).toBe('煞宗');
     });
   });
 });

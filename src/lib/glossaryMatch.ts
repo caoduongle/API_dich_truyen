@@ -37,6 +37,32 @@ export interface GlossaryConflictWarning<T extends GlossaryEntryLike = GlossaryI
   shadowedItems: T[];
 }
 
+export interface GroupedGlossarySections<T extends GlossaryEntryLike = GlossaryItem> {
+  characterProfiled: T[];
+  characterPlain: T[];
+  location: T[];
+  term: T[];
+  phraseOther: T[];
+  pinnedReference: T[];
+}
+
+export interface MatchedGlossarySpan<T extends GlossaryEntryLike = GlossaryItem> {
+  item: T;
+  matchedForm: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+export type GlossaryHealthFilter = 'all' | 'conflicts' | 'missing_profile' | 'incomplete';
+
+export interface GlossaryHealthReport {
+  conflictGroupCount: number;
+  conflictItemIds: string[];
+  missingProfileCharIds: string[];
+  incompleteViIds: string[];
+  totalIssueItems: number;
+}
+
 export interface RelevantGlossarySelection<T extends GlossaryEntryLike = GlossaryItem> {
   /** Các mục từ điển thực sự xuất hiện trong văn bản nguồn + các mục được ghim (isPinned) */
   entries: T[];
@@ -181,7 +207,9 @@ function compareGlossaryWinners<T extends GlossaryEntryLike>(a: T, b: T): number
 }
 
 /**
- * Giải quyết xung đột khi có nhiều mục từ điển trùng cụm chữ Hán chuẩn hóa (FR-004).
+ * Giải quyết xung đột khi có nhiều mục từ điển trùng cụm chữ Hán chuẩn hóa hoặc chia sẻ biến thể (FR-003, FR-006).
+ * - Trùng cụm chữ Hán chính: gộp về một mục thắng cuộc duy nhất theo thứ tự ưu tiên tất định.
+ * - Trùng qua `variants`: ghi nhận cảnh báo xung đột và gỡ chuỗi biến thể trùng trên mục thua cuộc mà vẫn giữ nguyên mục chính.
  */
 export function resolveGlossaryConflicts<T extends GlossaryEntryLike>(glossary: T[]): {
   resolved: T[];
@@ -207,26 +235,26 @@ export function resolveGlossaryConflicts<T extends GlossaryEntryLike>(glossary: 
     }
   }
 
-  const resolved: T[] = [];
-  const conflicts: GlossaryConflictWarning<T>[] = [];
+  const primaryResolved: T[] = [];
+  const conflictMap = new Map<string, GlossaryConflictWarning<T>>();
 
   groups.forEach((group, canonicalChinese) => {
     if (group.length === 1) {
-      resolved.push(group[0]);
+      primaryResolved.push(group[0]);
       return;
     }
 
     const sorted = [...group].sort(compareGlossaryWinners);
     const winningItem = sorted[0];
     const shadowedItems = sorted.slice(1);
-    resolved.push(winningItem);
+    primaryResolved.push(winningItem);
 
     const winVi = (winningItem.vietnamese || '').trim().toLowerCase();
     const hasConflictingTranslation = shadowedItems.some(
       (s) => (s.vietnamese || '').trim().toLowerCase() !== winVi
     );
     if (hasConflictingTranslation) {
-      conflicts.push({
+      conflictMap.set(canonicalChinese, {
         canonicalChinese,
         winningItem,
         shadowedItems,
@@ -234,7 +262,285 @@ export function resolveGlossaryConflicts<T extends GlossaryEntryLike>(glossary: 
     }
   });
 
-  return { resolved, conflicts };
+  // Kiểm tra xung đột qua biến thể (`variants`) mà không làm mất mục chính khác tên
+  const primaryOwnerByCanon = new Map<string, T>();
+  for (const item of primaryResolved) {
+    const canon = canonicalizeHan((item.chinese || '').trim());
+    if (canon && !primaryOwnerByCanon.has(canon)) {
+      primaryOwnerByCanon.set(canon, item);
+    }
+  }
+
+  const prioritized = [...primaryResolved].sort(compareGlossaryWinners);
+  const variantOwnerByCanon = new Map<string, T>();
+  const keptVariantsByItem = new Map<T, string[]>();
+
+  const registerCollision = (canonSurface: string, holderA: T, holderB: T) => {
+    const viA = (holderA.vietnamese || '').trim().toLowerCase();
+    const viB = (holderB.vietnamese || '').trim().toLowerCase();
+    if (viA === viB) return;
+
+    const [winner, loser] = compareGlossaryWinners(holderA, holderB) <= 0 ? [holderA, holderB] : [holderB, holderA];
+    const existingWarning = conflictMap.get(canonSurface);
+    if (existingWarning) {
+      if (!existingWarning.shadowedItems.includes(loser) && existingWarning.winningItem !== loser) {
+        existingWarning.shadowedItems.push(loser);
+      }
+    } else {
+      conflictMap.set(canonSurface, {
+        canonicalChinese: canonSurface,
+        winningItem: winner,
+        shadowedItems: [loser],
+      });
+    }
+  };
+
+  for (const item of prioritized) {
+    if (!Array.isArray(item.variants) || item.variants.length === 0) continue;
+    const itemPrimaryCanon = canonicalizeHan((item.chinese || '').trim());
+    const kept: string[] = [];
+    let strippedAny = false;
+
+    for (const rawVar of item.variants) {
+      if (typeof rawVar !== 'string') continue;
+      const trimmedVar = rawVar.trim();
+      if (!trimmedVar) continue;
+      const canonVar = canonicalizeHan(trimmedVar);
+      if (!canonVar) continue;
+
+      if (canonVar === itemPrimaryCanon) {
+        kept.push(trimmedVar);
+        continue;
+      }
+
+      const primaryOwner = primaryOwnerByCanon.get(canonVar);
+      if (primaryOwner && primaryOwner !== item) {
+        strippedAny = true;
+        registerCollision(canonVar, primaryOwner, item);
+        continue;
+      }
+
+      const variantOwner = variantOwnerByCanon.get(canonVar);
+      if (variantOwner && variantOwner !== item) {
+        strippedAny = true;
+        registerCollision(canonVar, variantOwner, item);
+        continue;
+      }
+
+      variantOwnerByCanon.set(canonVar, item);
+      kept.push(trimmedVar);
+    }
+
+    if (strippedAny) {
+      keptVariantsByItem.set(item, kept);
+    }
+  }
+
+  const finalResolved =
+    keptVariantsByItem.size === 0
+      ? primaryResolved
+      : primaryResolved.map((item) => {
+          const nextVariants = keptVariantsByItem.get(item);
+          if (!nextVariants) return item;
+          const cloned = { ...item } as T;
+          if (nextVariants.length > 0) {
+            cloned.variants = nextVariants;
+          } else {
+            delete cloned.variants;
+          }
+          return cloned;
+        });
+
+  return { resolved: finalResolved, conflicts: Array.from(conflictMap.values()) };
+}
+
+/**
+ * Phân nhóm từ điển theo vai trò ưu tiên cho bước dịch thô, chuốt văn và QA (FR-002).
+ */
+export function groupGlossaryByRole<T extends GlossaryEntryLike>(
+  entries: T[],
+  matchedInSource: T[]
+): GroupedGlossarySections<T> {
+  const matchedSet = new Set(matchedInSource || []);
+  const sections: GroupedGlossarySections<T> = {
+    characterProfiled: [],
+    characterPlain: [],
+    location: [],
+    term: [],
+    phraseOther: [],
+    pinnedReference: [],
+  };
+
+  for (const item of entries || []) {
+    if (!item) continue;
+    if (!matchedSet.has(item)) {
+      sections.pinnedReference.push(item);
+      continue;
+    }
+
+    const type = item.type || 'other';
+    const hasProfile = normalizeCharacterProfile(item.characterProfile) !== undefined;
+    if (type === 'character') {
+      if (hasProfile) {
+        sections.characterProfiled.push(item);
+      } else {
+        sections.characterPlain.push(item);
+      }
+    } else if (type === 'location') {
+      sections.location.push(item);
+    } else if (type === 'term') {
+      sections.term.push(item);
+    } else {
+      sections.phraseOther.push(item);
+    }
+  }
+
+  return sections;
+}
+
+interface IndexedChar {
+  ch: string;
+  utf16Start: number;
+  utf16End: number;
+}
+
+function indexCodePoints(text: string): IndexedChar[] {
+  const out: IndexedChar[] = [];
+  let offset = 0;
+  for (const ch of text) {
+    const len = ch.length;
+    out.push({ ch, utf16Start: offset, utf16End: offset + len });
+    offset += len;
+  }
+  return out;
+}
+
+function findNonOverlappingMatchesForForm(
+  sourceParagraph: string,
+  indexedChars: IndexedChar[],
+  canonSource: string,
+  form: string
+): Array<{ charStart: number; charEnd: number; startIndex: number; endIndex: number; matchedForm: string }> {
+  const trimmed = form.trim();
+  if (!trimmed) return [];
+  const formChars = Array.from(trimmed);
+  const formCharLen = formChars.length;
+  if (formCharLen === 0 || formCharLen > indexedChars.length) return [];
+
+  const isSingleHan = countHanChars(trimmed) === 1 && formCharLen === 1;
+  const canonForm = canonicalizeHan(trimmed);
+  if (!sourceParagraph.includes(trimmed) && (!canonForm || !canonSource.includes(canonForm))) {
+    return [];
+  }
+
+  const hits: Array<{ charStart: number; charEnd: number; startIndex: number; endIndex: number; matchedForm: string }> = [];
+
+  for (let i = 0; i <= indexedChars.length - formCharLen; i++) {
+    const startIndex = indexedChars[i].utf16Start;
+    const endIndex = indexedChars[i + formCharLen - 1].utf16End;
+    const candidateSlice = sourceParagraph.slice(startIndex, endIndex);
+
+    const matched = candidateSlice === trimmed || (canonForm.length > 0 && canonicalizeHan(candidateSlice) === canonForm);
+    if (!matched) continue;
+
+    if (isSingleHan) {
+      const prevHan = i > 0 && HAN_CHAR_REGEX.test(indexedChars[i - 1].ch);
+      const nextHan = i + 1 < indexedChars.length && HAN_CHAR_REGEX.test(indexedChars[i + 1].ch);
+      if (prevHan || nextHan) continue;
+    }
+
+    hits.push({
+      charStart: i,
+      charEnd: i + formCharLen,
+      startIndex,
+      endIndex,
+      matchedForm: candidateSlice,
+    });
+  }
+
+  return hits;
+}
+
+/**
+ * Tìm tất cả vị trí khớp thuật ngữ không chồng lấn trong một đoạn văn bản nguồn (FR-004, FR-005).
+ * Ưu tiên cụm dài nhất trước; mọi vị trí đã bị cụm dài chiếm chỗ sẽ được khóa để không báo lỗi giả cho cụm ngắn lồng bên trong.
+ */
+export function findNonOverlappingParagraphTerms<T extends GlossaryEntryLike>(
+  sourceParagraph: string,
+  candidateItems: T[]
+): MatchedGlossarySpan<T>[] {
+  if (!sourceParagraph || !Array.isArray(candidateItems) || candidateItems.length === 0) {
+    return [];
+  }
+
+  const indexedChars = indexCodePoints(sourceParagraph);
+  if (indexedChars.length === 0) return [];
+  const canonSource = canonicalizeHan(sourceParagraph);
+
+  interface CandidateOccurrence {
+    item: T;
+    matchedForm: string;
+    charStart: number;
+    charEnd: number;
+    startIndex: number;
+    endIndex: number;
+    charLen: number;
+  }
+
+  const allOccurrences: CandidateOccurrence[] = [];
+  for (const item of candidateItems) {
+    if (!item) continue;
+    for (const form of getAllSurfaceForms(item)) {
+      if (countHanChars(form) === 0) continue;
+      const matches = findNonOverlappingMatchesForForm(sourceParagraph, indexedChars, canonSource, form);
+      for (const m of matches) {
+        allOccurrences.push({
+          item,
+          matchedForm: m.matchedForm,
+          charStart: m.charStart,
+          charEnd: m.charEnd,
+          startIndex: m.startIndex,
+          endIndex: m.endIndex,
+          charLen: m.charEnd - m.charStart,
+        });
+      }
+    }
+  }
+
+  if (allOccurrences.length === 0) return [];
+
+  allOccurrences.sort((a, b) => {
+    if (b.charLen !== a.charLen) return b.charLen - a.charLen;
+    if (a.charStart !== b.charStart) return a.charStart - b.charStart;
+    return compareGlossaryWinners(a.item, b.item);
+  });
+
+  const claimed = new Array<boolean>(indexedChars.length).fill(false);
+  const selected: MatchedGlossarySpan<T>[] = [];
+
+  for (const occ of allOccurrences) {
+    let overlaps = false;
+    for (let k = occ.charStart; k < occ.charEnd; k++) {
+      if (claimed[k]) {
+        overlaps = true;
+        break;
+      }
+    }
+    if (overlaps) continue;
+
+    for (let k = occ.charStart; k < occ.charEnd; k++) {
+      claimed[k] = true;
+    }
+    selected.push({
+      item: occ.item,
+      matchedForm: occ.matchedForm,
+      startIndex: occ.startIndex,
+      endIndex: occ.endIndex,
+    });
+  }
+
+  selected.sort((a, b) => a.startIndex - b.startIndex);
+  return selected;
 }
 
 function getAllSurfaceForms(item: GlossaryEntryLike): string[] {
@@ -590,10 +896,213 @@ export function mergeGlossaryPreservingProfiles(
   });
 }
 
+const NOISY_COMMON_CHINESE_STOPWORDS = new Set<string>([
+  '我', '你', '您', '他', '她', '它',
+  '我们', '你们', '他们', '她们', '它们', '咱们',
+  '自己', '别人', '人家', '大家', '本人',
+  '这', '那', '这里', '那里', '这边', '那边', '这个', '那个', '这些', '那些', '这样', '那样',
+  '哪里', '哪儿', '什么', '怎么', '怎样', '为什么', '多少', '几个',
+  '的', '了', '着', '过', '呢', '吧', '吗', '啊', '呀', '哦', '嗯',
+  '可以', '不能', '没有', '已经', '因为', '所以', '但是', '不过', '如果', '虽然', '而且', '然后', '或者', '还是',
+  '一个', '一些', '一点', '东西', '事情', '时候', '地方', '问题', '现在', '刚才', '以前', '以后', '今天', '明天', '昨天',
+]);
+
+const LATIN_LETTER_RE = /[A-Za-z\u00C0-\u1EF9]/;
+
+/**
+ * Nhận diện thuật ngữ nhiễu (đại từ phổ thông, hư từ, chuỗi không chứa chữ Hán/chữ cái hợp lệ) (FR-008).
+ */
+export function isNoisyGlossaryTerm(chinese: string, _type?: string): boolean {
+  if (typeof chinese !== 'string') return true;
+  const cleaned = chinese.replace(/\s+/g, '').trim();
+  if (!cleaned) return true;
+  if (countHanChars(cleaned) === 0 && !LATIN_LETTER_RE.test(cleaned)) {
+    return true;
+  }
+  const canonical = canonicalizeHan(cleaned);
+  return NOISY_COMMON_CHINESE_STOPWORDS.has(cleaned) || NOISY_COMMON_CHINESE_STOPWORDS.has(canonical);
+}
+
+const FEMALE_NOTE_CUES_RE =
+  /(?:^|[^\p{L}\p{N}])(nhân vật nữ|nữ chính|nữ phụ|thiếu nữ|nữ tử|nữ nhân|cô gái|cô nương|tiểu thư|sư tỷ|sư muội|sư mẫu|mẫu thân|phu nhân|hoàng hậu|công chúa|vương phi|nữ đế|nữ vương|nàng|cô ấy|bà lão)(?=$|[^\p{L}\p{N}])/iu;
+const MALE_NOTE_CUES_RE =
+  /(?:^|[^\p{L}\p{N}])(nhân vật nam|nam chính|nam phụ|thiếu niên|nam tử|nam nhân|đại hán|công tử|sư huynh|sư đệ|phụ thân|lão giả|lão nhân|hoàng đế|vương gia|thái tử|hắn|chàng|gã|y là nam)(?=$|[^\p{L}\p{N}])/iu;
+const STANDALONE_FEMALE_LABEL_RE = /^(?:nữ|giới tính:\s*nữ)$/iu;
+const STANDALONE_MALE_LABEL_RE = /^(?:nam|giới tính:\s*nam)$/iu;
+const SOURCE_FEMALE_WORD_CUES_RE = /(?:姑娘|小姐|少女|女子|公主|皇后|夫人|师姐|师妹|母亲|她)/;
+const SOURCE_MALE_WORD_CUES_RE = /(?:少年|男子|公子|皇帝|王爷|大汉|师兄|师弟|父亲|老者|他)/;
+
+/**
+ * Suy luận giới tính nhân vật mới từ ghi chú hoặc văn cảnh đơn chủ thể rõ ràng (FR-009).
+ * Chỉ trả về `'male' | 'female'` khi bằng chứng nhất quán và không mâu thuẫn; trả về `undefined` khi mơ hồ.
+ */
+export function inferCharacterGenderFromContext(params: {
+  chinese: string;
+  note?: string;
+  sourceParagraph?: string;
+}): 'male' | 'female' | undefined {
+  const note = (params.note || '').trim();
+  const sourceParagraph = (params.sourceParagraph || '').trim();
+  const cn = (params.chinese || '').trim();
+
+  let hasFemale =
+    Boolean(note) && (FEMALE_NOTE_CUES_RE.test(note) || STANDALONE_FEMALE_LABEL_RE.test(note));
+  let hasMale =
+    Boolean(note) && (MALE_NOTE_CUES_RE.test(note) || STANDALONE_MALE_LABEL_RE.test(note));
+
+  if (hasFemale && hasMale) {
+    return undefined;
+  }
+
+  if (!hasFemale && !hasMale && sourceParagraph && cn) {
+    const escapedCn = cn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const directFemaleRe = new RegExp(
+      `${escapedCn}[\\s，,]*(?:是位|是一位|是个|乃|为)?(?:少女|女子|姑娘|小姐|公主|皇后|夫人)|${escapedCn}[^。！？\\n]{0,4}她`
+    );
+    const directMaleRe = new RegExp(
+      `${escapedCn}[\\s，,]*(?:是位|是一位|是个|乃|为)?(?:少年|男子|公子|大汉|老者)|${escapedCn}[^。！？\\n]{0,4}他`
+    );
+
+    const paraFemale = SOURCE_FEMALE_WORD_CUES_RE.test(sourceParagraph);
+    const paraMale = SOURCE_MALE_WORD_CUES_RE.test(sourceParagraph);
+
+    if (directFemaleRe.test(sourceParagraph) && !paraMale) {
+      hasFemale = true;
+    } else if (directMaleRe.test(sourceParagraph) && !paraFemale) {
+      hasMale = true;
+    }
+  }
+
+  if (hasFemale && !hasMale) return 'female';
+  if (hasMale && !hasFemale) return 'male';
+  return undefined;
+}
+
+/**
+ * Ưu tiên danh sách thuật ngữ đã biết có xuất hiện trong chương hiện tại vào đầu danh sách loại trừ (FR-007).
+ */
+export function prioritizeKnownTermsForChapter(
+  sourceText: string,
+  knownTerms: Array<string | GlossaryEntryLike>,
+  maxLimit = 150
+): string[] {
+  if (!Array.isArray(knownTerms) || knownTerms.length === 0 || maxLimit <= 0) {
+    return [];
+  }
+
+  const safeSource = sourceText || '';
+  const canonSource = canonicalizeHan(safeSource);
+  const indexedSourceChars = safeSource ? indexCodePoints(safeSource) : [];
+
+  const matched: string[] = [];
+  const pinned: string[] = [];
+  const rest: string[] = [];
+  const seenCanon = new Set<string>();
+
+  for (const entry of knownTerms) {
+    const rawCn = typeof entry === 'string' ? entry.trim() : (entry?.chinese || '').trim();
+    if (!rawCn) continue;
+    const canonCn = canonicalizeHan(rawCn);
+    if (!canonCn || seenCanon.has(canonCn)) continue;
+    seenCanon.add(canonCn);
+
+    const forms =
+      typeof entry === 'string' ? [rawCn] : getAllSurfaceForms(entry);
+
+    let isMatched = false;
+    if (safeSource) {
+      for (const form of forms) {
+        const trimmed = form.trim();
+        if (!trimmed) continue;
+        if (countHanChars(trimmed) === 1 && Array.from(trimmed).length === 1) {
+          if (findNonOverlappingMatchesForForm(safeSource, indexedSourceChars, canonSource, trimmed).length > 0) {
+            isMatched = true;
+            break;
+          }
+        } else if (
+          safeSource.includes(trimmed) ||
+          (canonSource && canonSource.includes(canonicalizeHan(trimmed)))
+        ) {
+          isMatched = true;
+          break;
+        }
+      }
+    }
+
+    if (isMatched) {
+      matched.push(rawCn);
+    } else if (typeof entry !== 'string' && entry?.isPinned) {
+      pinned.push(rawCn);
+    } else {
+      rest.push(rawCn);
+    }
+  }
+
+  return [...matched, ...pinned, ...rest].slice(0, maxLimit);
+}
+
+/**
+ * Chẩn đoán sức khỏe bộ từ điển hiện tại của truyện (FR-010).
+ * Tái dùng `resolveGlossaryConflicts` để bảo đảm nhất quán 100% với luồng dịch.
+ */
+export function computeGlossaryHealth(glossary: GlossaryEntryLike[]): GlossaryHealthReport {
+  if (!Array.isArray(glossary) || glossary.length === 0) {
+    return {
+      conflictGroupCount: 0,
+      conflictItemIds: [],
+      missingProfileCharIds: [],
+      incompleteViIds: [],
+      totalIssueItems: 0,
+    };
+  }
+
+  const { conflicts } = resolveGlossaryConflicts(glossary);
+  const conflictIdSet = new Set<string>();
+  for (const c of conflicts) {
+    if (c.winningItem.id) conflictIdSet.add(c.winningItem.id);
+    for (const s of c.shadowedItems) {
+      if (s.id) conflictIdSet.add(s.id);
+    }
+  }
+
+  const missingProfileCharIds: string[] = [];
+  const incompleteViIds: string[] = [];
+
+  for (const item of glossary) {
+    if (!item || !item.id) continue;
+    if (!item.vietnamese || !item.vietnamese.trim()) {
+      incompleteViIds.push(item.id);
+    }
+    if (item.type === 'character') {
+      const profile = normalizeCharacterProfile(item.characterProfile);
+      const hasGender = profile?.gender === 'male' || profile?.gender === 'female' || profile?.gender === 'neutral';
+      const hasNarrativePronoun = Boolean(profile?.defaultNarrativePronoun);
+      if (!hasGender && !hasNarrativePronoun) {
+        missingProfileCharIds.push(item.id);
+      }
+    }
+  }
+
+  const unionIds = new Set<string>([
+    ...conflictIdSet,
+    ...missingProfileCharIds,
+    ...incompleteViIds,
+  ]);
+
+  return {
+    conflictGroupCount: conflicts.length,
+    conflictItemIds: Array.from(conflictIdSet),
+    missingProfileCharIds,
+    incompleteViIds,
+    totalIssueItems: unionIds.size,
+  };
+}
+
 /**
  * Phân loại đồng nhất các thực thể mới AI phát hiện (`discoveredEntities`) cho cả luồng đơn chương
- * và dịch hàng loạt (FR-021): tự động thêm thực thể mới không trùng vào từ điển, đẩy các mục nghi ngờ
- * hoặc trùng chữ Hán/nghĩa Việt vào hàng đợi `pendingGlossary`.
+ * và dịch hàng loạt (FR-008, FR-009): lọc từ phổ thông nhiễu, tự động thêm thực thể mới hợp lệ
+ * kèm gợi ý giới tính nhân vật từ ngữ cảnh rõ ràng, và đẩy các mục trùng hoặc nghi ngờ vào `pendingGlossary`
+ * mà không bao giờ ghi đè mục sẵn có.
  */
 export function classifyDiscoveredEntitiesForGlossary(params: {
   discoveredEntities: DiscoveredEntity[];
@@ -636,6 +1145,11 @@ export function classifyDiscoveredEntitiesForGlossary(params: {
     const cleanNote = (typeof ent.note === 'string' ? ent.note : '').trim();
     const cleanType: GlossaryType = (ent.type || 'other') as GlossaryType;
 
+    // Lọc từ phổ thông vô nghĩa / rác trước khi đưa vào từ điển chính (FR-008)
+    if (isNoisyGlossaryTerm(cleanChinese, cleanType)) {
+      continue;
+    }
+
     const matchedByCn = workingGlossary.find((gItem) => isHanEquivalent(gItem.chinese, rawChinese));
     const matchedByVi =
       cleanVietnamese.length > 0
@@ -652,6 +1166,15 @@ export function classifyDiscoveredEntitiesForGlossary(params: {
     const suffix = `${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
     if (!matchedByCn && !matchedByVi && !ent.needsReview) {
+      const inferredGender =
+        cleanType === 'character'
+          ? inferCharacterGenderFromContext({
+              chinese: cleanChinese,
+              note: cleanNote,
+              sourceParagraph: originParagraph,
+            })
+          : undefined;
+
       const itemPayload: GlossaryItem = {
         id: `glo_${idPrefix}_${suffix}`,
         chinese: cleanChinese,
@@ -659,6 +1182,7 @@ export function classifyDiscoveredEntitiesForGlossary(params: {
         vietnamese: cleanVietnamese,
         type: cleanType,
         note: cleanNote,
+        ...(inferredGender ? { characterProfile: { gender: inferredGender } } : {}),
         ...(chapterTitle ? { sourceChapter: chapterTitle } : {}),
         ...(originParagraph || chapterTitle ? { sourceParagraph: originParagraph } : {}),
         ...(chapterId ? { sourceChapterId: chapterId } : {}),

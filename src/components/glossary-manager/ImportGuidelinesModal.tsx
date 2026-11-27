@@ -3,8 +3,9 @@ import { FileText, UploadCloud, Sparkles, AlertTriangle, CheckCircle2, RotateCcw
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { useNotifications } from '../NotificationSystem';
 import { cn } from '../../lib/cn';
-import { DuplicateResolutionStrategy, GlossaryImportPreview } from '../../services/glossaryIO';
+import { DuplicateResolutionStrategy, GlossaryImportMode, GlossaryImportPreview } from '../../services/glossaryIO';
 
 export interface ImportGuidelinesModalProps {
   isImporting: boolean;
@@ -16,9 +17,10 @@ export interface ImportGuidelinesModalProps {
   handleImportFile: (file: File) => void;
   importPreview: GlossaryImportPreview | null;
   importError: string | null;
-  confirmImport: (strategy: DuplicateResolutionStrategy) => void;
+  confirmImport: (strategy: DuplicateResolutionStrategy, importMode?: GlossaryImportMode) => void;
   retryImportWithAi: () => void;
   resetImportPreview: () => void;
+  existingGlossaryCount?: number;
 }
 
 export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
@@ -34,12 +36,16 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
   confirmImport,
   retryImportWithAi,
   resetImportPreview,
+  existingGlossaryCount = 0,
 }: ImportGuidelinesModalProps) {
+  const { showConfirm } = useNotifications();
   const [isDragging, setIsDragging] = useState(false);
   const [strategy, setStrategy] = useState<DuplicateResolutionStrategy>('review');
+  const [importMode, setImportMode] = useState<GlossaryImportMode>('append');
 
   const handleClose = () => {
     setIsDragging(false);
+    setImportMode('append');
     resetImportPreview();
     setIsImporting(false);
   };
@@ -71,6 +77,26 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
 
   const hasConflicts = (importPreview?.conflicts.length ?? 0) > 0;
   const totalParsed = (importPreview?.cleanItems.length ?? 0) + (importPreview?.conflicts.length ?? 0);
+  const allValidCount = importPreview?.allValidItems?.length ?? totalParsed;
+
+  const handleConfirmClick = async () => {
+    if (!importPreview) return;
+    if (importMode === 'replace_all') {
+      if (allValidCount === 0) return;
+      const confirmed = await showConfirm({
+        title: 'Xác nhận thay toàn bộ thuật ngữ',
+        message: `Thao tác này sẽ thay thế toàn bộ ${existingGlossaryCount} thuật ngữ hiện có trong từ điển chính bằng ${allValidCount} thuật ngữ từ tệp nhập (các mục trong hàng chờ kiểm duyệt vẫn được giữ nguyên). Bạn có chắc chắn muốn tiếp tục?`,
+        confirmText: 'Thay toàn bộ',
+        cancelText: 'Hủy',
+        type: 'danger',
+      });
+      if (!confirmed) return;
+      confirmImport('overwrite', 'replace_all');
+      return;
+    }
+
+    confirmImport(hasConflicts ? strategy : 'skip', 'append');
+  };
 
   return (
     <Modal
@@ -185,7 +211,66 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
               )}
             </div>
 
-            {hasConflicts && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-text-muted">
+                Chế độ áp dụng khi nhập
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  {
+                    value: 'append' as const,
+                    label: 'Chỉ thêm thuật ngữ',
+                    desc: `Giữ lại ${existingGlossaryCount} thuật ngữ hiện có và áp dụng quy tắc xử lý mục trùng lặp`,
+                  },
+                  {
+                    value: 'replace_all' as const,
+                    label: 'Thay toàn bộ thuật ngữ',
+                    desc: `Xóa từ điển chính hiện tại và thay bằng ${allValidCount} thuật ngữ từ tệp (giữ hàng chờ kiểm duyệt)`,
+                  },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    id={`btn-import-mode-${opt.value}`}
+                    type="button"
+                    onClick={() => setImportMode(opt.value)}
+                    className={cn(
+                      'p-2.5 rounded-[3px] border text-left transition-colors cursor-pointer',
+                      importMode === opt.value
+                        ? 'bg-polish/10 border-polish text-text-main'
+                        : 'bg-ink border-parchment-2 text-text-muted hover:border-polish/50'
+                    )}
+                  >
+                    <div className="text-xs font-bold text-text-main">{opt.label}</div>
+                    <div className="text-[11px] text-text-muted mt-0.5">{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {importMode === 'replace_all' && (
+              <div
+                id="import-replace-all-warning"
+                className="flex items-start gap-2.5 p-3 rounded-[3px] bg-amber-950/40 border border-amber-800/50 text-amber-300 text-xs"
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold">Cảnh báo thay thế toàn bộ từ điển chính</div>
+                  {allValidCount === 0 ? (
+                    <div className="text-amber-200">
+                      Tệp nhập không có thuật ngữ hợp lệ nào. Hệ thống chặn thay thế để bảo vệ từ điển hiện tại.
+                    </div>
+                  ) : (
+                    <div className="text-amber-200/90">
+                      Toàn bộ <strong>{existingGlossaryCount}</strong> thuật ngữ hiện tại sẽ bị thay thế bằng{' '}
+                      <strong>{allValidCount}</strong> thuật ngữ hợp lệ từ tệp này. Các mục trong hàng chờ kiểm duyệt
+                      vẫn được giữ nguyên.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {importMode === 'append' && hasConflicts && (
               <div className="space-y-2">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-text-muted">
                   Xử lý {importPreview.conflicts.length} mục trùng lặp
@@ -233,7 +318,10 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
                   variant="ghost"
                   size="sm"
                   icon={<RotateCcw className="w-3.5 h-3.5" />}
-                  onClick={resetImportPreview}
+                  onClick={() => {
+                    setImportMode('append');
+                    resetImportPreview();
+                  }}
                 >
                   Chọn tệp khác
                 </Button>
@@ -255,12 +343,12 @@ export const ImportGuidelinesModal = React.memo(function ImportGuidelinesModal({
                 </Button>
                 <Button
                   id="btn-confirm-import-glossary"
-                  variant="primary"
+                  variant={importMode === 'replace_all' ? 'danger' : 'primary'}
                   size="sm"
-                  disabled={totalParsed === 0}
-                  onClick={() => confirmImport(hasConflicts ? strategy : 'skip')}
+                  disabled={importMode === 'replace_all' ? allValidCount === 0 : totalParsed === 0}
+                  onClick={handleConfirmClick}
                 >
-                  Xác nhận nhập từ điển
+                  {importMode === 'replace_all' ? 'Thay toàn bộ thuật ngữ' : 'Xác nhận nhập từ điển'}
                 </Button>
               </div>
             </div>

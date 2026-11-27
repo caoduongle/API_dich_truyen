@@ -6,6 +6,12 @@ import {
   substituteGlossaryTermsSafely,
   mergeGlossaryPreservingProfiles,
   classifyDiscoveredEntitiesForGlossary,
+  groupGlossaryByRole,
+  findNonOverlappingParagraphTerms,
+  prioritizeKnownTermsForChapter,
+  isNoisyGlossaryTerm,
+  inferCharacterGenderFromContext,
+  computeGlossaryHealth,
 } from '../glossaryMatch';
 import { GlossaryItem } from '../../types';
 
@@ -210,6 +216,165 @@ describe('glossaryMatch (User Story 1 & 2 Foundation)', () => {
       expect(result.newPendingItems).toHaveLength(2);
       expect(result.newPendingItems[0].reason).toBe('Duplicate Chinese');
       expect(result.newPendingItems[1].reason).toBe('AI trích xuất nghi ngờ hallucinate');
+    });
+
+    it('filters noisy stopwords and auto-enriches unambiguous gender for new characters without touching existing ones', () => {
+      const existing: GlossaryItem[] = [
+        makeItem({
+          id: 'manual_1',
+          chinese: '萧炎',
+          vietnamese: 'Tiêu Viêm',
+          origin: 'manual',
+          isPinned: true,
+          characterProfile: { gender: 'male', defaultSelfPronoun: 'ta' },
+        }),
+      ];
+
+      const result = classifyDiscoveredEntitiesForGlossary({
+        discoveredEntities: [
+          { chinese: '他们', pinyin: 'tha môn', vietnamese: 'bọn họ', type: 'other', note: '' },
+          { chinese: '纳兰嫣然', pinyin: 'Nạp Lan Yên Nhiên', vietnamese: 'Nạp Lan Yên Nhiên', type: 'character', note: 'Thiếu nữ kiêu ngạo của Vân Lam Tông' },
+          { chinese: '韩枫', pinyin: 'Hàn Phong', vietnamese: 'Hàn Phong', type: 'character', note: 'Đi về phía nam thành' },
+          { chinese: '萧炎', pinyin: 'Tiêu Viêm', vietnamese: 'Tiêu Viêm', type: 'character', note: 'Nhân vật nữ giả' },
+        ],
+        existingGlossary: existing,
+        sourceText: '他们看到纳兰嫣然与韩枫同行，萧炎在一旁冷笑。',
+      });
+
+      expect(result.newGlossaryItems.map((i) => i.chinese)).toEqual(['纳兰嫣然', '韩枫']);
+      expect(result.newGlossaryItems[0].characterProfile).toEqual({ gender: 'female' });
+      // "phía nam" must NOT trigger male inference
+      expect(result.newGlossaryItems[1].characterProfile).toBeUndefined();
+      // Existing pinned manual item stays untouched
+      expect(existing[0].characterProfile?.gender).toBe('male');
+      expect(existing[0].characterProfile?.defaultSelfPronoun).toBe('ta');
+    });
+  });
+
+  describe('Feature 169: Variant conflicts, role grouping, longest-match spans, exclusions & health', () => {
+    it('strips colliding variants on losing entry without swallowing non-colliding primary terms', () => {
+      const a = makeItem({
+        id: 'a',
+        chinese: '林风',
+        variants: ['风哥'],
+        vietnamese: 'Lâm Phong',
+        origin: 'manual',
+      });
+      const b = makeItem({
+        id: 'b',
+        chinese: '陈风',
+        variants: ['风哥'],
+        vietnamese: 'Trần Phong',
+        origin: 'scanned',
+      });
+
+      const { resolved, conflicts } = resolveGlossaryConflicts([a, b]);
+
+      expect(resolved).toHaveLength(2);
+      expect(resolved.map((r) => r.chinese)).toEqual(['林风', '陈风']);
+      expect(resolved[0].variants).toEqual(['风哥']);
+      expect(resolved[1].variants).toBeUndefined();
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0].winningItem.id).toBe('a');
+    });
+
+    it('groups matched entries by role priority and separates pinned reference entries', () => {
+      const charPlain = makeItem({ id: 'c_plain', chinese: '张三', vietnamese: 'Trương Tam', type: 'character' });
+      const loc = makeItem({ id: 'loc', chinese: '青城', vietnamese: 'Thanh Thành', type: 'location' });
+      const term = makeItem({ id: 'trm', chinese: '灵剑', vietnamese: 'Linh Kiếm', type: 'term' });
+      const charProfiled = makeItem({
+        id: 'c_prof',
+        chinese: '李四',
+        vietnamese: 'Lý Tứ',
+        type: 'character',
+        characterProfile: { gender: 'female', defaultNarrativePronoun: 'nàng' },
+      });
+      const pinned = makeItem({ id: 'pin', chinese: '太虚殿', vietnamese: 'Thái Hư Điện', type: 'location', isPinned: true });
+
+      const sections = groupGlossaryByRole(
+        [charPlain, loc, term, charProfiled, pinned],
+        [charPlain, loc, term, charProfiled]
+      );
+
+      expect(sections.characterProfiled.map((i) => i.id)).toEqual(['c_prof']);
+      expect(sections.characterPlain.map((i) => i.id)).toEqual(['c_plain']);
+      expect(sections.location.map((i) => i.id)).toEqual(['loc']);
+      expect(sections.term.map((i) => i.id)).toEqual(['trm']);
+      expect(sections.pinnedReference.map((i) => i.id)).toEqual(['pin']);
+    });
+
+    it('matches longest non-overlapping terms while catching independent shorter terms outside the longer span', () => {
+      const longItem = makeItem({ id: 'long', chinese: '张三丰', vietnamese: 'Trương Tam Phong' });
+      const shortItem = makeItem({ id: 'short', chinese: '三丰', vietnamese: 'Tam Phong' });
+      const singleItem = makeItem({ id: 'single', chinese: '张', vietnamese: 'Trương' });
+
+      const nestedOnly = findNonOverlappingParagraphTerms('张三丰出手了。', [longItem, shortItem, singleItem]);
+      expect(nestedOnly.map((s) => s.item.id)).toEqual(['long']);
+
+      const withIndependent = findNonOverlappingParagraphTerms('张三丰出手了，三丰威武！', [longItem, shortItem, singleItem]);
+      expect(withIndependent.map((s) => s.item.id)).toEqual(['long', 'short']);
+    });
+
+    it('prioritizes chapter-present known terms even when glossary exceeds cap', () => {
+      const filler = Array.from({ length: 200 }, (_, i) =>
+        makeItem({ id: `f_${i}`, chinese: `杂词${i}`, vietnamese: `Tạp ${i}` })
+      );
+      const targetAtEnd = makeItem({ id: 'target', chinese: '青云宗', vietnamese: 'Thanh Vân Tông' });
+      const result = prioritizeKnownTermsForChapter('他拜入青云宗门下。', [...filler, targetAtEnd], 50);
+
+      expect(result).toHaveLength(50);
+      expect(result[0]).toBe('青云宗');
+    });
+
+    it('detects noisy stopwords and infers gender safely without substring false positives', () => {
+      expect(isNoisyGlossaryTerm('他们')).toBe(true);
+      expect(isNoisyGlossaryTerm('12345')).toBe(true);
+      expect(isNoisyGlossaryTerm('林婉儿', 'character')).toBe(false);
+
+      expect(inferCharacterGenderFromContext({ chinese: '林婉儿', note: 'Thiếu nữ thông minh' })).toBe('female');
+      expect(inferCharacterGenderFromContext({ chinese: '韩枫', note: 'Phía nam thành' })).toBeUndefined();
+      expect(
+        inferCharacterGenderFromContext({
+          chinese: '双面',
+          note: 'Nhân vật nam',
+          sourceParagraph: '她看着他',
+        })
+      ).toBe('male');
+      expect(
+        inferCharacterGenderFromContext({
+          chinese: '模糊',
+          note: 'Nam hoặc nữ',
+        })
+      ).toBeUndefined();
+      expect(
+        inferCharacterGenderFromContext({
+          chinese: '云韵',
+          note: 'Sư phụ của nhân vật chính',
+        })
+      ).toBeUndefined();
+    });
+
+    it('computes accurate glossary health counters across conflicts, missing profiles, and incomplete Vietnamese', () => {
+      const glossary: GlossaryItem[] = [
+        makeItem({ id: 'g1', chinese: '灵石', vietnamese: 'Đá linh', origin: 'scanned', type: 'term' }),
+        makeItem({ id: 'g2', chinese: '靈石', vietnamese: 'Linh thạch', origin: 'manual', type: 'term' }),
+        makeItem({ id: 'c1', chinese: '林风', vietnamese: 'Lâm Phong', type: 'character' }),
+        makeItem({
+          id: 'c2',
+          chinese: '苏雪',
+          vietnamese: 'Tô Tuyết',
+          type: 'character',
+          characterProfile: { gender: 'female' },
+        }),
+        makeItem({ id: 'inc1', chinese: '空词', vietnamese: '   ', type: 'other' }),
+      ];
+
+      const health = computeGlossaryHealth(glossary);
+      expect(health.conflictGroupCount).toBe(1);
+      expect(health.conflictItemIds.sort()).toEqual(['g1', 'g2']);
+      expect(health.missingProfileCharIds).toEqual(['c1']);
+      expect(health.incompleteViIds).toEqual(['inc1']);
+      expect(health.totalIssueItems).toBe(4);
     });
   });
 });

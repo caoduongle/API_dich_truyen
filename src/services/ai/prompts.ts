@@ -8,7 +8,10 @@ import {
 } from '../../lib/text';
 import { GENRE_PROFILES, TONE_PROFILES } from '../../config/translationStyles';
 import {
+  GroupedGlossarySections,
+  groupGlossaryByRole,
   normalizeCharacterProfile,
+  prioritizeKnownTermsForChapter,
   selectRelevantGlossary,
   substituteGlossaryTermsSafely,
 } from '../../lib/glossaryMatch';
@@ -146,6 +149,41 @@ function formatContinuityContextBlock(continuity?: ContinuityContext): string {
   return lines.join('\n') + '\n\n';
 }
 
+function formatFullGlossaryEntryLine(entry: GlossaryEntry, options?: { mandateSuffix?: string }): string {
+  const cn = entry.chinese;
+  const variants = Array.isArray(entry.variants) ? entry.variants : [];
+  const py = entry.pinyin || '';
+  const vi = entry.vietnamese || '';
+  const tp = entry.type || 'other';
+  const nt = entry.note || '';
+  const profileSuffix = formatCharacterProfileSuffix(entry);
+  const mandate = options?.mandateSuffix ? `${options.mandateSuffix}; ` : '';
+  return `- Trung: [${cn}${variants.length ? ' / ' + variants.join(' / ') : ''}] -> Hán Việt: [${py}] -> Việt: [${vi}] (${mandate}Loại: ${tp}${nt ? `, Ghi chú: ${nt}` : ', Ghi chú: '}${profileSuffix})`;
+}
+
+function formatRoleGroupedGlossarySections(
+  sections: GroupedGlossarySections<GlossaryEntry>,
+  formatter: (entry: GlossaryEntry) => string,
+  includePinnedReference: boolean
+): string {
+  const blocks: Array<{ heading: string; items: GlossaryEntry[] }> = [
+    { heading: '### Nhân vật & Hồ sơ xưng hô', items: sections.characterProfiled },
+    { heading: '### Nhân vật khác', items: sections.characterPlain },
+    { heading: '### Địa danh', items: sections.location },
+    { heading: '### Thuật ngữ / Kỹ năng / Vật phẩm', items: sections.term },
+    { heading: '### Thành ngữ / Cụm từ / Khác', items: sections.phraseOther },
+  ];
+
+  if (includePinnedReference) {
+    blocks.push({ heading: '### Từ điển ghim tham chiếu', items: sections.pinnedReference });
+  }
+
+  return blocks
+    .filter((b) => b.items.length > 0)
+    .map((b) => `${b.heading}\n${b.items.map(formatter).join('\n')}`)
+    .join('\n');
+}
+
 /**
  * Xây dựng payload prompt và schema cho Giai đoạn 1: Dịch thô + Trích xuất thực thể
  */
@@ -159,7 +197,7 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
 
   const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
 
-  const { entries: relevantGlossary } = selectRelevantGlossary(cleanText, sanitizedGlossary);
+  const { entries: relevantGlossary, matchedInSource } = selectRelevantGlossary(cleanText, sanitizedGlossary);
 
   let glossaryStr = "";
   if (sanitizedGlossary.length === 0) {
@@ -167,18 +205,11 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
   } else if (relevantGlossary.length === 0) {
     glossaryStr = "(Không có thuật ngữ trong từ điển xuất hiện trực tiếp ở phân đoạn này)";
   } else {
-    glossaryStr = relevantGlossary
-      .map((g) => {
-        const cn = g.chinese;
-        const variants = Array.isArray(g.variants) ? g.variants : [];
-        const py = g.pinyin || '';
-        const vi = g.vietnamese || '';
-        const tp = g.type || 'other';
-        const nt = g.note || '';
-        const profileSuffix = formatCharacterProfileSuffix(g);
-        return `- Trung: [${cn}${variants.length ? ' / ' + variants.join(' / ') : ''}] -> Hán Việt: [${py}] -> Việt: [${vi}] (Loại: ${tp}, Ghi chú: ${nt}${profileSuffix})`;
-      })
-      .join("\n");
+    glossaryStr = formatRoleGroupedGlossarySections(
+      groupGlossaryByRole(relevantGlossary, matchedInSource),
+      (g) => formatFullGlossaryEntryLine(g),
+      true
+    );
   }
 
   // Đánh dấu nội tuyến an toàn Chữ_Hán[Tên_Việt] cho cụm >= 2 ký tự Hán (giữ nguyên chữ Hán gốc)
@@ -317,7 +348,8 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     annotationStyle: 'inline-pair',
   });
 
-  const pinnedOnlyEntries = relevantGlossary.filter((e) => !matchedInSource.includes(e));
+  const groupedGlossary = groupGlossaryByRole(relevantGlossary, matchedInSource);
+  const pinnedOnlyEntries = groupedGlossary.pinnedReference;
 
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
@@ -344,14 +376,12 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     (cleanDescription && cleanDescription.trim() ? `\n8. BẮT BUỘC TUÂN THỦ NGUYÊN TẮC DỊCH THUẬT & QUY TẮC XƯNG HÔ ĐẶC THÙ CỦA TRUYỆN:\n${cleanDescription.trim()}` : "") +
     (isExtractionEnabled ? "\n9. Trong quá trình rà soát đối chiếu, nếu phát hiện thêm thực thể/tên riêng nào chưa có trong từ điển, hãy trích xuất vào discoveredEntities. ĐẶC BIỆT LƯU Ý: Khôi phục tên gốc tiếng Anh nếu là phiên âm phương Tây; dịch danh từ chỉ loại tiếng Trung lên trước tên tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio'); và giữ nguyên dạng chữ Hán phồn/giản thể như trong bản gốc." : "");
 
-  const formatPolishGlossaryLine = (g: GlossaryEntry): string => {
-    const variants = Array.isArray(g.variants) ? g.variants : [];
-    const profileSuffix = formatCharacterProfileSuffix(g);
-    return `- [${g.chinese}${variants.length ? ' / ' + variants.join(' / ') : ''}] -> [${g.vietnamese}] (Bắt buộc dùng bản dịch này${profileSuffix})`;
-  };
+  const formatPolishGlossaryLine = (g: GlossaryEntry): string =>
+    formatFullGlossaryEntryLine(g, { mandateSuffix: 'Bắt buộc dùng bản dịch này' });
 
-  const matchedGlossaryBlock = matchedInSource.length > 0
-    ? `\n[TỪ ĐIỂN RIÊNG ĐÃ XUẤT HIỆN TRONG ĐOẠN NÀY (${matchedInSource.length} thuật ngữ, ${totalMatchOccurrences} lần xuất hiện)]:\n${matchedInSource.map(formatPolishGlossaryLine).join('\n')}`
+  const matchedGlossaryBody = formatRoleGroupedGlossarySections(groupedGlossary, formatPolishGlossaryLine, false);
+  const matchedGlossaryBlock = matchedInSource.length > 0 && matchedGlossaryBody
+    ? `\n[TỪ ĐIỂN RIÊNG ĐÃ XUẤT HIỆN TRONG ĐOẠN NÀY (${matchedInSource.length} thuật ngữ, ${totalMatchOccurrences} lần xuất hiện)]:\n${matchedGlossaryBody}`
     : '';
 
   const pinnedGlossaryBlock = pinnedOnlyEntries.length > 0
@@ -438,18 +468,14 @@ export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
   let glossarySection = "";
   const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
   if (sanitizedGlossary.length > 0) {
-    const { entries: relevantGlossary } = selectRelevantGlossary(sourceText, sanitizedGlossary);
-    const glossaryLines = relevantGlossary
-      .filter((g) => g.chinese && g.vietnamese)
-      .map((g) => {
-        const cn = g.chinese;
-        const vi = g.vietnamese;
-        const tp = g.type || 'other';
-        const nt = g.note || '';
-        const profileSuffix = formatCharacterProfileSuffix(g);
-        return `- Trung: [${cn}] -> Việt: [${vi}] (Loại: ${tp}${nt ? `, Ghi chú: ${nt}` : ''}${profileSuffix})`;
-      })
-      .join("\n");
+    const { entries: relevantGlossary, matchedInSource } = selectRelevantGlossary(sourceText, sanitizedGlossary);
+    const checkableRelevant = relevantGlossary.filter((g) => g.chinese && g.vietnamese);
+    const checkableMatched = matchedInSource.filter((g) => g.chinese && g.vietnamese);
+    const glossaryLines = formatRoleGroupedGlossarySections(
+      groupGlossaryByRole(checkableRelevant, checkableMatched),
+      (g) => formatFullGlossaryEntryLine(g),
+      true
+    );
     if (glossaryLines) {
       glossarySection = `\n\n--- BẢNG TỪ ĐIỂN QUY ƯỚC CỦA DỰ ÁN ---\n${glossaryLines}`;
     }
@@ -563,7 +589,8 @@ export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptPa
 
   let exclusionText = '';
   if (knownChineseTerms.length > 0 && loopIndex > 1) {
-    const termList = knownChineseTerms.slice(0, 150).join(', ');
+    const prioritizedTerms = prioritizeKnownTermsForChapter(text, knownChineseTerms, 150);
+    const termList = prioritizedTerms.join(', ');
     exclusionText =
       `\n\n--- DANH SÁCH THUẬT NGỮ ĐÃ CÓ / ĐÃ QUÉT ĐƯỢC (BỎ QUA KHÔNG TRÍCH XUẤT LẠI) ---\n` +
       `${termList}\n` +

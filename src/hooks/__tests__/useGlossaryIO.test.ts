@@ -150,4 +150,78 @@ describe('useGlossaryState import & export flows', () => {
 
     hook.unmount();
   });
+
+  it('replaces entire main glossary while preserving pendingGlossary when importMode is replace_all', async () => {
+    const existingGlossary: GlossaryItem[] = [
+      { id: 'old_1', chinese: '旧词一', pinyin: 'Cũ 1', vietnamese: 'Cũ 1', type: 'term', note: '' },
+      { id: 'old_2', chinese: '旧词二', pinyin: 'Cũ 2', vietnamese: 'Cũ 2', type: 'character', note: '' },
+    ];
+    const pendingItem = {
+      id: 'pend_keep_1',
+      chinese: '待定',
+      pinyin: 'Đãi Định',
+      vietnamese: 'Đợi duyệt',
+      type: 'other' as const,
+      note: '',
+      reason: 'Duplicate Chinese' as const,
+      originalValue: '',
+      importedAt: '2026-11-01T00:00:00.000Z',
+    };
+    const activeProject: StoryProject = {
+      id: 'proj_replace',
+      title: 'Replace Test',
+      author: 'Tester',
+      description: '',
+      genre: 'Tiên Hiệp',
+      tone: 'Hào sảng',
+      glossary: existingGlossary,
+      pendingGlossary: [pendingItem],
+      chapters: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      ignoredDuplicatePairs: [],
+    };
+
+    const onUpdateProject = vi.fn();
+    const hook = renderHookHarness({
+      projectId: 'proj_replace',
+      glossary: existingGlossary,
+      pendingGlossary: [pendingItem],
+      activeProject,
+      onAddGlossaryItem: vi.fn(),
+      onAddGlossaryItems: vi.fn(),
+      onUpdateGlossaryItem: vi.fn(),
+      onDeleteGlossaryItem: vi.fn(),
+      onUpdateProject,
+    });
+
+    const mdContent = [
+      '| Tiếng Trung | Phiên âm | Tiếng Việt | Ghi chú |',
+      '|---|---|---|---|',
+      '| 新词甲 | Tân Từ Giáp | Tân Từ Giáp | Mới 1 |',
+      '| 新词乙 | Tân Từ Ất | Tân Từ Ất | Mới 2 |',
+    ].join('\n');
+
+    const mockFile = {
+      name: 'replace.md',
+      size: mdContent.length,
+      text: async () => mdContent,
+    } as unknown as File;
+
+    await act(async () => {
+      await hook.current.handleImportFile(mockFile);
+    });
+
+    expect(hook.current.importPreview?.allValidItems).toHaveLength(2);
+
+    act(() => {
+      hook.current.confirmImport('skip', 'replace_all');
+    });
+
+    expect(onUpdateProject).toHaveBeenCalledTimes(1);
+    const updated = onUpdateProject.mock.calls[0][0] as StoryProject;
+    expect(updated.glossary.map((g) => g.chinese)).toEqual(['新词甲', '新词乙']);
+    expect(updated.pendingGlossary).toEqual([pendingItem]);
+
+    hook.unmount();
+  });
 });

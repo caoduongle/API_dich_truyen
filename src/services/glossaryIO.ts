@@ -5,6 +5,7 @@ import { normalizeCharacterProfile } from '../lib/glossaryMatch';
 export type GlossaryExportFormat = 'md' | 'csv' | 'json';
 export type GlossaryExportScope = 'all' | 'filtered';
 export type DuplicateResolutionStrategy = 'review' | 'skip' | 'overwrite';
+export type GlossaryImportMode = 'append' | 'replace_all';
 
 export const MAX_GLOSSARY_IMPORT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -35,6 +36,8 @@ export interface GlossaryImportPreview {
   sourceFormat: 'md' | 'csv' | 'json' | 'txt';
   cleanItems: Omit<GlossaryItem, 'id'>[];
   conflicts: ImportConflictItem[];
+  /** Toàn bộ mục hợp lệ sau khi khử trùng nội bộ tệp (dùng cho chế độ 'replace_all') */
+  allValidItems?: Omit<GlossaryItem, 'id'>[];
   skippedRows: number;
   warnings: string[];
   rawTextForAiFallback?: string;
@@ -792,6 +795,37 @@ export interface GuidelineStagedGlossaryAction {
   mode: 'replace' | 'merge';
   items: Omit<GlossaryItem, 'id'>[];
   fileName?: string;
+}
+
+/**
+ * Khử trùng lặp nội bộ tệp và chuẩn hóa an toàn danh sách thuật ngữ hợp lệ (dùng cho chế độ replace_all).
+ * Luôn đi qua buildSafeImportedItem để phòng chống prototype pollution và chuẩn hóa characterProfile.
+ */
+export function prepareFileDeduplicatedItems(
+  parsedItems: Omit<GlossaryItem, 'id'>[]
+): Omit<GlossaryItem, 'id'>[] {
+  if (!Array.isArray(parsedItems) || parsedItems.length === 0) return [];
+  const safeItems: Omit<GlossaryItem, 'id'>[] = [];
+  for (const raw of parsedItems) {
+    if (!raw || typeof raw !== 'object') continue;
+    const built = buildSafeImportedItem({
+      chinese: typeof raw.chinese === 'string' ? raw.chinese : '',
+      pinyin: typeof raw.pinyin === 'string' ? raw.pinyin : undefined,
+      vietnamese: typeof raw.vietnamese === 'string' ? raw.vietnamese : '',
+      type: normalizeGlossaryType(typeof raw.type === 'string' ? raw.type : undefined, 'other'),
+      note: typeof raw.note === 'string' ? raw.note : undefined,
+      variants: Array.isArray(raw.variants)
+        ? raw.variants.filter((v): v is string => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim())
+        : undefined,
+      createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
+      origin: raw.origin,
+      isPinned: typeof raw.isPinned === 'boolean' ? raw.isPinned : undefined,
+      characterProfile: raw.characterProfile,
+    });
+    if (built) safeItems.push(built);
+  }
+  const { cleanItems } = analyzeGlossaryImportConflicts(safeItems, []);
+  return cleanItems;
 }
 
 /**

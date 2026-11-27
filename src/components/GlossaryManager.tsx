@@ -16,6 +16,8 @@ import { DuplicatePanel } from './glossary-manager/DuplicatePanel';
 import { GlossaryTable } from './glossary-manager/GlossaryTable';
 import { GlossaryDetailSidebar } from './glossary-manager/GlossaryDetailSidebar';
 import { MergeHanPanel } from './glossary-manager/MergeHanPanel';
+import { GlossaryHealthBar } from './glossary-manager/GlossaryHealthBar';
+import { GlossaryBulkActionBar } from './glossary-manager/GlossaryBulkActionBar';
 import { Badge } from './ui/Badge';
 import { useGlossaryState } from '../hooks/useGlossaryState';
 
@@ -122,6 +124,20 @@ function GlossaryManager({
     contextFilterType,
     setContextFilterType,
     findLiveContext,
+    healthReport,
+    healthFilter,
+    setHealthFilter,
+    clearAllFilters,
+    selectedIds,
+    selectedIdSet,
+    toggleSelectItem,
+    toggleSelectPage,
+    selectAllFiltered,
+    clearSelection,
+    bulkDeleteSelected,
+    bulkSetPinnedSelected,
+    bulkSetTypeSelected,
+    bulkSetGenderSelected,
   } = useGlossaryState({
     projectId,
     glossary,
@@ -213,6 +229,14 @@ function GlossaryManager({
         confirmImport={confirmImport}
         retryImportWithAi={retryImportWithAi}
         resetImportPreview={resetImportPreview}
+        existingGlossaryCount={glossary.length}
+      />
+
+      <GlossaryHealthBar
+        healthReport={healthReport}
+        healthFilter={healthFilter}
+        onSelectFilter={setHealthFilter}
+        totalGlossaryCount={glossary.length}
       />
 
       {isAdding && (
@@ -333,6 +357,19 @@ function GlossaryManager({
             </div>
           </div>
 
+          <GlossaryBulkActionBar
+            selectedCount={selectedIds.length}
+            totalFilteredCount={filteredGlossary.length}
+            selectedCharacterCount={glossary.filter((g) => selectedIdSet.has(g.id) && g.type === 'character').length}
+            onSelectAllFiltered={selectAllFiltered}
+            onClearSelection={clearSelection}
+            onBulkPin={() => bulkSetPinnedSelected(true)}
+            onBulkUnpin={() => bulkSetPinnedSelected(false)}
+            onBulkChangeType={bulkSetTypeSelected}
+            onBulkChangeGender={bulkSetGenderSelected}
+            onBulkDelete={bulkDeleteSelected}
+          />
+
           <GlossaryTable
             filteredGlossary={filteredGlossary}
             selectedItem={selectedItem}
@@ -348,6 +385,17 @@ function GlossaryManager({
             pageSize={pageSize}
             currentPage={currentPage}
             setCurrentPage={setCurrentPage}
+            selectedIdSet={selectedIdSet}
+            onToggleSelectItem={toggleSelectItem}
+            onToggleSelectPage={toggleSelectPage}
+            hasActiveFilter={
+              Boolean(searchTerm.trim()) ||
+              selectedType !== 'all' ||
+              selectedOrigin !== 'all' ||
+              Boolean(searchDate) ||
+              healthFilter !== 'all'
+            }
+            onClearFilters={clearAllFilters}
           />
         </div>
 

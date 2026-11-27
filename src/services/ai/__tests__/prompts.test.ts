@@ -4,6 +4,7 @@ import {
   buildPolishTranslationPayload,
   buildQaCritiquePayload,
   buildAnalyzeGuidelinesPayload,
+  buildAnalyzeGlossaryPayload,
 } from '../prompts';
 import { getGenreStyleGuide, getToneStyleGuide } from '../../../config/translationStyles';
 
@@ -391,6 +392,79 @@ describe('AI Prompts Construction Pipeline', () => {
       expect(guidelinePayload.prompt).not.toContain('\u{E0001}');
       expect('enum' in guidelinePayload.schema.properties.genre).toBe(false);
       expect('enum' in guidelinePayload.schema.properties.tone).toBe(false);
+    });
+  });
+
+  describe('Feature 169: 3-Phase Glossary Context Parity, Role Grouping & Chapter Exclusions', () => {
+    it('passes full note, type, variants and role headings consistently across Raw, Polish and QA', () => {
+      const richGlossary = [
+        {
+          chinese: '青云宗',
+          vietnamese: 'Thanh Vân Tông',
+          pinyin: 'Thanh Vân Tông',
+          type: 'location',
+          note: 'Tông môn chính đạo nổi tiếng bậc nhất',
+        },
+        {
+          chinese: '苏晴',
+          vietnamese: 'Tô Tình',
+          pinyin: 'Tô Tình',
+          type: 'character',
+          variants: ['晴儿'],
+          note: 'Nữ sư tỷ tính cách lạnh lùng nhưng trọng tình',
+          characterProfile: { gender: 'female' as const, defaultNarrativePronoun: 'nàng' },
+        },
+        {
+          chinese: '紫阳剑诀',
+          vietnamese: 'Tử Dương Kiếm Quyết',
+          pinyin: 'Tử Dương Kiếm Quyết',
+          type: 'term',
+          note: 'Kiếm quyết hỏa hệ',
+          isPinned: true,
+        },
+      ];
+
+      const source = '晴儿站在青云宗山门前。';
+      const raw = buildRawTranslationPayload({ text: source, genre: 'Tiên Hiệp', tone: 'Hào sảng', glossary: richGlossary });
+      const polish = buildPolishTranslationPayload({
+        sourceText: source,
+        rawTranslation: 'Tô Tình đứng trước sơn môn Thanh Vân Tông.',
+        genre: 'Tiên Hiệp',
+        tone: 'Hào sảng',
+        glossary: richGlossary,
+      });
+      const qa = buildQaCritiquePayload({
+        sourceText: source,
+        translatedText: 'Tô Tình đứng trước sơn môn Thanh Vân Tông.',
+        glossary: richGlossary,
+      });
+
+      for (const payload of [raw, polish, qa]) {
+        expect(payload.prompt).toContain('Nữ sư tỷ tính cách lạnh lùng nhưng trọng tình');
+        expect(payload.prompt).toContain('Tông môn chính đạo nổi tiếng bậc nhất');
+        expect(payload.prompt).toContain('Kiếm quyết hỏa hệ');
+        expect(payload.prompt).toContain('晴儿');
+        expect(payload.prompt).toContain('### Nhân vật & Hồ sơ xưng hô');
+        expect(payload.prompt).toContain('### Địa danh');
+        // Nhân vật có hồ sơ phải đứng trước Địa danh
+        expect(payload.prompt.indexOf('### Nhân vật & Hồ sơ xưng hô')).toBeLessThan(
+          payload.prompt.indexOf('### Địa danh')
+        );
+      }
+      expect(polish.prompt).toContain('[TỪ ĐIỂN GHIM BẮT BUỘC (1 thuật ngữ)]');
+    });
+
+    it('prioritizes chapter-present exclusions when knownChineseTerms exceeds 150 entries', () => {
+      const filler = Array.from({ length: 180 }, (_, idx) => `无关术语${idx}`);
+      const payload = buildAnalyzeGlossaryPayload({
+        text: '玄天剑尊踏入太虚古境。',
+        knownChineseTerms: [...filler, '玄天剑尊', '太虚古境'],
+        loopIndex: 2,
+        totalLoops: 2,
+      });
+
+      expect(payload.prompt).toContain('玄天剑尊');
+      expect(payload.prompt).toContain('太虚古境');
     });
   });
 });

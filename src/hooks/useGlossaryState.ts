@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue } from 'react';
-import { CharacterProfile, GlossaryItem, GlossaryType, PendingGlossaryItem, ChapterMetadata, StoryProject } from '../types';
-import { normalizeCharacterProfile } from '../lib/glossaryMatch';
+import { CharacterGender, CharacterProfile, GlossaryItem, GlossaryType, PendingGlossaryItem, ChapterMetadata, StoryProject } from '../types';
+import { computeGlossaryHealth, GlossaryHealthFilter, normalizeCharacterProfile } from '../lib/glossaryMatch';
 import { useNotifications } from '../context/NotificationContext';
 import { triggerDownload } from '../utils/download';
 import { analyzeGuidelinesDirect } from '../services/directGlossaryEngine';
@@ -8,9 +8,11 @@ import {
   analyzeGlossaryImportConflicts,
   DuplicateResolutionStrategy,
   GlossaryExportOptions,
+  GlossaryImportMode,
   GlossaryImportPreview,
   MAX_GLOSSARY_IMPORT_FILE_BYTES,
   parseStructuredGlossaryFile,
+  prepareFileDeduplicatedItems,
   serializeGlossary,
 } from '../services/glossaryIO';
 import { useGlossaryDuplicates } from './useGlossaryDuplicates';
@@ -125,13 +127,27 @@ export function useGlossaryState({
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedOrigin, setSelectedOrigin] = useState<string>('all');
   const [searchDate, setSearchDate] = useState<string>('');
+  const [healthFilter, setHealthFilter] = useState<GlossaryHealthFilter>('all');
   const [pageSize, setPageSize] = useState<number | 'all'>('all');
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const healthReport = useMemo(() => computeGlossaryHealth(glossary), [glossary]);
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+  // Tự động dọn danh sách chọn nếu có mục đã bị xóa hoặc từ điển thay đổi
+  useEffect(() => {
+    const validIds = new Set(glossary.map((g) => g.id));
+    setSelectedIds((prev) => {
+      const next = prev.filter((id) => validIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [glossary]);
 
   // Reset page number back to 1 on filters or page size change
   useEffect(() => {
     setCurrentPage(1);
-  }, [deferredSearchTerm, selectedType, selectedOrigin, searchDate, pageSize]);
+  }, [deferredSearchTerm, selectedType, selectedOrigin, searchDate, healthFilter, pageSize]);
 
   const [isAdding, setIsAdding] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -265,6 +281,7 @@ export function useGlossaryState({
           sourceFormat: structured.sourceFormat,
           cleanItems,
           conflicts,
+          allValidItems: prepareFileDeduplicatedItems(structured.items),
           skippedRows: structured.skippedRows,
           warnings: structured.warnings,
           rawTextForAiFallback: structured.sourceFormat === 'md' || structured.sourceFormat === 'txt' ? text : undefined,
@@ -301,6 +318,7 @@ export function useGlossaryState({
         sourceFormat: file.name.toLowerCase().endsWith('.txt') ? 'txt' : 'md',
         cleanItems,
         conflicts,
+        allValidItems: prepareFileDeduplicatedItems(extractedList),
         skippedRows: 0,
         warnings,
       });
@@ -347,6 +365,7 @@ export function useGlossaryState({
         sourceFormat: importPreview.sourceFormat,
         cleanItems,
         conflicts,
+        allValidItems: prepareFileDeduplicatedItems(extractedList),
         skippedRows: 0,
         warnings,
       });
@@ -360,8 +379,59 @@ export function useGlossaryState({
     }
   }, [importPreview, isAnalyzingMd, apiKeys, selectedModel, glossary, showToast]);
 
-  const confirmImport = useCallback((strategy: DuplicateResolutionStrategy) => {
+  const confirmImport = useCallback((
+    strategy: DuplicateResolutionStrategy,
+    importMode: GlossaryImportMode = 'append'
+  ) => {
     if (!importPreview) return;
+
+    if (importMode === 'replace_all') {
+      const replacementSource =
+        importPreview.allValidItems && importPreview.allValidItems.length > 0
+          ? importPreview.allValidItems
+          : prepareFileDeduplicatedItems([
+              ...importPreview.cleanItems,
+              ...importPreview.conflicts.map((c) => c.item),
+            ]);
+
+      if (replacementSource.length === 0) {
+        showToast({
+          message: 'Tệp nhập không có thuật ngữ hợp lệ nào. Từ điển hiện tại được giữ nguyên.',
+          type: 'warning',
+        });
+        return;
+      }
+
+      const nowBase = Date.now();
+      const nextGlossary: GlossaryItem[] = replacementSource.map((item, idx) => ({
+        ...item,
+        id: `glo_replace_${nowBase}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+        origin: item.origin || 'guideline',
+        createdAt: item.createdAt || new Date().toISOString(),
+      }));
+
+      if (activeProject && onUpdateProject) {
+        // Thay thế chỉ danh sách từ điển chính; giữ nguyên pendingGlossary và reviewQueue
+        onUpdateProject({ ...activeProject, glossary: nextGlossary });
+      } else {
+        glossary.forEach((g) => onDeleteGlossaryItem(g.id));
+        if (onAddGlossaryItems) {
+          onAddGlossaryItems(replacementSource);
+        } else {
+          replacementSource.forEach((item) => onAddGlossaryItem(item));
+        }
+      }
+
+      setSelectedIds([]);
+      setSelectedItem(null);
+      showToast({
+        message: `Đã thay thế toàn bộ từ điển bằng ${nextGlossary.length} thuật ngữ mới (hàng chờ kiểm duyệt được giữ nguyên).`,
+        type: 'success',
+      });
+      setIsImporting(false);
+      resetImportPreview();
+      return;
+    }
 
     const { cleanItems, conflicts } = importPreview;
     let addedCount = 0;
@@ -431,7 +501,7 @@ export function useGlossaryState({
 
     setIsImporting(false);
     resetImportPreview();
-  }, [importPreview, onAddGlossaryItems, onAddGlossaryItem, activeProject, onUpdateProject, onUpdateGlossaryItem, showToast, resetImportPreview]);
+  }, [importPreview, glossary, onAddGlossaryItems, onAddGlossaryItem, onDeleteGlossaryItem, activeProject, onUpdateProject, onUpdateGlossaryItem, showToast, resetImportPreview]);
 
   const handleMdImportFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -503,22 +573,49 @@ export function useGlossaryState({
   const saveEdit = useCallback((id: string, chinese: string, pinyin: string, vietnamese: string, type: GlossaryType, note: string) => {
     const currentItem = glossary.find(g => g.id === id);
     const updated: GlossaryItem = {
-      id, chinese, pinyin, vietnamese, type, note,
+      ...(currentItem || {}),
+      id,
+      chinese,
+      pinyin,
+      vietnamese,
+      type,
+      note,
       origin: currentItem?.origin,
-      createdAt: currentItem?.createdAt
+      createdAt: currentItem?.createdAt,
     };
     onUpdateGlossaryItem(id, updated);
     setEditingId(null);
     setSelectedItem(prev => (prev?.id === id ? updated : prev));
   }, [glossary, onUpdateGlossaryItem]);
 
+  const clearAllFilters = useCallback(() => {
+    setSearchTerm('');
+    setSelectedType('all');
+    setSelectedOrigin('all');
+    setSearchDate('');
+    setHealthFilter('all');
+  }, []);
+
+  const healthFilterIdSet = useMemo(() => {
+    if (healthFilter === 'conflicts') return new Set(healthReport.conflictItemIds);
+    if (healthFilter === 'missing_profile') return new Set(healthReport.missingProfileCharIds);
+    if (healthFilter === 'incomplete') return new Set(healthReport.incompleteViIds);
+    return null;
+  }, [healthFilter, healthReport]);
+
   const filteredGlossary = useMemo(() => {
+    const query = deferredSearchTerm.toLowerCase();
     return glossary.filter((item) => {
+      if (healthFilterIdSet && !healthFilterIdSet.has(item.id)) {
+        return false;
+      }
       const matchesSearch =
-          item.chinese.toLowerCase().includes(deferredSearchTerm.toLowerCase()) ||
-          item.pinyin.toLowerCase().includes(deferredSearchTerm.toLowerCase()) ||
-          item.vietnamese.toLowerCase().includes(deferredSearchTerm.toLowerCase()) ||
-          item.note.toLowerCase().includes(deferredSearchTerm.toLowerCase());
+        !query ||
+        item.chinese.toLowerCase().includes(query) ||
+        item.pinyin.toLowerCase().includes(query) ||
+        item.vietnamese.toLowerCase().includes(query) ||
+        item.note.toLowerCase().includes(query) ||
+        (Array.isArray(item.variants) && item.variants.some((v) => v.toLowerCase().includes(query)));
       const matchesType = selectedType === 'all' ? true : item.type === selectedType;
       const matchesOrigin = selectedOrigin === 'all' ? true : (item.origin === selectedOrigin);
       let matchesDate = true;
@@ -536,7 +633,140 @@ export function useGlossaryState({
       }
       return matchesSearch && matchesType && matchesOrigin && matchesDate;
     });
-  }, [glossary, deferredSearchTerm, selectedType, selectedOrigin, searchDate]);
+  }, [glossary, healthFilterIdSet, deferredSearchTerm, selectedType, selectedOrigin, searchDate]);
+
+  const toggleSelectItem = useCallback((id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  }, []);
+
+  const toggleSelectPage = useCallback((pageItems: GlossaryItem[]) => {
+    if (!pageItems || pageItems.length === 0) return;
+    const pageIds = pageItems.map((item) => item.id);
+    setSelectedIds((prev) => {
+      const prevSet = new Set(prev);
+      const allSelectedOnPage = pageIds.every((id) => prevSet.has(id));
+      if (allSelectedOnPage) {
+        const pageSet = new Set(pageIds);
+        return prev.filter((id) => !pageSet.has(id));
+      }
+      const next = [...prev];
+      pageIds.forEach((id) => {
+        if (!prevSet.has(id)) next.push(id);
+      });
+      return next;
+    });
+  }, []);
+
+  const selectAllFiltered = useCallback(() => {
+    setSelectedIds(filteredGlossary.map((g) => g.id));
+  }, [filteredGlossary]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds([]);
+  }, []);
+
+  const bulkDeleteSelected = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const targetIds = new Set(selectedIds);
+    if (activeProject && onUpdateProject) {
+      onUpdateProject({
+        ...activeProject,
+        glossary: glossary.filter((g) => !targetIds.has(g.id)),
+      });
+    } else {
+      targetIds.forEach((id) => onDeleteGlossaryItem(id));
+    }
+    setSelectedIds([]);
+    setSelectedItem((prev) => (prev && targetIds.has(prev.id) ? null : prev));
+    showToast({ message: `Đã xóa ${targetIds.size} thuật ngữ đã chọn.`, type: 'success' });
+  }, [selectedIds, activeProject, onUpdateProject, glossary, onDeleteGlossaryItem, showToast]);
+
+  const applyBulkItemUpdate = useCallback(
+    (
+      updater: (item: GlossaryItem) => GlossaryItem | null,
+      successMessage: (updatedCount: number) => string,
+      emptyMessage?: string
+    ) => {
+      if (selectedIds.length === 0) return;
+      const targetIds = new Set(selectedIds);
+      const updatedMap = new Map<string, GlossaryItem>();
+
+      const nextGlossary = glossary.map((item) => {
+        if (!targetIds.has(item.id)) return item;
+        const nextItem = updater(item);
+        if (!nextItem) return item;
+        updatedMap.set(item.id, nextItem);
+        return nextItem;
+      });
+
+      if (updatedMap.size === 0) {
+        if (emptyMessage) showToast({ message: emptyMessage, type: 'warning' });
+        return;
+      }
+
+      if (activeProject && onUpdateProject) {
+        onUpdateProject({ ...activeProject, glossary: nextGlossary });
+      } else {
+        updatedMap.forEach((updatedItem, id) => onUpdateGlossaryItem(id, updatedItem));
+      }
+
+      setSelectedItem((prev) => (prev && updatedMap.has(prev.id) ? updatedMap.get(prev.id)! : prev));
+      showToast({ message: successMessage(updatedMap.size), type: 'success' });
+    },
+    [selectedIds, glossary, activeProject, onUpdateProject, onUpdateGlossaryItem, showToast]
+  );
+
+  const bulkSetPinnedSelected = useCallback(
+    (isPinned: boolean) => {
+      applyBulkItemUpdate(
+        (item) => {
+          const next = { ...item };
+          if (isPinned) {
+            next.isPinned = true;
+          } else {
+            delete next.isPinned;
+          }
+          return next;
+        },
+        (count) => (isPinned ? `Đã ghim ${count} thuật ngữ đã chọn.` : `Đã bỏ ghim ${count} thuật ngữ đã chọn.`)
+      );
+    },
+    [applyBulkItemUpdate]
+  );
+
+  const bulkSetTypeSelected = useCallback(
+    (nextType: GlossaryType) => {
+      applyBulkItemUpdate(
+        (item) => ({ ...item, type: nextType }),
+        (count) => `Đã cập nhật phân loại cho ${count} thuật ngữ.`
+      );
+    },
+    [applyBulkItemUpdate]
+  );
+
+  const bulkSetGenderSelected = useCallback(
+    (gender: CharacterGender) => {
+      applyBulkItemUpdate(
+        (item) => {
+          if (item.type !== 'character') return null;
+          const nextProfile = normalizeCharacterProfile({
+            ...(item.characterProfile || {}),
+            gender,
+          });
+          const next = { ...item };
+          if (nextProfile) {
+            next.characterProfile = nextProfile;
+          } else {
+            delete next.characterProfile;
+          }
+          return next;
+        },
+        (count) => `Đã gán giới tính cho ${count} nhân vật trong vùng chọn.`,
+        'Không có mục Nhân vật nào trong vùng chọn để gán giới tính.'
+      );
+    },
+    [applyBulkItemUpdate]
+  );
 
   const exportGlossary = useCallback((options: GlossaryExportOptions) => {
     const scope = options.scope || 'all';
@@ -665,5 +895,19 @@ export function useGlossaryState({
     contextFilterType,
     setContextFilterType,
     findLiveContext,
+    healthReport,
+    healthFilter,
+    setHealthFilter,
+    clearAllFilters,
+    selectedIds,
+    selectedIdSet,
+    toggleSelectItem,
+    toggleSelectPage,
+    selectAllFiltered,
+    clearSelection,
+    bulkDeleteSelected,
+    bulkSetPinnedSelected,
+    bulkSetTypeSelected,
+    bulkSetGenderSelected,
   };
 }

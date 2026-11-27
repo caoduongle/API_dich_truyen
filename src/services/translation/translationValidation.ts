@@ -15,6 +15,7 @@ import {
 import { ChapterMetadata, GlossaryItem } from '../../types';
 import {
   countHanChars,
+  findNonOverlappingParagraphTerms,
   normalizeCharacterProfile,
   selectRelevantGlossary,
 } from '../../lib/glossaryMatch';
@@ -186,15 +187,16 @@ export function checkGlossaryCompliance(params: {
           .join('\n');
 
     const normTransSlice = transSlice.normalize('NFKC').toLowerCase();
+    const matchedSpans = findNonOverlappingParagraphTerms(srcSlice, checkableItems);
+    const matchedItemsInSlice = new Set<GlossaryItem>();
+    for (const span of matchedSpans) {
+      matchedItemsInSlice.add(span.item);
+    }
 
-    for (const item of checkableItems) {
+    for (const item of matchedItemsInSlice) {
       const expectedVi = item.vietnamese.trim();
       const normExpectedVi = expectedVi.normalize('NFKC').toLowerCase();
       if (!normExpectedVi) continue;
-
-      if (!paragraphContainsGlossaryTerm(srcSlice, item)) {
-        continue;
-      }
 
       if (!normTransSlice.includes(normExpectedVi)) {
         const dedupeKey = `${canonicalizeHan(item.chinese)}::${alignment.isExactOneToOne ? pIdx : 'window'}`;

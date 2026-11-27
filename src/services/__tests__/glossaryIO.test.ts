@@ -8,6 +8,7 @@ import {
   parseJsonGlossaryFile,
   parseMarkdownGlossaryTables,
   parseStructuredGlossaryFile,
+  prepareFileDeduplicatedItems,
   serializeGlossary,
 } from '../glossaryIO';
 import { GlossaryItem } from '../../types';
@@ -236,5 +237,44 @@ describe('mergeImportedGlossaryForProject', () => {
     const replaced = mergeImportedGlossaryForProject(existing, incoming, 'replace');
     expect(replaced).toHaveLength(2);
     expect(replaced.map((i) => i.chinese)).toEqual(['蕭炎', '药老']);
+  });
+});
+
+describe('prepareFileDeduplicatedItems (Feature 169 replace_all safety)', () => {
+  it('filters invalid rows, deduplicates file-internally, and sanitizes metadata against prototype pollution', () => {
+    const maliciousIncoming: any[] = [
+      {
+        chinese: '林风',
+        vietnamese: 'Lâm Phong',
+        type: 'character',
+        variants: ['風哥'],
+        isPinned: true,
+        characterProfile: { gender: 'male', defaultSelfPronoun: 'ta' },
+        __proto__: { polluted: true },
+        unexpected: 'ignore-me',
+      },
+      {
+        chinese: '林風', // file-internal Traditional duplicate
+        vietnamese: 'Lâm Phong 2',
+        type: 'character',
+      },
+      {
+        chinese: '   ',
+        vietnamese: 'Thiếu chữ Hán',
+        type: 'other',
+      },
+    ];
+
+    const prepared = prepareFileDeduplicatedItems(maliciousIncoming);
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0]).toMatchObject({
+      chinese: '林风',
+      vietnamese: 'Lâm Phong',
+      variants: ['風哥'],
+      isPinned: true,
+      characterProfile: { gender: 'male', defaultSelfPronoun: 'ta' },
+    });
+    expect((prepared[0] as any).unexpected).toBeUndefined();
+    expect(({} as any).polluted).toBeUndefined();
   });
 });

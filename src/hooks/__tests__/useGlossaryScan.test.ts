@@ -297,4 +297,88 @@ describe('useGlossaryScan Hook Suite (Feature 168)', () => {
     expect(startKeyIndices).toEqual([0, 1, 0]);
     hook.unmount();
   });
+
+  it('prioritizes chapter-present exclusions on multi-loop scan, drops noisy stopwords, and infers safe gender', async () => {
+    const fillerGlossary = Array.from({ length: 180 }, (_, idx) => ({
+      id: `fill_${idx}`,
+      chinese: `旧杂词${idx}`,
+      pinyin: `Tạp ${idx}`,
+      vietnamese: `Tạp ${idx}`,
+      type: 'term' as const,
+      note: '',
+    }));
+    const chapterKnownEndTerm = {
+      id: 'end_known',
+      chinese: '青云宗',
+      pinyin: 'Thanh Vân Tông',
+      vietnamese: 'Thanh Vân Tông',
+      type: 'location' as const,
+      note: '',
+    };
+
+    const chapters = [
+      {
+        id: 'chap_1',
+        title: 'Chương 1',
+        sourceText: '青云宗弟子林月微笑着走来。他们停下脚步。',
+        rawTranslation: '',
+        polishedTranslation: '',
+        paragraphs: [],
+        translatedLines: [],
+        status: 'not_started' as const,
+        createdAt: '2026-11-27T00:00:00Z',
+        updatedAt: '2026-11-27T00:00:00Z',
+      },
+    ];
+    const project: StoryProject = {
+      id: 'proj_enrich_test',
+      title: 'Test Enrich',
+      author: 'Tác giả',
+      genre: 'Tiên Hiệp',
+      tone: 'Hào sảng',
+      description: '',
+      glossary: [...fillerGlossary, chapterKnownEndTerm],
+      pendingGlossary: [],
+      chapters: chapters.map(({ id, title, status, createdAt, updatedAt }) => ({
+        id,
+        title,
+        status,
+        createdAt,
+        updatedAt,
+      })),
+      createdAt: '2026-11-27T00:00:00Z',
+    };
+
+    mockGetChaptersByProjectFromDB.mockResolvedValue(chapters);
+
+    let loop2KnownTerms: string[] = [];
+    mockAnalyzeGlossaryDirect.mockImplementation(async ({ loopIndex, knownChineseTerms }) => {
+      if (loopIndex === 2) {
+        loop2KnownTerms = knownChineseTerms || [];
+        return {
+          suggestions: [
+            { chinese: '他们', pinyin: 'tha môn', vietnamese: 'bọn họ', type: 'other', note: '' },
+            { chinese: '林月微', pinyin: 'Lâm Nguyệt Vi', vietnamese: 'Lâm Nguyệt Vi', type: 'character', note: 'Thiếu nữ bạch y' },
+          ],
+          successKeyIndex: 0,
+        };
+      }
+      return { suggestions: [], successKeyIndex: 0 };
+    });
+
+    const hook = mountHook(project, 2);
+
+    await act(async () => {
+      await hook.current.handleAutoExtractGlossary();
+    });
+
+    expect(loop2KnownTerms).toContain('青云宗');
+    const savedProj = hook.onUpdateProject.mock.calls.at(-1)?.[0] as StoryProject;
+    const addedGirl = savedProj.glossary.find((g) => g.chinese === '林月微');
+    expect(addedGirl).toBeDefined();
+    expect(addedGirl?.characterProfile).toEqual({ gender: 'female' });
+    expect(savedProj.glossary.some((g) => g.chinese === '他们')).toBe(false);
+
+    hook.unmount();
+  });
 });

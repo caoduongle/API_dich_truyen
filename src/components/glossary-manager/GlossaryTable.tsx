@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Edit2, Trash2, Check, X, Search } from 'lucide-react';
 import { GlossaryItem, GlossaryType } from '../../types';
 import { useVirtualList } from '../../hooks/useVirtualList';
 import { useNotifications } from '../NotificationSystem';
 import { SealStamp } from '../SealStamp';
 import { SkeletonBlock } from '../common/Skeleton';
+import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 
 // Sleek single-row Inline Editor to fit inside virtualized row height
@@ -90,6 +91,8 @@ const InlineEditRow = React.memo(function InlineEditRow({ item, onSave, onCancel
 interface GlossaryTableRowProps {
   item: GlossaryItem;
   isSelected: boolean;
+  isBulkChecked?: boolean;
+  onToggleCheck?: (id: string) => void;
   isEditing: boolean;
   onSelect: (item: GlossaryItem) => void;
   onEdit: (item: GlossaryItem) => void;
@@ -103,7 +106,7 @@ interface GlossaryTableRowProps {
 }
 
 const GlossaryTableRow = React.memo(function GlossaryTableRow({
-  item, isSelected, isEditing, onSelect, onEdit, onDelete, onSave, onCancelEdit,
+  item, isSelected, isBulkChecked, onToggleCheck, isEditing, onSelect, onEdit, onDelete, onSave, onCancelEdit,
   getOriginBadge, getBadgeColor, getTypeName, style
 }: GlossaryTableRowProps) {
   const { showConfirm } = useNotifications();
@@ -111,77 +114,93 @@ const GlossaryTableRow = React.memo(function GlossaryTableRow({
     <div
       style={style}
       onClick={() => onSelect(item)}
-      className={`grid grid-cols-12 items-center border-b border-parchment-2 transition-colors cursor-pointer select-none text-xs hover:bg-parchment-2/50 ${
+      className={`flex items-center border-b border-parchment-2 transition-colors cursor-pointer select-none text-xs hover:bg-parchment-2/50 ${
         isSelected ? 'bg-parchment-2 border-l-4 border-polish' : ''
       }`}
     >
-      {isEditing ? (
-        <InlineEditRow item={item} onSave={onSave} onCancel={onCancelEdit} />
-      ) : (
-        <>
-          <div className="col-span-3 px-3 py-2.5">
-            <div className="flex items-center gap-1.5 truncate">
-              <span className="font-bold text-text-main font-serif tracking-wide hover:underline truncate">
-                {item.chinese}
+      {onToggleCheck && (
+        <div
+          className="w-9 shrink-0 flex items-center justify-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            aria-label={`Chọn thuật ngữ ${item.chinese}`}
+            checked={Boolean(isBulkChecked)}
+            onChange={() => onToggleCheck(item.id)}
+            className="w-3.5 h-3.5 accent-polish cursor-pointer"
+          />
+        </div>
+      )}
+      <div className="flex-1 grid grid-cols-12 items-center h-full">
+        {isEditing ? (
+          <InlineEditRow item={item} onSave={onSave} onCancel={onCancelEdit} />
+        ) : (
+          <>
+            <div className="col-span-3 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="font-bold text-text-main font-serif tracking-wide hover:underline truncate">
+                  {item.chinese}
+                </span>
+                {(item.origin === 'guideline' || item.origin === 'manual') && (
+                  <SealStamp character="確" className="shrink-0" />
+                )}
+              </div>
+              <div className="mt-1">{getOriginBadge(item.origin)}</div>
+            </div>
+            
+            <div className="col-span-2 px-3 py-2.5 text-text-muted truncate">{item.pinyin}</div>
+            
+            <div className="col-span-3 px-3 py-2.5 text-text-main font-bold border-l border-parchment-2 truncate">
+              {item.vietnamese}
+            </div>
+            
+            <div className="col-span-2 px-3 py-2.5 truncate">
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded-[2px] text-[10px] font-bold border ${getBadgeColor(item.type)}`}>
+                {getTypeName(item.type)}
               </span>
-              {(item.origin === 'guideline' || item.origin === 'manual') && (
-                <SealStamp character="確" className="shrink-0" />
+            </div>
+            
+            <div className="col-span-1 px-3 py-2.5 whitespace-nowrap text-text-muted font-sans text-[11px]">
+              {item.createdAt ? (
+                <span className="font-semibold text-text-muted">{new Date(item.createdAt).toLocaleDateString('vi-VN')}</span>
+              ) : (
+                <span className="text-text-muted opacity-50 italic">--</span>
               )}
             </div>
-            <div className="mt-1">{getOriginBadge(item.origin)}</div>
-          </div>
-          
-          <div className="col-span-2 px-3 py-2.5 text-text-muted truncate">{item.pinyin}</div>
-          
-          <div className="col-span-3 px-3 py-2.5 text-text-main font-bold border-l border-parchment-2 truncate">
-            {item.vietnamese}
-          </div>
-          
-          <div className="col-span-2 px-3 py-2.5 truncate">
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-[2px] text-[10px] font-bold border ${getBadgeColor(item.type)}`}>
-              {getTypeName(item.type)}
-            </span>
-          </div>
-          
-          <div className="col-span-1 px-3 py-2.5 whitespace-nowrap text-text-muted font-sans text-[11px]">
-            {item.createdAt ? (
-              <span className="font-semibold text-text-muted">{new Date(item.createdAt).toLocaleDateString('vi-VN')}</span>
-            ) : (
-              <span className="text-text-muted opacity-50 italic">--</span>
-            )}
-          </div>
-          
-          <div className="col-span-1 px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-center gap-1">
-              <button 
-                onClick={() => onEdit(item)}
-                className="p-1 text-text-muted hover:text-text-main hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer" 
-                title="Sửa từ khóa này trực tiếp"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-              </button>
-              <button 
-                onClick={async () => {
-                  const confirmed = await showConfirm({
-                    title: 'Xóa mục từ điển',
-                    message: `Bạn có chắc chắn muốn xóa thuật ngữ "${item.chinese}" khỏi từ điển?`,
-                    confirmText: 'Xác nhận xóa',
-                    cancelText: 'Hủy',
-                    type: 'danger'
-                  });
-                  if (confirmed) {
-                    onDelete(item.id);
-                  }
-                }}
-                className="p-1 text-text-muted hover:text-polish hover:bg-polish/10 rounded-[2px] transition-colors cursor-pointer" 
-                title="Xóa từ"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+            
+            <div className="col-span-1 px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-center gap-1">
+                <button 
+                  onClick={() => onEdit(item)}
+                  className="p-1 text-text-muted hover:text-text-main hover:bg-parchment-2 rounded-[2px] transition-colors cursor-pointer" 
+                  title="Sửa từ khóa này trực tiếp"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+                <button 
+                  onClick={async () => {
+                    const confirmed = await showConfirm({
+                      title: 'Xóa mục từ điển',
+                      message: `Bạn có chắc chắn muốn xóa thuật ngữ "${item.chinese}" khỏi từ điển?`,
+                      confirmText: 'Xác nhận xóa',
+                      cancelText: 'Hủy',
+                      type: 'danger'
+                    });
+                    if (confirmed) {
+                      onDelete(item.id);
+                    }
+                  }}
+                  className="p-1 text-text-muted hover:text-polish hover:bg-polish/10 rounded-[2px] transition-colors cursor-pointer" 
+                  title="Xóa từ"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 });
@@ -202,6 +221,11 @@ export interface GlossaryTableProps {
   currentPage: number;
   setCurrentPage: React.Dispatch<React.SetStateAction<number>>;
   isLoading?: boolean;
+  selectedIdSet?: Set<string>;
+  onToggleSelectItem?: (id: string) => void;
+  onToggleSelectPage?: (pageItems: GlossaryItem[]) => void;
+  hasActiveFilter?: boolean;
+  onClearFilters?: () => void;
 }
 
 export const GlossaryTable = React.memo(function GlossaryTable({
@@ -220,6 +244,11 @@ export const GlossaryTable = React.memo(function GlossaryTable({
   currentPage,
   setCurrentPage,
   isLoading = false,
+  selectedIdSet,
+  onToggleSelectItem,
+  onToggleSelectPage,
+  hasActiveFilter = false,
+  onClearFilters,
 }: GlossaryTableProps) {
   const containerHeight = 550;
   const itemHeight = 56;
@@ -264,6 +293,25 @@ export const GlossaryTable = React.memo(function GlossaryTable({
     return filteredGlossary.slice(start, start + pageSize);
   }, [filteredGlossary, pageSize, safeCurrentPage]);
 
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+  const checkedOnPageCount = useMemo(() => {
+    if (!selectedIdSet || paginatedItems.length === 0) return 0;
+    let count = 0;
+    for (const item of paginatedItems) {
+      if (selectedIdSet.has(item.id)) count++;
+    }
+    return count;
+  }, [paginatedItems, selectedIdSet]);
+
+  const allOnPageSelected = paginatedItems.length > 0 && checkedOnPageCount === paginatedItems.length;
+  const someOnPageSelected = checkedOnPageCount > 0 && checkedOnPageCount < paginatedItems.length;
+
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someOnPageSelected;
+    }
+  }, [someOnPageSelected]);
+
   const activeContainerHeight = pageSize === 'all'
     ? containerHeight
     : Math.min(containerHeight, Math.max(120, paginatedItems.length * itemHeight));
@@ -294,22 +342,28 @@ export const GlossaryTable = React.memo(function GlossaryTable({
     <div className="bg-parchment border border-parchment-2 rounded-md overflow-hidden shadow-xs">
       {isLoading ? (
         <div className="p-4 space-y-2">
-          <div className="bg-ink border-b border-parchment-2 grid grid-cols-12 items-center font-bold uppercase tracking-wider text-text-muted text-[10px] py-2.5">
-            <div className="col-span-3 px-3">Chữ Trung (Gốc)</div>
-            <div className="col-span-2 px-3">Phiên âm</div>
-            <div className="col-span-3 px-3">Bản dịch Việt</div>
-            <div className="col-span-2 px-3">Phân loại</div>
-            <div className="col-span-1 px-3">Ngày thêm</div>
-            <div className="col-span-1 px-3 text-center">Thao tác</div>
+          <div className="bg-ink border-b border-parchment-2 flex items-center font-bold uppercase tracking-wider text-text-muted text-[10px] py-2.5">
+            {onToggleSelectPage && <div className="w-9 shrink-0" />}
+            <div className="flex-1 grid grid-cols-12 items-center">
+              <div className="col-span-3 px-3">Chữ Trung (Gốc)</div>
+              <div className="col-span-2 px-3">Phiên âm</div>
+              <div className="col-span-3 px-3">Bản dịch Việt</div>
+              <div className="col-span-2 px-3">Phân loại</div>
+              <div className="col-span-1 px-3">Ngày thêm</div>
+              <div className="col-span-1 px-3 text-center">Thao tác</div>
+            </div>
           </div>
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="grid grid-cols-12 gap-2 items-center px-3 py-3 border-b border-parchment-2/40 animate-pulse">
-              <div className="col-span-3"><SkeletonBlock className="h-4 w-3/4" /></div>
-              <div className="col-span-2"><SkeletonBlock className="h-4 w-2/3" /></div>
-              <div className="col-span-3"><SkeletonBlock className="h-4 w-4/5" /></div>
-              <div className="col-span-2"><SkeletonBlock className="h-5 w-16 rounded" /></div>
-              <div className="col-span-1"><SkeletonBlock className="h-3 w-12" /></div>
-              <div className="col-span-1"><SkeletonBlock className="h-4 w-6 ml-auto" /></div>
+            <div key={i} className="flex items-center border-b border-parchment-2/40 animate-pulse">
+              {onToggleSelectPage && <div className="w-9 shrink-0" />}
+              <div className="flex-1 grid grid-cols-12 gap-2 items-center px-3 py-3">
+                <div className="col-span-3"><SkeletonBlock className="h-4 w-3/4" /></div>
+                <div className="col-span-2"><SkeletonBlock className="h-4 w-2/3" /></div>
+                <div className="col-span-3"><SkeletonBlock className="h-4 w-4/5" /></div>
+                <div className="col-span-2"><SkeletonBlock className="h-5 w-16 rounded" /></div>
+                <div className="col-span-1"><SkeletonBlock className="h-3 w-12" /></div>
+                <div className="col-span-1"><SkeletonBlock className="h-4 w-6 ml-auto" /></div>
+              </div>
             </div>
           ))}
         </div>
@@ -318,19 +372,41 @@ export const GlossaryTable = React.memo(function GlossaryTable({
           icon={<Search className="w-5 h-5 text-text-muted" />}
           title="Không tìm thấy thuật ngữ phù hợp"
           description="Không tìm thấy từ điển nào khớp với tiêu chuẩn tìm kiếm của bạn. Hãy thử từ khóa khác hoặc tạo mới từ ở góc trên!"
+          action={
+            hasActiveFilter && onClearFilters ? (
+              <Button type="button" variant="secondary" size="sm" onClick={onClearFilters}>
+                Xóa bộ lọc
+              </Button>
+            ) : undefined
+          }
           className="m-4"
         />
       ) : (
         <div className="w-full text-left overflow-x-auto">
           <div className="min-w-[640px]">
             {/* Header Row */}
-            <div className="bg-ink border-b border-parchment-2 grid grid-cols-12 items-center font-bold uppercase tracking-wider text-text-muted text-[10px] py-2.5">
-              <div className="col-span-3 px-3">Chữ Trung (Gốc)</div>
-              <div className="col-span-2 px-3">Phiên âm</div>
-              <div className="col-span-3 px-3">Bản dịch Việt</div>
-              <div className="col-span-2 px-3">Phân loại</div>
-              <div className="col-span-1 px-3">Ngày thêm</div>
-              <div className="col-span-1 px-3 text-center">Thao tác</div>
+            <div className="bg-ink border-b border-parchment-2 flex items-center font-bold uppercase tracking-wider text-text-muted text-[10px] py-2.5">
+              {onToggleSelectPage && (
+                <div className="w-9 shrink-0 flex items-center justify-center">
+                  <input
+                    ref={headerCheckboxRef}
+                    type="checkbox"
+                    aria-label="Chọn tất cả thuật ngữ trên trang hiện tại"
+                    checked={allOnPageSelected}
+                    onChange={() => onToggleSelectPage(paginatedItems)}
+                    className="w-3.5 h-3.5 accent-polish cursor-pointer"
+                    title="Chọn hoặc bỏ chọn tất cả thuật ngữ trên trang hiện tại"
+                  />
+                </div>
+              )}
+              <div className="flex-1 grid grid-cols-12 items-center">
+                <div className="col-span-3 px-3">Chữ Trung (Gốc)</div>
+                <div className="col-span-2 px-3">Phiên âm</div>
+                <div className="col-span-3 px-3">Bản dịch Việt</div>
+                <div className="col-span-2 px-3">Phân loại</div>
+                <div className="col-span-1 px-3">Ngày thêm</div>
+                <div className="col-span-1 px-3 text-center">Thao tác</div>
+              </div>
             </div>
 
             {/* Virtualized scroll body */}
@@ -346,6 +422,8 @@ export const GlossaryTable = React.memo(function GlossaryTable({
                     key={item.id}
                     item={item}
                     isSelected={selectedItem?.id === item.id}
+                    isBulkChecked={selectedIdSet?.has(item.id) ?? false}
+                    onToggleCheck={onToggleSelectItem}
                     isEditing={editingId === item.id}
                     onSelect={handleSelectItem}
                     onEdit={startEdit}
