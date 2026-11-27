@@ -3,6 +3,7 @@ import {
   initKeySchedule,
   isKeyAvailable,
   findNextKey,
+  inspectKeyPoolCooldown,
 } from '../geminiKeyScheduler';
 import {
   saveStoredCustomLimits,
@@ -66,5 +67,35 @@ describe('geminiKeyScheduler & Runtime Custom Limits Migration', () => {
     // findNextKey với key thứ 2 còn hạn mức
     const nextIdx = findNextKey([testKey1, testKey2], 0, customLimits);
     expect(nextIdx).toBe(1);
+  });
+
+  it('throws retryable RATE_LIMIT_RPM with retryAfterMs when all keys are temporarily rate-limited (Feature 168)', () => {
+    const now = Date.now();
+    localQuotaTracker.recordFailure(
+      testKey1,
+      'gemini-3.5-flash-lite',
+      {
+        status: 429,
+        retryAfterMs: 25_000,
+        message: 'Generate content requests per minute limit exceeded on Free Tier.',
+      },
+      now
+    );
+
+    const pool = inspectKeyPoolCooldown([testKey1], undefined, now + 500);
+    expect(pool.hasRecoverableCooldown).toBe(true);
+
+    let caught: any;
+    try {
+      initKeySchedule([testKey1]);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(caught.code).toBe('ALL_KEYS_EXHAUSTED');
+    expect(caught.category).toBe('RATE_LIMIT_RPM');
+    expect(caught.isRetryable).toBe(true);
+    expect(caught.retryAfterMs).toBeGreaterThan(20_000);
+    expect(caught.retryAfterMs).toBeLessThanOrEqual(25_000);
   });
 });

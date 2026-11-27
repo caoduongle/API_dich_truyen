@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyGeminiError } from '../geminiErrorClassifier';
+import { classifyGeminiError, extractRetryDelayMs } from '../geminiErrorClassifier';
 
 describe('classifyGeminiError', () => {
   it('classifies QuotaFailure with daily violation as QUOTA_EXHAUSTED_RPD', () => {
@@ -109,6 +109,37 @@ describe('classifyGeminiError', () => {
     });
     expect(classifiedRpcNotFound.category).toBe('RESOURCE_NOT_FOUND');
     expect(classifiedRpcNotFound.isRetryable).toBe(false);
+  });
+
+  it('classifies real Google Free Tier 15 RPM 429 message with "Please retry in 36.580235449s" as RATE_LIMIT_RPM (Feature 168)', () => {
+    const googleFreeTierMessage =
+      'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits.\n' +
+      '* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 15, model: gemini-3.5-flash-lite, description: Generate content requests per minute limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\n' +
+      'Please retry in 36.580235449s.';
+
+    const classified = classifyGeminiError(429, {
+      error: {
+        code: 429,
+        status: 'RESOURCE_EXHAUSTED',
+        message: googleFreeTierMessage,
+      },
+    });
+
+    expect(classified.category).toBe('RATE_LIMIT_RPM');
+    expect(classified.isRetryable).toBe(true);
+    // 36581ms + 1500ms safety buffer = 38081ms
+    expect(classified.recommendedCooldownMs).toBeGreaterThanOrEqual(38_000);
+    expect(classified.recommendedCooldownMs).toBeLessThanOrEqual(39_000);
+  });
+
+  it('extracts retryDelay from RetryInfo details and HTTP Retry-After header', () => {
+    const fromDetails = extractRetryDelayMs('Resource exhausted', [
+      { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '22.4s' },
+    ]);
+    expect(fromDetails).toBe(23_900);
+
+    const fromHeader = extractRetryDelayMs('Too many requests', [], '18');
+    expect(fromHeader).toBe(19_500);
   });
 });
 

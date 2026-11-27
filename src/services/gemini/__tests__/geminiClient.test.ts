@@ -564,5 +564,79 @@ describe('geminiClient', () => {
       expect(categories).toContain('HARM_CATEGORY_DANGEROUS_CONTENT');
     });
   });
+
+  describe('Spec 168: Recoverable RPM Cooldown Metadata on ALL_KEYS_EXHAUSTED', () => {
+    it('throws retryable RATE_LIMIT_RPM error with retryAfterMs when single key hits 15 RPM Free Tier limit', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { get: () => null },
+        json: async () => ({
+          error: {
+            code: 429,
+            status: 'RESOURCE_EXHAUSTED',
+            message:
+              'You exceeded your current quota. * Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 15, model: gemini-3.5-flash-lite, description: Generate content requests per minute limit exceeded on Free Tier. Please retry in 36.580235449s.',
+          },
+        }),
+      });
+
+      let caught: unknown;
+      try {
+        await callGemini({
+          apiKeys: ['SINGLE_FREE_TIER_KEY'],
+          prompt: 'Hello',
+        });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(GeminiRequestError);
+      const reqErr = caught as GeminiRequestError;
+      expect(reqErr.code).toBe('ALL_KEYS_EXHAUSTED');
+      expect(reqErr.category).toBe('RATE_LIMIT_RPM');
+      expect(reqErr.isRetryable).toBe(true);
+      expect(reqErr.retryAfterMs).toBeGreaterThanOrEqual(37_000);
+      expect(reqErr.retryAfterMs).toBeLessThanOrEqual(39_000);
+    });
+
+    it('records RateLimited instead of QuotaExhausted when HTTP Retry-After header accompanies generic 429 Quota exceeded body', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { get: (k: string) => (k.toLowerCase() === 'retry-after' ? '25' : null) },
+        json: async () => ({
+          error: {
+            code: 429,
+            status: 'RESOURCE_EXHAUSTED',
+            message: 'You exceeded your current quota',
+          },
+        }),
+      });
+
+      let caught: unknown;
+      try {
+        await callGemini({
+          apiKeys: ['RETRY_AFTER_HEADER_KEY'],
+          prompt: 'Hello',
+        });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(GeminiRequestError);
+      const reqErr = caught as GeminiRequestError;
+      expect(reqErr.code).toBe('ALL_KEYS_EXHAUSTED');
+      expect(reqErr.category).toBe('RATE_LIMIT_RPM');
+      expect(reqErr.isRetryable).toBe(true);
+      expect(reqErr.retryAfterMs).toBeGreaterThanOrEqual(25_000);
+      expect(reqErr.retryAfterMs).toBeLessThanOrEqual(28_000);
+
+      const status = localQuotaTracker.getQuotaStatus(['RETRY_AFTER_HEADER_KEY']);
+      expect(status.keys[0].healthState).toBe('RateLimited');
+    });
+  });
 });
 

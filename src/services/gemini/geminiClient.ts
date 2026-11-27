@@ -8,7 +8,7 @@ import { DirectGeminiRequestOptions, DirectGeminiResponse, GeminiRequestError } 
 import { normalizeModelName, buildEndpointUrl, buildPayload } from './geminiRequestBuilder';
 import { executeGeminiFetch, formatGeminiNetworkError } from './geminiTransport';
 import { classifyGeminiError, getErrorMessage } from './geminiErrorClassifier';
-import { initKeySchedule, isKeyAvailable, findNextKey } from './geminiKeyScheduler';
+import { initKeySchedule, isKeyAvailable, findNextKey, buildAllKeysUnavailableError } from './geminiKeyScheduler';
 
 export async function callGemini(
   options: DirectGeminiRequestOptions & { schema?: Record<string, any> }
@@ -82,7 +82,8 @@ async function executeLogicalGeminiCall(
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
         const errMsg = errJson?.error?.message || `HTTP ${response.status} ${response.statusText}`;
-        const classified = classifyGeminiError(response.status, errJson);
+        const retryAfterHeader = response.headers?.get?.('retry-after') ?? null;
+        const classified = classifyGeminiError(response.status, errJson, undefined, retryAfterHeader);
         lastError = new Error(`Gemini API Error [Key #${currentKeyIdx + 1}]: ${errMsg}`);
 
         if (response.status === 404 || classified.category === 'RESOURCE_NOT_FOUND') {
@@ -123,6 +124,8 @@ async function executeLogicalGeminiCall(
           message: errMsg,
           details: errJson?.error?.details,
           rawResponse: errJson,
+          retryAfterMs: classified.recommendedCooldownMs > 0 ? classified.recommendedCooldownMs : undefined,
+          retryAfterHeader,
           isRateLimit: classified.category === 'RATE_LIMIT_RPM' || classified.category === 'QUOTA_EXHAUSTED_RPD' || response.status === 429,
           isAuthError: classified.category === 'AUTH_FAILURE' || response.status === 401 || response.status === 403,
           isOverload: classified.category === 'SERVICE_OVERLOAD' || response.status === 503 || response.status === 500,
@@ -142,15 +145,7 @@ async function executeLogicalGeminiCall(
           const nextIdx = findNextKey(rawKeys, currentKeyIdx, customLimits);
           if (nextIdx === -1 || attemptsCount >= rawKeys.length - 1) {
             if (classified.category === 'QUOTA_EXHAUSTED_RPD' || classified.category === 'RATE_LIMIT_RPM' || response.status === 429) {
-              throw new GeminiRequestError(
-                `Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${errMsg}`,
-                {
-                  code: 'ALL_KEYS_EXHAUSTED',
-                  category: 'QUOTA_EXHAUSTED_RPD',
-                  status: 429,
-                  isRetryable: false,
-                }
-              );
+              throw buildAllKeysUnavailableError(rawKeys, customLimits, errMsg);
             }
             throw lastError;
           }
@@ -289,9 +284,5 @@ async function executeLogicalGeminiCall(
     throw lastError;
   }
 
-  throw new GeminiRequestError('Toàn bộ API Key đã hết hạn mức (hoặc đã chạm ngưỡng cá nhân).', {
-    code: 'ALL_KEYS_EXHAUSTED',
-    category: 'QUOTA_EXHAUSTED_RPD',
-    isRetryable: false,
-  });
+  throw buildAllKeysUnavailableError(rawKeys, customLimits);
 }

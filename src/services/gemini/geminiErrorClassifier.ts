@@ -7,6 +7,7 @@
  */
 
 import { ClassifiedGeminiError, GeminiRequestError } from './types';
+import { RATE_LIMIT_RECOVERY_CONFIG } from '../../config/constants';
 export { GeminiRequestError } from './types';
 
 export function isGeminiRequestError(err: unknown): err is GeminiRequestError {
@@ -27,10 +28,83 @@ export function getErrorMessage(error: unknown): string {
   return String(error || '');
 }
 
+const DAILY_LIMIT_KEYWORDS_REGEX = /\b(?:day|daily|per[_\s-]?day|requestsperday|rpd)\b/i;
+const MINUTE_LIMIT_KEYWORDS_REGEX =
+  /\b(?:per[_\s-]?minute|requests[_\s-]?per[_\s-]?minute|tokens[_\s-]?per[_\s-]?minute|requestsperminute|tokensperminute|rpm|tpm)\b/i;
+
+function parseDurationTokenToMs(rawToken: string): number | undefined {
+  const match = rawToken.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|m)?$/i);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  const unit = (match[2] || 's').toLowerCase();
+  if (unit === 'ms') return Math.ceil(value);
+  if (unit === 'm') return Math.ceil(value * 60_000);
+  return Math.ceil(value * 1000);
+}
+
+/**
+ * Trích xuất thời gian chờ thử lại (ms, kèm đệm an toàn) từ RetryInfo,
+ * chuỗi thông báo của Google (ví dụ "Please retry in 36.580235449s.") hoặc header Retry-After.
+ */
+export function extractRetryDelayMs(
+  message: string,
+  details?: unknown[],
+  retryAfterHeader?: string | null
+): number | undefined {
+  let baseMs: number | undefined;
+
+  if (Array.isArray(details)) {
+    for (const detail of details as Array<Record<string, any>>) {
+      if (detail && typeof detail === 'object' && typeof detail.retryDelay === 'string') {
+        const parsed = parseDurationTokenToMs(detail.retryDelay);
+        if (parsed !== undefined) {
+          baseMs = parsed;
+          break;
+        }
+      }
+    }
+  }
+
+  if (baseMs === undefined && message) {
+    const msgMatch =
+      message.match(/please\s+retry\s+in\s+([\d.]+\s*(?:ms|s|m))\b/i) ||
+      message.match(/retry\s+(?:in|after)\s+([\d.]+\s*(?:ms|s|m))\b/i);
+    if (msgMatch?.[1]) {
+      baseMs = parseDurationTokenToMs(msgMatch[1]);
+    }
+  }
+
+  if (baseMs === undefined && typeof retryAfterHeader === 'string' && retryAfterHeader.trim()) {
+    const trimmed = retryAfterHeader.trim();
+    if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      const secs = Number(trimmed);
+      if (Number.isFinite(secs) && secs > 0) {
+        baseMs = Math.ceil(secs * 1000);
+      }
+    } else {
+      const targetTime = Date.parse(trimmed);
+      if (!Number.isNaN(targetTime)) {
+        const diffMs = targetTime - Date.now();
+        if (diffMs > 0) {
+          baseMs = Math.ceil(diffMs);
+        }
+      }
+    }
+  }
+
+  if (baseMs === undefined || baseMs <= 0) {
+    return undefined;
+  }
+
+  return Math.max(2000, baseMs + RATE_LIMIT_RECOVERY_CONFIG.RETRY_DELAY_SAFETY_BUFFER_MS);
+}
+
 export function classifyGeminiError(
   httpStatus: number,
   responseBody?: any,
-  rawError?: any
+  rawError?: any,
+  retryAfterHeader?: string | null
 ): ClassifiedGeminiError {
   const errObj = responseBody?.error || responseBody || {};
   const message: string = errObj.message || rawError?.message || (httpStatus ? `HTTP ${httpStatus}` : 'Lỗi kết nối mạng');
@@ -110,13 +184,16 @@ export function classifyGeminiError(
 
   // 4. Rate Limit hoặc Hết hạn ngạch ngày (429, RESOURCE_EXHAUSTED)
   if (httpStatus === 429 || rpcStatus === 'RESOURCE_EXHAUSTED') {
-    // 4a. Kiểm tra cấu trúc details: QuotaFailure
+    const extractedRetryDelayMs = extractRetryDelayMs(message, details, retryAfterHeader);
+    let hasExplicitMinuteSignal = false;
+
+    // 4a. Kiểm tra cấu trúc details: QuotaFailure & ErrorInfo
     for (const d of details) {
       if (d['@type']?.includes('QuotaFailure')) {
         const violations = Array.isArray(d.violations) ? d.violations : [];
         for (const v of violations) {
-          const desc = `${v.description || ''} ${v.subject || ''}`.toLowerCase();
-          if (desc.includes('day') || desc.includes('daily') || desc.includes('per_day') || desc.includes('requestsperday')) {
+          const desc = `${v.description || ''} ${v.subject || ''} ${v.quotaMetric || ''} ${v.quotaId || ''}`.toLowerCase();
+          if (DAILY_LIMIT_KEYWORDS_REGEX.test(desc)) {
             return {
               category: 'QUOTA_EXHAUSTED_RPD',
               httpStatus,
@@ -128,6 +205,9 @@ export function classifyGeminiError(
               message,
             };
           }
+          if (MINUTE_LIMIT_KEYWORDS_REGEX.test(desc)) {
+            hasExplicitMinuteSignal = true;
+          }
         }
       }
 
@@ -135,7 +215,7 @@ export function classifyGeminiError(
       if (d['@type']?.includes('ErrorInfo')) {
         const meta = d.metadata || {};
         const metaStr = `${meta.quota_limit || ''} ${meta.quota_metric || ''} ${meta.quota_location || ''}`.toLowerCase();
-        if (metaStr.includes('day') || metaStr.includes('daily') || metaStr.includes('per_day') || metaStr.includes('requestsperday')) {
+        if (DAILY_LIMIT_KEYWORDS_REGEX.test(metaStr)) {
           return {
             category: 'QUOTA_EXHAUSTED_RPD',
             httpStatus,
@@ -147,27 +227,38 @@ export function classifyGeminiError(
             message,
           };
         }
-        if (metaStr.includes('minute') || metaStr.includes('per_minute') || metaStr.includes('requestsperminute') || d.reason === 'RATE_LIMIT_EXCEEDED') {
-          return {
-            category: 'RATE_LIMIT_RPM',
-            httpStatus,
-            rpcStatus,
-            reason: 'ErrorInfo_RateLimitMinute',
-            details,
-            recommendedCooldownMs: 45_000,
-            isRetryable: true,
-            message,
-          };
+        if (MINUTE_LIMIT_KEYWORDS_REGEX.test(metaStr) || d.reason === 'RATE_LIMIT_EXCEEDED') {
+          hasExplicitMinuteSignal = true;
         }
       }
     }
 
-    // 4c. Fallback sang chuỗi thông báo nếu details không có trường đặc trưng
+    // Kiểm tra tín hiệu giới hạn theo phút (RPM/TPM) trong message hoặc retryDelay ngắn không phải RPD
+    const hasDailyMessageSignal = DAILY_LIMIT_KEYWORDS_REGEX.test(message);
+    const hasMinuteMessageSignal =
+      MINUTE_LIMIT_KEYWORDS_REGEX.test(message) ||
+      (!hasDailyMessageSignal &&
+        extractedRetryDelayMs !== undefined &&
+        extractedRetryDelayMs <= RATE_LIMIT_RECOVERY_CONFIG.MAX_AUTO_WAIT_COOLDOWN_MS);
+
+    if (!hasDailyMessageSignal && (hasExplicitMinuteSignal || hasMinuteMessageSignal)) {
+      return {
+        category: 'RATE_LIMIT_RPM',
+        httpStatus,
+        rpcStatus,
+        reason: hasExplicitMinuteSignal ? 'ErrorInfo_RateLimitMinute' : 'RetryDelay_RateLimitMinute',
+        details,
+        recommendedCooldownMs: extractedRetryDelayMs ?? 45_000,
+        isRetryable: true,
+        message,
+      };
+    }
+
+    // 4c. Fallback sang chuỗi thông báo cho lỗi cạn hạn mức theo ngày / tổng thể không kèm retryDelay phút
     const lowerMsg = message.toLowerCase();
     if (
+      hasDailyMessageSignal ||
       lowerMsg.includes('quota') ||
-      lowerMsg.includes('daily') ||
-      lowerMsg.includes('per day') ||
       lowerMsg.includes('exhausted')
     ) {
       return {
@@ -182,14 +273,14 @@ export function classifyGeminiError(
       };
     }
 
-    // Mặc định cho 429 khi không rõ nguyên nhân ngày là Rate Limit tốc độ tức thời (45s cooldown)
+    // Mặc định cho 429 khi không rõ nguyên nhân ngày là Rate Limit tốc độ tức thời
     return {
       category: 'RATE_LIMIT_RPM',
       httpStatus,
       rpcStatus,
       reason: 'Default_RateLimit',
       details,
-      recommendedCooldownMs: 45_000,
+      recommendedCooldownMs: extractedRetryDelayMs ?? 45_000,
       isRetryable: true,
       message,
     };

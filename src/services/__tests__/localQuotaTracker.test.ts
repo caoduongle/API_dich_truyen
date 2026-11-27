@@ -563,4 +563,56 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
       expect(parsed.summaryStats.successfulAttemptsTotal).toBe(10);
     });
   });
+
+  describe('Dynamic RPM Cooldown & Pool Recovery Analysis (Feature 168)', () => {
+    it('records custom retryAfterMs duration on RateLimited and exposes recoverable cooldown analysis', () => {
+      const now = 1_700_000_000_000;
+      const k1 = 'AIzaSyCooldownKey_111';
+      const k2 = 'AIzaSyCooldownKey_222';
+      const model = 'gemini-3.5-flash-lite';
+
+      localQuotaTracker.recordProviderAttempt(k1, model, now);
+      localQuotaTracker.recordFailure(
+        k1,
+        model,
+        {
+          status: 429,
+          message: 'Generate content requests per minute limit exceeded on Free Tier. Please retry in 36.58s.',
+        },
+        now
+      );
+
+      localQuotaTracker.recordProviderAttempt(k2, model, now);
+      localQuotaTracker.recordFailure(
+        k2,
+        model,
+        {
+          status: 429,
+          isRateLimit: true,
+          retryAfterMs: 12_000,
+          message: 'Rate limit exceeded',
+        },
+        now
+      );
+
+      const pool = localQuotaTracker.getPoolCooldownAnalysis([k1, k2], undefined, now + 1_000);
+      expect(pool.availableKeyIndex).toBe(-1);
+      expect(pool.hasRecoverableCooldown).toBe(true);
+      expect(pool.allPermanentlyExhausted).toBe(false);
+      expect(pool.nextRecoveringKeyIndex).toBe(1);
+      expect(pool.minCooldownRemainingMs).toBe(11_000);
+    });
+
+    it('reports allPermanentlyExhausted when all keys hit RPD daily limit', () => {
+      const now = Date.UTC(2026, 8, 14, 12, 0, 0, 0);
+      const k1 = 'AIzaSyDailyKey_111';
+      localQuotaTracker.recordProviderAttempt(k1, 'gemini-2.5-flash', now);
+      localQuotaTracker.recordFailure(k1, 'gemini-2.5-flash', { status: 429, message: 'Daily quota exhausted' }, now);
+
+      const pool = localQuotaTracker.getPoolCooldownAnalysis([k1], undefined, now + 1_000);
+      expect(pool.availableKeyIndex).toBe(-1);
+      expect(pool.hasRecoverableCooldown).toBe(false);
+      expect(pool.allPermanentlyExhausted).toBe(true);
+    });
+  });
 });

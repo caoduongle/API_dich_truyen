@@ -23,6 +23,16 @@ export const AI_SERVICE_CONFIG = {
   CHUNK_CACHE_TTL_MINUTES: 60,
 } as const;
 
+// --- CẤU HÌNH CHỜ HỒI PHỤC HẠN MỨC TẠM THỜI (RATE LIMIT RECOVERY) ---
+export const RATE_LIMIT_RECOVERY_CONFIG = {
+  /** Ngưỡng tối đa tự động chờ hồi phục RPM cho 1 lần tạm nghỉ (120 giây) */
+  MAX_AUTO_WAIT_COOLDOWN_MS: 120_000,
+  /** Số lần tự động chờ hồi phục RPM tối đa trên cùng một chương trước khi dừng */
+  MAX_COOLDOWN_WAITS_PER_CHAPTER: 2,
+  /** Khoảng đệm cộng thêm vào retryDelay do nhà cung cấp trả về để tránh chạm mép (1.5 giây) */
+  RETRY_DELAY_SAFETY_BUFFER_MS: 1_500,
+} as const;
+
 // --- GIỚI HẠN XỬ LÝ TỪ ĐIỂN (GLOSSARY LIMITS) ---
 export const GLOSSARY_LIMITS = {
   /** Giới hạn ký tự gửi đến AI khi phân tích trích xuất thực thể/nhân vật từ văn bản truyện */

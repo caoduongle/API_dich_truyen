@@ -74,6 +74,7 @@ export class GeminiRequestError extends Error {
   public readonly category: ClassifiedErrorCategory;
   public readonly status?: number;
   public readonly isRetryable: boolean;
+  public readonly retryAfterMs?: number;
 
   constructor(
     message: string,
@@ -82,6 +83,7 @@ export class GeminiRequestError extends Error {
       category: ClassifiedErrorCategory;
       status?: number;
       isRetryable: boolean;
+      retryAfterMs?: number;
       cause?: unknown;
     }
   ) {
@@ -91,6 +93,9 @@ export class GeminiRequestError extends Error {
     this.category = options.category;
     this.status = options.status;
     this.isRetryable = options.isRetryable;
+    if (typeof options.retryAfterMs === 'number' && options.retryAfterMs > 0) {
+      this.retryAfterMs = options.retryAfterMs;
+    }
     if (options.cause) {
       this.cause = options.cause;
     }

@@ -14,6 +14,15 @@ import type {
 } from '../types/quota';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 import { classifyGeminiError } from './gemini/geminiErrorClassifier';
+import { RATE_LIMIT_RECOVERY_CONFIG } from '../config/constants';
+
+export interface PoolCooldownAnalysis {
+  availableKeyIndex: number;
+  minCooldownRemainingMs: number;
+  nextRecoveringKeyIndex: number;
+  hasRecoverableCooldown: boolean;
+  allPermanentlyExhausted: boolean;
+}
 
 export type CircuitBreakerStatus = 'Closed' | 'Open' | 'HalfOpen';
 
@@ -664,6 +673,8 @@ export class LocalQuotaTracker {
       message?: string;
       details?: unknown[];
       rawResponse?: any;
+      retryAfterMs?: number;
+      retryAfterHeader?: string | null;
       isRateLimit?: boolean;
       isAuthError?: boolean;
       isOverload?: boolean;
@@ -686,8 +697,17 @@ export class LocalQuotaTracker {
     const msg = error.message || '';
     const classified = classifyGeminiError(
       error.status || 0,
-      error.rawResponse || { error: { message: msg, details: error.details, status: error.isRateLimit ? 'RESOURCE_EXHAUSTED' : undefined } }
+      error.rawResponse || { error: { message: msg, details: error.details, status: error.isRateLimit ? 'RESOURCE_EXHAUSTED' : undefined } },
+      undefined,
+      error.retryAfterHeader
     );
+
+    const dynamicCooldownMs =
+      typeof error.retryAfterMs === 'number' && error.retryAfterMs > 0
+        ? error.retryAfterMs
+        : classified.recommendedCooldownMs > 0
+          ? classified.recommendedCooldownMs
+          : undefined;
 
     if (error.isAuthError || classified.category === 'AUTH_FAILURE') {
       keyStats.healthState = 'AuthFailed';
@@ -700,14 +720,16 @@ export class LocalQuotaTracker {
       keyStats.cooldownUntil = getNextPstMidnight(now);
       keyStats.transitionReason = '429: Hạn mức ngày đã hết (RPD Quota Exhausted)';
     } else if (error.isRateLimit || classified.category === 'RATE_LIMIT_RPM') {
+      const waitMs = dynamicCooldownMs ?? 45 * 1000;
       keyStats.healthState = 'RateLimited';
       keyStats.circuitBreakerStatus = 'Open';
-      keyStats.cooldownUntil = now + 45 * 1000; // 45 giây cooldown cho RPM/TPM
-      keyStats.transitionReason = '429: Đã chạm giới hạn tốc độ (RPM/TPM Rate Limit)';
+      keyStats.cooldownUntil = now + waitMs;
+      keyStats.transitionReason = `429: Tạm nghỉ giới hạn tốc độ RPM (~${Math.ceil(waitMs / 1000)}s)`;
     } else if (error.isOverload || classified.category === 'SERVICE_OVERLOAD') {
+      const waitMs = dynamicCooldownMs ?? 15 * 1000;
       keyStats.healthState = 'Cooldown';
       keyStats.circuitBreakerStatus = 'Open';
-      keyStats.cooldownUntil = now + 15 * 1000; // 15 giây cooldown
+      keyStats.cooldownUntil = now + waitMs;
       keyStats.transitionReason = '503: Máy chủ Gemini đang quá tải tạm thời';
     } else {
       if (keyStats.consecutiveErrors >= 3) {
@@ -874,6 +896,84 @@ export class LocalQuotaTracker {
     }
 
     return -1;
+  }
+
+  /**
+   * Phân tích khả năng hồi phục của toàn bộ pool API key khi tất cả key tạm thời không khả dụng.
+   */
+  public getPoolCooldownAnalysis(
+    keys: string[],
+    customLimits?: Record<string, CustomLimit>,
+    now: number = Date.now()
+  ): PoolCooldownAnalysis {
+    const cleanKeys = Array.isArray(keys)
+      ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
+      : [];
+
+    if (cleanKeys.length === 0) {
+      return {
+        availableKeyIndex: -1,
+        minCooldownRemainingMs: 0,
+        nextRecoveringKeyIndex: -1,
+        hasRecoverableCooldown: false,
+        allPermanentlyExhausted: true,
+      };
+    }
+
+    migrateCustomLimits(cleanKeys);
+    this.migrateLegacyKeyStats(cleanKeys);
+    const effectiveLimits = customLimits || getStoredCustomLimits();
+
+    let minCooldownRemainingMs = Number.MAX_SAFE_INTEGER;
+    let nextRecoveringKeyIndex = -1;
+
+    for (let idx = 0; idx < cleanKeys.length; idx++) {
+      const key = cleanKeys[idx];
+      const limit = effectiveLimits ? effectiveLimits[hashApiKey(key)] : undefined;
+      const health = this.getKeyHealth(key, now, limit);
+
+      if (health.isAvailable) {
+        return {
+          availableKeyIndex: idx,
+          minCooldownRemainingMs: 0,
+          nextRecoveringKeyIndex: idx,
+          hasRecoverableCooldown: false,
+          allPermanentlyExhausted: false,
+        };
+      }
+
+      if (
+        !health.isCustomLimitReached &&
+        (health.state === 'RateLimited' || health.state === 'Cooldown' || health.state === 'Degraded') &&
+        health.cooldownRemainingMs > 0
+      ) {
+        if (health.cooldownRemainingMs < minCooldownRemainingMs) {
+          minCooldownRemainingMs = health.cooldownRemainingMs;
+          nextRecoveringKeyIndex = idx;
+        }
+      }
+    }
+
+    if (nextRecoveringKeyIndex === -1) {
+      return {
+        availableKeyIndex: -1,
+        minCooldownRemainingMs: 0,
+        nextRecoveringKeyIndex: -1,
+        hasRecoverableCooldown: false,
+        allPermanentlyExhausted: true,
+      };
+    }
+
+    const isRecoverable =
+      minCooldownRemainingMs <= RATE_LIMIT_RECOVERY_CONFIG.MAX_AUTO_WAIT_COOLDOWN_MS;
+
+    return {
+      availableKeyIndex: -1,
+      minCooldownRemainingMs,
+      nextRecoveringKeyIndex,
+      hasRecoverableCooldown: isRecoverable,
+      allPermanentlyExhausted: !isRecoverable,
+    };
   }
 
   /**

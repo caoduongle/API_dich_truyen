@@ -3,15 +3,57 @@
  * Điều phối, kiểm tra trạng thái sức khỏe và xoay vòng danh sách API keys
  */
 
-import { localQuotaTracker, hashApiKey } from '../localQuotaTracker';
+import { localQuotaTracker, hashApiKey, type PoolCooldownAnalysis } from '../localQuotaTracker';
 import { getStoredCustomLimits } from '../../utils/customLimitsStorage';
 import { CustomLimit } from '../../types/quota';
+import { GeminiRequestError } from './types';
 
 export interface KeyScheduleState {
   rawKeys: string[];
   customLimits: Record<string, CustomLimit>;
   currentKeyIdx: number;
   attemptsCount: number;
+}
+
+export function inspectKeyPoolCooldown(
+  apiKeys: string[],
+  customLimits?: Record<string, CustomLimit>,
+  now: number = Date.now()
+): PoolCooldownAnalysis {
+  return localQuotaTracker.getPoolCooldownAnalysis(apiKeys, customLimits, now);
+}
+
+export function buildAllKeysUnavailableError(
+  rawKeys: string[],
+  customLimits: Record<string, CustomLimit>,
+  detailMessage?: string
+): GeminiRequestError {
+  const pool = localQuotaTracker.getPoolCooldownAnalysis(rawKeys, customLimits);
+  if (pool.hasRecoverableCooldown && pool.minCooldownRemainingMs > 0) {
+    const waitSec = Math.ceil(pool.minCooldownRemainingMs / 1000);
+    return new GeminiRequestError(
+      `Toàn bộ API Key đang tạm nghỉ do chạm hạn mức 429 RPM (chờ hồi phục sau ~${waitSec}s).${detailMessage ? ` Chi tiết: ${detailMessage}` : ''}`,
+      {
+        code: 'ALL_KEYS_EXHAUSTED',
+        category: 'RATE_LIMIT_RPM',
+        status: 429,
+        isRetryable: true,
+        retryAfterMs: pool.minCooldownRemainingMs,
+      }
+    );
+  }
+
+  return new GeminiRequestError(
+    detailMessage
+      ? `Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${detailMessage}`
+      : 'Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED hoặc đã chạm ngưỡng cá nhân). Vui lòng kiểm tra Bảng điều khiển Quota.',
+    {
+      code: 'ALL_KEYS_EXHAUSTED',
+      category: 'QUOTA_EXHAUSTED_RPD',
+      status: 429,
+      isRetryable: false,
+    }
+  );
 }
 
 export function initKeySchedule(apiKeys: string[], startKeyIndex?: number): KeyScheduleState {
@@ -29,11 +71,7 @@ export function initKeySchedule(apiKeys: string[], startKeyIndex?: number): KeyS
   const initialAvailableIdx = localQuotaTracker.findNextAvailableKeyIndex(rawKeys, startIdx, customLimits);
 
   if (initialAvailableIdx === -1) {
-    const quotaErr = new Error(
-      'Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED hoặc đã chạm ngưỡng cá nhân). Vui lòng kiểm tra Bảng điều khiển Quota.'
-    );
-    (quotaErr as any).code = 'ALL_KEYS_EXHAUSTED';
-    throw quotaErr;
+    throw buildAllKeysUnavailableError(rawKeys, customLimits);
   }
 
   return {
