@@ -14,6 +14,7 @@ import {
   validateTranslationOutput,
   validatePolishIntegrity,
   validateParagraphParity,
+  countParagraphs,
   estimateTokenCount,
   getPolishStrategyForRound,
   DiscoveredEntity,
@@ -28,6 +29,11 @@ import {
 import {
   classifyTranslationOutcome,
 } from './translationValidation';
+import {
+  normalizeTranslatedPunctuation,
+  realignParagraphStructure,
+  validateStrictStructureParity,
+} from './structureParity';
 import { splitBilingualAdaptively } from './bilingualSplit';
 import { mapWithConcurrencyLimit } from '../../lib/concurrency';
 import {
@@ -153,9 +159,20 @@ export async function callPolishDirectCore(
     params.continuity?.previousTranslationTail
   );
   finalPolishedTranslation = ensureChapterTitlePreserved(rawTranslation, finalPolishedTranslation);
+  finalPolishedTranslation = normalizeTranslatedPunctuation(finalPolishedTranslation);
+  const alignRef =
+    countParagraphs(sourceText) === countParagraphs(rawTranslation)
+      ? (sourceText || rawTranslation)
+      : rawTranslation;
+  finalPolishedTranslation = realignParagraphStructure(alignRef, finalPolishedTranslation);
   validateTranslationOutput(finalPolishedTranslation);
   validatePolishIntegrity(rawTranslation, finalPolishedTranslation);
   validateParagraphParity(sourceText, finalPolishedTranslation);
+  if (!params.isRetry) {
+    validateStrictStructureParity(sourceText, finalPolishedTranslation, {
+      referenceRawText: rawTranslation,
+    });
+  }
 
   const discoveredEntities = isExtractionEnabled && Array.isArray(discoveredEntitiesRaw)
     ? validateAndSnapBackEntities(discoveredEntitiesRaw, sourceText)
@@ -356,6 +373,7 @@ export async function polishWithContentSplitDirect(
               sourceText: chunk.sourceText,
               rawTranslation: chunk.rawText,
               startKeyIndex: staggeredKeyIndex,
+              isRetry: true,
               cumulativeTimeoutMs: remainingDeadlineMs,
               // Không truyền ngữ cảnh nhánh trước khi chia nhỏ phục hồi lỗi để cô lập nhánh sạch
               continuity: undefined,

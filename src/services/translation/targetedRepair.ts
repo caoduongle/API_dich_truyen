@@ -13,6 +13,10 @@ import {
   runDeterministicTranslationChecks,
   splitNonEmptyParagraphs,
 } from './translationValidation';
+import {
+  extractParagraphSignature,
+  normalizeTranslatedPunctuation,
+} from './structureParity';
 import { DirectQaCritiqueIssue } from './types';
 
 export interface TargetedParagraphRepairParams {
@@ -143,8 +147,9 @@ function buildTargetedRepairPayload(params: {
     '1. Chỉ viết lại DUY NHẤT [ĐOẠN CẦN SỬA] thành 1 đoạn văn tiếng Việt hoàn chỉnh.\n' +
     '2. KHÔNG lặp lại hay gộp [ĐOẠN TRƯỚC - CHỈ ĐỌC] và [ĐOẠN SAU - CHỈ ĐỌC].\n' +
     '3. Khắc phục triệt để các lỗi đã chỉ ra, tuân thủ 100% nguyên tác, bảng từ điển và xưng hô.\n' +
-    `4. Giữ tông giọng ${cleanTone}, văn phong thể loại ${cleanGenre}, KHÔNG để sót chữ Hán hay ngoặc vuông [...].\n` +
-    (cleanDesc ? `5. Quy tắc truyện: ${cleanDesc}\n` : '');
+    `4. Giữ nguyên 1-1 cách ngắt câu, dấu câu ngữ khí (?, !, ..., —) và lời thoại trực tiếp trong ngoặc "..." khớp với [CÂU / ĐOẠN NGUỒN TRỌNG TÂM].\n` +
+    `5. Giữ tông giọng ${cleanTone}, văn phong thể loại ${cleanGenre}, KHÔNG để sót chữ Hán, dấu câu tiếng Trung hay ngoặc vuông [...].\n` +
+    (cleanDesc ? `6. Quy tắc truyện: ${cleanDesc}\n` : '');
 
   const prompt = `--- VĂN BẢN TIẾNG TRUNG ĐỐI CHIẾU ---
 ${sanitizePromptInput(sourceWindow)}
@@ -306,8 +311,18 @@ export async function repairChapterCriticalIssuesDirect(
         contextName: 'targetedRepair',
       });
 
-      const candidatePara = parsed.repairedParagraph.replace(/[\r\n]+/g, ' ').trim();
+      const candidatePara = normalizeTranslatedPunctuation(parsed.repairedParagraph)
+        .replace(/[\r\n]+/g, ' ')
+        .trim();
       if (!candidatePara) {
+        rejectedParagraphIndices.push(pIdx);
+        continue;
+      }
+
+      // Hậu kiểm cấu trúc cục bộ trên đoạn đã sửa (0 sót dấu câu CJK, không mất ngoặc thoại nguồn)
+      const srcSig = extractParagraphSignature(primarySourcePara, 'zh');
+      const candSig = extractParagraphSignature(candidatePara, 'vi');
+      if (candSig.cjkPunctuationCount > 0 || (srcSig.hasDirectDialogue && !candSig.hasDirectDialogue)) {
         rejectedParagraphIndices.push(pIdx);
         continue;
       }

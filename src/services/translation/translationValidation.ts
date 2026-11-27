@@ -21,6 +21,10 @@ import {
 import { canonicalizeHan, findCanonicalSubstring } from '../../lib/sinoNormalize';
 import { GeminiRequestError } from '../gemini/types';
 import { ContinuityContext, DirectQaCritiqueIssue, PolishFidelityReport, TranslationOutcomeType } from './types';
+import {
+  analyzeStructureParity,
+  checkStructureParityIssues,
+} from './structureParity';
 
 /**
  * Trích xuất ngữ cảnh liên tục tối đa 1-2 đoạn cuối từ chương liền trước (đã được dịch) (FR-007).
@@ -370,13 +374,25 @@ export function runDeterministicTranslationChecks(params: {
   translatedText: string;
   glossary: GlossaryItem[];
   isPartialFallback?: boolean;
+  includeStructureParity?: boolean;
 }): DirectQaCritiqueIssue[] {
   if (params.isPartialFallback) {
     return [];
   }
-  return [
+  const baseIssues = [
     ...checkGlossaryCompliance(params),
     ...checkCharacterPronounConsistency(params),
+  ];
+  if (!params.includeStructureParity) {
+    return baseIssues;
+  }
+  return [
+    ...baseIssues,
+    ...checkStructureParityIssues({
+      sourceText: params.sourceText,
+      translatedText: params.translatedText,
+      isPartialFallback: params.isPartialFallback,
+    }),
   ];
 }
 
@@ -493,9 +509,8 @@ export function evaluatePolishRoundFidelity(params: {
     glossary,
   }).length;
 
-  const prevCount = splitNonEmptyParagraphs(previousDraft).length;
-  const candCount = splitNonEmptyParagraphs(candidatePolished).length;
-  const paragraphCountDelta = Math.abs(candCount - prevCount);
+  const draftParityReport = analyzeStructureParity(previousDraft, candidatePolished);
+  const paragraphCountDelta = draftParityReport.paragraphCountDelta;
 
   const shouldCheckProperNouns = (roundIndex ?? 2) >= 2;
   const ungroundedProperNouns = shouldCheckProperNouns
@@ -507,6 +522,14 @@ export function evaluatePolishRoundFidelity(params: {
       })
     : [];
 
+  const prevSourceReport = sourceText?.trim()
+    ? analyzeStructureParity(sourceText, previousDraft)
+    : null;
+  const candSourceReport = sourceText?.trim()
+    ? analyzeStructureParity(sourceText, candidatePolished)
+    : null;
+
+  const isMultiRound = (roundIndex ?? 2) >= 2;
   const reasons: string[] = [];
   if (candidateGlossaryViolations > previousGlossaryViolations) {
     reasons.push('GLOSSARY_REGRESSION');
@@ -514,8 +537,16 @@ export function evaluatePolishRoundFidelity(params: {
   if (ungroundedProperNouns.length > 0) {
     reasons.push('UNGROUNDED_PROPER_NOUN');
   }
-  if (prevCount >= 3 && (roundIndex ?? 2) >= 2 && paragraphCountDelta > Math.max(1, Math.floor(prevCount * 0.35))) {
+  if (isMultiRound && paragraphCountDelta > 0) {
     reasons.push('PARAGRAPH_STRUCTURE_DIVERGENCE');
+  }
+  if (
+    prevSourceReport &&
+    candSourceReport &&
+    candSourceReport.penaltyScore > prevSourceReport.penaltyScore &&
+    (isMultiRound || paragraphCountDelta === 0)
+  ) {
+    reasons.push('STRUCTURE_PARITY_REGRESSION');
   }
 
   return {
@@ -524,6 +555,9 @@ export function evaluatePolishRoundFidelity(params: {
     candidateGlossaryViolations,
     ungroundedProperNouns,
     paragraphCountDelta,
+    ...(prevSourceReport ? { previousStructurePenalty: prevSourceReport.penaltyScore } : {}),
+    ...(candSourceReport ? { candidateStructurePenalty: candSourceReport.penaltyScore } : {}),
+    ...(candSourceReport ? { structureDiscrepancyCount: candSourceReport.discrepancies.length } : {}),
     ...(reasons.length > 0 ? { rejectionReason: reasons.join(', ') } : {}),
   };
 }
@@ -579,7 +613,11 @@ export function mergeAndDeduplicateQaIssues(params: {
         ? det.paragraphIndex
         : locateParagraphIndexForTarget(det.targetText, paragraphs);
     if (pIdx >= 0) {
-      detTypeParaKeys.add(`${det.type}::${pIdx}`);
+      // Không dùng cảnh báo [Cấu trúc 1-1] loại 'other' để chặn các lỗi AI loại 'other' khác nghĩa trên cùng đoạn
+      const isStructureOtherWarning = det.type === 'other' && det.description?.startsWith('[Cấu trúc 1-1]');
+      if (!isStructureOtherWarning) {
+        detTypeParaKeys.add(`${det.type}::${pIdx}`);
+      }
       if (det.expectedTerm?.chinese) {
         detKeys.add(`${det.type}::${pIdx}::${canonicalizeHan(det.expectedTerm.chinese)}`);
       }
@@ -609,6 +647,13 @@ export function mergeAndDeduplicateQaIssues(params: {
     const normTarget = (enrichedAiIssue.targetText || '').replace(/\s+/g, ' ').trim().toLowerCase();
     const isDuplicate = merged.some((existing) => {
       if (existing.type !== enrichedAiIssue.type) return false;
+      if (
+        existing.type === 'other' &&
+        existing.source === 'deterministic' &&
+        existing.description?.startsWith('[Cấu trúc 1-1]')
+      ) {
+        return false;
+      }
       if (
         matchedIdx >= 0 &&
         typeof existing.paragraphIndex === 'number' &&

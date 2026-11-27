@@ -196,7 +196,9 @@ export async function executeSingleChapterTranslation({
         onSplitRetry: (info) => {
           const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
             ? 'Bản dịch sót nhiều chữ Hán'
-            : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY')
+            : info.reason.includes('PARAGRAPH_STRUCTURE_DIVERGENCE')
+            ? 'Lệch cấu trúc đoạn 1-1'
+            : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY') || info.reason.includes('CONTENT_BLOCKED')
             ? 'Vi phạm bộ lọc an toàn'
             : 'Phản hồi rỗng';
 
@@ -244,6 +246,7 @@ export async function executeSingleChapterTranslation({
       translatedText: firstDraft,
       glossary: localGlossary,
       isPartialFallback: Boolean((rawData as { isPartial?: boolean }).isPartial),
+      includeStructureParity: true,
     });
     if (rawComplianceIssues.length > 0) {
       addLog(
@@ -295,7 +298,7 @@ export async function executeSingleChapterTranslation({
         tone: projState.tone,
         description: projState.description,
         glossary: localGlossary,
-        additionalInstructions: additionalInstructions || 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể, giữ trọn vẹn văn phong tiểu thuyết.',
+        additionalInstructions: additionalInstructions || 'Hãy trau chuốt câu chữ tự nhiên, thuần Việt nhưng vẫn trung thành nguyên tác và giữ nguyên tuyệt đối cấu trúc 1-1 (xuống dòng, ngắt câu, dấu câu, ngoặc thoại).',
         apiKeys,
         model: selectedModel,
         startKeyIndex: currentKeyIndex,
@@ -308,7 +311,11 @@ export async function executeSingleChapterTranslation({
         onSplitRetry: (info) => {
           const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
             ? 'Bản chuốt văn sót nhiều chữ Hán'
-            : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY')
+            : info.reason.includes('PARAGRAPH_STRUCTURE_DIVERGENCE')
+            ? 'Lệch cấu trúc đoạn 1-1'
+            : info.reason.includes('POLISH_TRUNCATION_DETECTED')
+            ? 'Bản chuốt văn bị cắt cụt'
+            : info.reason.includes('bộ lọc an toàn') || info.reason.includes('SAFETY') || info.reason.includes('CONTENT_BLOCKED')
             ? 'Vi phạm bộ lọc an toàn'
             : 'Phản hồi rỗng';
           addLog(
@@ -404,6 +411,7 @@ export async function executeSingleChapterTranslation({
     translatedText: currentTextToPolish,
     glossary: localGlossary,
     isPartialFallback: lastPolishIsPartial,
+    includeStructureParity: true,
   });
   if (postPolishDeterministicIssues.length > 0) {
     addLog(

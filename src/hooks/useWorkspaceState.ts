@@ -802,6 +802,7 @@ export function useWorkspaceState({
         sourceText,
         translatedText: polishedTranslation,
         glossary: activeProject.glossary,
+        includeStructureParity: true,
       });
       const issues = mergeAndDeduplicateQaIssues({
         deterministicIssues,

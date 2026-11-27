@@ -28,6 +28,11 @@ import {
 import {
   classifyTranslationOutcome,
 } from './translationValidation';
+import {
+  normalizeTranslatedPunctuation,
+  realignParagraphStructure,
+  validateStrictStructureParity,
+} from './structureParity';
 import { mapWithConcurrencyLimit } from '../../lib/concurrency';
 import {
   createEmptyTelemetry,
@@ -212,7 +217,12 @@ export async function callRawDirectCore(
     finalRawTranslation,
     params.continuity?.previousTranslationTail
   );
+  finalRawTranslation = normalizeTranslatedPunctuation(finalRawTranslation);
+  finalRawTranslation = realignParagraphStructure(text, finalRawTranslation);
   validateTranslationOutput(finalRawTranslation);
+  if (!isRetry) {
+    validateStrictStructureParity(text, finalRawTranslation);
+  }
 
   return {
     rawTranslation: finalRawTranslation,

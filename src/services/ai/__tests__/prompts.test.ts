@@ -104,7 +104,8 @@ describe('AI Prompts Construction Pipeline', () => {
         additionalInstructions: '   ',
       });
 
-      expect(payload.prompt).toContain('Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể, giữ trọn vẹn văn phong tiểu thuyết.');
+      expect(payload.prompt).toContain('Hãy trau chuốt câu chữ tự nhiên, thuần Việt nhưng vẫn trung thành nguyên tác và giữ nguyên tuyệt đối cấu trúc 1-1');
+      expect(payload.prompt).toContain('[BẢN ĐỒ CẤU TRÚC ĐOẠN BẮT BUỘC: Xuất đúng 1 đoạn văn/dòng');
     });
 
     it('injects matched glossary items into [TỪ ĐIỂN RIÊNG ĐÃ XUẤT HIỆN TRONG ĐOẠN NÀY]', () => {

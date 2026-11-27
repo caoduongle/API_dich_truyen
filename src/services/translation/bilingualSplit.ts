@@ -23,16 +23,10 @@ function extractParagraphs(text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
 
-  // Thử ngắt theo 2 dấu xuống dòng (\n\n)
-  const doubleNewline = trimmed.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  if (doubleNewline.length > 1) {
-    return doubleNewline;
-  }
-
-  // Fallback sang từng dòng đơn (\n)
-  const singleNewline = trimmed.split(/\n+/).map((l) => l.trim()).filter(Boolean);
-  if (singleNewline.length > 1) {
-    return singleNewline;
+  // Tách nhất quán từng đoạn/dòng không rỗng để khớp 1:1 với countParagraphs và structureParity
+  const lines = trimmed.replace(/\r\n/g, '\n').split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length > 1) {
+    return lines;
   }
 
   return [trimmed];

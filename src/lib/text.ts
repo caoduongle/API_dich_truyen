@@ -16,7 +16,7 @@ export const LITERARY_TRANSLATION_FRAMING =
   "Nội dung tác phẩm là thế giới giả tưởng hư cấu (fiction), có thể chứa các mô tả về xung đột, chiến đấu, võ thuật, phép thuật hoặc các yếu tố kỳ ảo đặc trưng của thể loại văn học. " +
   "Đây hoàn toàn là nội dung sáng tạo nghệ thuật hư cấu được phép theo quy định xuất bản.\n" +
   "[QUY ĐỊNH BỐ CỤC VĂN BẢN BẮT BUỘC]\n" +
-  "BẮT BUỘC giữ nguyên 100% cấu trúc phân đoạn của nguyên tác. Mỗi đoạn văn của nguyên tác phải tương ứng với một đoạn văn trong bản dịch, ngăn cách nhau bằng dòng trống (\\n\\n). TUYỆT ĐỐI KHÔNG nén các đoạn văn lại thành một khối văn bản duy nhất. Tiêu đề chương PHẢI đứng riêng biệt trên một dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n\n";
+  "BẮT BUỘC giữ nguyên 100% cấu trúc 1-1 của nguyên tác từ xuống dòng, cách ngắt câu đến dấu câu. Mỗi đoạn văn/dòng thoại/câu thơ/dòng phân cảnh của nguyên tác phải tương ứng chính xác 1-1 với một đoạn/dòng trong bản dịch, ngăn cách nhau bằng dòng trống (\\n\\n). TUYỆT ĐỐI KHÔNG gộp đoạn, KHÔNG tự ý gộp nhiều câu ngắn thành câu dài hoặc cắt vụn câu gốc, KHÔNG bỏ dấu ngoặc thoại trực tiếp và KHÔNG để sót dấu câu tiếng Trung. Tiêu đề chương PHẢI đứng riêng biệt trên một dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n\n";
 
 /**
  * Loại bỏ các ký tự vô hình (Zero-width characters) và dải Unicode Tag
@@ -1187,7 +1187,7 @@ export function getPolishStrategyForRound(round: number, totalRounds: number = 1
         inputLabel: '[BẢN DỊCH THÔ GIAI ĐOẠN 1]',
         directive:
           `LƯỢT 1/${safeTotal} (BIÊN TẬP CƠ BẢN): Tập trung sửa lỗi ngữ pháp, loại bỏ câu dịch máy thô cứng, ` +
-          'bảo đảm đầy đủ 100% tình tiết so với bản gốc tiếng Trung, tuân thủ bảng từ điển và đại từ nhân xưng.',
+          'bảo đảm đầy đủ 100% tình tiết và cấu trúc 1-1 (số đoạn/dòng, cách ngắt câu, dấu câu, ngoặc thoại) so với bản gốc tiếng Trung, tuân thủ bảng từ điển và đại từ nhân xưng.',
         temperature: 0.4,
       };
     case 2:
@@ -1196,8 +1196,8 @@ export function getPolishStrategyForRound(round: number, totalRounds: number = 1
         stageName: 'Nâng cao - Nhịp điệu & Thuần Việt',
         inputLabel: '[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 1]',
         directive:
-          `LƯỢT 2/${safeTotal} (MÀI GIŨA NHỊP ĐIỆU & THUẦN VIỆT): Hãy nâng cấp câu cú từ bản dịch lượt 1. ` +
-          'Thay thế các từ ngữ Hán-Việt gượng gạo bằng từ thuần Việt giàu hình ảnh, gọt giũa nhịp điệu câu văn cho êm tai, uyển chuyển, xóa bỏ mọi cấu trúc câu lai căng.',
+          `LƯỢT 2/${safeTotal} (MÀI GIŨA NHỊP ĐIỆU & THUẦN VIỆT): Nâng cấp câu cú từ bản dịch lượt 1 bằng từ thuần Việt giàu hình ảnh, ` +
+          'xóa bỏ cấu trúc câu lai căng nhưng BẮT BUỘC giữ nguyên cấu trúc xuống dòng 1-1, ranh giới từng câu (không gộp/tách câu), dấu câu ngữ khí (?, !, ..., —) và lời thoại trực tiếp trong ngoặc.',
         temperature: 0.5,
       };
     case 3:
@@ -1206,8 +1206,8 @@ export function getPolishStrategyForRound(round: number, totalRounds: number = 1
         stageName: 'Sâu sắc - Khẩu khí & Tông giọng',
         inputLabel: '[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 2]',
         directive:
-          `LƯỢT 3/${safeTotal} (KHẨU KHÍ NHÂN VẬT & TÔNG GIỌNG): Tinh chỉnh chiều sâu biểu cảm, làm nổi bật ngữ điệu đối thoại và tính cách từng nhân vật, ` +
-          'hòa quyện với phong cách thể loại tác phẩm. Làm mượt mà các phân đoạn miêu tả cảnh vật và nội tâm.',
+          `LƯỢT 3/${safeTotal} (KHẨU KHÍ NHÂN VẬT & TÔNG GIỌNG): Tinh chỉnh chiều sâu biểu cảm, làm nổi bật ngữ điệu đối thoại và tính cách từng nhân vật ` +
+          'hòa quyện với thể loại tác phẩm, trong khi vẫn giữ nguyên 100% ranh giới câu, dấu câu và phân dòng 1-1 với nguyên tác.',
         temperature: 0.55,
       };
     case 4:
@@ -1216,8 +1216,8 @@ export function getPolishStrategyForRound(round: number, totalRounds: number = 1
         stageName: 'Trau chuốt - Nhất quán & Đa dạng từ vựng',
         inputLabel: '[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT 3]',
         directive:
-          `LƯỢT 4/${safeTotal} (NHẤT QUÁN & KHỬ TỪ LẶP): Rà soát liên kết chuyển đoạn, loại bỏ hoàn toàn các từ bị lặp lại trong khoảng cách gần, ` +
-          'làm sắc bén các phân đoạn cao trào hành động và cảm xúc.',
+          `LƯỢT 4/${safeTotal} (NHẤT QUÁN & KHỬ TỪ LẶP): Rà soát liên kết chuyển mạch và loại bỏ từ lặp lại gần nhau ` +
+          'nhưng TUYỆT ĐỐI không gộp câu, không cắt tách câu tùy tiện và không làm thay đổi dấu câu ngữ khí hay ngắt dòng.',
         temperature: 0.6,
       };
     default:
@@ -1226,8 +1226,8 @@ export function getPolishStrategyForRound(round: number, totalRounds: number = 1
         stageName: 'Xuất bản - Đọc duyệt & Hoàn thiện',
         inputLabel: `[BẢN DỊCH ĐÃ BIÊN TẬP LƯỢT ${safeRound - 1}]`,
         directive:
-          `LƯỢT ${safeRound}/${safeTotal} (ĐỌC DUYỆT XUẤT BẢN): Đọc soát toàn diện như một tác phẩm văn học hoàn chỉnh sẵn sàng xuất bản. ` +
-          'Đảm bảo cảm giác đọc tự nhiên như một tác phẩm sáng tác thuần Việt mà vẫn bảo tồn chính xác 100% nguyên tác.',
+          `LƯỢT ${safeRound}/${safeTotal} (ĐỌC DUYỆT XUẤT BẢN): Đọc soát toàn diện cho tự nhiên như văn học thuần Việt ` +
+          'nhưng giữ nguyên tuyệt đối 100% nguyên tác và đối xứng cấu trúc 1-1 (xuống dòng, ngắt câu, dấu câu, ngoặc thoại).',
         temperature: 0.65,
       };
   }

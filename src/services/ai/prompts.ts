@@ -3,6 +3,7 @@ import {
   getGenreStyleGuide,
   sanitizePromptInput,
   getPolishStrategyForRound,
+  countParagraphs,
 } from '../../lib/text';
 import {
   normalizeCharacterProfile,
@@ -62,7 +63,7 @@ export interface BuildQaCritiquePromptParams {
 function buildInstructionPriorityBlock(stageHeading: string, priority3Line: string): string {
   return (
     `[THỨ TỰ ƯU TIÊN TUYỆT ĐỐI ${stageHeading}]:\n` +
-    "- ƯU TIÊN #1 (BẤT KHẢ XÂM PHẠM): TRUNG THÀNH TUYỆT ĐỐI 100% VỚI NGUYÊN TÁC TIẾNG TRUNG, BẢNG TỪ ĐIỂN & BẢO TOÀN CẤU TRÚC PHÂN ĐOẠN 1-1. KHÔNG bịa đặt thêm tên riêng nhân vật/địa danh/chiêu thức ngoài nguyên tác, KHÔNG thêm thắt tình tiết mới, KHÔNG bỏ sót câu đoạn hay lời thoại.\n" +
+    "- ƯU TIÊN #1 (BẤT KHẢ XÂM PHẠM): TRUNG THÀNH TUYỆT ĐỐI 100% VỚI NGUYÊN TÁC TIẾNG TRUNG, BẢNG TỪ ĐIỂN & BẢO TOÀN CẤU TRÚC 1-1 (XUỐNG DÒNG, CÁCH NGẮT CÂU, DẤU CÂU, NGOẶC THOẠI). KHÔNG bịa đặt thêm tên riêng nhân vật/địa danh/chiêu thức ngoài nguyên tác, KHÔNG thêm thắt tình tiết mới, KHÔNG bỏ sót câu đoạn hay lời thoại.\n" +
     "- ƯU TIÊN #2: Cẩm nang & quy tắc xưng hô của truyện > Hồ sơ nhân vật (giới tính, tự xưng, quan hệ xưng hô) > Yêu cầu biên tập bổ sung.\n" +
     `- ƯU TIÊN #3 (thấp hơn #1 và #2): Hướng dẫn thể loại & tông giọng mặc định — ${priority3Line}\n`
   );
@@ -193,7 +194,10 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
       "DỊCH SÁT NGHĨA MẠCH LẠC sang tiếng Việt tự nhiên, bảo tồn đủ 100% phân đoạn và trích xuất thực thể mới."
     ) +
     "YÊU CẦU QUAN TRỌNG NHẤT:\n" +
-    "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN 1-1 (PARAGRAPH BREAKS): Bản gốc có bao nhiêu đoạn văn/dòng thoại thì bản dịch PHẢI có bấy nhiêu đoạn văn tương ứng, ngăn cách nhau bằng đúng 2 dấu xuống dòng (\\n\\n). TUYỆT ĐỐI KHÔNG gộp các đoạn văn ngắn hoặc lời thoại nhân vật vào đoạn văn tự sự xung quanh. Tiêu đề chương PHẢI đứng riêng biệt trên dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
+    "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC 1-1 SO VỚI BẢN GỐC (XUỐNG DÒNG, NGẮT CÂU, DẤU CÂU):\n" +
+    "   - Xuống dòng & Phân đoạn 1-1: Bản gốc có bao nhiêu đoạn văn/dòng thoại/câu thơ/dòng phân cảnh (***, ---) thì bản dịch PHẢI có bấy nhiêu đoạn/dòng tương ứng 1-1 theo đúng thứ tự, ngăn cách bởi đúng 2 dấu xuống dòng (\\n\\n). TUYỆT ĐỐI KHÔNG gộp đoạn ngắn hoặc lời thoại vào tự sự; tiêu đề chương đứng riêng trên dòng đầu.\n" +
+    "   - Cách ngắt câu 1-1: Giữ nguyên số lượng, ranh giới và trật tự các câu trong từng đoạn. KHÔNG tự ý gộp nhiều câu ngắn thành 1 câu dài hoặc cắt 1 câu gốc thành nhiều câu rời.\n" +
+    "   - Dấu câu & Thoại 1-1: Chuyển sạch 100% dấu câu tiếng Trung sang tiếng Việt chuẩn (。→., ，/、→,, ；→;, ：→:, ？→?, ！→!, ……→..., ——→—, “...”/「...」→\"...\", 『...』/‘...’→'...', （...）→(...), 《...》→«...»). Giữ nguyên lời thoại trực tiếp trong ngoặc \"...\" và bảo toàn dấu ngữ khí (?, !, ..., —), tuyệt đối không để sót dấu câu tiếng Trung.\n" +
     "2. Tôn trọng Tuyệt đối các từ khóa, thực thể và đại từ trong bảng Từ điển (Glossary) được cung cấp. Nếu một từ Trung Quốc xuất hiện trong Glossary, bạn PHẢI dịch chính xác bằng từ tiếng Việt tương ứng.\n" +
     "3. Dịch chính xác nghĩa đơn và bối cảnh câu chữ. Phân biệt rõ ràng người nam là 'hắn/y/chàng', người nữ là 'nàng/cô/y', người già là 'lão', v.v. dựa trên giới tính quy định.\n" +
     "4. Bản dịch thô này cần đủ sát nghĩa gốc chữ Trung, cấu trúc dễ hiểu, không bỏ sót bất kỳ chi tiết hay câu văn nào.\n" +
@@ -219,6 +223,7 @@ ${substitutedText}`
     : `--- VĂN BẢN TIẾNG TRUNG GỐC ---
 ${substitutedText}`;
 
+  const expectedParagraphCount = countParagraphs(cleanText);
   const continuityBlock = formatContinuityContextBlock(continuity);
   const prompt = `--- THÔNG TIN TRUYỆN ---
 Thể loại: ${cleanGenre}
@@ -227,6 +232,8 @@ ${cleanDescription && cleanDescription.trim() ? `Nguyên tắc dịch thuật & 
 
 --- TỪ ĐIỂN TÊN NHÂN VẬT & THUẬT NGỮ (ĐÃ CÓ - BẮT BUỘC TUÂN THỦ) ---
 ${glossaryStr}
+
+[BẢN ĐỒ CẤU TRÚC ĐOẠN BẮT BUỘC: Xuất đúng ${expectedParagraphCount} đoạn văn/dòng ngăn cách bằng \\n\\n, giữ nguyên ngắt câu và dấu câu 1-1]
 
 ${continuityBlock}${textPromptBlock}`;
 
@@ -322,7 +329,10 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
         `CHỈ ĐẠO TRỌNG TÂM LƯỢT NÀY: ${strategy.directive}\n`
       : "Nhiệm vụ của bạn là thực hiện chuốt mịn văn phong (Translation Polishing Phase 2) cho bản dịch thô tiếng Việt dựa trên văn bản tiếng Trung đối chiếu.\n") +
     "QUY ĐỊNH BẮT BUỘC:\n" +
-    "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC PHÂN ĐOẠN 1-1 (PARAGRAPH BREAKS): Bản gốc và bản dịch thô có bao nhiêu đoạn văn/dòng thoại thì bản dịch biên tập PHẢI có bấy nhiêu đoạn tương ứng, ngăn cách nhau bằng đúng 2 dấu xuống dòng (\\n\\n). TUYỆT ĐỐI KHÔNG gộp các đoạn văn ngắn hoặc lời thoại nhân vật vào đoạn tự sự xung quanh. Tiêu đề chương PHẢI đứng riêng biệt trên một dòng đầu tiên, cách đoạn văn mở đầu ít nhất 1 dòng trống.\n" +
+    "1. BẮT BUỘC BẢO TỒN NGUYÊN VẸN 100% CẤU TRÚC 1-1 (XUỐNG DÒNG, NGẮT CÂU, DẤU CÂU):\n" +
+    "   - Xuống dòng & Phân đoạn 1-1: Bản gốc và bản dịch thô có bao nhiêu đoạn văn/dòng thoại/dòng phân cảnh thì bản dịch biên tập PHẢI có đúng bấy nhiêu đoạn/dòng tương ứng 1-1, ngăn cách bởi đúng 2 dấu xuống dòng (\\n\\n). TUYỆT ĐỐI KHÔNG gộp thoại vào tự sự; tiêu đề chương đứng riêng dòng đầu.\n" +
+    "   - Cách ngắt câu 1-1: Giữ nguyên ranh giới, số lượng và trật tự các câu trong từng đoạn so với nguyên tác. KHÔNG gộp nhiều câu ngắn thành câu dài, KHÔNG tách 1 câu thành nhiều câu.\n" +
+    "   - Dấu câu & Thoại 1-1: Giữ nguyên lời thoại trực tiếp trong ngoặc \"...\" (không đổi thành câu kể gián tiếp), bảo toàn dấu ngữ khí (?, !, ..., —), chuẩn hóa sạch 100% dấu câu tiếng Trung sang chuẩn tiếng Việt.\n" +
     "2. TUYỆT ĐỐI KHÔNG CẮT CỤT HOẶC TÓM TẮT: Không được lược bỏ bất kỳ câu văn, đoạn văn, chi tiết hay lời thoại nào ở giữa hoặc cuối chương so với bản dịch thô. Độ dài và nội dung bản chuốt văn PHẢI truyền tải trọn vẹn 100% bản dịch thô.\n" +
     "3. Diễn đạt mượt mà thuần Việt, loại bỏ hoàn toàn cấu trúc câu 'sượng', ngữ pháp dịch máy thô cứng (convert/quick translator vibe).\n" +
     "4. Giữ đúng sắc thái, đại từ nhân xưng phù hợp thể loại và tông giọng được yêu cầu.\n" +
@@ -346,13 +356,16 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     ? `\n[TỪ ĐIỂN GHIM BẮT BUỘC (${pinnedOnlyEntries.length} thuật ngữ)]:\n${pinnedOnlyEntries.map(formatPolishGlossaryLine).join('\n')}`
     : '';
 
+  const expectedPolishParagraphCount = countParagraphs(cleanSourceText || cleanRawTranslation);
   const continuityBlock = formatContinuityContextBlock(continuity);
   const prompt = `[THÔNG TIN BẢN THẢO]
 Thể loại: ${cleanGenre}
 Tông giọng: ${cleanTone}
 ${cleanDescription && cleanDescription.trim() ? `[NGUYÊN TẮC DỊCH THUẬT & QUY TẮC XƯNG HÔ ĐẶC THÙ TỪ CẨM NANG]\n${cleanDescription.trim()}\n` : ''}
 [YÊU CẦU BIÊN TẬP BỔ SUNG TỪ NGƯỜI DÙNG]
-${cleanAdditionalInstructions && cleanAdditionalInstructions.trim() ? cleanAdditionalInstructions.trim() : 'Hãy tối ưu ngữ điệu mượt mà, bay bổng nhất có thể, giữ trọn vẹn văn phong tiểu thuyết.'}
+${cleanAdditionalInstructions && cleanAdditionalInstructions.trim() ? cleanAdditionalInstructions.trim() : 'Hãy trau chuốt câu chữ tự nhiên, thuần Việt nhưng vẫn trung thành nguyên tác và giữ nguyên tuyệt đối cấu trúc 1-1 (xuống dòng, ngắt câu, dấu câu, ngoặc thoại).'}
+
+[BẢN ĐỒ CẤU TRÚC ĐOẠN BẮT BUỘC: Xuất đúng ${expectedPolishParagraphCount} đoạn văn/dòng ngăn cách bằng \\n\\n, giữ nguyên ngắt câu và dấu câu 1-1]
 
 ${continuityBlock}${strategy.inputLabel}
 ${cleanRawTranslation}
@@ -363,9 +376,9 @@ ${matchedGlossaryBlock}${pinnedGlossaryBlock}
 
 [HƯỚNG DẪN BIÊN TẬP VĂN HỌC]
 ${getGenreStyleGuide(cleanGenre)}
-${roundIndex > 1 ? `- Trọng tâm biên tập Lượt ${strategy.round}: ${strategy.directive}\n` : ''}- Hãy chuốt lại câu cú tiếng Việt cho mượt mà, bay bổng, loại bỏ hoàn toàn cảm giác "dịch máy", giữ đúng tông giọng ${cleanTone}.
+${roundIndex > 1 ? `- Trọng tâm biên tập Lượt ${strategy.round}: ${strategy.directive}\n` : ''}- Hãy chuốt lại câu chữ tiếng Việt cho tự nhiên, thuần Việt, loại bỏ cảm giác "dịch máy", giữ đúng tông giọng ${cleanTone} trong khi vẫn khóa chặt 1-1 ranh giới câu và dấu câu nguyên tác.
 - Đảm bảo mạch văn trôi chảy, danh từ riêng chuẩn xác theo từ điển và âm Hán Việt.
-- Giữ nguyên 100% cấu trúc phân đoạn và tiêu đề chương.`;
+- Giữ nguyên 100% cấu trúc phân đoạn, cách ngắt câu, dấu câu ngữ khí và tiêu đề chương.`;
 
   const schemaProperties: Record<string, any> = {
     polishedTranslation: {
@@ -462,8 +475,8 @@ export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
     "4. Sai thuật ngữ / từ điển (terminology / Terminology): Dịch sai hoặc bỏ quên tên riêng, thuật ngữ đã quy ước trong bảng từ điển.\n" +
     "5. Dịch sai nghĩa (mistranslation): Hiểu nhầm ngữ pháp/thành ngữ tiếng Trung dẫn tới sai lệch hoàn toàn ý nghĩa câu gốc.\n" +
     "6. Sai đại từ / xưng hô (pronoun): Dùng nhầm giới tính đại từ (hắn/nàng), ngôi tự xưng hoặc quan hệ xưng hô so với hồ sơ nhân vật và cẩm nang.\n" +
-    "7. Sót chữ Hán / rác dịch thô (raw_leak): Còn sót ký tự chữ Hán chưa dịch hoặc ngoặc chú thích thô như [Tên] trong bản dịch cuối.\n" +
-    "8. Lỗi khác (other): Lỗi nghiêm trọng khác làm hỏng trải nghiệm đọc.\n\n" +
+    "7. Sót chữ Hán / rác dịch thô (raw_leak): Còn sót ký tự chữ Hán chưa dịch, sót dấu câu toàn giác tiếng Trung (。, ，, 、, 「」, 『』, （）, 《》...) hoặc ngoặc chú thích thô như [Tên] trong bản dịch cuối.\n" +
+    "8. Lỗi khác (other): Lỗi nghiêm trọng khác làm hỏng trải nghiệm đọc hoặc phá vỡ cấu trúc 1-1 so với bản raw (gộp/tách đoạn, bỏ dấu ngoặc thoại trực tiếp, đổi sai dấu ngữ khí ? / ! / ..., gộp câu bất thường).\n\n" +
     "Yêu cầu về trích dẫn lỗi (targetText):\n" +
     "- Với mỗi lỗi phát hiện, bạn BẮT BUỘC phải trích dẫn NGUYÊN VĂN (copy chính xác từng ký tự, không diễn giải, không sửa từ, không thêm dấu ngoặc kép) câu hoặc đoạn văn bản tiếng Việt trong bản dịch trực tiếp liên quan đến lỗi vào trường 'targetText'.\n" +
     "- Trường hợp ĐẶC BIỆT: Nếu lỗi là BỎ SÓT (omission) mà câu/đoạn hoàn toàn không xuất hiện trong bản dịch tiếng Việt để trích dẫn, bạn ĐƯỢC PHÉP để 'targetText' là chuỗi rỗng (\"\").\n\n" +

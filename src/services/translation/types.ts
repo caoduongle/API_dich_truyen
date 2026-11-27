@@ -20,6 +20,9 @@ export interface PolishFidelityReport {
   ungroundedProperNouns: string[];
   paragraphCountDelta: number;
   rejectionReason?: string;
+  previousStructurePenalty?: number;
+  candidateStructurePenalty?: number;
+  structureDiscrepancyCount?: number;
 }
 
 export interface QualityEvaluationMetrics {
@@ -159,6 +162,7 @@ export interface DirectPolishTranslationParams {
   isExtractionEnabled?: boolean;
   enableSegmentTranslation?: boolean;
   signal?: AbortSignal;
+  isRetry?: boolean;
   roundIndex?: number;
   totalRounds?: number;
   temperature?: number;

@@ -20,6 +20,7 @@ import {
   mapTranslatedParagraphToSourceWindow,
   splitNonEmptyParagraphs,
 } from './translationValidation';
+import { analyzeStructureParity } from './structureParity';
 import { QualityEvaluationMetrics } from './types';
 
 export interface QualityEvaluationSample {
@@ -163,9 +164,7 @@ function estimateTotalPronounChecks(
 function checkParagraphParityPassed(sourceText: string, candidateTranslation: string): boolean {
   try {
     validateParagraphParity(sourceText, candidateTranslation, 0.25, 3);
-    const srcCount = splitNonEmptyParagraphs(sourceText).length;
-    const transCount = splitNonEmptyParagraphs(candidateTranslation).length;
-    return Math.abs(srcCount - transCount) <= 1;
+    return analyzeStructureParity(sourceText, candidateTranslation).isParagraphCountExact;
   } catch {
     return false;
   }
