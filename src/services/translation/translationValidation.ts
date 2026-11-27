@@ -21,10 +21,18 @@ import {
 } from '../../lib/glossaryMatch';
 import { canonicalizeHan, findCanonicalSubstring } from '../../lib/sinoNormalize';
 import { GeminiRequestError } from '../gemini/types';
-import { ContinuityContext, DirectQaCritiqueIssue, PolishFidelityReport, TranslationOutcomeType } from './types';
+import {
+  ContinuityContext,
+  DirectQaCritiqueIssue,
+  ParagraphMergeReversion,
+  PolishFidelityReport,
+  PolishParagraphMergeResult,
+  TranslationOutcomeType,
+} from './types';
 import {
   analyzeStructureParity,
   checkStructureParityIssues,
+  extractParagraphSignature,
 } from './structureParity';
 
 /**
@@ -561,6 +569,247 @@ export function evaluatePolishRoundFidelity(params: {
     ...(candSourceReport ? { candidateStructurePenalty: candSourceReport.penaltyScore } : {}),
     ...(candSourceReport ? { structureDiscrepancyCount: candSourceReport.discrepancies.length } : {}),
     ...(reasons.length > 0 ? { rejectionReason: reasons.join(', ') } : {}),
+  };
+}
+
+/**
+ * Đánh giá và hợp nhất bản chuốt văn GĐ2 ở cấp độ từng đoạn (Feature 171 - US2).
+ * Giữ lại mọi đoạn cải thiện đạt chuẩn; chỉ hoàn tác riêng các đoạn bị suy giảm về bản lượt trước.
+ * Chỉ kích hoạt rollback toàn chương (`isCatastrophicRollback`) khi sụp đổ cấu trúc diện rộng.
+ */
+export function evaluateAndMergePolishRound(params: {
+  sourceText: string;
+  previousDraft: string;
+  candidatePolished: string;
+  glossary: GlossaryItem[];
+  roundIndex?: number;
+}): PolishParagraphMergeResult {
+  const { sourceText, previousDraft, candidatePolished, glossary, roundIndex } = params;
+
+  const prevParas = splitNonEmptyParagraphs(previousDraft);
+  const candParas = splitNonEmptyParagraphs(candidatePolished);
+  const srcParas = splitNonEmptyParagraphs(sourceText);
+
+  const previousGlossaryViolations = checkGlossaryCompliance({
+    sourceText,
+    translatedText: previousDraft,
+    glossary,
+  }).length;
+  const candidateGlossaryViolations = checkGlossaryCompliance({
+    sourceText,
+    translatedText: candidatePolished,
+    glossary,
+  }).length;
+
+  const draftParityReport = analyzeStructureParity(previousDraft, candidatePolished);
+  const paragraphCountDelta = draftParityReport.paragraphCountDelta;
+
+  const prevSourceReport = sourceText?.trim()
+    ? analyzeStructureParity(sourceText, previousDraft)
+    : null;
+  const candSourceReport = sourceText?.trim()
+    ? analyzeStructureParity(sourceText, candidatePolished)
+    : null;
+
+  const shouldCheckProperNouns = (roundIndex ?? 2) >= 2;
+  const overallUngrounded = shouldCheckProperNouns
+    ? detectUngroundedProperNouns({
+        sourceText,
+        previousDraft,
+        candidatePolished,
+        glossary,
+      })
+    : [];
+
+  // Nếu không thể gióng đoạn 1-1 với bản lượt trước hoặc bị cắt cụt nặng:
+  // Trên lượt >= 2 coi là suy giảm cấu trúc; trên lượt 1 giữ tương thích với evaluatePolishRoundFidelity.
+  const isSeverelyTruncated =
+    shouldCheckProperNouns &&
+    previousDraft.trim().length > 200 &&
+    candidatePolished.trim().length < previousDraft.trim().length * 0.6;
+
+  if (
+    prevParas.length === 0 ||
+    candParas.length === 0 ||
+    prevParas.length !== candParas.length ||
+    isSeverelyTruncated
+  ) {
+    if (!shouldCheckProperNouns && prevParas.length > 0 && candParas.length > 0) {
+      const round1Report = evaluatePolishRoundFidelity({
+        sourceText,
+        previousDraft,
+        candidatePolished,
+        glossary,
+        roundIndex,
+      });
+      if (round1Report.isAcceptable) {
+        return {
+          ...round1Report,
+          isCatastrophicRollback: false,
+          mergedPolishedText: candidatePolished,
+          acceptedParagraphCount: candParas.length,
+          revertedParagraphs: [],
+        };
+      }
+    }
+    const reasons: string[] = [];
+    if (paragraphCountDelta > 0 || prevParas.length !== candParas.length) {
+      reasons.push('PARAGRAPH_STRUCTURE_DIVERGENCE');
+    }
+    if (candidateGlossaryViolations > previousGlossaryViolations) {
+      reasons.push('GLOSSARY_REGRESSION');
+    }
+    if (overallUngrounded.length > 0) {
+      reasons.push('UNGROUNDED_PROPER_NOUN');
+    }
+    if (isSeverelyTruncated) {
+      reasons.push('POLISH_TRUNCATION_DETECTED');
+    }
+    return {
+      isAcceptable: false,
+      isCatastrophicRollback: true,
+      mergedPolishedText: previousDraft,
+      acceptedParagraphCount: 0,
+      revertedParagraphs: [],
+      previousGlossaryViolations,
+      candidateGlossaryViolations,
+      ungroundedProperNouns: overallUngrounded,
+      paragraphCountDelta,
+      ...(prevSourceReport ? { previousStructurePenalty: prevSourceReport.penaltyScore } : {}),
+      ...(candSourceReport ? { candidateStructurePenalty: candSourceReport.penaltyScore } : {}),
+      ...(candSourceReport ? { structureDiscrepancyCount: candSourceReport.discrepancies.length } : {}),
+      rejectionReason: reasons.join(', ') || 'PARAGRAPH_STRUCTURE_DIVERGENCE',
+    };
+  }
+
+  const mergedParas: string[] = [];
+  const revertedParagraphs: ParagraphMergeReversion[] = [];
+  let acceptedChangedCount = 0;
+
+  for (let i = 0; i < prevParas.length; i++) {
+    const prevPara = prevParas[i];
+    const candPara = candParas[i];
+
+    if (prevPara === candPara) {
+      mergedParas.push(candPara);
+      continue;
+    }
+
+    const alignment = mapTranslatedParagraphToSourceWindow(i, srcParas, prevParas);
+    const srcPara =
+      srcParas[alignment.primarySourceIndex] ||
+      srcParas.slice(alignment.windowStartIndex, alignment.windowEndIndex + 1).join('\n') ||
+      '';
+
+    const paraReasons: string[] = [];
+
+    if (srcPara) {
+      const prevTermErr = checkGlossaryCompliance({
+        sourceText: srcPara,
+        translatedText: prevPara,
+        glossary,
+      }).length;
+      const candTermErr = checkGlossaryCompliance({
+        sourceText: srcPara,
+        translatedText: candPara,
+        glossary,
+      }).length;
+      if (candTermErr > prevTermErr) {
+        paraReasons.push('suy giảm tuân thủ từ điển/xưng hô (GLOSSARY_REGRESSION)');
+      }
+    }
+
+    if (shouldCheckProperNouns) {
+      const ungroundedInPara = detectUngroundedProperNouns({
+        sourceText,
+        previousDraft,
+        candidatePolished: candPara,
+        glossary,
+      });
+      if (ungroundedInPara.length > 0) {
+        paraReasons.push(`phát sinh tên riêng ngoài nguồn: ${ungroundedInPara.slice(0, 2).join(', ')}`);
+      }
+    }
+
+    const prevParaSig = extractParagraphSignature(prevPara, 'vi', i);
+    const candParaSig = extractParagraphSignature(candPara, 'vi', i);
+    if (candParaSig.cjkPunctuationCount > prevParaSig.cjkPunctuationCount) {
+      paraReasons.push('sót dấu câu tiếng Trung');
+    }
+    if (prevParaSig.hasDirectDialogue && !candParaSig.hasDirectDialogue) {
+      paraReasons.push('mất dấu ngoặc lời thoại trực tiếp');
+    }
+
+    if (srcPara && srcParas.length === prevParas.length) {
+      const prevParaPenalty = analyzeStructureParity(srcPara, prevPara).penaltyScore;
+      const candParaPenalty = analyzeStructureParity(srcPara, candPara).penaltyScore;
+      if (candParaPenalty > prevParaPenalty) {
+        paraReasons.push('lệch dấu câu hoặc ngắt câu (STRUCTURE_PARITY_REGRESSION)');
+      }
+    }
+
+    if (paraReasons.length > 0) {
+      revertedParagraphs.push({
+        paragraphIndex: i,
+        reasons: paraReasons,
+      });
+      mergedParas.push(prevPara);
+    } else {
+      acceptedChangedCount++;
+      mergedParas.push(candPara);
+    }
+  }
+
+  const revertedRatio = prevParas.length > 0 ? revertedParagraphs.length / prevParas.length : 0;
+  const isCatastrophicRollback =
+    revertedRatio > 0.4 ||
+    (acceptedChangedCount === 0 && revertedParagraphs.length > 0);
+
+  if (isCatastrophicRollback) {
+    const legacyReport = evaluatePolishRoundFidelity({
+      sourceText,
+      previousDraft,
+      candidatePolished,
+      glossary,
+      roundIndex,
+    });
+    const fallbackReason =
+      legacyReport.rejectionReason ||
+      revertedParagraphs.flatMap((r) => r.reasons).slice(0, 3).join('; ') ||
+      'GLOSSARY_REGRESSION';
+    return {
+      ...legacyReport,
+      isAcceptable: false,
+      isCatastrophicRollback: true,
+      mergedPolishedText: previousDraft,
+      acceptedParagraphCount: 0,
+      revertedParagraphs,
+      rejectionReason: fallbackReason,
+    };
+  }
+
+  const acceptedParagraphCount = prevParas.length - revertedParagraphs.length;
+  return {
+    isAcceptable: true,
+    isCatastrophicRollback: false,
+    mergedPolishedText: mergedParas.join('\n\n'),
+    acceptedParagraphCount,
+    revertedParagraphs,
+    previousGlossaryViolations,
+    candidateGlossaryViolations,
+    ungroundedProperNouns: overallUngrounded,
+    paragraphCountDelta,
+    ...(prevSourceReport ? { previousStructurePenalty: prevSourceReport.penaltyScore } : {}),
+    ...(candSourceReport ? { candidateStructurePenalty: candSourceReport.penaltyScore } : {}),
+    ...(candSourceReport ? { structureDiscrepancyCount: candSourceReport.discrepancies.length } : {}),
+    ...(revertedParagraphs.length > 0
+      ? {
+          rejectionReason: `Hợp nhất cấp đoạn: giữ nguyên ${revertedParagraphs.length} đoạn lượt trước (${revertedParagraphs
+            .slice(0, 2)
+            .map((r) => `Đoạn ${r.paragraphIndex + 1}: ${r.reasons[0]}`)
+            .join('; ')})`,
+        }
+      : {}),
   };
 }
 

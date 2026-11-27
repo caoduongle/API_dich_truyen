@@ -12,6 +12,7 @@ import {
   separateChapterTitleAndBody,
   stripDuplicatedContinuityOverlap,
   validateTranslationOutput,
+  calculateChineseCharRatio,
   splitTextAdaptively,
   estimateTokenCount,
   DiscoveredEntity,
@@ -31,14 +32,72 @@ import {
 import {
   normalizeTranslatedPunctuation,
   realignParagraphStructure,
+  splitParagraphsPreservingOrder,
   validateStrictStructureParity,
 } from './structureParity';
+import {
+  encodeAnchoredParagraphs,
+  parseAnchoredParagraphs,
+  stripParagraphAnchors,
+} from './paragraphAnchor';
 import { mapWithConcurrencyLimit } from '../../lib/concurrency';
 import {
   createEmptyTelemetry,
   mergeBranchTelemetry,
   recordSplitEvent,
 } from './telemetry';
+
+const LEFTOVER_HAN_SEQ_RE = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]{2,}/;
+
+class SurgicalRawRecoveryError extends Error {
+  readonly kind: 'missing_anchor' | 'leftover_han';
+  readonly sourceParagraphs: string[];
+  readonly slotsByIndex: Record<number, string>;
+  readonly repairIndices: number[];
+  readonly discoveredEntities: DiscoveredEntity[];
+  readonly successKeyIndex: number;
+
+  constructor(
+    message: string,
+    payload: {
+      kind: 'missing_anchor' | 'leftover_han';
+      sourceParagraphs: string[];
+      slotsByIndex: Record<number, string>;
+      repairIndices: number[];
+      discoveredEntities: DiscoveredEntity[];
+      successKeyIndex: number;
+    }
+  ) {
+    super(message);
+    this.name = 'SurgicalRawRecoveryError';
+    this.kind = payload.kind;
+    this.sourceParagraphs = payload.sourceParagraphs;
+    this.slotsByIndex = payload.slotsByIndex;
+    this.repairIndices = payload.repairIndices;
+    this.discoveredEntities = payload.discoveredEntities;
+    this.successKeyIndex = payload.successKeyIndex;
+  }
+}
+
+function sliceRawSourceChunks(
+  fullText: string,
+  fullRawSource: string | undefined,
+  chunks: string[]
+): Array<string | undefined> {
+  if (!fullRawSource) return chunks.map(() => undefined);
+  const processedParas = splitParagraphsPreservingOrder(fullText);
+  const rawParas = splitParagraphsPreservingOrder(fullRawSource);
+  if (processedParas.length === 0 || processedParas.length !== rawParas.length) {
+    return chunks.map(() => undefined);
+  }
+  let cursor = 0;
+  return chunks.map((chunk) => {
+    const count = splitParagraphsPreservingOrder(chunk).length;
+    const sliced = rawParas.slice(cursor, cursor + count);
+    cursor += count;
+    return count > 0 && sliced.length === count ? sliced.join('\n\n') : undefined;
+  });
+}
 
 function buildContinuityTail(text: string | undefined, maxChars: number): string {
   if (!text || !text.trim()) return '';
@@ -143,13 +202,18 @@ export async function callRawDirectCore(
     };
   }
 
+  const sourceEncoding = encodeAnchoredParagraphs(text);
+  const shouldUseAnchors = params.useParagraphAnchors !== false && sourceEncoding.expectedCount >= 2;
+
   const { systemInstruction, prompt, schema } = buildRawTranslationPayload({
     text,
+    rawSourceText: params.rawSourceText,
     genre,
     tone,
     description,
     glossary,
     isRetry,
+    useParagraphAnchors: shouldUseAnchors,
     ...(params.continuity ? { continuity: params.continuity } : {}),
   });
 
@@ -207,10 +271,40 @@ export async function callRawDirectCore(
     }
   }
 
-  let finalDiscoveredEntities = validateAndSnapBackEntities(finalDiscoveredEntitiesRaw, text);
+  let finalDiscoveredEntities = validateAndSnapBackEntities(finalDiscoveredEntitiesRaw, params.rawSourceText || text);
   const normalizedEntities: DiscoveredEntity[] = finalDiscoveredEntities
     .map((ent) => validateDiscoveredEntity(ent))
     .filter((ent): ent is DiscoveredEntity => ent !== null);
+
+  // Giải mã & gỡ sạch nhãn neo <<Pk>> trước khi tách tiêu đề chương và chuẩn hóa dấu câu
+  const anchorParsed = parseAnchoredParagraphs(finalRawTranslation, sourceEncoding.expectedCount);
+  if (anchorParsed.usedAnchors) {
+    if (
+      anchorParsed.missingIndices.length >= 1 &&
+      anchorParsed.missingIndices.length <= 3 &&
+      !isRetry &&
+      shouldUseAnchors
+    ) {
+      throw new SurgicalRawRecoveryError(
+        `PARAGRAPH_STRUCTURE_DIVERGENCE: Thiếu ${anchorParsed.missingIndices.length} đoạn neo trong phản hồi dịch thô.`,
+        {
+          kind: 'missing_anchor',
+          sourceParagraphs: sourceEncoding.sourceParagraphs,
+          slotsByIndex: anchorParsed.paragraphsByIndex,
+          repairIndices: anchorParsed.missingIndices,
+          discoveredEntities: normalizedEntities,
+          successKeyIndex: response.successKeyIndex,
+        }
+      );
+    }
+    if (anchorParsed.missingIndices.length === 0 && anchorParsed.paragraphs.length > 0) {
+      finalRawTranslation = anchorParsed.paragraphs.join('\n\n');
+    } else {
+      finalRawTranslation = stripParagraphAnchors(finalRawTranslation);
+    }
+  } else {
+    finalRawTranslation = stripParagraphAnchors(finalRawTranslation);
+  }
 
   finalRawTranslation = separateChapterTitleAndBody(finalRawTranslation);
   finalRawTranslation = stripDuplicatedContinuityOverlap(
@@ -219,8 +313,51 @@ export async function callRawDirectCore(
   );
   finalRawTranslation = normalizeTranslatedPunctuation(finalRawTranslation);
   finalRawTranslation = realignParagraphStructure(text, finalRawTranslation);
-  validateTranslationOutput(finalRawTranslation);
-  if (!isRetry) {
+
+  try {
+    validateTranslationOutput(finalRawTranslation);
+  } catch (valErr: any) {
+    const errMsg = valErr?.message || '';
+    if (!isRetry && errMsg.includes('UNTRANSLATED_CHINESE_LEFTOVER') && sourceEncoding.expectedCount >= 4) {
+      const draftParas = splitParagraphsPreservingOrder(finalRawTranslation);
+      if (draftParas.length === sourceEncoding.expectedCount) {
+        const defectiveIndices: number[] = [];
+        for (let idx = 0; idx < draftParas.length; idx++) {
+          const para = draftParas[idx];
+          const ratio = calculateChineseCharRatio(para);
+          if (
+            (para.length >= 20 && ratio > 0.1) ||
+            (para.length >= 10 && ratio > 0.3) ||
+            LEFTOVER_HAN_SEQ_RE.test(para)
+          ) {
+            defectiveIndices.push(idx);
+          }
+        }
+        if (
+          defectiveIndices.length >= 1 &&
+          defectiveIndices.length <= 4 &&
+          defectiveIndices.length / draftParas.length <= 0.4 &&
+          (draftParas.length >= 6 || anchorParsed.usedAnchors)
+        ) {
+          const slotsByIndex: Record<number, string> = {};
+          draftParas.forEach((p, idx) => {
+            slotsByIndex[idx] = p;
+          });
+          throw new SurgicalRawRecoveryError(errMsg, {
+            kind: 'leftover_han',
+            sourceParagraphs: sourceEncoding.sourceParagraphs,
+            slotsByIndex,
+            repairIndices: defectiveIndices,
+            discoveredEntities: normalizedEntities,
+            successKeyIndex: response.successKeyIndex,
+          });
+        }
+      }
+    }
+    throw valErr;
+  }
+
+  if (!isRetry || anchorParsed.usedAnchors) {
     validateStrictStructureParity(text, finalRawTranslation);
   }
 
@@ -253,6 +390,7 @@ export async function rawWithContentSplitDirect(
     const chunks = splitTextAdaptively(text, 2);
     if (chunks.length > 1) {
       verifySourceCoverage(text, chunks);
+      const rawChunkSlices = sliceRawSourceChunks(text, params.rawSourceText, chunks);
 
       const results = await mapWithConcurrencyLimit(
         chunks,
@@ -285,6 +423,7 @@ export async function rawWithContentSplitDirect(
             {
               ...params,
               text: chunk,
+              rawSourceText: rawChunkSlices[i],
               startKeyIndex: staggeredKey,
               cumulativeTimeoutMs: remainingDeadlineMs,
               ...(chunkContinuity ? { continuity: chunkContinuity } : {}),
@@ -327,6 +466,93 @@ export async function rawWithContentSplitDirect(
       },
     };
   } catch (error: any) {
+    // Sửa phẫu thuật cục bộ ở retryDepth === 0 nếu chỉ thiếu 1–3 đoạn neo hoặc sót chữ Hán ở 1–4 đoạn đơn lẻ
+    if (retryDepth === 0 && error instanceof SurgicalRawRecoveryError && !params.signal?.aborted) {
+      const remainingAtStart = typeof params.cumulativeTimeoutMs === 'number'
+        ? params.cumulativeTimeoutMs - (Date.now() - callStartTime)
+        : undefined;
+      if (remainingAtStart === undefined || remainingAtStart > 200) {
+        try {
+          const repairedSlots: Record<number, string> = { ...error.slotsByIndex };
+          const rawSrcParagraphs = params.rawSourceText
+            ? splitParagraphsPreservingOrder(params.rawSourceText)
+            : [];
+          const surgicalEntities = [...error.discoveredEntities];
+          let lastKey = error.successKeyIndex;
+          let allRepairedCleanly = true;
+
+          for (const idx of error.repairIndices) {
+            if (params.signal?.aborted) {
+              const abortErr = new Error('Quá trình dịch đã bị hủy bởi người dùng.');
+              abortErr.name = 'AbortError';
+              throw abortErr;
+            }
+            const remMs = typeof params.cumulativeTimeoutMs === 'number'
+              ? params.cumulativeTimeoutMs - (Date.now() - callStartTime)
+              : undefined;
+            if (typeof remMs === 'number' && remMs <= 100) {
+              allRepairedCleanly = false;
+              break;
+            }
+            const targetSrcPara = error.sourceParagraphs[idx] || '';
+            const matchingRawPara =
+              rawSrcParagraphs.length === error.sourceParagraphs.length
+                ? rawSrcParagraphs[idx]
+                : undefined;
+
+            const subRes = await callRawDirectCore({
+              ...params,
+              text: targetSrcPara,
+              ...(matchingRawPara ? { rawSourceText: matchingRawPara } : {}),
+              startKeyIndex: lastKey,
+              isRetry: true,
+              useParagraphAnchors: false,
+              continuity: undefined,
+            });
+            const repairedText = stripParagraphAnchors(subRes.rawTranslation)
+              .replace(/\n+/g, ' ')
+              .trim();
+            if (!repairedText) {
+              allRepairedCleanly = false;
+              break;
+            }
+            repairedSlots[idx] = repairedText;
+            lastKey = subRes.successKeyIndex;
+            if (subRes.discoveredEntities?.length) {
+              surgicalEntities.push(...subRes.discoveredEntities);
+            }
+          }
+
+          if (allRepairedCleanly) {
+            const orderedParagraphs = error.sourceParagraphs.map((_, idx) => repairedSlots[idx] || '');
+            if (orderedParagraphs.every((p) => p.length > 0)) {
+              let stitched = orderedParagraphs.join('\n\n');
+              stitched = separateChapterTitleAndBody(stitched);
+              stitched = normalizeTranslatedPunctuation(stitched);
+              stitched = realignParagraphStructure(text, stitched);
+              validateTranslationOutput(stitched);
+              validateStrictStructureParity(text, stitched);
+              return {
+                rawTranslation: stitched,
+                discoveredEntities: surgicalEntities,
+                successKeyIndex: lastKey,
+                isPartial: false,
+                telemetry: {
+                  ...createEmptyTelemetry(),
+                  executionDurationMs: Date.now() - callStartTime,
+                },
+              };
+            }
+          }
+        } catch (surgicalErr: any) {
+          if (surgicalErr?.name === 'AbortError') {
+            throw surgicalErr;
+          }
+          // Rơi xuống chiến lược chia đoạn đệ quy chuẩn nếu sửa phẫu thuật cục bộ chưa giải quyết hết
+        }
+      }
+    }
+
     const outcome = classifyTranslationOutcome(error);
     if (!outcome.canSplitRetry) {
       throw error;
@@ -340,6 +566,7 @@ export async function rawWithContentSplitDirect(
       verifySourceCoverage(text, chunks);
 
       if (chunks.length > 1) {
+        const rawChunkSlices = sliceRawSourceChunks(text, params.rawSourceText, chunks);
         onSplitRetry?.({
           stage: 'raw',
           depth: retryDepth,
@@ -390,6 +617,7 @@ export async function rawWithContentSplitDirect(
               {
                 ...params,
                 text: chunk,
+                rawSourceText: rawChunkSlices[i],
                 startKeyIndex: staggeredKeyIndex,
                 isRetry: true,
                 cumulativeTimeoutMs: remainingDeadlineMs,

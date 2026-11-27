@@ -12,7 +12,7 @@ import {
 } from '../lib/glossaryScanQuality';
 import {
   buildChapterContinuityContext,
-  evaluatePolishRoundFidelity,
+  evaluateAndMergePolishRound,
   runDeterministicTranslationChecks,
   mergeAndDeduplicateQaIssues,
 } from '../services/translation/translationValidation';
@@ -677,6 +677,7 @@ export function useWorkspaceState({
       const continuity = await resolvePreviousChapterContinuity();
       const data = await translateRawDirect({
         text: sourceText,
+        rawSourceText: sourceText,
         genre: activeProject.genre,
         tone: activeProject.tone,
         description: activeProject.description,
@@ -742,6 +743,17 @@ export function useWorkspaceState({
 
     try {
       const continuity = await resolvePreviousChapterContinuity();
+      const handoffIssues =
+        currentRound === 1
+          ? runDeterministicTranslationChecks({
+              sourceText,
+              translatedText: textToPolish,
+              glossary: activeProject.glossary,
+              includeStructureParity: false,
+            }).filter(
+              (iss) => iss.type === 'terminology' || iss.type === 'pronoun' || iss.type === 'raw_leak'
+            )
+          : [];
       const data = await polishTranslationDirect({
         sourceText: sourceText,
         rawTranslation: textToPolish,
@@ -756,25 +768,33 @@ export function useWorkspaceState({
         enableSegmentTranslation,
         roundIndex: currentRound,
         totalRounds: 2,
+        ...(handoffIssues.length > 0 ? { complianceIssuesToFix: handoffIssues } : {}),
         ...(continuity ? { continuity } : {}),
       });
 
-      const polishedResult = data.polishedTranslation || "";
+      let polishedResult = data.polishedTranslation || "";
       if (polishedResult) {
-        const fidelity = evaluatePolishRoundFidelity({
+        const mergeResult = evaluateAndMergePolishRound({
           sourceText,
           previousDraft: textToPolish,
           candidatePolished: polishedResult,
           glossary: activeProject.glossary,
           roundIndex: currentRound,
         });
-        if (!fidelity.isAcceptable) {
+        if (mergeResult.isCatastrophicRollback || !mergeResult.isAcceptable) {
           showToast({
-            message: `Đã giữ lại bản dịch trước đó vì lượt chuốt làm giảm độ trung thành (${fidelity.rejectionReason || 'sai lệch từ điển/tên riêng'}).`,
+            message: `Đã giữ lại bản dịch trước đó vì lượt chuốt làm giảm độ trung thành (${mergeResult.rejectionReason || 'sai lệch từ điển/tên riêng'}).`,
             type: 'warning',
           });
           return;
         }
+        if (mergeResult.revertedParagraphs.length > 0) {
+          showToast({
+            message: `Đã chuốt ${mergeResult.acceptedParagraphCount} đoạn và giữ nguyên ${mergeResult.revertedParagraphs.length} đoạn lượt trước để bảo toàn từ điển/cấu trúc.`,
+            type: 'warning',
+          });
+        }
+        polishedResult = mergeResult.mergedPolishedText || polishedResult;
       }
 
       handlePolishedTranslationChange(polishedResult);

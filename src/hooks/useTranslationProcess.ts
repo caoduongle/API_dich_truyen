@@ -242,13 +242,16 @@ export function useTranslationProcess({
   }, [addLog]);
 
   // ── VÒNG LẶP DỊCH CHÍNH (batch mode) ──
-  const runTranslationLoop = useCallback(async (queue: ChapterMetadata[], startIndex: number) => {
+  const runTranslationLoop = useCallback(async (queue: ChapterMetadata[], startIndex: number, initialFailedIds?: string[]) => {
     setIsProcessing(true);
     isPauseRequestedRef.current = false;
 
     // Adaptive concurrency: bắt đầu từ giá trị người dùng chọn
     let effectiveConcurrency = concurrency;
-    let accumulatedFailedIds: string[] = projectRef.current?.translationQueueState?.failedIds || [];
+    const hasExplicitInitialFailedIds = Array.isArray(initialFailedIds);
+    let accumulatedFailedIds: string[] = hasExplicitInitialFailedIds
+      ? [...initialFailedIds]
+      : [...(projectRef.current?.translationQueueState?.failedIds || [])];
 
     let i = startIndex;
     while (i < queue.length) {
@@ -377,6 +380,7 @@ export function useTranslationProcess({
       const batchNewPending: PendingGlossaryItem[] = [];
       const batchFailedIds: string[] = [];
       const batchCompletedChapterIds: string[] = [];
+      const batchResolvedCleanIds: string[] = [];
       let batchSuccessCount = 0;
       let batchOverloadCount = 0;
       let allKeysExhausted = false;
@@ -402,6 +406,19 @@ export function useTranslationProcess({
             }
             batchNewPending.push(...r.newPendingItems);
             batchCompletedChapterIds.push(r.chapterId);
+
+            const hasRemainingDefect =
+              (r.unresolvedCriticalCount ?? 0) > 0 || Boolean(r.hasPartialFallback);
+            if (hasRemainingDefect) {
+              batchFailedIds.push(r.chapterId);
+              const chapTitle = batch.find(b => b.id === r.chapterId)?.title || r.chapterId;
+              const reasonText =
+                r.unresolvedIssueSummary ||
+                (r.hasPartialFallback ? 'còn đoạn dùng phiên âm dự phòng' : `${r.unresolvedCriticalCount} lỗi nghiêm trọng`);
+              addLog(`[Cần rà soát lại] Chương "${chapTitle}" vẫn còn tồn đọng (${reasonText}).`, 'warn');
+            } else {
+              batchResolvedCleanIds.push(r.chapterId);
+            }
           } else {
             batchFailedIds.push(r.chapterId);
           }
@@ -481,8 +498,14 @@ export function useTranslationProcess({
         mergedPending.push(...batchNewPending);
       }
 
-      const existingFailedIds: string[] = freshProj.translationQueueState?.failedIds || [];
-      const allFailedIds: string[] = Array.from(new Set([...existingFailedIds, ...accumulatedFailedIds, ...batchFailedIds]));
+      const resolvedCleanSet = new Set(batchResolvedCleanIds);
+      const existingFailedIds: string[] = hasExplicitInitialFailedIds
+        ? []
+        : (freshProj.translationQueueState?.failedIds || []);
+      const survivingFailedIds = Array.from(
+        new Set([...existingFailedIds, ...accumulatedFailedIds])
+      ).filter((id) => !resolvedCleanSet.has(id));
+      const allFailedIds: string[] = Array.from(new Set([...survivingFailedIds, ...batchFailedIds]));
       accumulatedFailedIds = allFailedIds;
       const nextIndex = i + batchSize;
       const isQueueFinished = nextIndex >= queue.length;
@@ -598,7 +621,7 @@ export function useTranslationProcess({
     }
 
     addLog(`BẮT ĐẦU TIẾN TRÌNH DỊCH TỰ ĐỘNG | Mô hình gốc: '${selectedModel}'`, 'success');
-    runTranslationLoop(queue, startIdx);
+    runTranslationLoop(queue, startIdx, isResetRun ? [] : undefined);
   }, [isProcessing, chaptersQueue, processedCount, currentChapterIndex, prepareQueue, setAutoDiscoveredBatch, setLogs, processStartTime, selectedModel, addLog, runTranslationLoop, onUpdateProject]);
 
   const handleStopTranslation = useCallback(() => {
@@ -698,7 +721,7 @@ export function useTranslationProcess({
     });
 
     addLog(`BẮT ĐẦU DỊCH LẠI CÁC CHƯƠNG LỖI | Mô hình: '${selectedModel}'`, 'success');
-    runTranslationLoop(failedChaps, 0);
+    runTranslationLoop(failedChaps, 0, []);
   }, [runTranslationLoop, onUpdateProject, selectedModel, addLog, setAutoDiscoveredBatch, setLogs, currentApiKeyIndexRef]);
 
   return {

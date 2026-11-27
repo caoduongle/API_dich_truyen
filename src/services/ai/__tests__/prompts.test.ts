@@ -487,4 +487,73 @@ describe('AI Prompts Construction Pipeline', () => {
       expect(payload.systemInstruction).toContain("giữ nguyên '萬劍歸宗'");
     });
   });
+
+  describe('Feature 171: Explicit Anchors, rawSourceText Glossary Lookup & Stage Compliance Handoff', () => {
+    it('supports opt-in <<Pk>> anchoring without breaking unanchored default calls', () => {
+      const anchored = buildRawTranslationPayload({
+        text: '第一章 启程\n\n钱仓一推开大门。',
+        genre: 'Kinh Dị',
+        tone: 'U ám',
+        useParagraphAnchors: true,
+      });
+
+      expect(anchored.prompt).toContain('<<P1>> 第一章 启程');
+      expect(anchored.prompt).toContain('<<P2>> 钱仓一推开大门。');
+      expect(anchored.systemInstruction).toContain('NEO ĐOẠN TƯỜNG MINH 1-1');
+
+      const unanchored = buildRawTranslationPayload({
+        text: '第一章 启程\n\n钱仓一推开大门。',
+        genre: 'Kinh Dị',
+        tone: 'U ám',
+      });
+      expect(unanchored.prompt).not.toContain('<<P1>>');
+    });
+
+    it('matches glossary & characterProfile via rawSourceText on pre-processed chapters without double annotation', () => {
+      const payload = buildRawTranslationPayload({
+        text: '第一段 [Thiên Giang Nguyệt] mỉm cười nhìn [Tiền Thương Nhất].',
+        rawSourceText: '第一段 千江月 mỉm cười nhìn 钱仓一。',
+        genre: 'Kinh Dị',
+        tone: 'U ám',
+        glossary: [
+          {
+            id: 'g_girl',
+            chinese: '千江月',
+            pinyin: 'Thiên Giang Nguyệt',
+            vietnamese: 'Thiên Giang Nguyệt',
+            type: 'character',
+            note: 'Nữ chính',
+            characterProfile: { gender: 'female', defaultNarrativePronoun: 'cô' },
+          },
+        ],
+      });
+
+      expect(payload.prompt).toContain('千江月');
+      expect(payload.prompt).toContain('Giới tính: Nữ');
+      expect(payload.prompt).not.toContain('千江月[Thiên Giang Nguyệt]');
+    });
+
+    it('injects sanitized complianceIssuesToFix into Polish Round 1 prompt', () => {
+      const payload = buildPolishTranslationPayload({
+        sourceText: '千江月看着天马。',
+        rawTranslation: 'Thiên Giang nhìn thấy Ngựa Trời.',
+        genre: 'Kinh Dị',
+        tone: 'U ám',
+        roundIndex: 1,
+        totalRounds: 3,
+        complianceIssuesToFix: [
+          {
+            type: 'terminology',
+            severity: 'critical',
+            targetText: 'Thiên Giang nhìn thấy Ngựa Trời.',
+            description: 'Đoạn 1 thiếu tên "Thiên Mã".',
+            expectedTerm: { chinese: '天马', vietnamese: 'Thiên Mã' },
+          },
+        ],
+      });
+
+      expect(payload.prompt).toContain('[DANH SÁCH LỖI CẦN SỬA NGAY TỪ DỊCH THÔ (1 mục)]');
+      expect(payload.prompt).toContain('Bắt buộc dùng [天马] = "Thiên Mã"');
+    });
+  });
 });

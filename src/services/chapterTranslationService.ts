@@ -9,7 +9,7 @@ import {
   qaCritiqueDirect,
   buildChapterContinuityContext,
   resolvePreviousChapterId,
-  evaluatePolishRoundFidelity,
+  evaluateAndMergePolishRound,
   runDeterministicTranslationChecks,
   mergeAndDeduplicateQaIssues,
   repairChapterCriticalIssuesDirect,
@@ -26,6 +26,9 @@ export interface SingleChapterResult {
   newPendingItems: PendingGlossaryItem[];
   updatedChapter: Chapter | null;
   lastKeyIndex: number;
+  unresolvedCriticalCount?: number;
+  unresolvedIssueSummary?: string;
+  hasPartialFallback?: boolean;
 }
 
 export interface TranslateChapterParams {
@@ -165,11 +168,19 @@ export async function executeSingleChapterTranslation({
   // Mode 'from_scratch': BẮT BUỘC dịch lại mới 100% từ tiếng Trung gốc.
   // Mode 'resume': Dịch nếu chưa có bản thô hoặc bản thô bị cụt.
   const canReuseRaw = (autoTranslateMode === 'repolish') && hasRawTranslation && !isRawTruncated;
+  let rawHasPartialFallback = false;
+  let rawComplianceIssues: DirectQaCritiqueIssue[] = [];
 
   if (canReuseRaw) {
     addLog(`${logPrefix} [Chuốt lại từ bản thô] Phát hiện bản dịch thô hợp lệ (${rawCandidate.length} ký tự). Bỏ qua Giai đoạn 1 và tiến hành chuốt văn phong...`, 'info');
     firstDraft = rawCandidate;
     hasFreshRaw = false;
+    rawComplianceIssues = runDeterministicTranslationChecks({
+      sourceText: chapter.sourceText,
+      translatedText: firstDraft,
+      glossary: localGlossary,
+      includeStructureParity: false,
+    });
   } else {
     if (autoTranslateMode === 'repolish' && hasRawTranslation && isRawTruncated) {
       addLog(`${logPrefix} [Cảnh báo toàn vẹn] Bản dịch thô hiện tại có dấu hiệu bị cụt (${rawCandidate.length} ký tự vs ${chapter.sourceText.length} ký tự gốc). Tự động dịch thô lại mới từ đầu để bảo đảm tính toàn vẹn...`, 'warn');
@@ -178,11 +189,12 @@ export async function executeSingleChapterTranslation({
     } else {
       addLog(`${logPrefix} Đang dịch thô trực tiếp qua Gemini API cá nhân (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
     }
-    let rawData: { rawTranslation: string; discoveredEntities?: DiscoveredEntity[]; successKeyIndex?: number };
+    let rawData: { rawTranslation: string; discoveredEntities?: DiscoveredEntity[]; successKeyIndex?: number; isPartial?: boolean };
 
     try {
       rawData = await translateRawDirect({
         text: (hasProcessedText ? chapter.processedSourceText : chapter.sourceText) || '',
+        rawSourceText: chapter.sourceText,
         genre: projState.genre,
         tone: projState.tone,
         description: projState.description,
@@ -236,16 +248,17 @@ export async function executeSingleChapterTranslation({
 
     firstDraft = rawData.rawTranslation || '';
     hasFreshRaw = true;
+    rawHasPartialFallback = Boolean(rawData.isPartial);
     if (typeof rawData.successKeyIndex === 'number') {
       currentKeyIndex = rawData.successKeyIndex;
     }
     addLog(`${logPrefix} Đã hoàn thành biểu mẫu dịch thô GĐ1.`, 'success');
 
-    const rawComplianceIssues = runDeterministicTranslationChecks({
+    rawComplianceIssues = runDeterministicTranslationChecks({
       sourceText: chapter.sourceText,
       translatedText: firstDraft,
       glossary: localGlossary,
-      isPartialFallback: Boolean((rawData as { isPartial?: boolean }).isPartial),
+      isPartialFallback: rawHasPartialFallback,
       includeStructureParity: true,
     });
     if (rawComplianceIssues.length > 0) {
@@ -289,6 +302,12 @@ export async function executeSingleChapterTranslation({
 
     addLog(`${logPrefix} Biên tập chuốt chữ trực tiếp Lần ${j}/${polishCycles} [${strategy.stageName}]...`, 'gemini');
     let polishData: { polishedTranslation?: string; successKeyIndex?: number; isPartial?: boolean };
+    const handoffIssues =
+      j === 1
+        ? rawComplianceIssues.filter(
+            (iss) => iss.type === 'terminology' || iss.type === 'pronoun' || iss.type === 'raw_leak'
+          )
+        : [];
 
     try {
       polishData = await polishTranslationDirect({
@@ -307,6 +326,7 @@ export async function executeSingleChapterTranslation({
         signal,
         roundIndex: j,
         totalRounds: polishCycles,
+        ...(handoffIssues.length > 0 ? { complianceIssuesToFix: handoffIssues } : {}),
         ...(effectiveContinuity ? { continuity: effectiveContinuity } : {}),
         onSplitRetry: (info) => {
           const reasonSummary = info.reason.includes('UNTRANSLATED_CHINESE_LEFTOVER')
@@ -365,25 +385,37 @@ export async function executeSingleChapterTranslation({
       currentKeyIndex = polishData.successKeyIndex;
     }
 
+    let effectivePolished = candidatePolished;
     if (polishData.polishedTranslation && previousRoundText) {
-      const fidelity = evaluatePolishRoundFidelity({
+      const mergeResult = evaluateAndMergePolishRound({
         sourceText: chapter.sourceText,
         previousDraft: previousRoundText,
         candidatePolished,
         glossary: localGlossary,
         roundIndex: j,
       });
-      if (!fidelity.isAcceptable) {
+      if (mergeResult.isCatastrophicRollback || !mergeResult.isAcceptable) {
         addLog(
-          `${logPrefix} [Hậu kiểm GĐ2 Lượt ${j}] Từ chối bản chuốt vì làm suy giảm độ trung thành (${fidelity.rejectionReason || 'regression'}). Khôi phục bản lượt trước và dừng chuốt sớm.`,
+          `${logPrefix} [Hậu kiểm GĐ2 Lượt ${j}] Từ chối bản chuốt vì làm suy giảm độ trung thành (${mergeResult.rejectionReason || 'regression'}). Khôi phục bản lượt trước và dừng chuốt sớm.`,
           'warn'
         );
         currentTextToPolish = previousRoundText;
         break;
       }
+      if (mergeResult.revertedParagraphs.length > 0) {
+        const detail = mergeResult.revertedParagraphs
+          .slice(0, 2)
+          .map((r) => `Đoạn ${r.paragraphIndex + 1}: ${r.reasons[0]}`)
+          .join('; ');
+        addLog(
+          `${logPrefix} [Hậu kiểm GĐ2 Lượt ${j}] Hợp nhất cấp đoạn: giữ ${mergeResult.acceptedParagraphCount} đoạn chuốt tốt, hoàn tác cục bộ ${mergeResult.revertedParagraphs.length} đoạn suy giảm (${detail}).`,
+          'warn'
+        );
+      }
+      effectivePolished = mergeResult.mergedPolishedText || candidatePolished;
     }
 
-    currentTextToPolish = candidatePolished;
+    currentTextToPolish = effectivePolished;
     lastPolishIsPartial = Boolean(polishData.isPartial);
 
     // Kiểm tra độ tương đồng và phát hiện hội tụ từ lượt 2 trở đi
@@ -462,7 +494,7 @@ export async function executeSingleChapterTranslation({
 
       if (enableAutoTargetedRepair) {
         const repairableCritical = detectedQaIssues.filter(
-          (i) => i.severity === 'critical' && typeof i.paragraphIndex === 'number'
+          (i) => i.severity === 'critical' && (typeof i.paragraphIndex === 'number' || i.type === 'omission')
         );
         if (repairableCritical.length > 0) {
           addLog(
@@ -487,14 +519,23 @@ export async function executeSingleChapterTranslation({
             detectedQaIssues = repairRes.updatedIssues;
             currentKeyIndex = repairRes.successKeyIndex;
 
-            if (repairRes.repairedParagraphIndices.length > 0) {
+            const reasonDetail = repairRes.rejectionReasons
+              ? Object.entries(repairRes.rejectionReasons)
+                  .slice(0, 3)
+                  .map(([pIdxStr, msg]) => `Đoạn ${Number(pIdxStr) + 1}: ${msg}`)
+                  .join(' | ')
+              : '';
+            const fixedCount =
+              repairRes.repairedParagraphIndices.length + (repairRes.recoveredOmissionCount ?? 0);
+
+            if (fixedCount > 0) {
               addLog(
-                `${logPrefix} [Sửa đoạn QA] Đã sửa an toàn ${repairRes.repairedParagraphIndices.length} đoạn (${repairRes.rejectedParagraphIndices.length} đoạn bị từ chối/hoàn tác).`,
+                `${logPrefix} [Sửa đoạn QA] Đã sửa an toàn ${fixedCount} đoạn (${repairRes.rejectedParagraphIndices.length} đoạn bị từ chối/hoàn tác${reasonDetail ? ` — ${reasonDetail}` : ''}).`,
                 'success'
               );
             } else if (repairRes.rejectedParagraphIndices.length > 0) {
               addLog(
-                `${logPrefix} [Sửa đoạn QA] Giữ nguyên bản trước sửa (${repairRes.rejectedParagraphIndices.length} đoạn không đạt kiểm tra an toàn).`,
+                `${logPrefix} [Sửa đoạn QA] Giữ nguyên bản trước sửa (${repairRes.rejectedParagraphIndices.length} đoạn không đạt kiểm tra an toàn${reasonDetail ? `: ${reasonDetail}` : ''}).`,
                 'warn'
               );
             }
@@ -535,6 +576,31 @@ export async function executeSingleChapterTranslation({
   };
   await saveChapterToDB(updatedFullChapter);
 
+  const unresolvedCriticals =
+    enableAiQaCritique && qaRunSucceeded
+      ? detectedQaIssues.filter((iss) => iss && iss.severity === 'critical' && !iss.repaired)
+      : [];
+  const summaryParts: string[] = [];
+  if (unresolvedCriticals.length > 0) {
+    const countByType = new Map<string, number>();
+    for (const iss of unresolvedCriticals) {
+      countByType.set(iss.type, (countByType.get(iss.type) || 0) + 1);
+    }
+    const labelMap: Record<string, string> = {
+      terminology: 'thuật ngữ',
+      omission: 'thiếu đoạn',
+      addition: 'thừa đoạn',
+      raw_leak: 'sót chữ Hán',
+      pronoun: 'xưng hô',
+      mistranslation: 'dịch nghĩa',
+      other: 'cấu trúc/khác',
+    };
+    for (const [t, cnt] of countByType.entries()) {
+      summaryParts.push(`${cnt} ${labelMap[t] || t}`);
+    }
+  }
+  const hasPartialFallback = rawHasPartialFallback || lastPolishIsPartial;
+
   addLog(`${logPrefix} Đã biên phiên dịch hoàn chỉnh chương: ${chapter.title}`, 'success');
 
   return {
@@ -545,5 +611,8 @@ export async function executeSingleChapterTranslation({
     newPendingItems,
     updatedChapter: updatedFullChapter,
     lastKeyIndex: currentKeyIndex,
+    unresolvedCriticalCount: unresolvedCriticals.length,
+    ...(summaryParts.length > 0 ? { unresolvedIssueSummary: summaryParts.join(', ') } : {}),
+    ...(hasPartialFallback ? { hasPartialFallback: true } : {}),
   };
 }

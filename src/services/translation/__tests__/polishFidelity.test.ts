@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GlossaryItem } from '../../../types';
 import {
+  evaluateAndMergePolishRound,
   evaluatePolishRoundFidelity,
   detectUngroundedProperNouns,
 } from '../translationValidation';
@@ -174,6 +175,59 @@ describe('Polish Fidelity Gate & Round Temperature Strategy (US3)', () => {
       });
 
       expect(capturedTemp).toBe(0.3);
+    });
+  });
+
+  describe('evaluateAndMergePolishRound (Feature 171 - US2)', () => {
+    it('accepts improved paragraphs and selectively reverts only regressed paragraphs on multi-paragraph chapters', () => {
+      const srcList = [
+        '“你怎么在这里？”楚风问道。',
+        '第二段风景描写。',
+        '楚风离开青云宗。',
+        ...Array.from({ length: 7 }, (_, i) => `第${i + 4}段普通叙述。`),
+      ];
+      const prevList = [
+        '"Sao ngươi lại ở đây?" Sở Phong hỏi.',
+        'Cảnh sắc đoạn hai còn hơi thô.',
+        'Sở Phong rời khỏi Thanh Vân Tông.',
+        ...Array.from({ length: 7 }, (_, i) => `Đoạn kể chuyện bình thường thứ ${i + 4}.`),
+      ];
+      const candList = [
+        'Sao ngươi lại ở đây? Sở Phong hỏi.', // Mất ngoặc thoại -> hoàn tác đoạn 1
+        'Cảnh sắc đoạn hai hiện lên sống động và khoáng đạt hơn hẳn.', // Cải thiện tốt
+        'Sở Phong rời khỏi tông môn mây xanh.', // Mất từ điển Thanh Vân Tông -> hoàn tác đoạn 3
+        ...Array.from({ length: 7 }, (_, i) => `Đoạn tự sự thứ ${i + 4} đã được trau chuốt mượt mà.`), // 7 đoạn cải thiện tốt
+      ];
+
+      const merged = evaluateAndMergePolishRound({
+        sourceText: srcList.join('\n\n'),
+        previousDraft: prevList.join('\n\n'),
+        candidatePolished: candList.join('\n\n'),
+        glossary: sampleGlossary,
+        roundIndex: 2,
+      });
+
+      expect(merged.isAcceptable).toBe(true);
+      expect(merged.isCatastrophicRollback).toBe(false);
+      expect(merged.acceptedParagraphCount).toBe(8);
+      expect(merged.revertedParagraphs.map((r) => r.paragraphIndex)).toEqual([0, 2]);
+      expect(merged.mergedPolishedText).toContain('"Sao ngươi lại ở đây?" Sở Phong hỏi.');
+      expect(merged.mergedPolishedText).toContain('Sở Phong rời khỏi Thanh Vân Tông.');
+      expect(merged.mergedPolishedText).toContain('sống động và khoáng đạt hơn hẳn');
+    });
+
+    it('triggers catastrophic rollback when > 40% of paragraphs regress or 0 improvements survive on small drafts', () => {
+      const res = evaluateAndMergePolishRound({
+        sourceText: '楚风离开青云宗。',
+        previousDraft: 'Sở Phong rời khỏi Thanh Vân Tông.',
+        candidatePolished: 'Sở Phong rời khỏi tông môn mây xanh.',
+        glossary: sampleGlossary,
+        roundIndex: 2,
+      });
+
+      expect(res.isAcceptable).toBe(false);
+      expect(res.isCatastrophicRollback).toBe(true);
+      expect(res.mergedPolishedText).toBe('Sở Phong rời khỏi Thanh Vân Tông.');
     });
   });
 });

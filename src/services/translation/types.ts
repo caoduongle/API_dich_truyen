@@ -25,6 +25,18 @@ export interface PolishFidelityReport {
   structureDiscrepancyCount?: number;
 }
 
+export interface ParagraphMergeReversion {
+  paragraphIndex: number;
+  reasons: string[];
+}
+
+export interface PolishParagraphMergeResult extends PolishFidelityReport {
+  mergedPolishedText: string;
+  acceptedParagraphCount: number;
+  revertedParagraphs: ParagraphMergeReversion[];
+  isCatastrophicRollback: boolean;
+}
+
 export interface QualityEvaluationMetrics {
   sampleId: string;
   glossaryComplianceRate: number;
@@ -123,6 +135,7 @@ export interface SourceCoverageReport {
 
 export interface DirectRawTranslationParams {
   text: string;
+  rawSourceText?: string;
   genre: string;
   tone: string;
   glossary: GlossaryItem[];
@@ -131,6 +144,7 @@ export interface DirectRawTranslationParams {
   startKeyIndex?: number;
   description?: string;
   enableSegmentTranslation?: boolean;
+  useParagraphAnchors?: boolean;
   signal?: AbortSignal;
   continuity?: ContinuityContext;
   onSplitRetry?: (info: SplitRetryEventInfo) => void;
@@ -161,6 +175,8 @@ export interface DirectPolishTranslationParams {
   description?: string;
   isExtractionEnabled?: boolean;
   enableSegmentTranslation?: boolean;
+  useParagraphAnchors?: boolean;
+  complianceIssuesToFix?: DirectQaCritiqueIssue[];
   signal?: AbortSignal;
   isRetry?: boolean;
   roundIndex?: number;

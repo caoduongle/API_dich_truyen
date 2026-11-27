@@ -34,6 +34,11 @@ import {
   realignParagraphStructure,
   validateStrictStructureParity,
 } from './structureParity';
+import {
+  encodeAnchoredParagraphs,
+  parseAnchoredParagraphs,
+  stripParagraphAnchors,
+} from './paragraphAnchor';
 import { splitBilingualAdaptively } from './bilingualSplit';
 import { mapWithConcurrencyLimit } from '../../lib/concurrency';
 import {
@@ -88,6 +93,9 @@ export async function callPolishDirectCore(
         ? getPolishStrategyForRound(roundIndex, totalRounds).temperature
         : 0.3);
 
+  const rawAnchorEncoding = encodeAnchoredParagraphs(rawTranslation);
+  const shouldUseAnchors = params.useParagraphAnchors !== false && rawAnchorEncoding.expectedCount >= 2;
+
   const { systemInstruction, prompt, schema } = buildPolishTranslationPayload({
     sourceText,
     rawTranslation,
@@ -99,6 +107,8 @@ export async function callPolishDirectCore(
     isExtractionEnabled,
     roundIndex,
     totalRounds,
+    useParagraphAnchors: shouldUseAnchors,
+    complianceIssuesToFix: params.complianceIssuesToFix,
     ...(params.continuity ? { continuity: params.continuity } : {}),
   });
 
@@ -152,6 +162,28 @@ export async function callPolishDirectCore(
     } else {
       throw new Error('Không thể phân tích dữ liệu JSON trả về từ AI trong ngữ cảnh [polishTranslation].');
     }
+  }
+
+  // Giải mã & gỡ sạch thẻ neo <<Pk>> trước khi kiểm tra tiêu đề và cấu trúc 1-1
+  const parsedPolishAnchor = parseAnchoredParagraphs(finalPolishedTranslation, rawAnchorEncoding.expectedCount);
+  if (parsedPolishAnchor.usedAnchors) {
+    if (parsedPolishAnchor.missingIndices.length === 0 && parsedPolishAnchor.paragraphs.length > 0) {
+      finalPolishedTranslation = parsedPolishAnchor.paragraphs.join('\n\n');
+    } else if (
+      parsedPolishAnchor.missingIndices.length >= 1 &&
+      parsedPolishAnchor.missingIndices.length <= 3 &&
+      rawAnchorEncoding.expectedCount > 0 &&
+      parsedPolishAnchor.missingIndices.length / rawAnchorEncoding.expectedCount <= 0.25
+    ) {
+      // Bù tất định tối đa 1-3 đoạn bị AI quên thẻ neo bằng chính đoạn lượt trước để giữ cấu trúc 1-1 (0 API call)
+      finalPolishedTranslation = rawAnchorEncoding.sourceParagraphs
+        .map((prevPara, idx) => parsedPolishAnchor.paragraphsByIndex[idx] || prevPara)
+        .join('\n\n');
+    } else {
+      finalPolishedTranslation = stripParagraphAnchors(finalPolishedTranslation);
+    }
+  } else {
+    finalPolishedTranslation = stripParagraphAnchors(finalPolishedTranslation);
   }
 
   finalPolishedTranslation = stripDuplicatedContinuityOverlap(

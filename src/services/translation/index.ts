@@ -12,3 +12,4 @@ export * from './sentenceRewrite';
 export * from './translationValidation';
 export * from './targetedRepair';
 export * from './structureParity';
+export * from './paragraphAnchor';

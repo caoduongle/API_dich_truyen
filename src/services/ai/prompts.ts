@@ -16,8 +16,8 @@ import {
   substituteGlossaryTermsSafely,
 } from '../../lib/glossaryMatch';
 import { buildEntityExtractionInstruction, buildEntitySchema } from './glossaryPrompts';
-
-import { ContinuityContext } from "../translation/types";
+import { encodeAnchoredParagraphs } from '../translation/paragraphAnchor';
+import { ContinuityContext, DirectQaCritiqueIssue } from "../translation/types";
 import { CharacterProfile } from "../../types";
 
 export interface GlossaryEntry {
@@ -34,11 +34,13 @@ export interface GlossaryEntry {
 
 export interface BuildRawTranslationPromptParams {
   text: string;
+  rawSourceText?: string;
   genre: string;
   tone: string;
   description?: string;
   glossary?: GlossaryEntry[];
   isRetry?: boolean;
+  useParagraphAnchors?: boolean;
   continuity?: ContinuityContext;
 }
 
@@ -53,6 +55,8 @@ export interface BuildPolishTranslationPromptParams {
   isExtractionEnabled?: boolean;
   roundIndex?: number;
   totalRounds?: number;
+  useParagraphAnchors?: boolean;
+  complianceIssuesToFix?: DirectQaCritiqueIssue[];
   continuity?: ContinuityContext;
 }
 
@@ -188,16 +192,17 @@ function formatRoleGroupedGlossarySections(
  * Xây dựng payload prompt và schema cho Giai đoạn 1: Dịch thô + Trích xuất thực thể
  */
 export function buildRawTranslationPayload(params: BuildRawTranslationPromptParams) {
-  const { text, genre, tone, description, glossary = [], isRetry, continuity } = params;
+  const { text, rawSourceText, genre, tone, description, glossary = [], isRetry, useParagraphAnchors = false, continuity } = params;
 
   const cleanGenre = sanitizePromptInput(genre || "Tiên Hiệp");
   const cleanTone = sanitizePromptInput(tone || "Trang nghiêm cổ phong");
   const cleanDescription = sanitizePromptInput(description || "");
   const cleanText = sanitizePromptInput(text || "");
+  const glossaryLookupText = sanitizePromptInput(rawSourceText || text || "");
 
   const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
 
-  const { entries: relevantGlossary, matchedInSource } = selectRelevantGlossary(cleanText, sanitizedGlossary);
+  const { entries: relevantGlossary, matchedInSource } = selectRelevantGlossary(glossaryLookupText, sanitizedGlossary);
 
   let glossaryStr = "";
   if (sanitizedGlossary.length === 0) {
@@ -212,11 +217,18 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
     );
   }
 
-  // Đánh dấu nội tuyến an toàn Chữ_Hán[Tên_Việt] cho cụm >= 2 ký tự Hán (giữ nguyên chữ Hán gốc)
-  const { substitutedText } = substituteGlossaryTermsSafely(cleanText, relevantGlossary, {
-    minHanLength: 2,
-    annotationStyle: 'inline-pair',
-  });
+  const hasBrackets = /\[[^\]]+\]/.test(cleanText);
+  // Tránh chèn chú thích kép Chữ_Hán[Tên_Việt] nếu văn bản đã được tiền xử lý sẵn [Tên_Việt]
+  const substitutedText = hasBrackets
+    ? cleanText
+    : substituteGlossaryTermsSafely(cleanText, relevantGlossary, {
+        minHanLength: 2,
+        annotationStyle: 'inline-pair',
+      }).substitutedText;
+
+  const anchorEncoded = useParagraphAnchors ? encodeAnchoredParagraphs(substitutedText) : null;
+  const isAnchoredMode = Boolean(anchorEncoded && anchorEncoded.expectedCount >= 2);
+  const textForPrompt = isAnchoredMode ? anchorEncoded!.encodedText : substitutedText;
 
   let systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
@@ -243,20 +255,24 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
       ? `10. BẮT BUỘC TUÂN THỦ nguyên tắc xưng hô và phong cách dịch đặc biệt của truyện: ${cleanDescription.trim()}\n`
       : "");
 
+  if (isAnchoredMode) {
+    systemInstruction +=
+      "\n11. NEO ĐOẠN TƯỜNG MINH 1-1: Mỗi đoạn đầu vào bắt đầu bằng nhãn <<P1>>, <<P2>>, ... Bạn BẮT BUỘC giữ nguyên đúng nhãn <<Pk>> ở đầu mỗi đoạn dịch tương ứng 1-1; tuyệt đối KHÔNG gộp đoạn, KHÔNG tách thêm đoạn và KHÔNG bỏ sót bất kỳ nhãn <<Pk>> nào.";
+  }
+
   if (isRetry) {
     systemInstruction +=
       "\n\n⚠️ CẢNH BÁO QUAN TRỌNG: Lượt dịch trước bị lỗi do để sót chữ Hán chưa dịch. Trong lượt dịch này, bạn BẮT BUỘC PHẢI DỊCH 100% SANG TIẾNG VIỆT HOẶC PHIÊN ÂM HÁN-VIỆT. TUYỆT ĐỐI KHÔNG COPY NGUYÊN VĂN BẤT KỲ CÂU TỪ CHỮ HÁN NÀO.";
   }
 
-  const hasBrackets = /\[[^\]]+\]/.test(cleanText);
   const textPromptBlock = hasBrackets
     ? `--- VĂN BẢN TIẾNG TRUNG (ĐÃ ĐÁNH DẤU TỪ ĐIỂN) ---
 (Các tên đã được thay sẵn trong ngoặc vuông [Tên_Việt]. Bắt buộc dùng đúng tên này khi dịch)
-${substitutedText}`
+${textForPrompt}`
     : `--- VĂN BẢN TIẾNG TRUNG GỐC ---
-${substitutedText}`;
+${textForPrompt}`;
 
-  const expectedParagraphCount = countParagraphs(cleanText);
+  const expectedParagraphCount = isAnchoredMode ? anchorEncoded!.expectedCount : countParagraphs(cleanText);
   const continuityBlock = formatContinuityContextBlock(continuity);
   const prompt = `--- THÔNG TIN TRUYỆN ---
 Thể loại: ${cleanGenre}
@@ -321,6 +337,8 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     isExtractionEnabled = false,
     roundIndex = 1,
     totalRounds = 1,
+    useParagraphAnchors = false,
+    complianceIssuesToFix = [],
     continuity,
   } = params;
 
@@ -388,7 +406,33 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     ? `\n[TỪ ĐIỂN GHIM BẮT BUỘC (${pinnedOnlyEntries.length} thuật ngữ)]:\n${pinnedOnlyEntries.map(formatPolishGlossaryLine).join('\n')}`
     : '';
 
-  const expectedPolishParagraphCount = countParagraphs(cleanSourceText || cleanRawTranslation);
+  const rawAnchored = useParagraphAnchors ? encodeAnchoredParagraphs(cleanRawTranslation) : null;
+  const srcAnchored = useParagraphAnchors ? encodeAnchoredParagraphs(substitutedSourceText) : null;
+  const isPolishAnchored = Boolean(rawAnchored && rawAnchored.expectedCount >= 2);
+  const rawForPrompt = isPolishAnchored ? rawAnchored!.encodedText : cleanRawTranslation;
+  const sourceForPrompt =
+    isPolishAnchored && srcAnchored && srcAnchored.expectedCount === rawAnchored!.expectedCount
+      ? srcAnchored.encodedText
+      : substitutedSourceText;
+
+  const fixableIssues =
+    roundIndex <= 1 && Array.isArray(complianceIssuesToFix) && complianceIssuesToFix.length > 0
+      ? complianceIssuesToFix.slice(0, 15).map((iss, idx) => {
+          const termHint = iss.expectedTerm
+            ? ` -> Bắt buộc dùng [${sanitizePromptInput(iss.expectedTerm.chinese)}] = "${sanitizePromptInput(iss.expectedTerm.vietnamese)}"`
+            : '';
+          const cleanDesc = sanitizePromptInput(iss.description || '').slice(0, 160);
+          return `${idx + 1}. [${String(iss.type || 'other').toUpperCase()}] ${cleanDesc}${termHint}`;
+        })
+      : [];
+  const complianceFixBlock =
+    fixableIssues.length > 0
+      ? `\n\n[DANH SÁCH LỖI CẦN SỬA NGAY TỪ DỊCH THÔ (${fixableIssues.length} mục)]\n${fixableIssues.join('\n')}`
+      : '';
+
+  const expectedPolishParagraphCount = isPolishAnchored
+    ? rawAnchored!.expectedCount
+    : countParagraphs(cleanSourceText || cleanRawTranslation);
   const continuityBlock = formatContinuityContextBlock(continuity);
   const prompt = `[THÔNG TIN BẢN THẢO]
 Thể loại: ${cleanGenre}
@@ -397,21 +441,21 @@ ${cleanDescription && cleanDescription.trim() ? `[NGUYÊN TẮC DỊCH THUẬT &
 [YÊU CẦU BIÊN TẬP BỔ SUNG TỪ NGƯỜI DÙNG]
 ${cleanAdditionalInstructions && cleanAdditionalInstructions.trim() ? cleanAdditionalInstructions.trim() : 'Hãy trau chuốt câu chữ tự nhiên, thuần Việt nhưng vẫn trung thành nguyên tác và giữ nguyên tuyệt đối cấu trúc 1-1 (xuống dòng, ngắt câu, dấu câu, ngoặc thoại).'}
 
-[BẢN ĐỒ CẤU TRÚC ĐOẠN BẮT BUỘC: Xuất đúng ${expectedPolishParagraphCount} đoạn văn/dòng ngăn cách bằng \\n\\n, giữ nguyên ngắt câu và dấu câu 1-1]
+[BẢN ĐỒ CẤU TRÚC ĐOẠN BẮT BUỘC: Xuất đúng ${expectedPolishParagraphCount} đoạn văn/dòng ngăn cách bằng \\n\\n, giữ nguyên ngắt câu và dấu câu 1-1${isPolishAnchored ? '; giữ nguyên đầy đủ thẻ <<P1>>..<<PN>> ở đầu mỗi đoạn' : ''}]
 
 ${continuityBlock}${strategy.inputLabel}
-${cleanRawTranslation}
+${rawForPrompt}
 
 [BẢN GỐC TIẾNG TRUNG ĐỐI CHIẾU]
-${substitutedSourceText}
-${matchedGlossaryBlock}${pinnedGlossaryBlock}
+${sourceForPrompt}
+${matchedGlossaryBlock}${pinnedGlossaryBlock}${complianceFixBlock}
 
 [HƯỚNG DẪN BIÊN TẬP VĂN HỌC]
 ${getGenreStyleGuide(cleanGenre)}
 ${getToneStyleGuide(cleanTone)}
 ${roundIndex > 1 ? `- Trọng tâm biên tập Lượt ${strategy.round}: ${strategy.directive}\n` : ''}- Hãy chuốt lại câu chữ tiếng Việt cho tự nhiên, thuần Việt, loại bỏ cảm giác "dịch máy", giữ đúng tông giọng ${cleanTone} trong khi vẫn khóa chặt 1-1 ranh giới câu và dấu câu nguyên tác.
 - Đảm bảo mạch văn trôi chảy, danh từ riêng chuẩn xác theo từ điển và âm Hán Việt.
-- Giữ nguyên 100% cấu trúc phân đoạn, cách ngắt câu, dấu câu ngữ khí và tiêu đề chương.`;
+- Giữ nguyên 100% cấu trúc phân đoạn, cách ngắt câu, dấu câu ngữ khí và tiêu đề chương.${isPolishAnchored ? '\n- BẮT BUỘC giữ nguyên nhãn <<P1>>, <<P2>>, ... ở đầu mỗi đoạn dịch tương ứng 1-1 và tuyệt đối không gộp, tách hay bỏ sót nhãn nào.' : ''}`;
 
   const schemaProperties: Record<string, any> = {
     polishedTranslation: {

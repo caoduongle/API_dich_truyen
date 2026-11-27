@@ -371,4 +371,129 @@ describe('Targeted Paragraph Repair Service (US4 / FR-016 - FR-025)', () => {
     expect(capturedSystem).toContain('Hoàng hậu luôn tự xưng Bản cung.');
     expect(capturedSystem).toContain('Quy tắc dịch riêng của dự án > Quy chuẩn Tông giọng biên tập > Chỉ dẫn Thể loại chính');
   });
+
+  it('retries once with explicit constraint feedback for transient quote loss, logs rejectionReasons, and recovers omitted paragraph', async () => {
+    const sourceText = [
+      '第一章 深夜',
+      '千江月推门走了进来。',
+      '“你们到底在找什么？”钱仓一问道。',
+      '众人沉默不语。',
+    ].join('\n\n');
+
+    // Bản dịch ban đầu: thiếu mất đoạn 3 (lời thoại Tiền Thương Nhất)
+    const translatedMissing = [
+      'Chương 1: Đêm Khuya',
+      'Thiên Giang Nguyệt đẩy cửa bước vào.',
+      'Mọi người đều im lặng không nói.',
+    ].join('\n\n');
+
+    let quoteRetryCalls = 0;
+    const spyQuote = vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      quoteRetryCalls++;
+      if (quoteRetryCalls === 1) {
+        return {
+          text: JSON.stringify({
+            repairedParagraph: 'Các ngươi rốt cuộc đang tìm gì vậy? Tiền Thương Nhất hỏi.', // quên ngoặc thoại lần 1
+          }),
+          successKeyIndex: 0,
+        };
+      }
+      expect(args.prompt).toContain('PHẢN HỒI SỬA LẠI BẮT BUỘC');
+      return {
+        text: JSON.stringify({
+          repairedParagraph: '"Các ngươi rốt cuộc đang tìm gì vậy?" Tiền Thương Nhất hỏi.',
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const quoteRes = await repairChapterCriticalIssuesDirect({
+      sourceText: '“你们到底在找什么？”钱仓一问道。',
+      translatedText: 'Các ngươi rốt cuộc đang tìm gì? Tiền Thương Nhất hỏi.',
+      issues: [
+        {
+          type: 'other',
+          severity: 'critical',
+          targetText: 'Các ngươi rốt cuộc đang tìm gì? Tiền Thương Nhất hỏi.',
+          description: '[Cấu trúc 1-1] Đoạn 1 làm mất dấu ngoặc lời thoại trực tiếp.',
+          paragraphIndex: 0,
+        },
+      ],
+      glossary: [],
+      genre: 'Kinh Dị',
+      tone: 'U ám',
+      apiKeys: ['KEY_1'],
+    });
+    expect(spyQuote).toHaveBeenCalledTimes(2);
+    expect(quoteRes.repairedParagraphIndices).toEqual([0]);
+    expect(quoteRes.repairedTranslatedText).toContain('"Các ngươi rốt cuộc đang tìm gì vậy?"');
+
+    // Kiểm tra rejectionReasons chi tiết khi cả 2 lần sửa vẫn vi phạm
+    vi.restoreAllMocks();
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
+      text: JSON.stringify({ repairedParagraph: 'Vẫn quên ngoặc thoại.' }),
+      successKeyIndex: 0,
+    });
+    const rejectRes = await repairChapterCriticalIssuesDirect({
+      sourceText: '“你们到底在找什么？”钱仓一问道。',
+      translatedText: 'Các ngươi đang tìm gì.',
+      issues: [
+        {
+          type: 'other',
+          severity: 'critical',
+          targetText: 'Các ngươi đang tìm gì.',
+          description: 'Mất ngoặc thoại',
+          paragraphIndex: 0,
+        },
+      ],
+      glossary: [],
+      genre: 'Kinh Dị',
+      tone: 'U ám',
+      apiKeys: ['KEY_1'],
+    });
+    expect(rejectRes.rejectedParagraphIndices).toEqual([0]);
+    expect(rejectRes.rejectionReasons?.[0]).toContain('ngoặc lời thoại');
+
+    // Kiểm tra pha 2 phục hồi đoạn văn gốc bị bỏ sót
+    vi.restoreAllMocks();
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockResolvedValue({
+      text: JSON.stringify({
+        repairedParagraph: '"Các ngươi rốt cuộc đang tìm gì?" Tiền Thương Nhất hỏi.',
+      }),
+      successKeyIndex: 0,
+    });
+    const omissionRes = await repairChapterCriticalIssuesDirect({
+      sourceText,
+      translatedText: translatedMissing,
+      issues: [
+        {
+          type: 'omission',
+          severity: 'critical',
+          targetText: '',
+          description: `Bản dịch bị bỏ sót hoàn toàn đoạn văn gốc tiếng Trung: '“你们到底在找什么？”钱仓一问道。' ngay sau đoạn 'Thiên Giang Nguyệt đẩy cửa bước vào.'`,
+          source: 'ai_critique',
+        },
+        {
+          type: 'omission',
+          severity: 'critical',
+          targetText: translatedMissing.split('\n\n')[1],
+          description: '[Cấu trúc 1-1] Số đoạn/dòng thân bài bị lệch so với bản gốc (2 đoạn so với 3 đoạn gốc).',
+          source: 'deterministic',
+        },
+      ],
+      glossary: [],
+      genre: 'Kinh Dị',
+      tone: 'U ám',
+      apiKeys: ['KEY_1'],
+    });
+    expect(omissionRes.recoveredOmissionCount).toBe(1);
+    expect(omissionRes.updatedIssues[0].repaired).toBe(true);
+    expect(omissionRes.updatedIssues[1].repaired).toBe(true);
+    expect(omissionRes.repairedTranslatedText.split('\n\n')).toEqual([
+      'Chương 1: Đêm Khuya',
+      'Thiên Giang Nguyệt đẩy cửa bước vào.',
+      '"Các ngươi rốt cuộc đang tìm gì?" Tiền Thương Nhất hỏi.',
+      'Mọi người đều im lặng không nói.',
+    ]);
+  });
 });

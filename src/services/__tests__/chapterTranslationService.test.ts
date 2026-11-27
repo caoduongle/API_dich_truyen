@@ -819,4 +819,125 @@ describe('src/services/chapterTranslationService.ts personal key enforcement', (
       expect(logs.some((l) => l.includes('Hậu kiểm GĐ2 Lượt 2'))).toBe(true);
     });
   });
+
+  describe('Feature 171: Selective Paragraph Merge, GĐ1→GĐ2 Handoff & Post-QA Critical Count', () => {
+    it('merges valid polished paragraphs selectively on multi-paragraph chapters, hands off GĐ1 compliance issues, and counts unresolved criticals', async () => {
+      const srcParas = [
+        '第一章 天马',
+        '千江月推开大门。',
+        '钱仓一站在窗边。',
+        '“快点进来！”千江月喊道。',
+        '大厅里十分安静。',
+        '桌子上放着一台老旧相机。',
+        '众人互相看了一眼。',
+      ];
+      vi.spyOn(db, 'getChapterFromDB').mockResolvedValue({
+        ...mockChapter,
+        sourceText: srcParas.join('\n\n'),
+      } as any);
+
+      vi.spyOn(directEngine, 'translateRawDirect').mockResolvedValue({
+        rawTranslation: [
+          'Chương 1: Thiên Mã',
+          'Thiên Giang dừng bước trước cửa.', // thiếu Thiên Giang Nguyệt -> GĐ1 compliance bắt được
+          'Tiền Thương Nhất đứng bên cửa sổ.',
+          '"Mau vào đi!" Thiên Giang Nguyệt gọi.',
+          'Đại sảnh rất yên tĩnh.',
+          'Trên bàn đặt một chiếc máy ảnh cũ kỹ.',
+          'Mọi người nhìn nhau một cái.',
+        ].join('\n\n'),
+        discoveredEntities: [],
+        successKeyIndex: 0,
+      });
+
+      const roundsSeen: number[] = [];
+      let round1Compliance: any[] = [];
+      vi.spyOn(directEngine, 'polishTranslationDirect').mockImplementation(async (params) => {
+        roundsSeen.push(params.roundIndex || 1);
+        if (params.roundIndex === 1) {
+          round1Compliance = params.complianceIssuesToFix || [];
+          return {
+            polishedTranslation: [
+              'Chương 1: Thiên Mã',
+              'Thiên Giang Nguyệt khẽ đẩy cửa bước vào.', // Đã sửa đúng theo bàn giao!
+              'Tiền Thương Nhất đứng lặng bên khung cửa sổ.',
+              '"Mau vào đi!" Thiên Giang Nguyệt cất tiếng gọi.',
+              'Trong đại sảnh tĩnh lặng như tờ.',
+              'Trên mặt bàn phủ bụi đặt một chiếc máy ảnh cũ kỹ.',
+              'Mọi người khẽ liếc nhìn nhau đầy cảnh giác.',
+            ].join('\n\n'),
+            successKeyIndex: 0,
+          };
+        }
+        // Lượt 2 làm mượt đoạn 5,6,7 nhưng vô tình làm mất ngoặc thoại đoạn 4 -> chỉ hoàn tác riêng đoạn 4!
+        return {
+          polishedTranslation: [
+            'Chương 1: Thiên Mã',
+            'Thiên Giang Nguyệt khẽ đẩy cửa bước vào.',
+            'Tiền Thương Nhất đứng lặng bên khung cửa sổ.',
+            'Mau vào đi! Thiên Giang Nguyệt cất tiếng gọi.', // mất ngoặc thoại ở đoạn 4
+            'Không gian trong đại sảnh tĩnh mịch đến rợn người.',
+            'Trên mặt bàn phủ lớp bụi dày đặt một chiếc máy ảnh cũ kỹ.',
+            'Ánh mắt mọi người giao nhau thoáng chút đề phòng.',
+          ].join('\n\n'),
+          successKeyIndex: 0,
+        };
+      });
+
+      vi.spyOn(directEngine, 'qaCritiqueDirect').mockResolvedValue({
+        isValid: true,
+        issues: [],
+        successKeyIndex: 0,
+      });
+
+      const logs: string[] = [];
+      const res = await executeSingleChapterTranslation({
+        chapterMeta: { id: 'chap_1', title: 'Chương 1', order: 1 } as any,
+        glossarySnapshot: [
+          {
+            id: 'g1',
+            chinese: '千江月',
+            pinyin: 'Thiên Giang Nguyệt',
+            vietnamese: 'Thiên Giang Nguyệt',
+            type: 'character',
+            note: 'Nữ',
+            origin: 'manual',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+          {
+            id: 'g2',
+            chinese: '钱仓一',
+            pinyin: 'Tiền Thương Nhất',
+            vietnamese: 'Tiền Thương Nhất',
+            type: 'character',
+            note: 'Nam',
+            origin: 'manual',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+        signal: new AbortController().signal,
+        logPrefix: '[F171]',
+        startKeyIndex: 0,
+        projState: { genre: 'Kinh Dị', tone: 'U ám', description: '' },
+        apiKeys: ['AQ_USER_KEY_123'],
+        selectedModel: 'gemini-2.5-flash',
+        polishCycles: 2,
+        autoTranslateMode: 'from_scratch',
+        additionalInstructions: '',
+        isExtractionDuringTranslationEnabled: false,
+        enableAiQaCritique: true,
+        enableSegmentTranslation: false,
+        addLog: (msg) => logs.push(msg),
+      });
+
+      expect(round1Compliance.some((iss) => iss.expectedTerm?.chinese === '千江月')).toBe(true);
+      expect(roundsSeen).toEqual([1, 2]);
+      expect(res.success).toBe(true);
+      expect(res.unresolvedCriticalCount).toBe(0);
+      // Đoạn 4 được giữ nguyên ngoặc thoại từ lượt 1, trong khi đoạn 5-7 vẫn nhận văn phong lượt 2
+      expect(res.updatedChapter?.polishedTranslation).toContain('"Mau vào đi!" Thiên Giang Nguyệt cất tiếng gọi.');
+      expect(res.updatedChapter?.polishedTranslation).toContain('Không gian trong đại sảnh tĩnh mịch đến rợn người.');
+      expect(logs.some((l) => l.includes('Hợp nhất cấp đoạn'))).toBe(true);
+    });
+  });
 });

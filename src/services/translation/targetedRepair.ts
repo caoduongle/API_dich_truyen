@@ -20,6 +20,7 @@ import {
   splitNonEmptyParagraphs,
 } from './translationValidation';
 import {
+  analyzeStructureParity,
   extractParagraphSignature,
   normalizeTranslatedPunctuation,
 } from './structureParity';
@@ -45,6 +46,8 @@ export interface TargetedParagraphRepairResult {
   updatedIssues: DirectQaCritiqueIssue[];
   repairedParagraphIndices: number[];
   rejectedParagraphIndices: number[];
+  rejectionReasons?: Record<number, string>;
+  recoveredOmissionCount?: number;
   successKeyIndex: number;
 }
 
@@ -112,6 +115,7 @@ function buildTargetedRepairPayload(params: {
   genre: string;
   tone: string;
   description?: string;
+  correctiveFeedback?: string;
 }) {
   const {
     sourceWindow,
@@ -124,6 +128,7 @@ function buildTargetedRepairPayload(params: {
     genre,
     tone,
     description,
+    correctiveFeedback,
   } = params;
 
   const cleanGenre = sanitizePromptInput(genre || 'Tiên Hiệp');
@@ -160,6 +165,10 @@ function buildTargetedRepairPayload(params: {
     `5. Giữ tông giọng ${cleanTone} (${getToneStyleGuide(cleanTone)}) và văn phong thể loại ${cleanGenre} (${getGenreStyleGuide(cleanGenre)}), KHÔNG để sót chữ Hán, dấu câu tiếng Trung hay ngoặc vuông [...].\n` +
     (cleanDesc ? `6. Quy tắc truyện (ƯU TIÊN CAO NHẤT VỀ XƯNG HÔ & CẤM KỴ): ${cleanDesc}\n` : '');
 
+  const feedbackBlock = correctiveFeedback
+    ? `\n\n--- PHẢN HỒI SỬA LẠI BẮT BUỘC (LƯỢT TRƯỚC VỪA BỊ TỪ CHỐI) ---\n${sanitizePromptInput(correctiveFeedback).slice(0, 240)}`
+    : '';
+
   const prompt = `--- VĂN BẢN TIẾNG TRUNG ĐỐI CHIẾU ---
 ${sanitizePromptInput(sourceWindow)}
 
@@ -175,7 +184,7 @@ ${sanitizePromptInput(targetParagraph)}
 ${nextContext ? `\n[ĐOẠN SAU - CHỈ ĐỌC]:\n${sanitizePromptInput(nextContext)}` : ''}
 
 --- DANH SÁCH LỖI CẦN KHẮC PHỤC ---
-${issueLines}`;
+${issueLines}${feedbackBlock}`;
 
   const schema = {
     type: 'OBJECT',
@@ -252,7 +261,19 @@ export async function repairChapterCriticalIssuesDirect(
     issuesByParagraph.set(pIdx, list);
   }
 
-  if (issuesByParagraph.size === 0 || !Array.isArray(apiKeys) || apiKeys.length === 0) {
+  const hasRecoverableOmissions =
+    sourceParas.length > spans.length &&
+    issues.some(
+      (issue, idx) =>
+        issue &&
+        issue.type === 'omission' &&
+        issue.severity === 'critical' &&
+        !issue.repaired &&
+        !selectedIndices.has(idx) &&
+        typeof issue.paragraphIndex !== 'number'
+    );
+
+  if ((issuesByParagraph.size === 0 && !hasRecoverableOmissions) || !Array.isArray(apiKeys) || apiKeys.length === 0) {
     return {
       repairedTranslatedText: translatedText,
       updatedIssues: issues.map((it) => ({ ...it })),
@@ -264,12 +285,14 @@ export async function repairChapterCriticalIssuesDirect(
 
   const repairedParagraphIndices: number[] = [];
   const rejectedParagraphIndices: number[] = [];
+  const rejectionReasons: Record<number, string> = {};
   const replacementByParagraph = new Map<number, string>();
   let currentKeyIndex = startKeyIndex;
 
   for (const [pIdx, entries] of issuesByParagraph.entries()) {
     if (signal?.aborted) {
       rejectedParagraphIndices.push(pIdx);
+      rejectionReasons[pIdx] = 'Quá trình sửa bị hủy theo yêu cầu.';
       continue;
     }
 
@@ -285,86 +308,126 @@ export async function repairChapterCriticalIssuesDirect(
         : sourceText || '';
 
     const { entries: relevantGlossary } = selectRelevantGlossary(sourceWindow, glossary || []);
-
-    const { systemInstruction, prompt, schema } = buildTargetedRepairPayload({
-      sourceWindow,
-      primarySourceParagraph: primarySourcePara,
-      prevContext,
-      targetParagraph: span.trimmed,
-      nextContext,
-      issuesForParagraph: entries.map((e) => e.issue),
-      relevantGlossary,
-      genre,
-      tone,
-      description,
+    const paragraphIssues = entries.map((e) => e.issue);
+    const baselineViolations = runDeterministicTranslationChecks({
+      sourceText: primarySourcePara,
+      translatedText: span.trimmed,
+      glossary,
     });
+    const baselineSigs = new Set(baselineViolations.map(formatIssueSignature));
+    const srcSig = extractParagraphSignature(primarySourcePara, 'zh');
 
-    try {
-      const response = await callGeminiDirect({
-        apiKeys,
-        model,
-        prompt,
-        systemInstruction,
-        schema,
-        temperature: 0.2,
-        startKeyIndex: currentKeyIndex,
-        signal,
-      });
+    let repairedTextForPara: string | null = null;
+    let lastRejectReason = 'Không đạt kiểm tra an toàn chất lượng.';
+    let feedbackForRetry: string | undefined;
 
-      if (typeof response.successKeyIndex === 'number') {
-        currentKeyIndex = response.successKeyIndex;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (signal?.aborted) {
+        lastRejectReason = 'Quá trình sửa bị hủy theo yêu cầu.';
+        break;
       }
 
-      const parsed = parseGeminiStructuredResponse<TargetedRepairAiResponse>(response.text, {
-        validator: isTargetedRepairResponse,
-        contextName: 'targetedRepair',
+      const { systemInstruction, prompt, schema } = buildTargetedRepairPayload({
+        sourceWindow,
+        primarySourceParagraph: primarySourcePara,
+        prevContext,
+        targetParagraph: span.trimmed,
+        nextContext,
+        issuesForParagraph: paragraphIssues,
+        relevantGlossary,
+        genre,
+        tone,
+        description,
+        ...(feedbackForRetry ? { correctiveFeedback: feedbackForRetry } : {}),
       });
 
-      const candidatePara = normalizeTranslatedPunctuation(parsed.repairedParagraph)
-        .replace(/[\r\n]+/g, ' ')
-        .trim();
-      if (!candidatePara) {
-        rejectedParagraphIndices.push(pIdx);
-        continue;
+      try {
+        const response = await callGeminiDirect({
+          apiKeys,
+          model,
+          prompt,
+          systemInstruction,
+          schema,
+          temperature: 0.2,
+          startKeyIndex: currentKeyIndex,
+          signal,
+        });
+
+        if (typeof response.successKeyIndex === 'number') {
+          currentKeyIndex = response.successKeyIndex;
+        }
+
+        const parsed = parseGeminiStructuredResponse<TargetedRepairAiResponse>(response.text, {
+          validator: isTargetedRepairResponse,
+          contextName: 'targetedRepair',
+        });
+
+        const candidatePara = normalizeTranslatedPunctuation(parsed.repairedParagraph)
+          .replace(/[\r\n]+/g, ' ')
+          .trim();
+        if (!candidatePara) {
+          lastRejectReason = 'Bản sửa trả về rỗng.';
+          feedbackForRetry = lastRejectReason;
+          continue;
+        }
+
+        const candSig = extractParagraphSignature(candidatePara, 'vi');
+        if (candSig.cjkPunctuationCount > 0) {
+          lastRejectReason = 'Bản sửa còn sót dấu câu tiếng Trung.';
+          feedbackForRetry = `${lastRejectReason} Hãy chuyển toàn bộ dấu câu sang chuẩn tiếng Việt.`;
+          continue;
+        }
+        if (srcSig.hasDirectDialogue && !candSig.hasDirectDialogue) {
+          lastRejectReason = 'Bản sửa làm mất dấu ngoặc lời thoại trực tiếp ("...").';
+          feedbackForRetry = `${lastRejectReason} Bắt buộc giữ nguyên cặp dấu ngoặc kép "..." của lời thoại.`;
+          continue;
+        }
+
+        const candidateViolations = runDeterministicTranslationChecks({
+          sourceText: primarySourcePara,
+          translatedText: candidatePara,
+          glossary,
+        });
+        const newViolation = candidateViolations.find(
+          (v) => !baselineSigs.has(formatIssueSignature(v))
+        );
+        if (newViolation || candidateViolations.length > baselineViolations.length) {
+          lastRejectReason = newViolation
+            ? `Phát sinh vi phạm mới: ${newViolation.description}`
+            : 'Làm tăng số lỗi từ điển hoặc sót chữ Hán so với bản trước sửa.';
+          feedbackForRetry = `${lastRejectReason} Hãy sửa mà giữ nguyên thuật ngữ bắt buộc và không để sót chữ Hán.`;
+          continue;
+        }
+
+        // Nếu đang sửa lỗi terminology / raw_leak mục tiêu nhưng lượt 1 vẫn chưa khắc phục được, cho phép 1 lượt nhắc lại
+        if (attempt === 1) {
+          const unresolvedTargetedTerm = paragraphIssues.find(
+            (iss) =>
+              iss.type === 'terminology' &&
+              iss.expectedTerm?.vietnamese &&
+              !candidatePara.toLowerCase().includes(iss.expectedTerm.vietnamese.trim().toLowerCase())
+          );
+          if (unresolvedTargetedTerm?.expectedTerm) {
+            lastRejectReason = `Chưa dùng đúng tên quy ước "${unresolvedTargetedTerm.expectedTerm.vietnamese}".`;
+            feedbackForRetry = `Bắt buộc phải sử dụng chính xác tên "${unresolvedTargetedTerm.expectedTerm.vietnamese}" cho "${unresolvedTargetedTerm.expectedTerm.chinese}".`;
+            continue;
+          }
+        }
+
+        repairedTextForPara = candidatePara;
+        break;
+      } catch (err: any) {
+        lastRejectReason = `Lỗi gọi AI khi sửa đoạn (${err?.message || 'không xác định'}).`;
+        break;
       }
+    }
 
-      // Hậu kiểm cấu trúc cục bộ trên đoạn đã sửa (0 sót dấu câu CJK, không mất ngoặc thoại nguồn)
-      const srcSig = extractParagraphSignature(primarySourcePara, 'zh');
-      const candSig = extractParagraphSignature(candidatePara, 'vi');
-      if (candSig.cjkPunctuationCount > 0 || (srcSig.hasDirectDialogue && !candSig.hasDirectDialogue)) {
-        rejectedParagraphIndices.push(pIdx);
-        continue;
-      }
-
-      // Hậu kiểm tất định đối chiếu trên đoạn nguồn chính xác: bác bỏ ngay nếu bản sửa phát sinh thêm vi phạm mới
-      const baselineViolations = runDeterministicTranslationChecks({
-        sourceText: primarySourcePara,
-        translatedText: span.trimmed,
-        glossary,
-      });
-      const candidateViolations = runDeterministicTranslationChecks({
-        sourceText: primarySourcePara,
-        translatedText: candidatePara,
-        glossary,
-      });
-
-      const baselineSigs = new Set(baselineViolations.map(formatIssueSignature));
-      const introducedNewViolation = candidateViolations.some(
-        (v) => !baselineSigs.has(formatIssueSignature(v))
-      );
-
-      if (
-        introducedNewViolation ||
-        candidateViolations.length > baselineViolations.length
-      ) {
-        rejectedParagraphIndices.push(pIdx);
-        continue;
-      }
-
-      replacementByParagraph.set(pIdx, candidatePara);
+    if (repairedTextForPara) {
+      replacementByParagraph.set(pIdx, repairedTextForPara);
       repairedParagraphIndices.push(pIdx);
-    } catch {
+    } else {
       rejectedParagraphIndices.push(pIdx);
+      rejectionReasons[pIdx] = lastRejectReason;
     }
   }
 
@@ -382,7 +445,163 @@ export async function repairChapterCriticalIssuesDirect(
   }
 
   const repairedSet = new Set(repairedParagraphIndices);
-  const updatedIssues: DirectQaCritiqueIssue[] = issues.map((issue) => {
+  const recoveredOmissionIssueIndices = new Set<number>();
+  let recoveredOmissionCount = 0;
+
+  // Pha riêng an toàn: khôi phục đoạn văn gốc bị bỏ sót hoàn toàn (omission) khi tổng số đoạn dịch < số đoạn gốc
+  const currentSpans = scanParagraphSpans(repairedTranslatedText);
+  let currentParagraphDelta =
+    sourceParas.length > 0 && currentSpans.length > 0
+      ? analyzeStructureParity(sourceText, repairedTranslatedText).paragraphCountDelta
+      : 0;
+  if (
+    !signal?.aborted &&
+    sourceParas.length > currentSpans.length &&
+    sourceParas.length > 0
+  ) {
+    const omissionCandidates = issues
+      .map((issue, idx) => ({ issue, idx }))
+      .filter(
+        ({ issue, idx }) =>
+          issue &&
+          issue.type === 'omission' &&
+          issue.severity === 'critical' &&
+          !issue.repaired &&
+          !selectedIndices.has(idx) &&
+          typeof issue.paragraphIndex !== 'number'
+      );
+
+    for (const { issue, idx } of omissionCandidates) {
+      if (signal?.aborted) break;
+      const hanExcerptMatch = /'([^']*[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]{4,}[^']*)'/.exec(
+        issue.description || ''
+      );
+      const hanExcerpt = hanExcerptMatch?.[1]?.trim();
+      if (!hanExcerpt) continue;
+
+      const matchedSrcIndices = sourceParas
+        .map((sp, sIdx) => ({ sp, sIdx }))
+        .filter(({ sp }) => sp.includes(hanExcerpt) || hanExcerpt.includes(sp));
+      if (matchedSrcIndices.length !== 1) continue;
+
+      const omittedSrcIdx = matchedSrcIndices[0].sIdx;
+      const omittedSrcPara = sourceParas[omittedSrcIdx];
+      const latestSpans = scanParagraphSpans(repairedTranslatedText);
+      const afterExcerptMatch = /ngay sau đoạn\s*'([^']+)'/i.exec(issue.description || '');
+      const afterNeedle = afterExcerptMatch?.[1]?.trim().toLowerCase() || '';
+
+      let insertAfterIdx = Math.min(latestSpans.length - 1, omittedSrcIdx - 1);
+      if (afterNeedle) {
+        const foundAnchor = latestSpans.findIndex((sp) =>
+          sp.trimmed.toLowerCase().includes(afterNeedle)
+        );
+        if (foundAnchor >= 0) {
+          insertAfterIdx = foundAnchor;
+        }
+      }
+
+      const prevWindow = omittedSrcIdx > 0 ? sourceParas[omittedSrcIdx - 1] : '';
+      const nextWindow = omittedSrcIdx + 1 < sourceParas.length ? sourceParas[omittedSrcIdx + 1] : '';
+      const sourceWindow = [prevWindow, omittedSrcPara, nextWindow].filter(Boolean).join('\n\n');
+      const { entries: relevantGlossary } = selectRelevantGlossary(sourceWindow, glossary || []);
+
+      const prevTrans = insertAfterIdx >= 0 ? latestSpans[insertAfterIdx]?.trimmed || '' : '';
+      const nextTrans =
+        insertAfterIdx + 1 < latestSpans.length ? latestSpans[insertAfterIdx + 1]?.trimmed || '' : '';
+
+      const { systemInstruction, prompt, schema } = buildTargetedRepairPayload({
+        sourceWindow,
+        primarySourceParagraph: omittedSrcPara,
+        prevContext: prevTrans,
+        targetParagraph: `(Đoạn này bị bỏ sót chưa có trong bản dịch. Hãy dịch trọn vẹn 1-1 từ [CÂU / ĐOẠN NGUỒN TRỌNG TÂM]: ${omittedSrcPara})`,
+        nextContext: nextTrans,
+        issuesForParagraph: [issue],
+        relevantGlossary,
+        genre,
+        tone,
+        description,
+      });
+
+      try {
+        const response = await callGeminiDirect({
+          apiKeys,
+          model,
+          prompt,
+          systemInstruction,
+          schema,
+          temperature: 0.2,
+          startKeyIndex: currentKeyIndex,
+          signal,
+        });
+        if (typeof response.successKeyIndex === 'number') {
+          currentKeyIndex = response.successKeyIndex;
+        }
+        const parsed = parseGeminiStructuredResponse<TargetedRepairAiResponse>(response.text, {
+          validator: isTargetedRepairResponse,
+          contextName: 'targetedRepair',
+        });
+        const insertedPara = normalizeTranslatedPunctuation(parsed.repairedParagraph)
+          .replace(/[\r\n]+/g, ' ')
+          .trim();
+        if (!insertedPara) continue;
+
+        const insertedSig = extractParagraphSignature(insertedPara, 'vi');
+        const omittedSrcSig = extractParagraphSignature(omittedSrcPara, 'zh');
+        if (
+          insertedSig.cjkPunctuationCount > 0 ||
+          (omittedSrcSig.hasDirectDialogue && !insertedSig.hasDirectDialogue)
+        ) {
+          continue;
+        }
+
+        const insertedCheck = runDeterministicTranslationChecks({
+          sourceText: omittedSrcPara,
+          translatedText: insertedPara,
+          glossary,
+        });
+        if (insertedCheck.some((v) => v.type === 'raw_leak')) {
+          continue;
+        }
+
+        let candidateWithInsert: string;
+        if (insertAfterIdx < 0) {
+          candidateWithInsert = latestSpans.length > 0 ? `${insertedPara}\n\n${repairedTranslatedText}` : insertedPara;
+        } else {
+          const anchorSpan = latestSpans[insertAfterIdx];
+          candidateWithInsert =
+            repairedTranslatedText.slice(0, anchorSpan.end) +
+            `\n\n${insertedPara}` +
+            repairedTranslatedText.slice(anchorSpan.end);
+        }
+
+        const nextParity = analyzeStructureParity(sourceText, candidateWithInsert);
+        if (nextParity.paragraphCountDelta < currentParagraphDelta) {
+          repairedTranslatedText = candidateWithInsert;
+          currentParagraphDelta = nextParity.paragraphCountDelta;
+          recoveredOmissionIssueIndices.add(idx);
+          recoveredOmissionCount++;
+        }
+      } catch {
+        // Bỏ qua an toàn nếu gọi API phục hồi đoạn thiếu thất bại
+      }
+    }
+  }
+
+  const parityRestoredByOmissionRecovery = recoveredOmissionCount > 0 && currentParagraphDelta === 0;
+  const updatedIssues: DirectQaCritiqueIssue[] = issues.map((issue, idx) => {
+    if (recoveredOmissionIssueIndices.has(idx)) {
+      return { ...issue, repaired: true };
+    }
+    if (
+      parityRestoredByOmissionRecovery &&
+      issue &&
+      issue.type === 'omission' &&
+      issue.severity === 'critical' &&
+      issue.source === 'deterministic' &&
+      issue.description?.startsWith('[Cấu trúc 1-1]')
+    ) {
+      return { ...issue, repaired: true };
+    }
     if (
       issue &&
       typeof issue.paragraphIndex === 'number' &&
@@ -398,6 +617,8 @@ export async function repairChapterCriticalIssuesDirect(
     updatedIssues,
     repairedParagraphIndices,
     rejectedParagraphIndices,
+    ...(Object.keys(rejectionReasons).length > 0 ? { rejectionReasons } : {}),
+    ...(recoveredOmissionCount > 0 ? { recoveredOmissionCount } : {}),
     successKeyIndex: currentKeyIndex,
   };
 }

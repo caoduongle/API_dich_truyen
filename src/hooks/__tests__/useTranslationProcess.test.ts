@@ -302,4 +302,55 @@ describe('useTranslationProcess Key Rotation & Quota Fast-Break Tests', () => {
     // Upon Chapter 1 success with Key-B (1), advanced to (1 + 1) % 3 = 2
     expect(keyRef.current).toBe(2);
   });
+
+  it('Feature 171 (US5): clears cleanly repaired chapters from failedIds while keeping chapters with remaining critical blockers', async () => {
+    const projectWith2Failed: StoryProject = {
+      ...mockProject,
+      translationQueueState: {
+        queueIds: ['chap-1', 'chap-2'],
+        currentIndex: 2,
+        mode: 'from_scratch',
+        skipFailedChapters: true,
+        failedIds: ['chap-1', 'chap-2'],
+      },
+    };
+    const updateSpy = vi.fn();
+    const props = {
+      ...createProps({ activeProject: projectWith2Failed }),
+      onUpdateProject: updateSpy,
+    };
+
+    const execSpy = vi.spyOn(chapterService, 'executeSingleChapterTranslation');
+    execSpy
+      .mockResolvedValueOnce({
+        chapterId: 'chap-1',
+        success: true,
+        isOverload: false,
+        newGlossaryItems: [],
+        newPendingItems: [],
+        updatedChapter: null,
+        lastKeyIndex: 0,
+        unresolvedCriticalCount: 0,
+      })
+      .mockResolvedValueOnce({
+        chapterId: 'chap-2',
+        success: true,
+        isOverload: false,
+        newGlossaryItems: [],
+        newPendingItems: [],
+        updatedChapter: null,
+        lastKeyIndex: 0,
+        unresolvedCriticalCount: 2,
+        unresolvedIssueSummary: '2 thuật ngữ',
+      });
+
+    const hook = useTranslationProcess(props);
+    hook.handleRetryFailedChapters();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    const lastProjectSave = updateSpy.mock.calls.at(-1)?.[0] as StoryProject;
+    expect(lastProjectSave.translationQueueState?.failedIds).toEqual(['chap-2']);
+    expect(logs.some((l) => l.includes('Có 1 chương lỗi'))).toBe(true);
+    expect(logs.some((l) => l.includes('2 thuật ngữ'))).toBe(true);
+  });
 });
