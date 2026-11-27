@@ -1,10 +1,12 @@
 import {
   LITERARY_TRANSLATION_FRAMING,
   getGenreStyleGuide,
+  getToneStyleGuide,
   sanitizePromptInput,
   getPolishStrategyForRound,
   countParagraphs,
 } from '../../lib/text';
+import { GENRE_PROFILES, TONE_PROFILES } from '../../config/translationStyles';
 import {
   normalizeCharacterProfile,
   selectRelevantGlossary,
@@ -64,8 +66,8 @@ function buildInstructionPriorityBlock(stageHeading: string, priority3Line: stri
   return (
     `[THỨ TỰ ƯU TIÊN TUYỆT ĐỐI ${stageHeading}]:\n` +
     "- ƯU TIÊN #1 (BẤT KHẢ XÂM PHẠM): TRUNG THÀNH TUYỆT ĐỐI 100% VỚI NGUYÊN TÁC TIẾNG TRUNG, BẢNG TỪ ĐIỂN & BẢO TOÀN CẤU TRÚC 1-1 (XUỐNG DÒNG, CÁCH NGẮT CÂU, DẤU CÂU, NGOẶC THOẠI). KHÔNG bịa đặt thêm tên riêng nhân vật/địa danh/chiêu thức ngoài nguyên tác, KHÔNG thêm thắt tình tiết mới, KHÔNG bỏ sót câu đoạn hay lời thoại.\n" +
-    "- ƯU TIÊN #2: Cẩm nang & quy tắc xưng hô của truyện > Hồ sơ nhân vật (giới tính, tự xưng, quan hệ xưng hô) > Yêu cầu biên tập bổ sung.\n" +
-    `- ƯU TIÊN #3 (thấp hơn #1 và #2): Hướng dẫn thể loại & tông giọng mặc định — ${priority3Line}\n`
+    "- ƯU TIÊN #2: Quy tắc dịch riêng của dự án — Cẩm nang & quy tắc xưng hô của truyện > Hồ sơ nhân vật (giới tính, tự xưng, quan hệ xưng hô) > Yêu cầu biên tập bổ sung.\n" +
+    `- ƯU TIÊN #3 (thấp hơn #1 và #2): Quy chuẩn Tông giọng biên tập > Chỉ dẫn Thể loại chính — ${priority3Line}\n`
   );
 }
 
@@ -151,7 +153,7 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
   const { text, genre, tone, description, glossary = [], isRetry, continuity } = params;
 
   const cleanGenre = sanitizePromptInput(genre || "Tiên Hiệp");
-  const cleanTone = sanitizePromptInput(tone || "Trang nghiêm cổ kính");
+  const cleanTone = sanitizePromptInput(tone || "Trang nghiêm cổ phong");
   const cleanDescription = sanitizePromptInput(description || "");
   const cleanText = sanitizePromptInput(text || "");
 
@@ -205,7 +207,7 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
     "6. KHÔI PHỤC TÊN GỐC TIẾNG ANH/PHƯƠNG TÂY: Khi điền trường 'vietnamese' của `discoveredEntities`, NẾU là phiên âm từ tên tiếng Anh/phương Tây (ví dụ: 阿诗娜 = Athena, 盖伊 = Guy), hãy khôi phục TÊN GỐC TIẾNG ANH. Nếu kèm danh từ chỉ loại hoặc đồ vật đi liền phía sau (như 茶, 镇, 城, 国), bắt buộc dịch danh từ sang tiếng Việt đặt trước tên tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio', 伦敦城 -> 'Thành London'). Nếu là tên thuần Trung, dùng phiên âm Hán-Việt hoặc nghĩa tiếng Việt mượt mà.\n" +
     "7. BẢO TOÀN DẠNG CHỮ HÁN GỐC: Về trường 'chinese' trong `discoveredEntities`, bạn PHẢI copy CHÍNH XÁC ký tự Hán như xuất hiện trong VĂN BẢN TIẾNG TRUNG GỐC. TUYỆT ĐỐI KHÔNG tự ý chuyển đổi giữa phồn thể và giản thể (văn bản gốc phồn thể thì trả về phồn thể, giản thể thì trả về giản thể).\n" +
     "8. LOẠI BỎ NGOẶC CHÚ THÍCH NHÁP: Khi gặp thuật ngữ được chú thích dạng Chữ_Hán[Tên_Việt] hoặc [Tên_Việt] trong văn bản, chỉ viết 'Tên_Việt' KHÔNG có ngoặc vuông và KHÔNG giữ lại chữ Hán trong bản dịch cuối cùng. Ví dụ: 罗峰[La Phong] hoặc [Philomena] → viết 'La Phong', 'Philomena'.\n" +
-    `9. PHONG CÁCH THỂ LOẠI: ${getGenreStyleGuide(cleanGenre)}\n` +
+    `9. PHONG CÁCH THỂ LOẠI & TÔNG GIỌNG: ${getGenreStyleGuide(cleanGenre)} | ${getToneStyleGuide(cleanTone)}\n` +
     (cleanDescription && cleanDescription.trim()
       ? `10. BẮT BUỘC TUÂN THỦ nguyên tắc xưng hô và phong cách dịch đặc biệt của truyện: ${cleanDescription.trim()}\n`
       : "");
@@ -338,7 +340,7 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
     "4. Giữ đúng sắc thái, đại từ nhân xưng phù hợp thể loại và tông giọng được yêu cầu.\n" +
     "5. Tôn trọng triệt để các thuật ngữ trong Từ điển riêng đã được định nghĩa.\n" +
     "6. Khi sử dụng thuật ngữ từ ngoặc vuông Chữ_Hán[Tên_Việt] hoặc [Tên_Việt], hãy chỉ viết 'Tên_Việt' KHÔNG có ngoặc vuông và KHÔNG giữ lại chữ Hán trong bản dịch cuối cùng (ví dụ: [Philomena] → viết 'Philomena').\n" +
-    `7. Phong cách phù hợp thể loại: ${getGenreStyleGuide(cleanGenre)}` +
+    `7. Phong cách phù hợp thể loại & tông giọng: ${getGenreStyleGuide(cleanGenre)} | ${getToneStyleGuide(cleanTone)}` +
     (cleanDescription && cleanDescription.trim() ? `\n8. BẮT BUỘC TUÂN THỦ NGUYÊN TẮC DỊCH THUẬT & QUY TẮC XƯNG HÔ ĐẶC THÙ CỦA TRUYỆN:\n${cleanDescription.trim()}` : "") +
     (isExtractionEnabled ? "\n9. Trong quá trình rà soát đối chiếu, nếu phát hiện thêm thực thể/tên riêng nào chưa có trong từ điển, hãy trích xuất vào discoveredEntities. ĐẶC BIỆT LƯU Ý: Khôi phục tên gốc tiếng Anh nếu là phiên âm phương Tây; dịch danh từ chỉ loại tiếng Trung lên trước tên tiếng Anh (ví dụ: 阿帕茶 -> 'Trà Abbacchio'); và giữ nguyên dạng chữ Hán phồn/giản thể như trong bản gốc." : "");
 
@@ -376,6 +378,7 @@ ${matchedGlossaryBlock}${pinnedGlossaryBlock}
 
 [HƯỚNG DẪN BIÊN TẬP VĂN HỌC]
 ${getGenreStyleGuide(cleanGenre)}
+${getToneStyleGuide(cleanTone)}
 ${roundIndex > 1 ? `- Trọng tâm biên tập Lượt ${strategy.round}: ${strategy.directive}\n` : ''}- Hãy chuốt lại câu chữ tiếng Việt cho tự nhiên, thuần Việt, loại bỏ cảm giác "dịch máy", giữ đúng tông giọng ${cleanTone} trong khi vẫn khóa chặt 1-1 ranh giới câu và dấu câu nguyên tác.
 - Đảm bảo mạch văn trôi chảy, danh từ riêng chuẩn xác theo từ điển và âm Hán Việt.
 - Giữ nguyên 100% cấu trúc phân đoạn, cách ngắt câu, dấu câu ngữ khí và tiêu đề chương.`;
@@ -453,10 +456,10 @@ export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
   }
 
   const contextDirectives =
-    (cleanGenre ? `\n- Thể loại truyện: ${cleanGenre}` : "") +
-    (cleanTone ? `\n- Tông giọng biên dịch: ${cleanTone}` : "") +
+    (cleanGenre ? `\n- Thể loại truyện: ${cleanGenre} (${getGenreStyleGuide(cleanGenre)})` : "") +
+    (cleanTone ? `\n- Tông giọng biên dịch: ${cleanTone} (${getToneStyleGuide(cleanTone)})` : "") +
     (cleanDescription && cleanDescription.trim()
-      ? `\n- Quy tắc xưng hô & phong cách đặc thù: ${cleanDescription.trim()}\nLƯU Ý QUAN TRỌNG: Các cách xưng hô hoặc văn phong tuân thủ đúng quy tắc đặc thù trên là CHỦ Ý CỦA DỊCH GIẢ, TUYỆT ĐỐI KHÔNG coi là lỗi sai.`
+      ? `\n- Quy tắc xưng hô & phong cách đặc thù: ${cleanDescription.trim()}\nLƯU Ý QUAN TRỌNG: Các cách xưng hô hoặc văn phong tuân thủ đúng quy tắc đặc thù trên và tông giọng đã chọn là CHỦ Ý CỦA DỊCH GIẢ, TUYỆT ĐỐI KHÔNG coi là lỗi sai.`
       : "");
 
   const systemInstruction =
@@ -597,31 +600,33 @@ export interface BuildAnalyzeGuidelinesPromptParams {
  * Chỉ suy đoán genre/tone/description — bảng thuật ngữ được trích xuất riêng bằng regex parser (xem parseGlossaryFromMd).
  */
 export function buildAnalyzeGuidelinesPayload(params: BuildAnalyzeGuidelinesPromptParams) {
+  const cleanGuidelines = sanitizePromptInput(params.guidelinesSection || '');
+  const genreHints = GENRE_PROFILES.map((g) => g.id).join(', ');
+  const toneHints = TONE_PROFILES.map((t) => t.id).join(', ');
+
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     "Bạn là trợ lý dịch thuật AI lão luyện chuyên phân tích cẩm nang dịch thuật.\n" +
-    "Nhiệm vụ: Đọc phần hướng dẫn phong cách dịch và xác định:\n" +
-    "1. Thể loại truyện (genre)\n" +
-    "2. Tông giọng biên dịch (tone)\n" +
-    "3. Tóm tắt chi tiết quy tắc xưng hô và phong cách dịch (description)\n" +
+    "Nhiệm vụ: Đọc phần hướng dẫn phong cách dịch (kể cả phần quy tắc ở cuối tài liệu) và xác định:\n" +
+    `1. Thể loại truyện (genre) — ưu tiên chọn đúng từ danh mục chuẩn [${genreHints}], hoặc ghi tên thể loại tùy chỉnh ngắn gọn nếu không nằm trong danh sách.\n` +
+    `2. Tông giọng biên dịch (tone) — ưu tiên chọn đúng từ danh mục chuẩn [${toneHints}], hoặc ghi tên tông giọng tùy chỉnh phù hợp.\n` +
+    "3. Tóm tắt đầy đủ, có cấu trúc rõ ràng các quy tắc xưng hô, mức độ Hán-Việt/thuần Việt, danh xưng/cấp bậc/tên ngoại lai và điều cần tránh (description).\n" +
     "KHÔNG cần trích xuất bảng thuật ngữ — đã được xử lý riêng bằng parser.";
-  const prompt = `Phân tích phần hướng dẫn phong cách dịch thuật sau:\n\n${params.guidelinesSection}`;
+  const prompt = `Phân tích phần hướng dẫn phong cách dịch thuật sau:\n\n${cleanGuidelines}`;
   const schema = {
     type: "OBJECT",
     properties: {
       genre: {
         type: "STRING",
-        description: "Thể loại truyện suy đoán từ cẩm nang dịch thuật",
-        enum: ["Tiên Hiệp", "Võ Hiệp", "Ngôn Tình", "Đô Thị", "Huyền Huyễn", "Huyền Huyễn Phương Tây", "Vô Hạn Lưu", "Lịch Sử / Quân Sự", "Khoa Huyễn / Võng Du", "Linh Dị / Thần Quái", "Hệ Thống / Điền Văn", "Khác"],
+        description: `Thể loại truyện phù hợp nhất (ưu tiên: ${genreHints}; cho phép thể loại tùy chỉnh nếu cẩm nang nêu rõ)`,
       },
       tone: {
         type: "STRING",
-        description: "Tông giọng biên dịch phù hợp nhất",
-        enum: ["Dịch thuần Việt mượt mà", "Trang nghiêm cổ phong", "Bình dị dân dã", "Hùng tráng dồn dập", "Trầm hùng dã sử", "Hiện đại công nghệ", "Kịch tính ly kỳ", "Nhẹ nhàng điền văn"],
+        description: `Tông giọng biên tập phù hợp nhất (ưu tiên: ${toneHints}; cho phép tông giọng tùy chỉnh nếu cẩm nang nêu rõ)`,
       },
       description: {
         type: "STRING",
-        description: "Tóm tắt chi tiết nguyên tắc xưng hô và phong cách dịch từ cẩm nang.",
+        description: "Bản tổng hợp đầy đủ nguyên tắc xưng hô, chính sách Hán-Việt, quy ước danh xưng và điều cần tránh từ toàn bộ cẩm nang.",
       },
     },
     required: ["genre", "tone", "description"],

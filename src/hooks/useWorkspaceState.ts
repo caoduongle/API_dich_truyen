@@ -27,6 +27,10 @@ import { GLOSSARY_LIMITS } from '../config/constants';
 import { useChapterCRDT } from './useChapterCRDT';
 import { googleAuthService } from '../services/googleAuthService';
 import { CHINESE_EXAMPLES } from '../data/examples';
+import {
+  mergeImportedGlossaryForProject,
+  type GuidelineStagedGlossaryAction,
+} from '../services/glossaryIO';
 
 export interface SaveChapterOptions {
   currentChapterId: string | null;
@@ -177,6 +181,10 @@ export function useWorkspaceState({
   const [editGenre, setEditGenre] = useState('');
   const [editTone, setEditTone] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [stagedMetadataGlossary, setStagedMetadataGlossary] =
+    useState<GuidelineStagedGlossaryAction | null>(null);
+  const [metadataGenreError, setMetadataGenreError] = useState<string | null>(null);
+  const [metadataToneError, setMetadataToneError] = useState<string | null>(null);
 
   // States for importing chapters from a new file inside workspace
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -304,6 +312,9 @@ export function useWorkspaceState({
     setEditGenre(activeProject.genre);
     setEditTone(activeProject.tone);
     setEditDescription(activeProject.description || '');
+    setStagedMetadataGlossary(null);
+    setMetadataGenreError(null);
+    setMetadataToneError(null);
     setAdditionalInstructions(activeProject.additionalInstructions || '');
 
     setImportedFileName('');
@@ -362,6 +373,9 @@ export function useWorkspaceState({
     setEditGenre(activeProject.genre);
     setEditTone(activeProject.tone);
     setEditDescription(activeProject.description || '');
+    setStagedMetadataGlossary(null);
+    setMetadataGenreError(null);
+    setMetadataToneError(null);
 
     setImportedFileName('');
     setParsedImportChapters([]);
@@ -426,6 +440,20 @@ export function useWorkspaceState({
       return;
     }
 
+    if (!editGenre.trim()) {
+      setMetadataGenreError("Vui lòng chọn hoặc nhập tên Thể loại chính.");
+      showToast({ message: "Vui lòng chọn hoặc nhập Thể loại chính.", type: 'warning' });
+      return;
+    }
+    setMetadataGenreError(null);
+
+    if (!editTone.trim()) {
+      setMetadataToneError("Vui lòng chọn hoặc nhập Tông giọng biên tập.");
+      showToast({ message: "Vui lòng chọn hoặc nhập Tông giọng biên tập.", type: 'warning' });
+      return;
+    }
+    setMetadataToneError(null);
+
     let updatedChapters = [...activeProject.chapters];
     if (parsedImportChapters.length > 0) {
       const newChapters: Chapter[] = parsedImportChapters.map((pc, idx) => ({
@@ -459,18 +487,29 @@ export function useWorkspaceState({
       }
     }
 
+    const updatedGlossary =
+      stagedMetadataGlossary && stagedMetadataGlossary.items.length > 0
+        ? mergeImportedGlossaryForProject(
+            activeProject.glossary,
+            stagedMetadataGlossary.items,
+            stagedMetadataGlossary.mode
+          )
+        : activeProject.glossary;
+
     const updated = {
       ...activeProject,
       title: editTitle.trim(),
       author: editAuthor.trim() || "Khuyết Danh",
-      genre: editGenre,
-      tone: editTone,
+      genre: editGenre.trim(),
+      tone: editTone.trim(),
       description: editDescription.trim(),
-      chapters: updatedChapters
+      chapters: updatedChapters,
+      glossary: updatedGlossary,
     };
     onUpdateProject(updated);
     setIsEditingMetadata(false);
 
+    setStagedMetadataGlossary(null);
     setImportedFileName('');
     setParsedImportChapters([]);
     if (importFileRef.current) importFileRef.current.value = '';
@@ -1227,6 +1266,13 @@ export function useWorkspaceState({
     setEditTone,
     editDescription,
     setEditDescription,
+    stagedMetadataGlossary,
+    setStagedMetadataGlossary,
+    metadataGenreError,
+    metadataToneError,
+    setMetadataGenreError,
+    setMetadataToneError,
+    showToast,
     importFileRef,
     importedFileName,
     parsedImportChapters,

@@ -27,8 +27,10 @@ export const AI_SERVICE_CONFIG = {
 export const GLOSSARY_LIMITS = {
   /** Giới hạn ký tự gửi đến AI khi phân tích trích xuất thực thể/nhân vật từ văn bản truyện */
   MAX_CHARS_FOR_GLOSSARY_ANALYSIS: 8000,
-  /** Giới hạn ký tự gửi đến AI khi phân tích cẩm nang dịch thuật (.md) */
-  MAX_CHARS_FOR_GUIDELINES_ANALYSIS: 4000,
+  /** Giới hạn ký tự phần văn xuôi quy tắc gửi đến AI khi phân tích cẩm nang dịch thuật (.md) */
+  MAX_CHARS_FOR_GUIDELINES_ANALYSIS: 24000,
+  /** Kích thước tệp cẩm nang (.md/.txt) tối đa cho phép tải lên (5MB) */
+  MAX_GUIDELINES_UPLOAD_BYTES: 5 * 1024 * 1024,
   /** Số lượng từ vựng tối đa hiển thị nhanh trên thanh công cụ bàn dịch */
   WORKSPACE_GLOSSARY_VISIBLE_LIMIT: 100,
   /** Kích thước phân trang mặc định trong bảng từ điển */

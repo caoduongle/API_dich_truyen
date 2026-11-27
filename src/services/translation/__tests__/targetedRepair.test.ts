@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { repairChapterCriticalIssuesDirect } from '../targetedRepair';
+import { getGenreStyleGuide, getToneStyleGuide } from '../../../config/translationStyles';
 import { executeSingleChapterTranslation } from '../../chapterTranslationService';
 import { mapQaIssueToUnified, calculateAuditScore } from '../../auditBridgeService';
 import * as directGeminiClient from '../../directGeminiClient';
@@ -328,5 +329,46 @@ describe('Targeted Paragraph Repair Service (US4 / FR-016 - FR-025)', () => {
     expect(resolvedIssue.status).toBe('resolved');
     expect(calculateAuditScore([pendingIssue])).toBe(92);
     expect(calculateAuditScore([resolvedIssue])).toBe(100);
+  });
+
+  it('injects genre style guide, tone style guide, and priority hierarchy into targeted repair instructions', async () => {
+    let capturedSystem = '';
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      capturedSystem = args.systemInstruction || '';
+      return {
+        text: JSON.stringify({
+          repairedParagraph: 'Bản cung nói lời giữ lời.',
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const genre = 'Cung Đấu / Gia Đấu';
+    const tone = 'Sắc sảo cung đấu';
+
+    await repairChapterCriticalIssuesDirect({
+      sourceText: '本宫一言既出。',
+      translatedText: 'Tôi nói lời giữ lời.',
+      issues: [
+        {
+          type: 'pronoun',
+          severity: 'critical',
+          targetText: 'Tôi nói lời giữ lời.',
+          description: 'Sai xưng hô hoàng hậu',
+          paragraphIndex: 0,
+          source: 'ai_critique',
+        },
+      ],
+      glossary: [],
+      genre,
+      tone,
+      description: 'Hoàng hậu luôn tự xưng Bản cung.',
+      apiKeys: ['TEST_KEY'],
+    });
+
+    expect(capturedSystem).toContain(getGenreStyleGuide(genre));
+    expect(capturedSystem).toContain(getToneStyleGuide(tone));
+    expect(capturedSystem).toContain('Hoàng hậu luôn tự xưng Bản cung.');
+    expect(capturedSystem).toContain('Quy tắc dịch riêng của dự án > Quy chuẩn Tông giọng biên tập > Chỉ dẫn Thể loại chính');
   });
 });

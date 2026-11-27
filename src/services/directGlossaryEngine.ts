@@ -26,6 +26,7 @@ import { validateAndSnapBackEntities, isHanEquivalent } from '../lib/sinoNormali
 import { parseGlossaryFromMd } from '../lib/parser';
 import { mapWithConcurrencyLimit } from '../lib/concurrency';
 import { GLOSSARY_LIMITS } from '../config/constants';
+import { extractGuidelinesProseSection, parseGuidelinesMarkdownLocal } from '../config/translationStyles';
 
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
 const MAX_CHUNKS_TO_ANALYZE = 5;
@@ -209,9 +210,28 @@ export interface AnalyzeGuidelinesDirectResult {
 
   description: string;
   successKeyIndex: number;
+  analysisMode?: 'ai' | 'local_fallback';
   truncated?: boolean;
   originalLength?: number;
   analyzedLength?: number;
+  proseLength?: number;
+}
+
+function buildHeadTailGuidelinesSlice(proseText: string, maxChars: number): {
+  section: string;
+  truncated: boolean;
+} {
+  if (proseText.length <= maxChars) {
+    return { section: proseText, truncated: false };
+  }
+  const headSize = Math.floor(maxChars * 0.75);
+  const tailSize = Math.max(1000, maxChars - headSize - 64);
+  const head = proseText.slice(0, headSize).trimEnd();
+  const tail = proseText.slice(-tailSize).trimStart();
+  return {
+    section: `${head}\n\n[... ĐÃ RÚT GỌN PHẦN GIỮA DO VƯỢT GIỚI HẠN ...]\n\n${tail}`,
+    truncated: true,
+  };
 }
 
 export async function analyzeGuidelinesDirect(
@@ -220,37 +240,103 @@ export async function analyzeGuidelinesDirect(
   const { text, ...common } = params;
 
   const parsedGlossary = parseGlossaryFromMd(text);
-  const guidelinesSection = text.slice(0, MAX_CHARS_FOR_GUIDELINES_ANALYSIS);
-  const isGuidelinesTruncated = text.length > MAX_CHARS_FOR_GUIDELINES_ANALYSIS;
+  const proseText = extractGuidelinesProseSection(text);
+  const sourceForRules = proseText || text;
+  const localParsed = parseGuidelinesMarkdownLocal(sourceForRules);
+  const { section: guidelinesSection, truncated: isGuidelinesTruncated } =
+    buildHeadTailGuidelinesSlice(sourceForRules, MAX_CHARS_FOR_GUIDELINES_ANALYSIS);
 
-  const { systemInstruction, prompt, schema } = buildAnalyzeGuidelinesPayload({ guidelinesSection });
-  const response = await callGeminiDirect({
-    apiKeys: common.apiKeys,
-    model: common.model,
-    prompt,
-    systemInstruction,
-    schema,
-    temperature: 0.1,
-    startKeyIndex: common.startKeyIndex,
-    signal: common.signal,
-  });
+  const hasValidApiKey =
+    Array.isArray(common.apiKeys) &&
+    common.apiKeys.some((key) => typeof key === 'string' && key.trim().length > 0);
+  const hasLocalSignal = Boolean(
+    parsedGlossary.length > 0 ||
+      localParsed.genre ||
+      localParsed.tone ||
+      localParsed.description
+  );
 
-  const aiMeta = parseGeminiStructuredResponse<GuidelinesAnalysisResponse>(response.text, {
-    validator: isGuidelinesAnalysisResponse,
-    fallback: {},
-    contextName: 'analyzeGuidelinesDirect',
-  });
+  if (!hasValidApiKey) {
+    if (hasLocalSignal) {
+      return {
+        extractedGlossary: parsedGlossary,
+        genre: localParsed.genre,
+        tone: localParsed.tone,
+        description: localParsed.description || guidelinesSection.trim(),
+        successKeyIndex: -1,
+        analysisMode: 'local_fallback',
+        ...(isGuidelinesTruncated
+          ? {
+              truncated: true,
+              originalLength: text.length,
+              analyzedLength: guidelinesSection.length,
+              proseLength: sourceForRules.length,
+            }
+          : { proseLength: sourceForRules.length }),
+      };
+    }
+    throw new Error('Chưa có API Key hợp lệ và không trích xuất được cấu trúc từ tệp cẩm nang.');
+  }
 
-  return {
-    extractedGlossary: parsedGlossary,
-    genre: aiMeta.genre || '',
-    tone: aiMeta.tone || '',
-    description: aiMeta.description || '',
-    successKeyIndex: response.successKeyIndex,
-    ...(isGuidelinesTruncated
-      ? { truncated: true, originalLength: text.length, analyzedLength: MAX_CHARS_FOR_GUIDELINES_ANALYSIS }
-      : {}),
-  };
+  try {
+    const { systemInstruction, prompt, schema } = buildAnalyzeGuidelinesPayload({ guidelinesSection });
+    const response = await callGeminiDirect({
+      apiKeys: common.apiKeys,
+      model: common.model,
+      prompt,
+      systemInstruction,
+      schema,
+      temperature: 0.1,
+      startKeyIndex: common.startKeyIndex,
+      signal: common.signal,
+    });
+
+    const aiMeta = parseGeminiStructuredResponse<GuidelinesAnalysisResponse>(response.text, {
+      validator: isGuidelinesAnalysisResponse,
+      fallback: {},
+      contextName: 'analyzeGuidelinesDirect',
+    });
+
+    return {
+      extractedGlossary: parsedGlossary,
+      genre: (aiMeta.genre || localParsed.genre || '').trim(),
+      tone: (aiMeta.tone || localParsed.tone || '').trim(),
+      description: (aiMeta.description || localParsed.description || '').trim(),
+      successKeyIndex: response.successKeyIndex,
+      analysisMode: 'ai',
+      ...(isGuidelinesTruncated
+        ? {
+            truncated: true,
+            originalLength: text.length,
+            analyzedLength: guidelinesSection.length,
+            proseLength: sourceForRules.length,
+          }
+        : { proseLength: sourceForRules.length }),
+    };
+  } catch (err) {
+    if (common.signal?.aborted) {
+      throw err;
+    }
+    if (hasLocalSignal) {
+      return {
+        extractedGlossary: parsedGlossary,
+        genre: localParsed.genre,
+        tone: localParsed.tone,
+        description: localParsed.description || guidelinesSection.trim(),
+        successKeyIndex: -1,
+        analysisMode: 'local_fallback',
+        ...(isGuidelinesTruncated
+          ? {
+              truncated: true,
+              originalLength: text.length,
+              analyzedLength: guidelinesSection.length,
+              proseLength: sourceForRules.length,
+            }
+          : { proseLength: sourceForRules.length }),
+      };
+    }
+    throw err;
+  }
 }
 
 export interface ExtractGlossaryDirectParams extends DirectGlossaryCommonParams {

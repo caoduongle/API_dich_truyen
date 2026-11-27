@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { StoryProject, Chapter } from '../types';
 import { getChapterFromDB } from '../services/db';
+import { mergeImportedGlossaryForProject } from '../services/glossaryIO';
 import { useNotifications } from './NotificationSystem';
 import { triggerDownload } from '../utils/download';
 import { useEpubExport } from '../hooks/useEpubExport';
@@ -184,7 +185,14 @@ export default function ProjectList({
           tone: payload.tone,
           description: payload.description,
           chapters: payload.chapters.length > 0 ? payload.chapters : existing.chapters,
-          glossary: payload.glossary.length > 0 ? [...existing.glossary, ...payload.glossary] : existing.glossary,
+          glossary:
+            payload.glossary.length > 0
+              ? mergeImportedGlossaryForProject(
+                  existing.glossary,
+                  payload.glossary,
+                  payload.glossaryMode || 'merge'
+                )
+              : existing.glossary,
         });
         showToast({ message: 'Đã cập nhật thông tin dự án!', type: 'success' });
       }

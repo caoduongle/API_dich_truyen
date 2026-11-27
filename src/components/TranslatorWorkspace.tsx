@@ -79,6 +79,13 @@ export default function TranslatorWorkspace({
     setEditTone,
     editDescription,
     setEditDescription,
+    stagedMetadataGlossary,
+    setStagedMetadataGlossary,
+    metadataGenreError,
+    metadataToneError,
+    setMetadataGenreError,
+    setMetadataToneError,
+    showToast,
     importFileRef,
     importedFileName,
     parsedImportChapters,
@@ -279,12 +286,26 @@ export default function TranslatorWorkspace({
         editAuthor={editAuthor}
         setEditAuthor={setEditAuthor}
         editGenre={editGenre}
-        setEditGenre={setEditGenre}
+        setEditGenre={(val) => {
+          setEditGenre(val);
+          if (metadataGenreError) setMetadataGenreError(null);
+        }}
         editTone={editTone}
-        setEditTone={setEditTone}
+        setEditTone={(val) => {
+          setEditTone(val);
+          if (metadataToneError) setMetadataToneError(null);
+        }}
         editDescription={editDescription}
         setEditDescription={setEditDescription}
         handleSaveMetadata={handleSaveMetadata}
+        projectGlossaryCount={activeProject.glossary.length}
+        stagedGlossaryAction={stagedMetadataGlossary}
+        onStageGlossaryAction={setStagedMetadataGlossary}
+        genreError={metadataGenreError}
+        toneError={metadataToneError}
+        apiKeys={apiKeys}
+        selectedModel={selectedModel}
+        showToast={showToast}
         importSection={
           <ImportChaptersModal
             importedFileName={importedFileName}

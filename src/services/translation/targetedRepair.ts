@@ -6,7 +6,13 @@
 
 import { GlossaryItem } from '../../types';
 import { selectRelevantGlossary } from '../../lib/glossaryMatch';
-import { LITERARY_TRANSLATION_FRAMING, parseGeminiStructuredResponse, sanitizePromptInput } from '../../lib/text';
+import {
+  LITERARY_TRANSLATION_FRAMING,
+  getGenreStyleGuide,
+  getToneStyleGuide,
+  parseGeminiStructuredResponse,
+  sanitizePromptInput,
+} from '../../lib/text';
 import { callGeminiDirect } from '../directGeminiClient';
 import {
   mapTranslatedParagraphToSourceWindow,
@@ -143,13 +149,16 @@ function buildTargetedRepairPayload(params: {
   const systemInstruction =
     LITERARY_TRANSLATION_FRAMING +
     'Bạn là biên tập viên hiệu đính Trung - Việt chuyên sửa lỗi cục bộ.\n' +
+    'THỨ TỰ ƯU TIÊN TUYỆT ĐỐI:\n' +
+    '- ƯU TIÊN #1: Trung thành 100% nguyên tác, bảng từ điển và cấu trúc câu/ngoặc thoại 1-1.\n' +
+    '- ƯU TIÊN #2: Quy tắc dịch riêng của dự án > Quy chuẩn Tông giọng biên tập > Chỉ dẫn Thể loại chính.\n' +
     'QUY TẮC TUYỆT ĐỐI:\n' +
     '1. Chỉ viết lại DUY NHẤT [ĐOẠN CẦN SỬA] thành 1 đoạn văn tiếng Việt hoàn chỉnh.\n' +
     '2. KHÔNG lặp lại hay gộp [ĐOẠN TRƯỚC - CHỈ ĐỌC] và [ĐOẠN SAU - CHỈ ĐỌC].\n' +
     '3. Khắc phục triệt để các lỗi đã chỉ ra, tuân thủ 100% nguyên tác, bảng từ điển và xưng hô.\n' +
     `4. Giữ nguyên 1-1 cách ngắt câu, dấu câu ngữ khí (?, !, ..., —) và lời thoại trực tiếp trong ngoặc "..." khớp với [CÂU / ĐOẠN NGUỒN TRỌNG TÂM].\n` +
-    `5. Giữ tông giọng ${cleanTone}, văn phong thể loại ${cleanGenre}, KHÔNG để sót chữ Hán, dấu câu tiếng Trung hay ngoặc vuông [...].\n` +
-    (cleanDesc ? `6. Quy tắc truyện: ${cleanDesc}\n` : '');
+    `5. Giữ tông giọng ${cleanTone} (${getToneStyleGuide(cleanTone)}) và văn phong thể loại ${cleanGenre} (${getGenreStyleGuide(cleanGenre)}), KHÔNG để sót chữ Hán, dấu câu tiếng Trung hay ngoặc vuông [...].\n` +
+    (cleanDesc ? `6. Quy tắc truyện (ƯU TIÊN CAO NHẤT VỀ XƯNG HÔ & CẤM KỴ): ${cleanDesc}\n` : '');
 
   const prompt = `--- VĂN BẢN TIẾNG TRUNG ĐỐI CHIẾU ---
 ${sanitizePromptInput(sourceWindow)}

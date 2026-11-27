@@ -6,6 +6,8 @@
  * 3. Thẩm định Magic Bytes nhị phân (Header ZIP PK\x03\x04 cho file EPUB).
  */
 
+import { GLOSSARY_LIMITS } from "../config/constants";
+
 export const MAX_UPLOAD_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 
 export function isZipMagicBytes(header: Uint8Array): boolean {
@@ -52,5 +54,31 @@ export async function validateUploadFile(file: File): Promise<void> {
       }
       throw new Error(`Không thể đọc cấu trúc tệp tin: ${err.message || err}`);
     }
+  }
+}
+
+/**
+ * Kiểm tra an toàn tệp cẩm nang dịch thuật (.md / .txt) trước khi đọc nội dung vào bộ nhớ.
+ */
+export function validateGuidelinesUploadFile(file: File): void {
+  if (!file) {
+    throw new Error("Không có tệp cẩm nang được chọn.");
+  }
+
+  if (file.size <= 0) {
+    throw new Error("Tệp cẩm nang đang rỗng, không có nội dung để phân tích.");
+  }
+
+  if (file.size > GLOSSARY_LIMITS.MAX_GUIDELINES_UPLOAD_BYTES) {
+    const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
+    const maxMb = (GLOSSARY_LIMITS.MAX_GUIDELINES_UPLOAD_BYTES / (1024 * 1024)).toFixed(0);
+    throw new Error(
+      `Dung lượng tệp cẩm nang (${sizeInMb}MB) vượt quá giới hạn tối đa ${maxMb}MB.`
+    );
+  }
+
+  const lowerName = (file.name || "").toLowerCase();
+  if (!lowerName.endsWith(".md") && !lowerName.endsWith(".txt")) {
+    throw new Error("Chỉ hỗ trợ tệp cẩm nang định dạng .md hoặc .txt.");
   }
 }

@@ -787,3 +787,35 @@ export function analyzeGlossaryImportConflicts(
 
   return { cleanItems, conflicts };
 }
+
+export interface GuidelineStagedGlossaryAction {
+  mode: 'replace' | 'merge';
+  items: Omit<GlossaryItem, 'id'>[];
+  fileName?: string;
+}
+
+/**
+ * Hợp nhất hoặc thay thế danh sách thuật ngữ trích xuất từ cẩm nang vào từ điển hiện tại của dự án,
+ * giữ nguyên hồ sơ nhân vật và bản dịch đã chỉnh sửa ở chế độ merge.
+ */
+export function mergeImportedGlossaryForProject(
+  existingGlossary: GlossaryItem[],
+  incomingItems: Omit<GlossaryItem, 'id'>[],
+  mode: 'replace' | 'merge'
+): GlossaryItem[] {
+  if (!Array.isArray(incomingItems) || incomingItems.length === 0) {
+    return existingGlossary;
+  }
+
+  const nowBase = Date.now();
+  const baseList = mode === 'replace' ? [] : existingGlossary;
+  const { cleanItems } = analyzeGlossaryImportConflicts(incomingItems, baseList);
+  const newItems: GlossaryItem[] = cleanItems.map((item, idx) => ({
+    ...item,
+    id: `glo_md_${nowBase}_${idx}`,
+    origin: item.origin || 'guideline',
+    createdAt: item.createdAt || new Date().toISOString(),
+  }));
+
+  return mode === 'replace' ? newItems : [...existingGlossary, ...newItems];
+}

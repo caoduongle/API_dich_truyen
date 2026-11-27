@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as directGeminiClient from '../directGeminiClient';
-import { analyzeGlossaryDirect } from '../directGlossaryEngine';
+import { analyzeGlossaryDirect, analyzeGuidelinesDirect } from '../directGlossaryEngine';
 
 describe('src/services/directGlossaryEngine.ts', () => {
   beforeEach(() => {
@@ -249,6 +249,77 @@ describe('src/services/directGlossaryEngine.ts', () => {
     });
 
     expect(res.suggestions).toEqual([]);
+  });
+
+  it('analyzeGuidelinesDirect strips large glossary tables before AI analysis and preserves tail rules >15k chars', async () => {
+    let capturedPrompt = '';
+    vi.spyOn(directGeminiClient, 'callGeminiDirect').mockImplementation(async (args) => {
+      capturedPrompt = args.prompt;
+      return {
+        text: JSON.stringify({
+          genre: 'Tiên Hiệp',
+          tone: 'Trang nghiêm cổ phong',
+          description: 'Quy tắc xưng hô cuối tệp đã được giữ lại.',
+        }),
+        successKeyIndex: 0,
+      };
+    });
+
+    const tableRows = Array.from({ length: 400 }, (_, i) => `| 角色${i} | Nhân vật ${i} | Nhân Vật ${i} | Phụ |`).join('\n');
+    const longMd = [
+      '# Cẩm nang dịch thuật: Thử nghiệm dài',
+      '- Thể loại chính: Tiên Hiệp',
+      '- Tông giọng biên tập: Trang nghiêm cổ phong',
+      '## Từ điển',
+      '| Tiếng Trung | Phiên âm | Tiếng Việt | Ghi chú |',
+      '|---|---|---|---|',
+      tableRows,
+      '',
+      '### Điều cần tránh',
+      '- Quy tắc quan trọng nằm cuối tệp: Không dùng từ lóng hiện đại.',
+    ].join('\n');
+
+    expect(longMd.length).toBeGreaterThan(15000);
+    const res = await analyzeGuidelinesDirect({
+      text: longMd,
+      apiKeys: ['AQ_TEST_KEY'],
+      model: 'gemini-2.5-flash',
+    });
+
+    expect(res.extractedGlossary).toHaveLength(400);
+    expect(res.analysisMode).toBe('ai');
+    expect(res.truncated).toBeUndefined();
+    expect(capturedPrompt).not.toContain('角色10');
+    expect(capturedPrompt).toContain('Quy tắc quan trọng nằm cuối tệp');
+  });
+
+  it('analyzeGuidelinesDirect falls back cleanly to local Markdown extraction when no API keys exist', async () => {
+    const md = [
+      '# Cẩm nang dịch thuật: Bộ Truyện Mẫu',
+      '',
+      '- Thể loại chính: Cung Đấu / Gia Đấu',
+      '- Tông giọng biên tập: Sắc sảo cung đấu',
+      '',
+      '### Quy tắc xưng hô mặc định',
+      '- Phi tần xưng thần thiếp, hoàng hậu xưng bản cung.',
+      '',
+      '| Tiếng Trung | Phiên âm | Tiếng Việt | Ghi chú |',
+      '|---|---|---|---|',
+      '| 甄嬛 | Chân Hoàn | Chân Hoàn | Nữ chính |',
+    ].join('\n');
+
+    const callSpy = vi.spyOn(directGeminiClient, 'callGeminiDirect');
+    const res = await analyzeGuidelinesDirect({
+      text: md,
+      apiKeys: [],
+    });
+
+    expect(callSpy).not.toHaveBeenCalled();
+    expect(res.analysisMode).toBe('local_fallback');
+    expect(res.genre).toBe('Cung Đấu / Gia Đấu');
+    expect(res.tone).toBe('Sắc sảo cung đấu');
+    expect(res.description).toContain('hoàng hậu xưng bản cung');
+    expect(res.extractedGlossary).toHaveLength(1);
   });
 });
 

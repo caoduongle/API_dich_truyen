@@ -1,6 +1,7 @@
 import { GlossaryItem, GlossaryType } from '../types';
 import type { QualityIssueCategory, QualityIssueSeverity } from '../types/hakoChecker';
 import type { SourceCoverageReport } from '../services/translation/types';
+import { getGenreStyleGuide as resolveGenreStyleGuide, getToneStyleGuide as resolveToneStyleGuide } from '../config/translationStyles';
 
 export const ANTI_INJECTION_DEFENSE_DIRECTIVE =
   "[CHỈ THỊ BẢO VỆ AN TOÀN VÀ PHÒNG THỦ DỮ LIỆU ĐẦU VÀO]\n" +
@@ -243,28 +244,11 @@ export function ensureChapterTitlePreserved(rawText: string, polishedText: strin
 }
 
 export function getGenreStyleGuide(genre: string): string {
-  const g = (genre || "").trim();
-  if (g === "Tiên Hiệp" || g === "Võ Hiệp")
-    return "Thể loại Tiên Hiệp/Võ Hiệp: dùng từ phong vị cổ phong thanh cao, kiếm khí dạt dào, xưng hô ta-ngươi-huynh-muội, tiền bối-hậu bối.";
-  if (g === "Ngôn Tình")
-    return "Thể loại Ngôn Tình: uyển chuyển lắng đọng lãng mạn, chú trọng cảm xúc nội tâm, xưng hô chàng-nàng-anh-em tự nhiên.";
-  if (g === "Đô Thị")
-    return "Thể loại Đô Thị: tinh gọn thực tế hiện đại, từ ngữ đời thường dễ cảm, không dùng từ cổ phong.";
-  if (g === "Huyền Huyễn")
-    return "Thể loại Huyền Huyễn: kết hợp yếu tố cổ phong và kỳ ảo, linh hoạt xưng hô theo ngữ cảnh, giữ không khí huyền bí.";
-  if (g === "Huyền Huyễn Phương Tây")
-    return "Thể loại Huyền Huyễn Phương Tây: phong cách fantasy Âu Mỹ, tên nhân vật/địa danh giữ nguyên tiếng Anh hoặc phiên âm, xưng hô tôi-bạn-ngài tự nhiên, không dùng từ Hán Việt cổ phong.";
-  if (g === "Vô Hạn Lưu")
-    return "Thể loại Vô Hạn Lưu: nhịp văn nhanh dồn dập, không khí căng thẳng sinh tồn, từ ngữ sắc bén rõ ràng, mô tả hành động chiến đấu chi tiết kịch tính.";
-  if (g === "Lịch Sử / Quân Sự")
-    return "Thể loại Lịch Sử/Quân Sự: văn phong trầm hùng, mang tính dã sử trang nghiêm; sử dụng từ ngữ chương hồi, xưng hô tôn kính hoàng triều/quân thần (bệ hạ, thần, vi thần, khanh, tướng quân, bản soái...).";
-  if (g === "Khoa Huyễn / Võng Du")
-    return "Thể loại Khoa Huyễn/Võng Du: phong cách hiện đại công nghệ cao kết hợp thế giới ảo; dùng thuật ngữ số hóa, robot, cơ giáp, hệ thống ảo, chỉ số sức mạnh cụ thể, xưng hô tôi-anh hoặc ta-ngươi tùy hoàn cảnh.";
-  if (g === "Linh Dị / Thần Quái")
-    return "Thể loại Linh Dị/Thần Quái: văn phong u ám huyền bí, kích thích sự tò mò rùng rợn; tập trung mô tả bối cảnh âm trầm, tâm lý hoang mang sợ hãi, các hiện tượng tâm linh kì bí.";
-  if (g === "Hệ Thống / Điền Văn")
-    return "Thể loại Hệ Thống/Điền Văn: văn phong nhẹ nhàng ấm áp, chậm rãi; mô tả cuộc sống làm ruộng sinh hoạt bình dị thường ngày xen lẫn các nhiệm vụ vui nhộn của hệ thống phụ tá.";
-  return `Thể loại ${g}: dịch tự nhiên phù hợp văn phong thể loại, ưu tiên từ ngữ thuần Việt dễ hiểu.`;
+  return resolveGenreStyleGuide(genre);
+}
+
+export function getToneStyleGuide(tone: string): string {
+  return resolveToneStyleGuide(tone);
 }
 
 export function safeParseJson<T = any>(text: string): T | null {

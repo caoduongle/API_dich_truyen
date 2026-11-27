@@ -3,7 +3,9 @@ import {
   buildRawTranslationPayload,
   buildPolishTranslationPayload,
   buildQaCritiquePayload,
+  buildAnalyzeGuidelinesPayload,
 } from '../prompts';
+import { getGenreStyleGuide, getToneStyleGuide } from '../../../config/translationStyles';
 
 describe('AI Prompts Construction Pipeline', () => {
   const sampleGlossary = [
@@ -350,6 +352,45 @@ describe('AI Prompts Construction Pipeline', () => {
         expect(pos1).toBeLessThan(pos2);
         expect(pos2).toBeLessThan(pos3);
       }
+    });
+
+    it('injects both getGenreStyleGuide and getToneStyleGuide across Phases 1-3 and sanitizes guideline analysis prompt', () => {
+      const genre = 'Cung Đấu / Gia Đấu';
+      const tone = 'Sắc sảo cung đấu';
+
+      const rawPayload = buildRawTranslationPayload({
+        text: '皇后微微一笑。',
+        genre,
+        tone,
+      });
+      const polishPayload = buildPolishTranslationPayload({
+        sourceText: '皇后微微一笑。',
+        rawTranslation: 'Hoàng hậu khẽ mỉm cười.',
+        genre,
+        tone,
+      });
+      const qaPayload = buildQaCritiquePayload({
+        sourceText: '皇后微微一笑。',
+        translatedText: 'Hoàng hậu khẽ mỉm cười.',
+        genre,
+        tone,
+        description: 'Giữ nguyên xưng hô bổn cung - thần thiếp.',
+      });
+
+      for (const payload of [rawPayload, polishPayload, qaPayload]) {
+        expect(payload.systemInstruction).toContain(getGenreStyleGuide(genre));
+        expect(payload.systemInstruction).toContain(getToneStyleGuide(tone));
+        expect(payload.systemInstruction).toContain('Quy chuẩn Tông giọng biên tập > Chỉ dẫn Thể loại chính');
+      }
+
+      const guidelinePayload = buildAnalyzeGuidelinesPayload({
+        guidelinesSection: `Quy\u200B tắc${'\uFEFF'} tùy chỉnh\u{E0001}`,
+      });
+      expect(guidelinePayload.prompt).not.toContain('\u200B');
+      expect(guidelinePayload.prompt).not.toContain('\uFEFF');
+      expect(guidelinePayload.prompt).not.toContain('\u{E0001}');
+      expect('enum' in guidelinePayload.schema.properties.genre).toBe(false);
+      expect('enum' in guidelinePayload.schema.properties.tone).toBe(false);
     });
   });
 });

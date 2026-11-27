@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   analyzeGlossaryImportConflicts,
   formatGlossaryCreatedDate,
+  mergeImportedGlossaryForProject,
   parseCsvGlossaryFile,
   parseGlossaryCreatedDate,
   parseJsonGlossaryFile,
@@ -200,5 +201,40 @@ describe('analyzeGlossaryImportConflicts', () => {
     expect(conflicts[0].existingId).toBe('glo_1');
     expect(conflicts[1].conflictKind).toBe('system_vietnamese');
     expect(conflicts[2].conflictKind).toBe('file_duplicate');
+  });
+});
+
+describe('mergeImportedGlossaryForProject', () => {
+  const existing: GlossaryItem[] = [
+    {
+      id: 'glo_1',
+      chinese: '萧炎',
+      pinyin: 'Tiêu Viêm',
+      vietnamese: 'Tiêu Viêm',
+      type: 'character',
+      note: 'Nhân vật chính',
+      characterProfile: { gender: 'male', defaultSelfPronoun: 'ta' },
+    },
+  ];
+
+  const incoming = [
+    { chinese: '蕭炎', pinyin: 'Tiêu Viêm', vietnamese: 'Tiêu Viêm mới', type: 'character' as const, note: '' },
+    { chinese: '药老', pinyin: 'Dược Lão', vietnamese: 'Dược Trần', type: 'character' as const, note: 'Sư phụ' },
+    { chinese: '药老', pinyin: 'Dược Lão', vietnamese: 'Dược Lão', type: 'character' as const, note: 'Trùng nội bộ' },
+  ];
+
+  it('merges cleanly without duplicating canonical Han entries and preserves existing profiles', () => {
+    const merged = mergeImportedGlossaryForProject(existing, incoming, 'merge');
+    expect(merged).toHaveLength(2);
+    expect(merged[0].id).toBe('glo_1');
+    expect(merged[0].characterProfile?.gender).toBe('male');
+    expect(merged[1].chinese).toBe('药老');
+    expect(merged[1].vietnamese).toBe('Dược Trần');
+  });
+
+  it('replaces existing glossary cleanly while deduplicating internal duplicates', () => {
+    const replaced = mergeImportedGlossaryForProject(existing, incoming, 'replace');
+    expect(replaced).toHaveLength(2);
+    expect(replaced.map((i) => i.chinese)).toEqual(['蕭炎', '药老']);
   });
 });

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { validateUploadFile, isZipMagicBytes, MAX_UPLOAD_FILE_SIZE_BYTES } from "../fileValidator";
+import {
+  validateUploadFile,
+  validateGuidelinesUploadFile,
+  isZipMagicBytes,
+  MAX_UPLOAD_FILE_SIZE_BYTES,
+} from "../fileValidator";
+import { GLOSSARY_LIMITS } from "../../config/constants";
 
 describe("File Upload Security Validator (User Story 4 - Pentest Hardening)", () => {
   it("should recognize ZIP magic bytes correctly", () => {
@@ -49,5 +55,33 @@ describe("File Upload Security Validator (User Story 4 - Pentest Hardening)", ()
     const validEpub = new File([validZipBytes], "valid.epub", { type: "application/epub+zip" });
 
     await expect(validateUploadFile(validEpub)).resolves.not.toThrow();
+  });
+});
+
+describe("Guidelines Upload Security Validator (Feature 167)", () => {
+  it("accepts non-empty .md and .txt guideline files within size cap", () => {
+    const mdFile = new File([new Blob(["# Cẩm nang\n- Xưng hô: ta - ngươi"])], "cam_nang.md", {
+      type: "text/markdown",
+    });
+    const txtFile = new File([new Blob(["Quy tắc: thuần Việt"])], "rules.txt", {
+      type: "text/plain",
+    });
+
+    expect(() => validateGuidelinesUploadFile(mdFile)).not.toThrow();
+    expect(() => validateGuidelinesUploadFile(txtFile)).not.toThrow();
+  });
+
+  it("rejects empty, oversized (>5MB), and unsupported guideline files", () => {
+    const emptyFile = new File([new Blob([""])], "empty.md", { type: "text/markdown" });
+    expect(() => validateGuidelinesUploadFile(emptyFile)).toThrow("đang rỗng");
+
+    const oversizedFile = {
+      name: "huge_guidelines.md",
+      size: GLOSSARY_LIMITS.MAX_GUIDELINES_UPLOAD_BYTES + 1024,
+    } as unknown as File;
+    expect(() => validateGuidelinesUploadFile(oversizedFile)).toThrow("vượt quá giới hạn tối đa");
+
+    const exeFile = new File([new Blob(["bin"])], "payload.exe", { type: "application/octet-stream" });
+    expect(() => validateGuidelinesUploadFile(exeFile)).toThrow("định dạng .md hoặc .txt");
   });
 });
