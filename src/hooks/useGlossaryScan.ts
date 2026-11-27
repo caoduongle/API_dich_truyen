@@ -1,14 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { StoryProject, GlossaryItem, PendingGlossaryItem, ChapterMetadata } from '../types';
+import { StoryProject, GlossaryItem, ChapterMetadata } from '../types';
 import { getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../context/NotificationContext';
-import { isHanEquivalent } from '../lib/sinoNormalize';
+import { prioritizeKnownTermsForChapter } from '../lib/glossaryMatch';
 import {
-  inferCharacterGenderFromContext,
-  isNoisyGlossaryTerm,
-  prioritizeKnownTermsForChapter,
-} from '../lib/glossaryMatch';
+  classifyScannedGlossaryBatch,
+  prioritizeKnownAnchorEntriesForChapter,
+} from '../lib/glossaryScanQuality';
 import { analyzeGlossaryDirect } from '../services/directGlossaryEngine';
 import { inspectKeyPoolCooldown } from '../services/gemini/geminiKeyScheduler';
 import { RATE_LIMIT_RECOVERY_CONFIG } from '../config/constants';
@@ -204,6 +203,9 @@ export function useGlossaryScan({
       const cleanKeys = (apiKeys || []).map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean);
       let stoppedDueToQuota = false;
       let hasDispatchedChapterCall = false;
+      let totalAcceptedCount = 0;
+      let totalReviewCount = 0;
+      let totalRejectedCount = 0;
 
       for (let loop = 1; loop <= extractionLoops; loop++) {
         if (isStopScanRequestedRef.current || stoppedDueToQuota || !isMountedRef.current) break;
@@ -283,6 +285,11 @@ export function useGlossaryScan({
               const chapterInputText = `${chap.title}\n\n${chap.sourceText}`;
               const knownChineseTerms =
                 loop > 1 ? prioritizeKnownTermsForChapter(chapterInputText, updatedGlossary, 150) : [];
+              const knownGlossaryEntries = prioritizeKnownAnchorEntriesForChapter(
+                chapterInputText,
+                updatedGlossary,
+                150
+              );
               const data = await analyzeGlossaryDirect({
                 text: chapterInputText,
                 apiKeys,
@@ -291,6 +298,10 @@ export function useGlossaryScan({
                 sourceChapterId: chap.id,
                 signal: abortControllerRef.current?.signal,
                 knownChineseTerms,
+                knownGlossaryEntries,
+                genre: projectRef.current.genre,
+                tone: projectRef.current.tone,
+                description: projectRef.current.description,
                 loopIndex: loop,
                 totalLoops: extractionLoops,
               });
@@ -308,70 +319,34 @@ export function useGlossaryScan({
 
               const suggestions = data.suggestions || [];
               if (suggestions.length > 0) {
-                const newlyDiscovered: GlossaryItem[] = [];
-                const pendingDiscovered: PendingGlossaryItem[] = [];
-
-                suggestions.forEach((ent: any) => {
-                  const chineseTrimmed = ent.chinese?.trim() || "";
-                  if (!chineseTrimmed) return;
-                  if (isNoisyGlossaryTerm(chineseTrimmed, ent.type)) return;
-
-                  const exists = updatedGlossary.some((gItem) => isHanEquivalent(gItem.chinese, chineseTrimmed));
-                  const originParagraph = chap.sourceText.split('\n').find(p =>
-                      p.includes(chineseTrimmed) || p.replace(/\s+/g, '').includes(chineseTrimmed.replace(/\s+/g, ''))
-                  )?.trim() || "";
-                  if (!exists) {
-                    const entryType = ent.type || "other";
-                    const trimmedNote = (ent.note || "").trim();
-                    const inferredGender =
-                      entryType === 'character'
-                        ? inferCharacterGenderFromContext({
-                            chinese: chineseTrimmed,
-                            note: trimmedNote,
-                            sourceParagraph: originParagraph,
-                          })
-                        : undefined;
-                    const itemPayload: GlossaryItem = {
-                      id: 'glo_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-                      chinese: chineseTrimmed,
-                      pinyin: (ent.pinyin || "").trim(),
-                      vietnamese: (ent.vietnamese || "").trim(),
-                      type: entryType,
-                      note: trimmedNote,
-                      ...(inferredGender ? { characterProfile: { gender: inferredGender } } : {}),
-                      sourceChapter: chap.title,
-                      sourceParagraph: originParagraph,
-                      sourceChapterId: chap.id,
-                      origin: 'scanned',
-                      createdAt: new Date().toISOString(),
-                      needsReview: ent.needsReview
-                    };
-
-                    if (ent.needsReview) {
-                      const pendingPayload: PendingGlossaryItem = {
-                        id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-                        chinese: chineseTrimmed,
-                        pinyin: (ent.pinyin || "").trim(),
-                        vietnamese: (ent.vietnamese || "").trim(),
-                        type: ent.type || "other",
-                        note: (ent.note || "").trim(),
-                        reason: 'AI trích xuất nghi ngờ hallucinate',
-                        originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc của chương.',
-                        importedAt: new Date().toISOString(),
-                        needsReview: true,
-                        sourceChapterId: chap.id
-                      };
-                      pendingDiscovered.push(pendingPayload);
-                      addLog(`[Hallucinate] Phát hiện từ nghi ngờ AI nhận diện sai "${chineseTrimmed}" - Đã chuyển vào hàng chờ kiểm duyệt.`, 'warn');
-                    } else {
-                      newlyDiscovered.push(itemPayload);
-                      updatedGlossary.push(itemPayload);
-                    }
-                  }
+                const batch = classifyScannedGlossaryBatch({
+                  candidates: suggestions,
+                  existingGlossary: updatedGlossary,
+                  existingPendingGlossary: projectRef.current.pendingGlossary || [],
+                  sourceText: chap.sourceText,
+                  chapterTitle: chap.title,
+                  chapterId: chap.id,
+                  idPrefix: 'auto',
+                  defaultOrigin: 'scanned',
                 });
+
+                totalAcceptedCount += batch.telemetry.acceptedCount;
+                totalReviewCount += batch.telemetry.reviewCount;
+                totalRejectedCount += batch.telemetry.rejectedCount;
+
+                const newlyDiscovered = batch.acceptedItems;
+                const pendingDiscovered = batch.reviewItems;
+
+                for (const pItem of pendingDiscovered) {
+                  addLog(
+                    `[Hậu kiểm] Chuyển "${pItem.chinese}" vào hàng chờ kiểm duyệt: ${pItem.originalValue || pItem.reason}.`,
+                    'warn'
+                  );
+                }
 
                 if (newlyDiscovered.length > 0 || pendingDiscovered.length > 0) {
                   if (newlyDiscovered.length > 0) {
+                    updatedGlossary.push(...newlyDiscovered);
                     addLog(`Phát hiện ${newlyDiscovered.length} thuật ngữ mới tại chương "${chap.title}"`, 'success');
                     setAutoDiscoveredBatch((prev) => [...prev, ...newlyDiscovered]);
                     if (isMountedRef.current) {
@@ -462,6 +437,11 @@ export function useGlossaryScan({
         glossary: updatedGlossary,
         glossaryScanQueueState: { failedIds: mergedFailed }
       });
+
+      addLog(
+        `[Tổng kết hậu kiểm] Đã thêm sạch: ${totalAcceptedCount} thuật ngữ | Chuyển chờ duyệt: ${totalReviewCount} mục | Đã lọc nhiễu: ${totalRejectedCount} mục.`,
+        'info'
+      );
 
       if (stoppedDueToQuota) {
         addLog(`=== TIẾN TRÌNH QUÉT LỌC TẠM DỪNG DO HẾT HẠN MỨC QUOTA (ĐÃ LƯU ${mergedFailed.length} CHƯƠNG CHƯA QUÉT ĐỂ QUÉT BÙ) ===`, 'error');

@@ -57,7 +57,8 @@ describe('GlossaryManager UI components (Feature 169)', () => {
           conflictItemIds: ['a', 'b'],
           missingProfileCharIds: ['c'],
           incompleteViIds: ['d'],
-          totalIssueItems: 4,
+          formatIssueIds: ['e', 'f'],
+          totalIssueItems: 6,
         }}
         healthFilter="all"
         onSelectFilter={onSelectFilter}
@@ -68,15 +69,19 @@ describe('GlossaryManager UI components (Feature 169)', () => {
     const conflictBtn = view.container.querySelector('#btn-health-filter-conflicts') as HTMLButtonElement;
     const missingBtn = view.container.querySelector('#btn-health-filter-missing-profile') as HTMLButtonElement;
     const incompleteBtn = view.container.querySelector('#btn-health-filter-incomplete') as HTMLButtonElement;
+    const formatBtn = view.container.querySelector('#btn-health-filter-format-issues') as HTMLButtonElement;
 
     expect(conflictBtn.textContent).toContain('(2 nhóm)');
     expect(missingBtn.textContent).toContain('(1)');
     expect(incompleteBtn.textContent).toContain('(1)');
+    expect(formatBtn.textContent).toContain('(2)');
 
     act(() => {
       conflictBtn.click();
+      formatBtn.click();
     });
     expect(onSelectFilter).toHaveBeenCalledWith('conflicts');
+    expect(onSelectFilter).toHaveBeenCalledWith('format_issues');
 
     view.unmount();
   });

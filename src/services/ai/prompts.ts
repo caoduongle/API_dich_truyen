@@ -576,6 +576,10 @@ Hãy thực hiện thẩm định kỹ lưỡng từ đầu đến cuối bản 
 export interface BuildAnalyzeGlossaryPromptParams {
   text: string;
   knownChineseTerms?: string[];
+  knownGlossaryEntries?: Array<{ chinese: string; vietnamese: string; isPinned?: boolean }>;
+  genre?: string;
+  tone?: string;
+  description?: string;
   loopIndex?: number;
   totalLoops?: number;
 }
@@ -585,10 +589,52 @@ export interface BuildAnalyzeGlossaryPromptParams {
  */
 export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptParams) {
   const text = sanitizePromptInput(params.text);
-  const { knownChineseTerms = [], loopIndex = 1, totalLoops = 1 } = params;
+  const {
+    knownChineseTerms = [],
+    knownGlossaryEntries = [],
+    genre = '',
+    tone = '',
+    description = '',
+    loopIndex = 1,
+    totalLoops = 1,
+  } = params;
+
+  const cleanGenre = sanitizePromptInput(genre || '');
+  const cleanTone = sanitizePromptInput(tone || '');
+  const cleanDescription = sanitizePromptInput(description || '');
+
+  let projectContextHeader = '';
+  if (cleanGenre || cleanTone || cleanDescription) {
+    const parts: string[] = [];
+    if (cleanGenre) parts.push(`Thể loại: ${cleanGenre}`);
+    if (cleanTone) parts.push(`Tông giọng: ${cleanTone}`);
+    if (cleanDescription) {
+      const compactDesc = cleanDescription.length > 400 ? `${cleanDescription.slice(0, 400)}...` : cleanDescription;
+      parts.push(`Quy ước đặt tên & xưng hô của truyện: ${compactDesc}`);
+    }
+    projectContextHeader = `--- BỐI CẢNH DỰ ÁN (NEO PHONG CÁCH ĐẶT TÊN) ---\n${parts.join('\n')}\n\n`;
+  }
 
   let exclusionText = '';
-  if (knownChineseTerms.length > 0 && loopIndex > 1) {
+  if (knownGlossaryEntries.length > 0) {
+    const anchorLines = knownGlossaryEntries
+      .slice(0, 150)
+      .map((entry) => {
+        const cn = sanitizePromptInput((entry.chinese || '').trim());
+        const vi = sanitizePromptInput((entry.vietnamese || '').trim());
+        return vi ? `- [${cn}] => [${vi}]` : `- [${cn}]`;
+      })
+      .filter((line) => line.length > 4);
+
+    if (anchorLines.length > 0) {
+      exclusionText =
+        `\n\n--- THUẬT NGỮ ĐÃ BIẾT TRONG TRUYỆN (GIỮ NHẤT QUÁN TÊN GỌI & KHÔNG TRÍCH LẠI KỂ CẢ MẢNH CẮT) ---\n` +
+        `${anchorLines.join('\n')}\n` +
+        (loopIndex > 1
+          ? `ĐÂY LÀ LƯỢT RÀ SOÁT THỨ ${loopIndex}/${totalLoops}. Tuyệt đối BỎ QUA các thuật ngữ đã có trên; tập trung tìm nhân vật phụ, địa danh phụ, chiêu thức/đạo cụ còn sót và giữ chuẩn Hán-Việt đồng bộ.`
+          : `Tuyệt đối KHÔNG trích xuất lại các thuật ngữ đã có trên hoặc mảnh tên cắt ngắn của chúng; hãy dùng đúng quy chuẩn đặt tên và âm Hán-Việt tương ứng cho thực thể mới.`);
+    }
+  } else if (knownChineseTerms.length > 0 && loopIndex > 1) {
     const prioritizedTerms = prioritizeKnownTermsForChapter(text, knownChineseTerms, 150);
     const termList = prioritizedTerms.join(', ');
     exclusionText =
@@ -601,7 +647,11 @@ export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptPa
     LITERARY_TRANSLATION_FRAMING +
     "Bạn là trợ lý phân tích ngôn lý học tiếng Trung chuyên về truyện văn học, kiếm hiệp, thế giới giả tưởng. " +
     "Nhiệm vụ của bạn là đọc kỹ đoạn văn bản tiếng Trung, trích xuất tất cả các tên nhân vật (characters), địa danh quan trọng (locations), bí kíp/vũ khí/thuật ngữ chuyên môn (terms) xuất hiện. " +
-    buildEntityExtractionInstruction('analyze', { loopIndex, totalLoops, hasExclusions: knownChineseTerms.length > 0 });
+    buildEntityExtractionInstruction('analyze', {
+      loopIndex,
+      totalLoops,
+      hasExclusions: knownChineseTerms.length > 0 || knownGlossaryEntries.length > 0,
+    });
 
   const schema = {
     type: "OBJECT",
@@ -615,7 +665,7 @@ export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptPa
     required: ["suggestions"],
   };
 
-  return { systemInstruction, prompt: text + exclusionText, schema };
+  return { systemInstruction, prompt: projectContextHeader + text + exclusionText, schema };
 }
 
 export interface BuildAnalyzeGuidelinesPromptParams {

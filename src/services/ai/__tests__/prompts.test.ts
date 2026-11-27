@@ -467,4 +467,24 @@ describe('AI Prompts Construction Pipeline', () => {
       expect(payload.prompt).toContain('太虚古境');
     });
   });
+
+  describe('Feature 170: Loop-1 Anchor Context & Hardened Anti-Pinyin Scan Prompts', () => {
+    it('injects project genre/tone/description and knownGlossaryEntries on Loop 1 alongside anti-Pinyin rules', () => {
+      const payload = buildAnalyzeGlossaryPayload({
+        text: '钱仓一走进电影院。',
+        genre: 'Kinh Dị / Linh Dị',
+        tone: 'U ám hồi hộp',
+        description: 'Tên người thuần Trung giữ Hán-Việt chuẩn.',
+        knownGlossaryEntries: [{ chinese: '钱仓一', vietnamese: 'Tiền Thương Nhất', isPinned: true }],
+        loopIndex: 1,
+        totalLoops: 1,
+      });
+
+      expect(payload.prompt).toContain('--- BỐI CẢNH DỰ ÁN (NEO PHONG CÁCH ĐẶT TÊN) ---');
+      expect(payload.prompt).toContain('Thể loại: Kinh Dị / Linh Dị');
+      expect(payload.prompt).toContain('- [钱仓一] => [Tiền Thương Nhất]');
+      expect(payload.systemInstruction).toContain("TUYỆT ĐỐI CẤM điền Bính âm");
+      expect(payload.systemInstruction).toContain("giữ nguyên '萬劍歸宗'");
+    });
+  });
 });

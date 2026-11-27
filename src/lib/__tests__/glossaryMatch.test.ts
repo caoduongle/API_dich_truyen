@@ -374,7 +374,20 @@ describe('glossaryMatch (User Story 1 & 2 Foundation)', () => {
       expect(health.conflictItemIds.sort()).toEqual(['g1', 'g2']);
       expect(health.missingProfileCharIds).toEqual(['c1']);
       expect(health.incompleteViIds).toEqual(['inc1']);
+      expect(health.formatIssueIds).toEqual([]);
       expect(health.totalIssueItems).toBe(4);
+    });
+
+    it('detects legacy Pinyin/Han format issues via formatIssueIds without flagging clean entries', () => {
+      const glossary: GlossaryItem[] = [
+        makeItem({ id: 'ok', chinese: '林风', pinyin: 'Lâm Phong', vietnamese: 'Lâm Phong', note: 'Nam chính' }),
+        makeItem({ id: 'bad_pinyin', chinese: '霍尊', pinyin: 'huò zūn', vietnamese: 'Hoắc Tôn', note: 'Nam' }),
+        makeItem({ id: 'bad_han_reading', chinese: '秦局', pinyin: '秦局', vietnamese: 'Cục trưởng Tần', note: 'Cảnh sát' }),
+        makeItem({ id: 'bad_han_note', chinese: '方大泽', pinyin: 'Phương Đại Trạch', vietnamese: 'Phương Đại Trạch', note: 'Đi cùng 李倩' }),
+      ];
+
+      const health = computeGlossaryHealth(glossary);
+      expect(health.formatIssueIds).toEqual(['bad_pinyin', 'bad_han_reading', 'bad_han_note']);
     });
   });
 });

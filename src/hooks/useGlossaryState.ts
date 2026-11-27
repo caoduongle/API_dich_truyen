@@ -600,6 +600,7 @@ export function useGlossaryState({
     if (healthFilter === 'conflicts') return new Set(healthReport.conflictItemIds);
     if (healthFilter === 'missing_profile') return new Set(healthReport.missingProfileCharIds);
     if (healthFilter === 'incomplete') return new Set(healthReport.incompleteViIds);
+    if (healthFilter === 'format_issues') return new Set(healthReport.formatIssueIds ?? []);
     return null;
   }, [healthFilter, healthReport]);
 

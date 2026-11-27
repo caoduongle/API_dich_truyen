@@ -381,4 +381,79 @@ describe('useGlossaryScan Hook Suite (Feature 168)', () => {
 
     hook.unmount();
   });
+
+  it('passes Loop-1 anchors & style context, filters noise/Pinyin via quality gate, and logs 3-metric telemetry', async () => {
+    const chapters = [
+      {
+        id: 'chap_1',
+        title: 'Chương 1',
+        sourceText: '钱仓一看着霍尊，旁边写着A1和电脑。',
+        rawTranslation: '',
+        polishedTranslation: '',
+        paragraphs: [],
+        translatedLines: [],
+        status: 'not_started' as const,
+        createdAt: '2026-11-27T00:00:00Z',
+        updatedAt: '2026-11-27T00:00:00Z',
+      },
+    ];
+    const project: StoryProject = {
+      id: 'proj_f170',
+      title: 'Phim Trường Đào Sinh',
+      author: 'Tác giả',
+      genre: 'Kinh Dị',
+      tone: 'U ám',
+      description: 'Giữ chuẩn Hán-Việt.',
+      glossary: [
+        {
+          id: 'base_1',
+          chinese: '钱仓一',
+          pinyin: 'Tiền Thương Nhất',
+          vietnamese: 'Tiền Thương Nhất',
+          type: 'character',
+          note: 'Nam chính',
+        },
+      ],
+      pendingGlossary: [],
+      chapters: chapters.map(({ id, title, status, createdAt, updatedAt }) => ({
+        id,
+        title,
+        status,
+        createdAt,
+        updatedAt,
+      })),
+      createdAt: '2026-11-27T00:00:00Z',
+    };
+    mockGetChaptersByProjectFromDB.mockResolvedValue(chapters);
+
+    let receivedLoop1Anchors: any[] = [];
+    let receivedGenre = '';
+    mockAnalyzeGlossaryDirect.mockImplementation(async (args) => {
+      receivedLoop1Anchors = args.knownGlossaryEntries || [];
+      receivedGenre = args.genre || '';
+      return {
+        suggestions: [
+          { chinese: '千江月', pinyin: 'Thiên Giang Nguyệt', vietnamese: 'Thiên Giang Nguyệt', type: 'character', note: 'Nữ diễn viên' },
+          { chinese: '霍尊', pinyin: 'huò zūn', vietnamese: 'Hoắc Tôn', type: 'character', note: 'Bính âm lỗi' },
+          { chinese: 'A1', pinyin: 'A1', vietnamese: 'Khu A1', type: 'location', note: 'Mã ngắn' },
+        ],
+        successKeyIndex: 0,
+      };
+    });
+
+    const hook = mountHook(project, 1);
+    await act(async () => {
+      await hook.current.handleAutoExtractGlossary();
+    });
+
+    expect(receivedGenre).toBe('Kinh Dị');
+    expect(receivedLoop1Anchors).toEqual([{ chinese: '钱仓一', vietnamese: 'Tiền Thương Nhất' }]);
+
+    const savedProj = hook.onUpdateProject.mock.calls.at(-1)?.[0] as StoryProject;
+    expect(savedProj.glossary.map((g) => g.chinese)).toEqual(['钱仓一', '千江月']);
+    expect(savedProj.pendingGlossary?.map((p) => p.chinese)).toEqual(['霍尊']);
+    expect(hook.logs.some((l) => l.message.includes('[Tổng kết hậu kiểm] Đã thêm sạch: 1 thuật ngữ | Chuyển chờ duyệt: 1 mục | Đã lọc nhiễu: 1 mục.'))).toBe(true);
+
+    hook.unmount();
+  });
 });

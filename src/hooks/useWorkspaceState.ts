@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from 'react';
-import { StoryProject, GlossaryItem, Chapter, PendingGlossaryItem } from '../types';
+import { StoryProject, GlossaryItem, Chapter } from '../types';
 import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { validateUploadFile } from '../utils/fileValidator';
 import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { useNotifications } from '../context/NotificationContext';
-import { isHanEquivalent } from '../lib/sinoNormalize';
 import { classifyDiscoveredEntitiesForGlossary, countHanChars } from '../lib/glossaryMatch';
+import {
+  classifyScannedGlossaryBatch,
+  evaluateScannedTermCandidate,
+  prioritizeKnownAnchorEntriesForChapter,
+} from '../lib/glossaryScanQuality';
 import {
   buildChapterContinuityContext,
   evaluatePolishRoundFidelity,
@@ -552,17 +556,40 @@ export function useWorkspaceState({
     setSelectedSuggestions({});
 
     try {
+      const knownGlossaryEntries = prioritizeKnownAnchorEntriesForChapter(
+        sourceText,
+        activeProject.glossary,
+        150
+      );
       const data = await analyzeGlossaryDirect({
         text: sourceText,
         apiKeys,
         model: selectedModel,
-        sourceChapterId: currentChapterId || undefined
+        sourceChapterId: currentChapterId || undefined,
+        knownGlossaryEntries,
+        genre: activeProject.genre,
+        tone: activeProject.tone,
+        description: activeProject.description,
       });
 
       if (data.suggestions && Array.isArray(data.suggestions)) {
-        setSuggestions(data.suggestions);
+        const cleanedSuggestions = data.suggestions
+          .map((s: any) => {
+            const evaluation = evaluateScannedTermCandidate({
+              candidate: s,
+              existingGlossary: [],
+              sourceText,
+            });
+            if (evaluation.verdict === 'reject') return null;
+            return {
+              ...s,
+              note: evaluation.cleanedNote,
+            };
+          })
+          .filter(Boolean);
+        setSuggestions(cleanedSuggestions);
         const checks: Record<number, boolean> = {};
-        data.suggestions.forEach((_: any, idx: number) => {
+        cleanedSuggestions.forEach((_: any, idx: number) => {
           checks[idx] = true;
         });
         setSelectedSuggestions(checks);
@@ -584,40 +611,18 @@ export function useWorkspaceState({
   };
 
   const handleImportSuggestions = useCallback(() => {
-    const itemsToAdd: GlossaryItem[] = [];
-    const pendingToAdd: PendingGlossaryItem[] = [];
-    suggestions.forEach((s, idx) => {
-      if (selectedSuggestions[idx]) {
-        const isDuplicate = activeProject.glossary.some(
-          (item) => isHanEquivalent(item.chinese, s.chinese)
-        );
-        if (!isDuplicate) {
-          const itemPayload = {
-            ...s,
-            id: 'glossary_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11),
-            createdAt: new Date().toISOString(),
-            sourceChapterId: currentChapterId || undefined
-          };
-          if (s.needsReview) {
-            pendingToAdd.push({
-              id: 'pend_auto_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-              chinese: s.chinese.trim(),
-              pinyin: s.pinyin?.trim() || '',
-              vietnamese: s.vietnamese.trim(),
-              type: s.type || 'other',
-              note: s.note?.trim() || '',
-              reason: 'AI trích xuất nghi ngờ hallucinate',
-              originalValue: 'Không tìm thấy cụm từ này trong văn bản gốc.',
-              importedAt: new Date().toISOString(),
-              needsReview: true,
-              sourceChapterId: currentChapterId || undefined
-            });
-          } else {
-            itemsToAdd.push(itemPayload);
-          }
-        }
-      }
+    const chosen = suggestions.filter((_, idx) => Boolean(selectedSuggestions[idx]));
+    const batch = classifyScannedGlossaryBatch({
+      candidates: chosen,
+      existingGlossary: activeProject.glossary,
+      existingPendingGlossary: activeProject.pendingGlossary || [],
+      sourceText,
+      chapterId: currentChapterId || undefined,
+      idPrefix: 'ws',
+      defaultOrigin: 'scanned',
     });
+    const itemsToAdd = batch.acceptedItems;
+    const pendingToAdd = batch.reviewItems;
 
     if (itemsToAdd.length === 0 && pendingToAdd.length === 0) {
       showToast({ message: "Không có từ khóa mới hoặc chưa chọn từ khóa nào để lưu.", type: 'warning' });
@@ -638,7 +643,7 @@ export function useWorkspaceState({
       msg += ` Có ${pendingToAdd.length} từ nghi ngờ AI nhận diện sai đã được chuyển vào hàng chờ kiểm duyệt.`;
     }
     showToast({ message: msg, type: 'success' });
-  }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast, currentChapterId]);
+  }, [suggestions, selectedSuggestions, activeProject, onUpdateProject, showToast, currentChapterId, sourceText]);
 
   const resolvePreviousChapterContinuity = async () => {
     if (!currentChapterId) return undefined;

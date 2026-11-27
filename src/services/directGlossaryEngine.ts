@@ -43,6 +43,10 @@ export interface DirectGlossaryCommonParams {
   startKeyIndex?: number;
   signal?: AbortSignal;
   knownChineseTerms?: string[];
+  knownGlossaryEntries?: Array<{ chinese: string; vietnamese: string; isPinned?: boolean }>;
+  genre?: string;
+  tone?: string;
+  description?: string;
   loopIndex?: number;
   totalLoops?: number;
 }
@@ -54,6 +58,10 @@ async function callGlossaryAnalysisDirect(
   const { systemInstruction, prompt, schema } = buildAnalyzeGlossaryPayload({
     text,
     knownChineseTerms: common.knownChineseTerms,
+    knownGlossaryEntries: common.knownGlossaryEntries,
+    genre: common.genre,
+    tone: common.tone,
+    description: common.description,
     loopIndex: common.loopIndex,
     totalLoops: common.totalLoops,
   });

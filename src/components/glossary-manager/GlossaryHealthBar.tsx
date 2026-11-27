@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, AlertTriangle, CheckCircle2, FileWarning, UserCog, X } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, FileWarning, SpellCheck, UserCog, X } from 'lucide-react';
 import { GlossaryHealthFilter, GlossaryHealthReport } from '../../lib/glossaryMatch';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -23,6 +23,7 @@ export const GlossaryHealthBar = React.memo(function GlossaryHealthBar({
   }
 
   const { conflictGroupCount, missingProfileCharIds, incompleteViIds, totalIssueItems } = healthReport;
+  const formatIssueIds = healthReport.formatIssueIds ?? [];
   const isHealthy = totalIssueItems === 0;
 
   const toggleFilter = (target: GlossaryHealthFilter) => {
@@ -101,6 +102,25 @@ export const GlossaryHealthBar = React.memo(function GlossaryHealthBar({
                 <FileWarning className="w-3 h-3" />
                 <span>Thiếu nghĩa Việt</span>
                 <span className="font-mono font-bold">({incompleteViIds.length})</span>
+              </button>
+            )}
+
+            {formatIssueIds.length > 0 && (
+              <button
+                type="button"
+                id="btn-health-filter-format-issues"
+                onClick={() => toggleFilter('format_issues')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-2 py-1 rounded-[2px] border text-[11px] font-medium transition-colors cursor-pointer',
+                  healthFilter === 'format_issues'
+                    ? 'bg-polish text-white border-polish'
+                    : 'bg-amber-950/30 text-amber-300 border-amber-800/45 hover:border-amber-600'
+                )}
+                title="Lọc các mục nghi ngờ còn Bính âm tiếng Phổ thông hoặc chữ Hán trong cột Phiên âm / Ghi chú"
+              >
+                <SpellCheck className="w-3 h-3" />
+                <span>Lỗi phiên âm / ghi chú</span>
+                <span className="font-mono font-bold">({formatIssueIds.length})</span>
               </button>
             )}
           </div>

@@ -53,13 +53,15 @@ export interface MatchedGlossarySpan<T extends GlossaryEntryLike = GlossaryItem>
   endIndex: number;
 }
 
-export type GlossaryHealthFilter = 'all' | 'conflicts' | 'missing_profile' | 'incomplete';
+export type GlossaryHealthFilter = 'all' | 'conflicts' | 'missing_profile' | 'incomplete' | 'format_issues';
 
 export interface GlossaryHealthReport {
   conflictGroupCount: number;
   conflictItemIds: string[];
   missingProfileCharIds: string[];
   incompleteViIds: string[];
+  /** ID các mục có cột phiên âm nghi ngờ Bính âm/chữ Hán hoặc ghi chú còn lẫn chữ Hán */
+  formatIssueIds?: string[];
   totalIssueItems: number;
 }
 
@@ -1041,6 +1043,51 @@ export function prioritizeKnownTermsForChapter(
   return [...matched, ...pinned, ...rest].slice(0, maxLimit);
 }
 
+const STRICT_PINYIN_TONE_RE = /[āǎēěīǐōǒūǔǖǘǚǜĀǍĒĚĪǏŌǑŪǓǕǗǙǛ]/;
+const VIETNAMESE_EXCLUSIVE_CHAR_RE = /[ăâđêôơưĂÂĐÊÔƠƯảãạắằẳẵặấầẩẫậẻẽẹếềểễệỉĩịỏõọốồổỗộớờởỡợủũụứừửữựỳỷỹỵẢÃẠẮẰẲẴẶẤẦẨẪẬẺẼẸẾỀỂỄỆỈĨỊỎÕỌỐỒỔỖỘỚỜỞỠỢỦŨỤỨỪỬỮỰỲỶỸỴ]/;
+const PINYIN_UNTONED_TOKEN_RE =
+  /^(?:zh(?:ang|eng|ong|ou|uai|uan|uang|ui|un|uo|a|e|i|u)|ch(?:eng|ou|uai|uan|uang|uo)|sh(?:uang|uai|ui|uo)|q(?:iang|iao|iong|ian|ie|in|ing|iu|ue|un|i)|x(?:iang|iao|iong|ian|ie|ing|uan|ue|un)|j(?:iang|iao|iong|ian|ie|ing|iu|uan|ue|un|ichang)|yu(?:an|e|n)?|z(?:ai|ao|ei|en|eng|ong|ou|un|uo)|qicheng|yiyuan|weier|diannao|wangba|ceshi|rengong|tuling|shenme|women|nimen|tamen)$/i;
+const PINYIN_SECOND_FOURTH_TONE_SYLLABLE_RE =
+  /^(?:zh|sh|j|z|w|q(?=[iíì]))[a-z]*[áàéèíìóòúù][a-z]*$/i;
+
+/**
+ * Kiểm tra chuỗi có chứa ký tự chữ Hán hay không (FR-003, FR-010).
+ */
+export function containsHanChars(text?: string | null): boolean {
+  if (typeof text !== 'string' || !text) return false;
+  return HAN_CHAR_REGEX.test(text);
+}
+
+/**
+ * Phát hiện chuỗi Bính âm tiếng Phổ thông (có dấu thanh Bính âm hoặc tổ hợp âm tiết Bính âm đặc trưng).
+ * Tránh gắn nhầm trên tiếng Việt thuần (có dấu ă/â/đ/ê/ô/ơ/ư/hỏi/ngã/nặng) và tên phương Tây hợp lệ.
+ */
+export function detectMandarinPinyin(text?: string | null): boolean {
+  if (typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+
+  if (STRICT_PINYIN_TONE_RE.test(trimmed)) {
+    return true;
+  }
+
+  const tokens = trimmed.split(/[\s·•.,\-_'"/()]+/).filter(Boolean);
+  for (const token of tokens) {
+    if (VIETNAMESE_EXCLUSIVE_CHAR_RE.test(token)) {
+      continue;
+    }
+    if (PINYIN_SECOND_FOURTH_TONE_SYLLABLE_RE.test(token)) {
+      return true;
+    }
+    const bare = token.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (PINYIN_UNTONED_TOKEN_RE.test(bare)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Chẩn đoán sức khỏe bộ từ điển hiện tại của truyện (FR-010).
  * Tái dùng `resolveGlossaryConflicts` để bảo đảm nhất quán 100% với luồng dịch.
@@ -1052,6 +1099,7 @@ export function computeGlossaryHealth(glossary: GlossaryEntryLike[]): GlossaryHe
       conflictItemIds: [],
       missingProfileCharIds: [],
       incompleteViIds: [],
+      formatIssueIds: [],
       totalIssueItems: 0,
     };
   }
@@ -1067,6 +1115,7 @@ export function computeGlossaryHealth(glossary: GlossaryEntryLike[]): GlossaryHe
 
   const missingProfileCharIds: string[] = [];
   const incompleteViIds: string[] = [];
+  const formatIssueIds: string[] = [];
 
   for (const item of glossary) {
     if (!item || !item.id) continue;
@@ -1081,12 +1130,22 @@ export function computeGlossaryHealth(glossary: GlossaryEntryLike[]): GlossaryHe
         missingProfileCharIds.push(item.id);
       }
     }
+    const hasReadingIssue = containsHanChars(item.pinyin) || detectMandarinPinyin(item.pinyin);
+    const hasNoteHanLeak = containsHanChars(item.note);
+    const hasPinyinInVietnamese =
+      containsHanChars(item.chinese) &&
+      (STRICT_PINYIN_TONE_RE.test((item.vietnamese || '').trim()) ||
+        (hasReadingIssue && detectMandarinPinyin(item.vietnamese)));
+    if (hasReadingIssue || hasNoteHanLeak || hasPinyinInVietnamese) {
+      formatIssueIds.push(item.id);
+    }
   }
 
   const unionIds = new Set<string>([
     ...conflictIdSet,
     ...missingProfileCharIds,
     ...incompleteViIds,
+    ...formatIssueIds,
   ]);
 
   return {
@@ -1094,6 +1153,7 @@ export function computeGlossaryHealth(glossary: GlossaryEntryLike[]): GlossaryHe
     conflictItemIds: Array.from(conflictIdSet),
     missingProfileCharIds,
     incompleteViIds,
+    formatIssueIds,
     totalIssueItems: unionIds.size,
   };
 }
