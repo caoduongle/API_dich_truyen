@@ -4,11 +4,10 @@ import { parseTxtContent, parseEpubFile } from '../utils/fileParser';
 import { validateUploadFile } from '../utils/fileValidator';
 import { getChapterFromDB, saveChapterToDB } from '../services/db';
 import { useNotifications } from '../context/NotificationContext';
-import { classifyDiscoveredEntitiesForGlossary, countHanChars } from '../lib/glossaryMatch';
+import { classifyDiscoveredEntitiesForGlossary, countHanChars, filterGlossaryForChapter } from '../lib/glossaryMatch';
 import {
   classifyScannedGlossaryBatch,
   evaluateScannedTermCandidate,
-  prioritizeKnownAnchorEntriesForChapter,
 } from '../lib/glossaryScanQuality';
 import {
   buildChapterContinuityContext,
@@ -28,6 +27,7 @@ import type { QualityIssue } from '../types/hakoChecker';
 import type { UnifiedAuditIssue } from '../types/audit';
 import { analyzeGlossaryDirect } from '../services/directGlossaryEngine';
 import { GLOSSARY_LIMITS } from '../config/constants';
+import { hasActiveAICredentials } from '../utils/aiProviderStorage';
 import { useChapterCRDT } from './useChapterCRDT';
 import { googleAuthService } from '../services/googleAuthService';
 import { CHINESE_EXAMPLES } from '../data/examples';
@@ -541,7 +541,7 @@ export function useWorkspaceState({
   }, [activeProject, onUpdateProject]);
 
   const handleAnalyzeGlossary = async () => {
-    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    const hasValidKeys = hasActiveAICredentials(apiKeys);
     if (!hasValidKeys) {
       setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để phân tích.");
       return;
@@ -556,11 +556,15 @@ export function useWorkspaceState({
     setSelectedSuggestions({});
 
     try {
-      const knownGlossaryEntries = prioritizeKnownAnchorEntriesForChapter(
-        sourceText,
-        activeProject.glossary,
-        150
-      );
+      const knownGlossaryEntries = filterGlossaryForChapter(sourceText, activeProject.glossary, {
+        includePinned: false,
+      })
+        .matchedInSource.slice(0, 150)
+        .map((item) => ({
+          chinese: item.chinese,
+          vietnamese: item.vietnamese || '',
+          ...(item.isPinned ? { isPinned: true } : {}),
+        }));
       const data = await analyzeGlossaryDirect({
         text: sourceText,
         apiKeys,
@@ -659,7 +663,7 @@ export function useWorkspaceState({
   };
 
   const handleTranslateRaw = async () => {
-    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    const hasValidKeys = hasActiveAICredentials(apiKeys);
     if (!hasValidKeys) {
       setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để thực hiện dịch thuật.");
       return;
@@ -724,7 +728,7 @@ export function useWorkspaceState({
   };
 
   const handlePolishTranslation = async () => {
-    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    const hasValidKeys = hasActiveAICredentials(apiKeys);
     if (!hasValidKeys) {
       setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để thực hiện chuốt văn.");
       return;
@@ -836,7 +840,7 @@ export function useWorkspaceState({
    * Kích hoạt kiểm định chất lượng AI QA Critique thủ công theo yêu cầu người dùng
    */
   const handleRunAiQaCritique = async () => {
-    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    const hasValidKeys = hasActiveAICredentials(apiKeys);
     if (!hasValidKeys) {
       setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để kiểm duyệt.");
       showToast({ message: "Vui lòng cấu hình API Key để thực hiện kiểm duyệt AI.", type: 'warning' });
@@ -915,7 +919,7 @@ export function useWorkspaceState({
    * Sửa có mục tiêu tối đa 1 lượt đối với các lỗi nghiêm trọng có paragraphIndex
    */
   const handleRepairCriticalQaIssues = async () => {
-    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+    const hasValidKeys = hasActiveAICredentials(apiKeys);
     if (!hasValidKeys) {
       setErrorMessage("Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để sửa lỗi.");
       showToast({ message: "Vui lòng cấu hình API Key để thực hiện sửa lỗi mục tiêu.", type: 'warning' });

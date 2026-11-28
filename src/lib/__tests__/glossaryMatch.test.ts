@@ -3,6 +3,7 @@ import {
   normalizeCharacterProfile,
   resolveGlossaryConflicts,
   selectRelevantGlossary,
+  filterGlossaryForChapter,
   substituteGlossaryTermsSafely,
   mergeGlossaryPreservingProfiles,
   classifyDiscoveredEntitiesForGlossary,
@@ -388,6 +389,80 @@ describe('glossaryMatch (User Story 1 & 2 Foundation)', () => {
 
       const health = computeGlossaryHealth(glossary);
       expect(health.formatIssueIds).toEqual(['bad_pinyin', 'bad_han_reading', 'bad_han_note']);
+    });
+  });
+
+  describe('Feature 174: filterGlossaryForChapter (strict per-chapter glossary filtering)', () => {
+    it('filters 577-entry glossary (including 120 unmentioned pinned entries) down to strictly matched items by default', () => {
+      const filler559: GlossaryItem[] = Array.from({ length: 559 }, (_, idx) =>
+        makeItem({
+          id: `unused_${idx}`,
+          chinese: `无关术语${idx}`,
+          vietnamese: `Thuật ngữ ngoài chương ${idx}`,
+          type: idx % 2 === 0 ? 'character' : 'term',
+          isPinned: idx < 120,
+        })
+      );
+
+      const matched18: GlossaryItem[] = [
+        makeItem({
+          id: 'match_trad',
+          chinese: '萧炎',
+          vietnamese: 'Tiêu Viêm',
+          variants: ['小炎子'],
+          isPinned: true,
+        }),
+        makeItem({
+          id: 'match_variant',
+          chinese: '青云宗',
+          vietnamese: 'Thanh Vân Tông',
+          variants: ['青雲古宗'],
+          type: 'location',
+        }),
+        ...Array.from({ length: 16 }, (_, idx) =>
+          makeItem({
+            id: `match_${idx}`,
+            chinese: `出场词${idx}`,
+            vietnamese: `Từ xuất hiện ${idx}`,
+            type: 'term',
+          })
+        ),
+      ];
+
+      const fullGlossary = [...filler559, ...matched18];
+      expect(fullGlossary).toHaveLength(577);
+
+      const sourceText =
+        '蕭炎与小炎子踏入青雲古宗。' +
+        Array.from({ length: 16 }, (_, idx) => `出场词${idx}`).join('，');
+
+      const strictResult = filterGlossaryForChapter(sourceText, fullGlossary);
+      expect(strictResult.totalCount).toBe(577);
+      expect(strictResult.filteredCount).toBe(18);
+      expect(strictResult.entries).toHaveLength(18);
+      expect(strictResult.matchedInSource).toHaveLength(18);
+      expect(strictResult.entries.some((e) => e.id.startsWith('unused_'))).toBe(false);
+
+      // Opt-in includePinned appends unmentioned pinned entries up to maxPinned
+      const optInResult = filterGlossaryForChapter(sourceText, fullGlossary, {
+        includePinned: true,
+        maxPinned: 5,
+      });
+      expect(optInResult.matchedInSource).toHaveLength(18);
+      expect(optInResult.filteredCount).toBe(23);
+    });
+
+    it('returns empty entries without inserting off-chapter terms when chapter matches zero entries', () => {
+      const glossary: GlossaryItem[] = [
+        makeItem({ id: 'p1', chinese: '林动', vietnamese: 'Lâm Động', isPinned: true }),
+        makeItem({ id: 'p2', chinese: '大千世界', vietnamese: 'Đại Thiên Thế Giới', type: 'location' }),
+      ];
+
+      const res = filterGlossaryForChapter('今天天气真好，微风拂面。', glossary);
+      expect(res.totalCount).toBe(2);
+      expect(res.filteredCount).toBe(0);
+      expect(res.entries).toEqual([]);
+      expect(res.matchedInSource).toEqual([]);
     });
   });
 });

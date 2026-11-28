@@ -3,16 +3,16 @@ import { StoryProject, GlossaryItem, ChapterMetadata } from '../types';
 import { getChaptersByProjectFromDB } from '../services/db';
 import { LogEntry } from './useAutoTranslationQueue';
 import { useNotifications } from '../context/NotificationContext';
-import { prioritizeKnownTermsForChapter } from '../lib/glossaryMatch';
+import { filterGlossaryForChapter } from '../lib/glossaryMatch';
 import {
   classifyScannedGlossaryBatch,
-  prioritizeKnownAnchorEntriesForChapter,
 } from '../lib/glossaryScanQuality';
 import { analyzeGlossaryDirect } from '../services/directGlossaryEngine';
 import { inspectKeyPoolCooldown } from '../services/gemini/geminiKeyScheduler';
 import { RATE_LIMIT_RECOVERY_CONFIG } from '../config/constants';
 import { getDynamicPacingInterval } from '../utils/modelRegistry';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
+import { getStoredAIProviderConfig, hasActiveAICredentials } from '../utils/aiProviderStorage';
 
 function createAbortError(message = 'Người dùng đã dừng tiến trình quét thuật ngữ.'): Error {
   const err = new Error(message);
@@ -159,10 +159,14 @@ export function useGlossaryScan({
       return;
     }
 
-    const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
-    if (!hasValidKeys) {
-      showToast({ message: "Vui lòng thêm ít nhất một Gemini API Key cá nhân trong Cấu hình AI để quét từ điển!", type: 'error' });
-      addLog("LỖI: Chưa cấu hình API Key cá nhân. Bắt buộc cần có key để thực hiện quét từ điển.", "error");
+    const providerConfig = getStoredAIProviderConfig();
+    const isOpenAIMode = providerConfig.providerMode === 'openai-compatible';
+    if (!hasActiveAICredentials(apiKeys)) {
+      const msg = isOpenAIMode
+        ? "Vui lòng kiểm tra cấu hình OpenAI-compatible (Base URL / API Key) trong Cấu hình AI để quét từ điển!"
+        : "Vui lòng thêm ít nhất một Gemini API Key cá nhân trong Cấu hình AI để quét từ điển!";
+      showToast({ message: msg, type: 'error' });
+      addLog(`LỖI: ${msg}`, "error");
       return;
     }
 
@@ -217,8 +221,8 @@ export function useGlossaryScan({
           const chap = chaptersMap.get(chapMeta.id);
           if (!chap) continue;
 
-          // Giãn nhịp chủ động giữa các chương để hạn chế chạm trần 15 RPM của gói miễn phí
-          if (hasDispatchedChapterCall) {
+          // Giãn nhịp chủ động giữa các chương để hạn chế chạm trần 15 RPM của gói miễn phí Gemini
+          if (!isOpenAIMode && hasDispatchedChapterCall && cleanKeys.length > 0) {
             const customLimits = getStoredCustomLimits(cleanKeys);
             const firstCustomRpm = Object.values(customLimits).find(
               (lim) => typeof lim?.maxRpm === 'number' && lim.maxRpm > 0
@@ -242,31 +246,33 @@ export function useGlossaryScan({
             }
           }
 
-          // Kiểm tra trạng thái pool key trước khi gọi: nếu toàn bộ key đang tạm nghỉ RPM thì chờ phục hồi tại chỗ
-          const preCheckPool = inspectKeyPoolCooldown(cleanKeys, getStoredCustomLimits(cleanKeys));
-          if (preCheckPool.availableKeyIndex === -1) {
-            if (preCheckPool.hasRecoverableCooldown && preCheckPool.minCooldownRemainingMs > 0) {
-              const waitMs = preCheckPool.minCooldownRemainingMs + 50;
-              addLog(
-                `[Chờ RPM] Toàn bộ khóa đang tạm nghỉ RPM — Tạm chờ hồi phục (~${Math.ceil(waitMs / 1000)}s) trước khi quét chương [${chap.title}]...`,
-                'warn'
-              );
-              try {
-                await waitForCooldownWithAbort(waitMs, abortControllerRef.current?.signal);
-              } catch {
-                isStopScanRequestedRef.current = true;
+          // Kiểm tra trạng thái pool key trước khi gọi Gemini: nếu toàn bộ key đang tạm nghỉ RPM thì chờ phục hồi tại chỗ
+          if (!isOpenAIMode && cleanKeys.length > 0) {
+            const preCheckPool = inspectKeyPoolCooldown(cleanKeys, getStoredCustomLimits(cleanKeys));
+            if (preCheckPool.availableKeyIndex === -1) {
+              if (preCheckPool.hasRecoverableCooldown && preCheckPool.minCooldownRemainingMs > 0) {
+                const waitMs = preCheckPool.minCooldownRemainingMs + 50;
+                addLog(
+                  `[Chờ RPM] Toàn bộ khóa đang tạm nghỉ RPM — Tạm chờ hồi phục (~${Math.ceil(waitMs / 1000)}s) trước khi quét chương [${chap.title}]...`,
+                  'warn'
+                );
+                try {
+                  await waitForCooldownWithAbort(waitMs, abortControllerRef.current?.signal);
+                } catch {
+                  isStopScanRequestedRef.current = true;
+                  break;
+                }
+              } else if (preCheckPool.allPermanentlyExhausted) {
+                stoppedDueToQuota = true;
+                for (const rem of scopedChaps.slice(i)) {
+                  if (!newlyFailedIds.includes(rem.id)) newlyFailedIds.push(rem.id);
+                }
+                addLog(
+                  `Dừng quét thuật ngữ tại chương [${chap.title}] (${i + 1}/${scopedChaps.length}) do toàn bộ API Key đã hết hạn mức quota.`,
+                  'error'
+                );
                 break;
               }
-            } else if (preCheckPool.allPermanentlyExhausted) {
-              stoppedDueToQuota = true;
-              for (const rem of scopedChaps.slice(i)) {
-                if (!newlyFailedIds.includes(rem.id)) newlyFailedIds.push(rem.id);
-              }
-              addLog(
-                `Dừng quét thuật ngữ tại chương [${chap.title}] (${i + 1}/${scopedChaps.length}) do toàn bộ API Key đã hết hạn mức quota.`,
-                'error'
-              );
-              break;
             }
           }
 
@@ -283,13 +289,16 @@ export function useGlossaryScan({
             try {
               hasDispatchedChapterCall = true;
               const chapterInputText = `${chap.title}\n\n${chap.sourceText}`;
+              const matchedKnown = filterGlossaryForChapter(chapterInputText, updatedGlossary, {
+                includePinned: false,
+              }).matchedInSource;
               const knownChineseTerms =
-                loop > 1 ? prioritizeKnownTermsForChapter(chapterInputText, updatedGlossary, 150) : [];
-              const knownGlossaryEntries = prioritizeKnownAnchorEntriesForChapter(
-                chapterInputText,
-                updatedGlossary,
-                150
-              );
+                loop > 1 ? matchedKnown.map((item) => item.chinese).slice(0, 150) : [];
+              const knownGlossaryEntries = matchedKnown.slice(0, 150).map((item) => ({
+                chinese: item.chinese,
+                vietnamese: item.vietnamese || '',
+                ...(item.isPinned ? { isPinned: true } : {}),
+              }));
               const data = await analyzeGlossaryDirect({
                 text: chapterInputText,
                 apiKeys,

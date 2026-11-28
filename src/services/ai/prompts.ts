@@ -9,12 +9,12 @@ import {
 import { GENRE_PROFILES, TONE_PROFILES } from '../../config/translationStyles';
 import {
   GroupedGlossarySections,
+  filterGlossaryForChapter,
   groupGlossaryByRole,
   normalizeCharacterProfile,
-  prioritizeKnownTermsForChapter,
-  selectRelevantGlossary,
   substituteGlossaryTermsSafely,
 } from '../../lib/glossaryMatch';
+import { getIncludePinnedGlossaryPreference } from '../../utils/aiProviderStorage';
 import { buildEntityExtractionInstruction, buildEntitySchema } from './glossaryPrompts';
 import { encodeAnchoredParagraphs } from '../translation/paragraphAnchor';
 import { ContinuityContext, DirectQaCritiqueIssue } from "../translation/types";
@@ -42,6 +42,7 @@ export interface BuildRawTranslationPromptParams {
   isRetry?: boolean;
   useParagraphAnchors?: boolean;
   continuity?: ContinuityContext;
+  includePinnedGlossary?: boolean;
 }
 
 export interface BuildPolishTranslationPromptParams {
@@ -58,6 +59,7 @@ export interface BuildPolishTranslationPromptParams {
   useParagraphAnchors?: boolean;
   complianceIssuesToFix?: DirectQaCritiqueIssue[];
   continuity?: ContinuityContext;
+  includePinnedGlossary?: boolean;
 }
 
 export interface BuildQaCritiquePromptParams {
@@ -67,6 +69,7 @@ export interface BuildQaCritiquePromptParams {
   tone?: string;
   description?: string;
   glossary?: GlossaryEntry[];
+  includePinnedGlossary?: boolean;
 }
 
 function buildInstructionPriorityBlock(stageHeading: string, priority3Line: string): string {
@@ -202,7 +205,12 @@ export function buildRawTranslationPayload(params: BuildRawTranslationPromptPara
 
   const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
 
-  const { entries: relevantGlossary, matchedInSource } = selectRelevantGlossary(glossaryLookupText, sanitizedGlossary);
+  const includePinned = params.includePinnedGlossary ?? getIncludePinnedGlossaryPreference();
+  const { entries: relevantGlossary, matchedInSource } = filterGlossaryForChapter(
+    glossaryLookupText,
+    sanitizedGlossary,
+    { includePinned }
+  );
 
   let glossaryStr = "";
   if (sanitizedGlossary.length === 0) {
@@ -353,9 +361,11 @@ export function buildPolishTranslationPayload(params: BuildPolishTranslationProm
   const cleanRawTranslation = sanitizePromptInput(rawTranslation);
 
   const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
-  const { entries: relevantGlossary, matchedInSource } = selectRelevantGlossary(
+  const includePinned = params.includePinnedGlossary ?? getIncludePinnedGlossaryPreference();
+  const { entries: relevantGlossary, matchedInSource } = filterGlossaryForChapter(
     cleanSourceText,
-    sanitizedGlossary
+    sanitizedGlossary,
+    { includePinned }
   );
 
   const {
@@ -512,7 +522,12 @@ export function buildQaCritiquePayload(params: BuildQaCritiquePromptParams) {
   let glossarySection = "";
   const sanitizedGlossary = sanitizeGlossaryEntries(glossary);
   if (sanitizedGlossary.length > 0) {
-    const { entries: relevantGlossary, matchedInSource } = selectRelevantGlossary(sourceText, sanitizedGlossary);
+    const includePinned = params.includePinnedGlossary ?? getIncludePinnedGlossaryPreference();
+    const { entries: relevantGlossary, matchedInSource } = filterGlossaryForChapter(
+      sourceText,
+      sanitizedGlossary,
+      { includePinned }
+    );
     const checkableRelevant = relevantGlossary.filter((g) => g.chinese && g.vietnamese);
     const checkableMatched = matchedInSource.filter((g) => g.chinese && g.vietnamese);
     const glossaryLines = formatRoleGroupedGlossarySections(
@@ -661,7 +676,17 @@ export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptPa
 
   let exclusionText = '';
   if (knownGlossaryEntries.length > 0) {
-    const anchorLines = knownGlossaryEntries
+    const matchedKnownEntries = filterGlossaryForChapter(
+      text,
+      knownGlossaryEntries.map((entry) => ({
+        chinese: (entry.chinese || '').trim(),
+        vietnamese: (entry.vietnamese || '').trim(),
+        isPinned: entry.isPinned,
+      })),
+      { includePinned: false }
+    ).matchedInSource;
+
+    const anchorLines = matchedKnownEntries
       .slice(0, 150)
       .map((entry) => {
         const cn = sanitizePromptInput((entry.chinese || '').trim());
@@ -679,12 +704,20 @@ export function buildAnalyzeGlossaryPayload(params: BuildAnalyzeGlossaryPromptPa
           : `Tuyệt đối KHÔNG trích xuất lại các thuật ngữ đã có trên hoặc mảnh tên cắt ngắn của chúng; hãy dùng đúng quy chuẩn đặt tên và âm Hán-Việt tương ứng cho thực thể mới.`);
     }
   } else if (knownChineseTerms.length > 0 && loopIndex > 1) {
-    const prioritizedTerms = prioritizeKnownTermsForChapter(text, knownChineseTerms, 150);
-    const termList = prioritizedTerms.join(', ');
-    exclusionText =
-      `\n\n--- DANH SÁCH THUẬT NGỮ ĐÃ CÓ / ĐÃ QUÉT ĐƯỢC (BỎ QUA KHÔNG TRÍCH XUẤT LẠI) ---\n` +
-      `${termList}\n` +
-      `ĐÂY LÀ LƯỢT RÀ SOÁT THỨ ${loopIndex}/${totalLoops}. Tuyệt đối BỎ QUA các thuật ngữ đã có trong danh sách trên. Hãy tập trung rà soát sâu để tìm ra các tên riêng nhân vật phụ, địa danh phụ, chiêu thức võ công/pháp thuật bị bỏ sót trong văn bản gốc.`;
+    const matchedKnownTerms = filterGlossaryForChapter(
+      text,
+      knownChineseTerms.map((term) => ({ chinese: String(term || '').trim(), vietnamese: '' })),
+      { includePinned: false }
+    )
+      .matchedInSource.map((item) => item.chinese)
+      .slice(0, 150);
+    if (matchedKnownTerms.length > 0) {
+      const termList = matchedKnownTerms.join(', ');
+      exclusionText =
+        `\n\n--- DANH SÁCH THUẬT NGỮ ĐÃ CÓ / ĐÃ QUÉT ĐƯỢC (BỎ QUA KHÔNG TRÍCH XUẤT LẠI) ---\n` +
+        `${termList}\n` +
+        `ĐÂY LÀ LƯỢT RÀ SOÁT THỨ ${loopIndex}/${totalLoops}. Tuyệt đối BỎ QUA các thuật ngữ đã có trong danh sách trên. Hãy tập trung rà soát sâu để tìm ra các tên riêng nhân vật phụ, địa danh phụ, chiêu thức võ công/pháp thuật bị bỏ sót trong văn bản gốc.`;
+    }
   }
 
   const systemInstruction =

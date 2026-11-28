@@ -29,16 +29,23 @@ export type { DirectGeminiResponse, GeminiSafetySetting, GeminiWaitStatusInfo };
 import { formatGeminiNetworkError } from './gemini/geminiTransport';
 import { callGemini } from './gemini/geminiClient';
 import { GeminiRequestError } from './gemini/types';
+import { getStoredAIProviderConfig } from '../utils/aiProviderStorage';
+import { callOpenAICompatible } from './openai/openaiClient';
 
 export { formatGeminiNetworkError, GeminiRequestError };
 
 /**
- * Gọi trực tiếp REST API của Google Gemini từ trình duyệt người dùng với API key cá nhân
- * (Facade chuyển tiếp tới mô-đun hóa src/services/gemini/geminiClient.ts)
+ * Cổng điều phối AI dùng chung từ trình duyệt người dùng:
+ * - Mặc định `'gemini'`: gọi Google Gemini qua src/services/gemini/geminiClient.ts (giữ nguyên 100%).
+ * - Khi bật `'openai-compatible'`: chuyển tiếp sang src/services/openai/openaiClient.ts (/v1/chat/completions).
  */
 export async function callGeminiDirect(
   options: DirectGeminiRequestOptions
 ): Promise<DirectGeminiResponse> {
+  const providerConfig = getStoredAIProviderConfig();
+  if (providerConfig.providerMode === 'openai-compatible') {
+    return callOpenAICompatible(options);
+  }
   return callGemini(options);
 }
 

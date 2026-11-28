@@ -425,18 +425,20 @@ describe('AI Prompts Construction Pipeline', () => {
       ];
 
       const source = '晴儿站在青云宗山门前。';
-      const raw = buildRawTranslationPayload({ text: source, genre: 'Tiên Hiệp', tone: 'Hào sảng', glossary: richGlossary });
+      const raw = buildRawTranslationPayload({ text: source, genre: 'Tiên Hiệp', tone: 'Hào sảng', glossary: richGlossary, includePinnedGlossary: true });
       const polish = buildPolishTranslationPayload({
         sourceText: source,
         rawTranslation: 'Tô Tình đứng trước sơn môn Thanh Vân Tông.',
         genre: 'Tiên Hiệp',
         tone: 'Hào sảng',
         glossary: richGlossary,
+        includePinnedGlossary: true,
       });
       const qa = buildQaCritiquePayload({
         sourceText: source,
         translatedText: 'Tô Tình đứng trước sơn môn Thanh Vân Tông.',
         glossary: richGlossary,
+        includePinnedGlossary: true,
       });
 
       for (const payload of [raw, polish, qa]) {
@@ -554,6 +556,67 @@ describe('AI Prompts Construction Pipeline', () => {
 
       expect(payload.prompt).toContain('[DANH SÁCH LỖI CẦN SỬA NGAY TỪ DỊCH THÔ (1 mục)]');
       expect(payload.prompt).toContain('Bắt buộc dùng [天马] = "Thiên Mã"');
+    });
+  });
+
+  describe('Feature 174: Strict Per-Chapter Glossary Filtering across All Pipeline Prompts', () => {
+    it('excludes off-chapter pinned and unpinned entries by default across Raw, Polish, and QA on a 577-entry glossary', () => {
+      const glossary577 = [
+        ...Array.from({ length: 575 }, (_, i) => ({
+          chinese: `无关词${i}`,
+          vietnamese: `Ngoài chương ${i}`,
+          type: 'term',
+          isPinned: i < 100,
+        })),
+        { chinese: '钱仓一', vietnamese: 'Tiền Thương Nhất', type: 'character', isPinned: true },
+        { chinese: '地狱电影院', vietnamese: 'Địa Ngục Điện Ảnh Viện', type: 'location' },
+      ];
+
+      const src = '钱仓一走进了地狱电影院。';
+      const raw = buildRawTranslationPayload({ text: src, genre: 'Kinh Dị', tone: 'U ám', glossary: glossary577 });
+      const polish = buildPolishTranslationPayload({
+        sourceText: src,
+        rawTranslation: 'Tiền Thương Nhất bước vào Địa Ngục Điện Ảnh Viện.',
+        genre: 'Kinh Dị',
+        tone: 'U ám',
+        glossary: glossary577,
+      });
+      const qa = buildQaCritiquePayload({
+        sourceText: src,
+        translatedText: 'Tiền Thương Nhất bước vào Địa Ngục Điện Ảnh Viện.',
+        glossary: glossary577,
+      });
+
+      for (const payload of [raw, polish, qa]) {
+        expect(payload.prompt).toContain('钱仓一');
+        expect(payload.prompt).toContain('地狱电影院');
+        expect(payload.prompt).not.toContain('Ngoài chương 0');
+        expect(payload.prompt).not.toContain('无关词50');
+      }
+      expect(polish.prompt).not.toContain('[TỪ ĐIỂN GHIM BẮT BUỘC');
+    });
+
+    it('filters knownGlossaryEntries and knownChineseTerms strictly to chapter-present entries in buildAnalyzeGlossaryPayload', () => {
+      const payloadWithEntries = buildAnalyzeGlossaryPayload({
+        text: '玄天剑尊踏入太虚古境。',
+        knownGlossaryEntries: [
+          { chinese: '玄天剑尊', vietnamese: 'Huyền Thiên Kiếm Tôn', isPinned: true },
+          { chinese: '无关人物甲', vietnamese: 'Nhân vật ngoài chương', isPinned: true },
+        ],
+      });
+      expect(payloadWithEntries.prompt).toContain('玄天剑尊');
+      expect(payloadWithEntries.prompt).not.toContain('无关人物甲');
+
+      const payloadWithTerms = buildAnalyzeGlossaryPayload({
+        text: '玄天剑尊踏入太虚古境。',
+        knownChineseTerms: ['无关术语1', '玄天剑尊', '太虚古境', '无关术语2'],
+        loopIndex: 2,
+        totalLoops: 2,
+      });
+      expect(payloadWithTerms.prompt).toContain('玄天剑尊');
+      expect(payloadWithTerms.prompt).toContain('太虚古境');
+      expect(payloadWithTerms.prompt).not.toContain('无关术语1');
+      expect(payloadWithTerms.prompt).not.toContain('无关术语2');
     });
   });
 });

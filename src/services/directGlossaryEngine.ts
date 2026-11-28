@@ -26,6 +26,7 @@ import { validateAndSnapBackEntities, isHanEquivalent } from '../lib/sinoNormali
 import { parseGlossaryFromMd } from '../lib/parser';
 import { mapWithConcurrencyLimit } from '../lib/concurrency';
 import { GLOSSARY_LIMITS } from '../config/constants';
+import { hasActiveAICredentials } from '../utils/aiProviderStorage';
 import { extractGuidelinesProseSection, parseGuidelinesMarkdownLocal } from '../config/translationStyles';
 
 const { MAX_CHARS_FOR_GLOSSARY_ANALYSIS, MAX_CHARS_FOR_GUIDELINES_ANALYSIS } = GLOSSARY_LIMITS;
@@ -254,9 +255,7 @@ export async function analyzeGuidelinesDirect(
   const { section: guidelinesSection, truncated: isGuidelinesTruncated } =
     buildHeadTailGuidelinesSlice(sourceForRules, MAX_CHARS_FOR_GUIDELINES_ANALYSIS);
 
-  const hasValidApiKey =
-    Array.isArray(common.apiKeys) &&
-    common.apiKeys.some((key) => typeof key === 'string' && key.trim().length > 0);
+  const hasValidApiKey = hasActiveAICredentials(common.apiKeys);
   const hasLocalSignal = Boolean(
     parsedGlossary.length > 0 ||
       localParsed.genre ||

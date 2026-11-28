@@ -251,9 +251,36 @@ export function getToneStyleGuide(tone: string): string {
   return resolveToneStyleGuide(tone);
 }
 
+/**
+ * Loại bỏ các thẻ suy luận nội bộ như <think>...</think> do mô hình reasoning tạo ra.
+ * Xử lý an toàn trường hợp thẻ mở không có thẻ đóng để không làm mất toàn bộ phản hồi thực tế.
+ */
+export function stripModelThinkingBlocks(rawText: string): string {
+  if (!rawText) return '';
+
+  // Xóa toàn bộ cặp <think>...</think> (case-insensitive)
+  let cleaned = rawText.replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '');
+
+  // Nếu còn thẻ <think> mở mà không có thẻ đóng:
+  // - Nếu trước <think> đã có nội dung thực (ví dụ JSON đứng trước phần ghi chú suy nghĩ dở dang), cắt phần đuôi bị treo.
+  // - Nếu toàn bộ bắt đầu bằng <think> chưa đóng, chỉ gỡ thẻ mở để giữ phần nội dung phía sau cho trình phân tích thử cứu.
+  const unclosedMatch = /<think\b[^>]*>/i.exec(cleaned);
+  if (unclosedMatch && typeof unclosedMatch.index === 'number') {
+    const prefix = cleaned.slice(0, unclosedMatch.index).trim();
+    if (prefix.length > 0) {
+      cleaned = prefix;
+    } else {
+      cleaned = cleaned.replace(/<think\b[^>]*>/gi, '');
+    }
+  }
+
+  return cleaned.trim();
+}
+
 export function safeParseJson<T = any>(text: string): T | null {
   if (!text) return null;
-  const trimmed = text.trim();
+  const trimmed = stripModelThinkingBlocks(text);
+  if (!trimmed) return null;
   try {
     return JSON.parse(trimmed);
   } catch (err) {

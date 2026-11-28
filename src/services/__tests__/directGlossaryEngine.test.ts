@@ -28,7 +28,7 @@ describe('src/services/directGlossaryEngine.ts', () => {
     });
 
     const res = await analyzeGlossaryDirect({
-      text: '萧炎看着石戒中的药老。',
+      text: '萧炎在乌坦城看着石戒中的药老。',
       apiKeys: ['AQ_TEST_KEY'],
       model: 'gemini-2.5-flash',
       startKeyIndex: 0,

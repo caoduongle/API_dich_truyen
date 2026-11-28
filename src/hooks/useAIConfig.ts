@@ -15,6 +15,16 @@ import {
   migrateModelSelection
 } from '../utils/modelRegistry';
 import { migrateCustomLimits } from '../utils/customLimitsStorage';
+import { OPENAI_COMPATIBLE_PRESETS } from '../config/aiProviders';
+import type { AIProviderMode, OpenAICompatibleConfig, OpenAICompatiblePresetId } from '../types/aiProvider';
+import {
+  getIncludePinnedGlossaryPreference,
+  getStoredAIProviderConfig,
+  loadOpenAIApiKeys,
+  saveOpenAIApiKeys,
+  saveStoredAIProviderConfig,
+  setIncludePinnedGlossaryPreference,
+} from '../utils/aiProviderStorage';
 
 
 /**
@@ -83,9 +93,12 @@ export function migrateAndLoadApiKeys(): string[] {
         if (prefsRaw) {
             const prefs = JSON.parse(prefsRaw);
             if (prefs && prefs.rememberKeys === false) {
-                // Nếu rememberKeys = false mà có savedKeys còn sót lại -> scrub ngay lập tức
-                if (Array.isArray(prefs.savedKeys) && prefs.savedKeys.length > 0) {
+                // Nếu rememberKeys = false mà có savedKeys / savedOpenAIKeys còn sót lại -> scrub ngay lập tức
+                const hasStaleGemini = Array.isArray(prefs.savedKeys) && prefs.savedKeys.length > 0;
+                const hasStaleOpenAI = Array.isArray(prefs.savedOpenAIKeys) && prefs.savedOpenAIKeys.length > 0;
+                if (hasStaleGemini || hasStaleOpenAI) {
                     prefs.savedKeys = [];
+                    prefs.savedOpenAIKeys = [];
                     try {
                         localStorage.setItem('app_ui_prefs', JSON.stringify(prefs));
                     } catch (_) {}
@@ -167,10 +180,27 @@ export function useAIConfig() {
         return stored === 'true';
     });
 
-    // Sync apiKeys to sessionStorage and optionally app_ui_prefs (NEVER write plaintext to gemini_api_keys in localStorage)
+    const [providerMode, setProviderModeState] = useState<AIProviderMode>(
+        () => getStoredAIProviderConfig().providerMode
+    );
+    const [openAIConfig, setOpenAIConfigState] = useState<OpenAICompatibleConfig>(() => {
+        const stored = getStoredAIProviderConfig();
+        return {
+            presetId: stored.presetId,
+            baseUrl: stored.baseUrl,
+            model: stored.model,
+        };
+    });
+    const [openAIApiKeys, setOpenAIApiKeys] = useState<string[]>(() => loadOpenAIApiKeys());
+    const [includePinnedGlossary, setIncludePinnedGlossaryState] = useState<boolean>(() =>
+        getIncludePinnedGlossaryPreference()
+    );
+
+    // Sync apiKeys + openAIApiKeys atomically to sessionStorage and optionally app_ui_prefs
     useEffect(() => {
         try {
             const cleanKeys = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0);
+            const cleanOpenAIKeys = openAIApiKeys.filter(k => typeof k === 'string' && k.trim().length > 0);
             if (typeof sessionStorage !== 'undefined') {
                 if (cleanKeys.length > 0) {
                     sessionStorage.setItem('gemini_api_keys', JSON.stringify(cleanKeys));
@@ -184,11 +214,24 @@ export function useAIConfig() {
                     ...currentPrefs,
                     rememberKeys,
                     savedKeys: rememberKeys ? cleanKeys : [],
+                    savedOpenAIKeys: rememberKeys ? cleanOpenAIKeys : [],
                 };
                 localStorage.setItem('app_ui_prefs', JSON.stringify(updatedPrefs));
             }
+            saveOpenAIApiKeys(cleanOpenAIKeys, rememberKeys);
         } catch (_) {}
-    }, [apiKeys, rememberKeys]);
+    }, [apiKeys, openAIApiKeys, rememberKeys]);
+
+    useEffect(() => {
+        saveStoredAIProviderConfig({
+            providerMode,
+            ...openAIConfig,
+        });
+    }, [providerMode, openAIConfig]);
+
+    useEffect(() => {
+        setIncludePinnedGlossaryPreference(includePinnedGlossary);
+    }, [includePinnedGlossary]);
 
     useEffect(() => {
         localStorage.setItem('warning_paragraph_mismatch', String(warningParagraphMismatch));
@@ -307,6 +350,47 @@ export function useAIConfig() {
         }
     }, [showToast]);
 
+    const setProviderMode = useCallback((mode: AIProviderMode) => {
+        setProviderModeState(mode);
+    }, []);
+
+    const updateOpenAIConfig = useCallback((patch: Partial<OpenAICompatibleConfig>) => {
+        setOpenAIConfigState(prev => ({
+            ...prev,
+            ...patch,
+        }));
+    }, []);
+
+    const selectOpenAIPreset = useCallback((presetId: OpenAICompatiblePresetId) => {
+        const preset = OPENAI_COMPATIBLE_PRESETS[presetId];
+        setOpenAIConfigState(prev => ({
+            presetId,
+            baseUrl: preset.id === 'custom' ? prev.baseUrl : preset.baseUrl,
+            model: preset.id === 'custom' ? prev.model : preset.defaultModel,
+        }));
+    }, []);
+
+    const addOpenAIKey = useCallback(() => {
+        setOpenAIApiKeys(prev => [...prev, '']);
+    }, []);
+
+    const updateOpenAIKey = useCallback((index: number, value: string) => {
+        setOpenAIApiKeys(prev => {
+            if (prev[index] === value) return prev;
+            const next = [...prev];
+            next[index] = value;
+            return next;
+        });
+    }, []);
+
+    const deleteOpenAIKey = useCallback((index: number) => {
+        setOpenAIApiKeys(prev => prev.filter((_, idx) => idx !== index));
+    }, []);
+
+    const setIncludePinnedGlossary = useCallback((enabled: boolean) => {
+        setIncludePinnedGlossaryState(Boolean(enabled));
+    }, []);
+
     return {
         apiKeys,
         rememberKeys,
@@ -334,6 +418,17 @@ export function useAIConfig() {
         enableAutoTargetedRepair,
         setEnableAutoTargetedRepair,
         enableSegmentTranslation,
-        setEnableSegmentTranslation
+        setEnableSegmentTranslation,
+        providerMode,
+        setProviderMode,
+        openAIConfig,
+        updateOpenAIConfig,
+        selectOpenAIPreset,
+        openAIApiKeys,
+        addOpenAIKey,
+        updateOpenAIKey,
+        deleteOpenAIKey,
+        includePinnedGlossary,
+        setIncludePinnedGlossary,
     };
 }

@@ -18,6 +18,7 @@ import {
   IssueReconciliationResult,
 } from '../types/hakoChecker';
 import { callGeminiDirect } from './directGeminiClient';
+import { hasActiveAICredentials } from '../utils/aiProviderStorage';
 import {
   LITERARY_TRANSLATION_FRAMING,
   sanitizePromptInput,
@@ -429,8 +430,8 @@ export async function runAiQualityScan(input: AiQualityScanInput): Promise<Quali
   const allAiIssues: QualityIssue[] = [];
 
   const rawKeys = Array.isArray(apiKeys) ? apiKeys.filter((k) => k && k.trim()) : [];
-  if (rawKeys.length === 0) {
-    throw new Error('Chưa cấu hình API Key cá nhân. Vui lòng thêm API Key trong phần "Cấu hình AI".');
+  if (!hasActiveAICredentials(rawKeys)) {
+    throw new Error('Chưa cấu hình API Key hoặc nhà cung cấp AI hợp lệ trong phần "Cấu hình AI".');
   }
 
   const totalChapters = chapters.length;

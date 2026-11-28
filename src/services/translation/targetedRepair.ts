@@ -5,7 +5,8 @@
  */
 
 import { GlossaryItem } from '../../types';
-import { selectRelevantGlossary } from '../../lib/glossaryMatch';
+import { filterGlossaryForChapter } from '../../lib/glossaryMatch';
+import { getIncludePinnedGlossaryPreference, hasActiveAICredentials } from '../../utils/aiProviderStorage';
 import {
   LITERARY_TRANSLATION_FRAMING,
   getGenreStyleGuide,
@@ -276,7 +277,7 @@ export async function repairChapterCriticalIssuesDirect(
         typeof issue.paragraphIndex !== 'number'
     );
 
-  if ((issuesByParagraph.size === 0 && !hasRecoverableOmissions) || !Array.isArray(apiKeys) || apiKeys.length === 0) {
+  if ((issuesByParagraph.size === 0 && !hasRecoverableOmissions) || !hasActiveAICredentials(apiKeys)) {
     return {
       repairedTranslatedText: translatedText,
       updatedIssues: issues.map((it) => ({ ...it })),
@@ -310,7 +311,9 @@ export async function repairChapterCriticalIssuesDirect(
         ? sourceParas.slice(alignment.windowStartIndex, alignment.windowEndIndex + 1).join('\n\n')
         : sourceText || '';
 
-    const { entries: relevantGlossary } = selectRelevantGlossary(sourceWindow, glossary || []);
+    const { entries: relevantGlossary } = filterGlossaryForChapter(sourceWindow, glossary || [], {
+      includePinned: getIncludePinnedGlossaryPreference(),
+    });
     const paragraphIssues = entries.map((e) => e.issue);
     const baselineViolations = runDeterministicTranslationChecks({
       sourceText: primarySourcePara,
@@ -512,7 +515,9 @@ export async function repairChapterCriticalIssuesDirect(
       const prevWindow = omittedSrcIdx > 0 ? sourceParas[omittedSrcIdx - 1] : '';
       const nextWindow = omittedSrcIdx + 1 < sourceParas.length ? sourceParas[omittedSrcIdx + 1] : '';
       const sourceWindow = [prevWindow, omittedSrcPara, nextWindow].filter(Boolean).join('\n\n');
-      const { entries: relevantGlossary } = selectRelevantGlossary(sourceWindow, glossary || []);
+      const { entries: relevantGlossary } = filterGlossaryForChapter(sourceWindow, glossary || [], {
+      includePinned: getIncludePinnedGlossaryPreference(),
+    });
 
       const prevTrans = insertAfterIdx >= 0 ? latestSpans[insertAfterIdx]?.trimmed || '' : '';
       const nextTrans =

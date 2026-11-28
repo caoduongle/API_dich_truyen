@@ -16,6 +16,8 @@ import {
 import { getDynamicPacingInterval } from '../utils/modelRegistry';
 import { localQuotaTracker } from '../services/localQuotaTracker';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
+import { getStoredAIProviderConfig, hasActiveAICredentials } from '../utils/aiProviderStorage';
+import { OPENAI_COMPATIBLE_PRESETS } from '../config/aiProviders';
 
 
 
@@ -590,22 +592,29 @@ export function useTranslationProcess({
       return;
     }
 
+    const providerConfig = getStoredAIProviderConfig();
+    const isOpenAIMode = providerConfig.providerMode === 'openai-compatible';
     const cleanKeys = (apiKeys || []).filter((k) => typeof k === 'string' && k.trim().length > 0);
-    if (cleanKeys.length === 0) {
-      showToast({ message: "Vui lòng thêm ít nhất một Gemini API Key cá nhân trong Cấu hình AI để bắt đầu dịch!", type: 'error' });
-      addLog("LỖI: Chưa cấu hình API Key cá nhân. Bắt buộc cần có key để thực hiện dịch thuật.", "error");
+    if (!hasActiveAICredentials(cleanKeys)) {
+      const msg = isOpenAIMode
+        ? "Vui lòng kiểm tra Base URL / API Key OpenAI-compatible trong Cấu hình AI để bắt đầu dịch!"
+        : "Vui lòng thêm ít nhất một Gemini API Key cá nhân trong Cấu hình AI để bắt đầu dịch!";
+      showToast({ message: msg, type: 'error' });
+      addLog(`LỖI: ${msg}`, "error");
       return;
     }
 
-    const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(
-      cleanKeys,
-      currentApiKeyIndexRef.current,
-      getStoredCustomLimits(),
-      Date.now(),
-      { model: selectedModel }
-    );
-    if (nextHealthy !== -1) {
-      currentApiKeyIndexRef.current = nextHealthy;
+    if (!isOpenAIMode && cleanKeys.length > 0) {
+      const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(
+        cleanKeys,
+        currentApiKeyIndexRef.current,
+        getStoredCustomLimits(),
+        Date.now(),
+        { model: selectedModel }
+      );
+      if (nextHealthy !== -1) {
+        currentApiKeyIndexRef.current = nextHealthy;
+      }
     }
 
     let queue = chaptersQueue;
@@ -640,7 +649,10 @@ export function useTranslationProcess({
       if (!processStartTime) setProcessStartTime(Date.now());
     }
 
-    addLog(`BẮT ĐẦU TIẾN TRÌNH DỊCH TỰ ĐỘNG | Mô hình gốc: '${selectedModel}'`, 'success');
+    const modelBanner = isOpenAIMode
+      ? `OpenAI-compatible (${OPENAI_COMPATIBLE_PRESETS[providerConfig.presetId]?.label || providerConfig.presetId}): '${providerConfig.model}'`
+      : `'${selectedModel}'`;
+    addLog(`BẮT ĐẦU TIẾN TRÌNH DỊCH TỰ ĐỘNG | Mô hình gốc: ${modelBanner}`, 'success');
     runTranslationLoop(queue, startIdx, isResetRun ? [] : undefined);
   }, [isProcessing, chaptersQueue, processedCount, currentChapterIndex, prepareQueue, setAutoDiscoveredBatch, setLogs, processStartTime, selectedModel, addLog, runTranslationLoop, onUpdateProject]);
 

@@ -74,6 +74,21 @@ export interface RelevantGlossarySelection<T extends GlossaryEntryLike = Glossar
   conflicts: GlossaryConflictWarning<T>[];
 }
 
+export interface ChapterGlossaryFilterOptions {
+  /** Tắt mặc định (false): chỉ đính kèm mục ghim ngoài chương khi người dùng chủ động bật */
+  includePinned?: boolean;
+  /** Số mục ghim tối đa khi includePinned = true (mặc định 15) */
+  maxPinned?: number;
+}
+
+export interface ChapterGlossaryFilterResult<T extends GlossaryEntryLike = GlossaryItem>
+  extends RelevantGlossarySelection<T> {
+  /** Tổng số mục từ điển hợp lệ trước khi lọc theo chương */
+  totalCount: number;
+  /** Số mục thực tế sau khi lọc */
+  filteredCount: number;
+}
+
 export interface SafeSubstitutionResult<T extends GlossaryEntryLike = GlossaryItem> {
   /** Văn bản nguồn sau khi đã thay thế các thuật ngữ có độ dài >= minHanLength bằng [Tên_Việt] */
   substitutedText: string;
@@ -610,6 +625,26 @@ export function selectRelevantGlossary<T extends GlossaryEntryLike>(
   // nếu có nhiều mục isPinned đã khớp nguồn trước, vẫn tôn trọng giới hạn trên pinnedExtras.
   const entries = [...matchedInSource, ...pinnedExtras];
   return { entries, matchedInSource, conflicts };
+}
+
+/**
+ * Lọc chặt từ điển theo đúng văn bản nguồn của chương/phân đoạn đang xử lý (Feature 174).
+ * Mặc định tắt việc nhồi thêm các mục ghim không xuất hiện trong chương (`includePinned = false` -> `maxPinned = 0`).
+ */
+export function filterGlossaryForChapter<T extends GlossaryEntryLike>(
+  sourceText: string,
+  glossary: T[],
+  options?: ChapterGlossaryFilterOptions
+): ChapterGlossaryFilterResult<T> {
+  const { resolved } = resolveGlossaryConflicts(glossary || []);
+  const includePinned = options?.includePinned === true;
+  const maxPinned = includePinned ? Math.max(0, options?.maxPinned ?? 15) : 0;
+  const selection = selectRelevantGlossary(sourceText, glossary, { maxPinned });
+  return {
+    ...selection,
+    totalCount: resolved.length,
+    filteredCount: selection.entries.length,
+  };
 }
 
 /**

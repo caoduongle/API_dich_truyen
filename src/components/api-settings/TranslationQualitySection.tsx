@@ -9,6 +9,8 @@ export interface TranslationQualitySectionProps {
   setEnableAutoTargetedRepair?: (b: boolean) => void;
   enableSegmentTranslation: boolean;
   setEnableSegmentTranslation: (b: boolean) => void;
+  includePinnedGlossary?: boolean;
+  setIncludePinnedGlossary?: (b: boolean) => void;
 }
 
 export function TranslationQualitySection({
@@ -20,6 +22,8 @@ export function TranslationQualitySection({
   setEnableAutoTargetedRepair,
   enableSegmentTranslation,
   setEnableSegmentTranslation,
+  includePinnedGlossary = false,
+  setIncludePinnedGlossary,
 }: TranslationQualitySectionProps) {
   return (
     <div className="space-y-3 pt-3 border-t border-parchment-2">
@@ -90,6 +94,27 @@ export function TranslationQualitySection({
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${enableAutoTargetedRepair ? 'bg-polish' : 'bg-parchment-2'}`}
           >
             <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${enableAutoTargetedRepair ? 'translate-x-4' : 'translate-x-0'}`} />
+          </button>
+        </div>
+      )}
+
+      {/* Strict Chapter Glossary Filter override (opt-in, default OFF) */}
+      {setIncludePinnedGlossary && (
+        <div className="flex items-center justify-between py-1 border-t border-parchment-2 pt-2">
+          <div className="flex flex-col pr-2">
+            <span className="text-xs font-bold text-text-main">Đính kèm cả từ điển ghim ngoài chương</span>
+            <span className="text-[10px] text-text-muted leading-relaxed">
+              Mặc định tắt để lọc chặt đúng thuật ngữ xuất hiện trong chương (giảm tải token cho model nhẹ và local). Chỉ bật nếu muốn luôn chèn thêm từ ghim.
+            </span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={includePinnedGlossary}
+            onClick={() => setIncludePinnedGlossary(!includePinnedGlossary)}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${includePinnedGlossary ? 'bg-polish' : 'bg-parchment-2'}`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ${includePinnedGlossary ? 'translate-x-4' : 'translate-x-0'}`} />
           </button>
         </div>
       )}

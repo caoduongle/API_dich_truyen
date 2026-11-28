@@ -1,6 +1,12 @@
 import { Chapter, ChapterMetadata, GlossaryItem, PendingGlossaryItem } from '../types';
 import { getChapterFromDB, saveChapterToDB } from './db';
-import { classifyDiscoveredEntitiesForGlossary, selectRelevantGlossary } from '../lib/glossaryMatch';
+import { classifyDiscoveredEntitiesForGlossary, filterGlossaryForChapter } from '../lib/glossaryMatch';
+import {
+  getIncludePinnedGlossaryPreference,
+  getStoredAIProviderConfig,
+  hasActiveAICredentials,
+} from '../utils/aiProviderStorage';
+import { OPENAI_COMPATIBLE_PRESETS } from '../config/aiProviders';
 import { separateChapterTitleAndBody } from '../utils/textCleaner';
 import { getPolishStrategyForRound, calculateTextSimilarity } from '../lib/text';
 import {
@@ -148,9 +154,13 @@ export async function executeSingleChapterTranslation({
   projectChapters,
   addLog,
 }: TranslateChapterParams): Promise<SingleChapterResult> {
-  const hasValidKeys = Array.isArray(apiKeys) && apiKeys.some((k) => typeof k === 'string' && k.trim().length > 0);
+  const providerConfig = getStoredAIProviderConfig();
+  const isOpenAIMode = providerConfig.providerMode === 'openai-compatible';
+  const hasValidKeys = hasActiveAICredentials(apiKeys);
   if (!hasValidKeys) {
-    const errorMsg = 'Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để thực hiện dịch thuật.';
+    const errorMsg = isOpenAIMode
+      ? 'Chưa cấu hình đủ thông tin OpenAI-compatible (Base URL hợp lệ hoặc API Key cho máy chủ từ xa). Vui lòng kiểm tra trong phần Cấu hình AI.'
+      : 'Chưa cấu hình API Key cá nhân. Vui lòng thêm ít nhất một Gemini API Key trong phần Cấu hình AI để thực hiện dịch thuật.';
     addLog(`${logPrefix} [LỖI] ${errorMsg}`, 'error');
     throw new Error(errorMsg);
   }
@@ -211,7 +221,19 @@ export async function executeSingleChapterTranslation({
 
   let hasFreshRaw = false;
 
-  const { conflicts: glossaryConflicts } = selectRelevantGlossary(chapter.sourceText, localGlossary);
+  const {
+    conflicts: glossaryConflicts,
+    filteredCount: matchedGlossaryCount,
+    totalCount: totalGlossaryCount,
+  } = filterGlossaryForChapter(chapter.sourceText, localGlossary, {
+    includePinned: getIncludePinnedGlossaryPreference(),
+  });
+  if (totalGlossaryCount > 0) {
+    addLog(
+      `${logPrefix} [Lọc từ điển] Khớp ${matchedGlossaryCount}/${totalGlossaryCount} mục trong chương hiện tại.`,
+      'info'
+    );
+  }
   if (glossaryConflicts.length > 0) {
     addLog(
       `${logPrefix} [Cảnh báo Từ điển] Phát hiện ${glossaryConflicts.length} xung đột ánh xạ thuật ngữ trong chương (${glossaryConflicts
@@ -250,7 +272,10 @@ export async function executeSingleChapterTranslation({
     } else if (autoTranslateMode === 'from_scratch') {
       addLog(`${logPrefix} [Dịch từ đầu] Đang dịch thô mới trực tiếp từ văn bản gốc tiếng Trung (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
     } else {
-      addLog(`${logPrefix} Đang dịch thô trực tiếp qua Gemini API cá nhân (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
+      const providerNote = isOpenAIMode
+        ? `${OPENAI_COMPATIBLE_PRESETS[providerConfig.presetId]?.label || 'OpenAI-compatible'} (${providerConfig.model})`
+        : 'Gemini API cá nhân';
+      addLog(`${logPrefix} Đang dịch thô trực tiếp qua ${providerNote} (Giai đoạn 1)...${hasProcessedText ? ' (Sử dụng văn bản đã quét từ điển)' : ''}`, 'gemini');
     }
     let rawData: { rawTranslation: string; discoveredEntities?: DiscoveredEntity[]; successKeyIndex?: number; isPartial?: boolean };
 

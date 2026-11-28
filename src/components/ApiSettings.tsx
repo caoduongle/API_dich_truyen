@@ -22,6 +22,8 @@ import { KeyListSection } from './api-settings/KeyListSection';
 import { CustomModelSection } from './api-settings/CustomModelSection';
 import { TranslationQualitySection } from './api-settings/TranslationQualitySection';
 import { StorageUsageSection } from './api-settings/StorageUsageSection';
+import { OpenAIProviderSection } from './api-settings/OpenAIProviderSection';
+import { OPENAI_COMPATIBLE_PRESETS } from '../config/aiProviders';
 
 export interface ApiSettingsProps {
   apiKeys: string[];
@@ -69,12 +71,23 @@ export default function ApiSettings({
   const [activeTab, setActiveTab] = useState<'config' | 'quota'>('config');
   const { showToast } = useNotifications();
 
-  // Lấy danh sách dynamic models từ AIConfigContext
+  // Lấy danh sách dynamic models & cấu hình provider từ AIConfigContext
   const {
     availableModels,
     addCustomModel,
     removeCustomModel,
     registerDiscoveredModels,
+    providerMode,
+    setProviderMode,
+    openAIConfig,
+    updateOpenAIConfig,
+    selectOpenAIPreset,
+    openAIApiKeys,
+    addOpenAIKey,
+    updateOpenAIKey,
+    deleteOpenAIKey,
+    includePinnedGlossary,
+    setIncludePinnedGlossary,
   } = useAIConfigContext();
 
   // State cho form nhập model tùy chỉnh
@@ -148,6 +161,9 @@ export default function ApiSettings({
   };
 
   const validKeyCount = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0).length;
+  const isOpenAIMode = providerMode === 'openai-compatible';
+  const activeOpenAIPresetLabel =
+    OPENAI_COMPATIBLE_PRESETS[openAIConfig.presetId]?.label || openAIConfig.presetId;
 
   const modelSummary = computeModelStatsSummary(
     selectedModel,
@@ -168,7 +184,12 @@ export default function ApiSettings({
       icon={<Cpu className="w-4 h-4 text-polish" />}
       title="Cấu hình AI & Bản Thảo"
       description={
-        validKeyCount > 0 ? (
+        isOpenAIMode ? (
+          <span className="text-text-muted font-medium flex items-center gap-1">
+            <Cpu className="w-3 h-3 text-polish" /> OpenAI-compatible ({activeOpenAIPresetLabel}):{' '}
+            {openAIConfig.model || 'Chưa chọn model'}
+          </span>
+        ) : validKeyCount > 0 ? (
           <span className="text-text-muted font-medium flex items-center gap-1">
             <Key className="w-3 h-3 text-polish" /> Đã cấu hình {validKeyCount} key
           </span>
@@ -233,6 +254,59 @@ export default function ApiSettings({
           />
         ) : (
           <div className="space-y-5">
+            {/* Provider Mode Switcher */}
+            <div className="space-y-2 border-b border-parchment-2 pb-4">
+              <label className="text-xs font-bold text-text-main uppercase tracking-wider block">
+                Chế độ nhà cung cấp AI
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setProviderMode('gemini')}
+                  className={cn(
+                    'px-3 py-2 text-left rounded-[2px] border text-xs font-bold transition-colors cursor-pointer',
+                    !isOpenAIMode
+                      ? 'bg-polish/15 border-polish text-text-main shadow-xs'
+                      : 'bg-ink/50 border-parchment-2 text-text-muted hover:text-text-main hover:bg-parchment-2/50'
+                  )}
+                >
+                  <div>Google Gemini (Mặc định)</div>
+                  <div className="text-[10px] font-normal text-text-muted">
+                    Xoay vòng khóa &amp; theo dõi Quota miễn phí/trả phí
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProviderMode('openai-compatible')}
+                  className={cn(
+                    'px-3 py-2 text-left rounded-[2px] border text-xs font-bold transition-colors cursor-pointer',
+                    isOpenAIMode
+                      ? 'bg-polish/15 border-polish text-text-main shadow-xs'
+                      : 'bg-ink/50 border-parchment-2 text-text-muted hover:text-text-main hover:bg-parchment-2/50'
+                  )}
+                >
+                  <div>OpenAI-compatible (/v1/chat/completions)</div>
+                  <div className="text-[10px] font-normal text-text-muted">
+                    DeepSeek, Qwen, Groq, NVIDIA NIM, Ollama &amp; LM Studio
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {isOpenAIMode ? (
+              <OpenAIProviderSection
+                openAIConfig={openAIConfig}
+                onUpdateConfig={updateOpenAIConfig}
+                onSelectPreset={selectOpenAIPreset}
+                openAIApiKeys={openAIApiKeys}
+                onAddOpenAIKey={addOpenAIKey}
+                onUpdateOpenAIKey={updateOpenAIKey}
+                onDeleteOpenAIKey={deleteOpenAIKey}
+                rememberKeys={rememberKeys}
+                onToggleRememberKeys={onToggleRememberKeys}
+              />
+            ) : (
+              <>
             {/* Model selector */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -351,6 +425,8 @@ export default function ApiSettings({
                 Áp dụng ngay lập tức cho tất cả tính năng dịch thuật.
               </p>
             </div>
+              </>
+            )}
 
             {/* Cài đặt chất lượng & Kiểm duyệt */}
             <TranslationQualitySection
@@ -362,20 +438,23 @@ export default function ApiSettings({
               setEnableAutoTargetedRepair={setEnableAutoTargetedRepair}
               enableSegmentTranslation={enableSegmentTranslation}
               setEnableSegmentTranslation={setEnableSegmentTranslation}
+              includePinnedGlossary={includePinnedGlossary}
+              setIncludePinnedGlossary={setIncludePinnedGlossary}
             />
 
-            {/* API Keys */}
-            <KeyListSection
-              apiKeys={apiKeys}
-              validKeyCount={validKeyCount}
-              onAddApiKey={onAddApiKey}
-              onUpdateKeyIndex={onUpdateKeyIndex}
-              onDeleteKeyIndex={onDeleteKeyIndex}
-              onImportClipboardKeys={onImportClipboardKeys}
-              onBatchUpdateKeys={onBatchUpdateKeys}
-              rememberKeys={rememberKeys}
-              onToggleRememberKeys={onToggleRememberKeys}
-            />
+            {!isOpenAIMode && (
+              <KeyListSection
+                apiKeys={apiKeys}
+                validKeyCount={validKeyCount}
+                onAddApiKey={onAddApiKey}
+                onUpdateKeyIndex={onUpdateKeyIndex}
+                onDeleteKeyIndex={onDeleteKeyIndex}
+                onImportClipboardKeys={onImportClipboardKeys}
+                onBatchUpdateKeys={onBatchUpdateKeys}
+                rememberKeys={rememberKeys}
+                onToggleRememberKeys={onToggleRememberKeys}
+              />
+            )}
 
             {/* Storage Usage (IndexedDB) */}
             <StorageUsageSection />

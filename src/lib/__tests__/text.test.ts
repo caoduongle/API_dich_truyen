@@ -8,6 +8,7 @@ import {
   ensureChapterTitlePreserved,
   estimateTokenCount,
   splitTextAdaptively,
+  stripModelThinkingBlocks,
   safeParseJson,
   parseGeminiStructuredResponse,
   parseGeminiStructuredResponseWithState,
@@ -667,6 +668,23 @@ describe('Feature 125: Polish Truncation Prevention & Paragraph Parity', () => {
         expect(isHakoQualityScanIssue({ category: 'invalid_cat', severity: 'critical', explanation: 'Lỗi' })).toBe(false);
         expect(isHakoQualityScanIssue({ category: 'omission', severity: 'invalid_sev', explanation: 'Lỗi' })).toBe(false);
         expect(isHakoQualityScanIssue({ category: 'omission', severity: 'critical', explanation: 'Lỗi', vietnameseSnippet: 123 })).toBe(false);
+      });
+    });
+
+    describe('Feature 174: stripModelThinkingBlocks & <think>-safe safeParseJson', () => {
+      it('strips <think>...</think> containing misleading braces before safeParseJson parses the real payload', () => {
+        const raw =
+          '<THINK>Should I output {"fake": "braces"} or something else?</THINK>\n```json\n{"real": "data", "count": 2}\n```';
+        expect(stripModelThinkingBlocks(raw)).toBe('```json\n{"real": "data", "count": 2}\n```');
+        expect(safeParseJson(raw)).toEqual({ real: 'data', count: 2 });
+      });
+
+      it('handles unclosed <think> safely without wiping valid prefix JSON or trailing recoverable JSON', () => {
+        const trailingUnclosed = '{"rawTranslation":"Xin chào"}\n<think>unclosed tail note';
+        expect(safeParseJson(trailingUnclosed)).toEqual({ rawTranslation: 'Xin chào' });
+
+        const leadingUnclosed = '<think>unfinished tag\n{"rawTranslation":"Cứu được"}';
+        expect(safeParseJson(leadingUnclosed)).toEqual({ rawTranslation: 'Cứu được' });
       });
     });
 
