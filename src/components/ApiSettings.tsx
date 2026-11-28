@@ -86,7 +86,7 @@ export default function ApiSettings({
   const [reverifyingModelId, setReverifyingModelId] = useState<string | null>(null);
 
   // Observability state duy trì xuyên suốt cả 2 tab
-  const observability = useModelObservability(apiKeys, registerDiscoveredModels);
+  const observability = useModelObservability(apiKeys, registerDiscoveredModels, { selectedModel });
 
   // Model Discovery Hook với SWR cache và background refresh
   const discovery = useModelDiscovery({ apiKeys });

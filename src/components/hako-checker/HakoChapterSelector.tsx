@@ -49,6 +49,7 @@ export interface HakoChapterSelectorProps {
   onStartAnalysis: () => void;
   isAnalyzing: boolean;
   apiKeys?: string[];
+  selectedModel?: string;
 }
 
 const MAX_SELECTION_LIMIT = 12;
@@ -98,6 +99,7 @@ export function HakoChapterSelector({
   onStartAnalysis,
   isAnalyzing,
   apiKeys,
+  selectedModel,
 }: HakoChapterSelectorProps) {
   // Trạng thái API keys và kiểm tra hạn ngạch quota khả dụng
   const effectiveApiKeys = useMemo(() => {
@@ -114,7 +116,7 @@ export function HakoChapterSelector({
       };
     }
 
-    const quotaStatus = localQuotaTracker.getQuotaStatus(effectiveApiKeys);
+    const quotaStatus = localQuotaTracker.getQuotaStatus(effectiveApiKeys, Date.now(), undefined, selectedModel);
     const keySnapshots = quotaStatus.keys || [];
 
     // 1. Không có API key nào được thiết lập

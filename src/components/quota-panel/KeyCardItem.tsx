@@ -9,13 +9,14 @@ import {
   ChevronDown,
   ChevronUp,
   Zap,
+  Unlock,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import type { KeyQuotaFullSnapshot, ModelInfoItem } from '../../types/quota';
-import { getKeyModelStats, normalizeModelId, formatTokenCount } from '../../utils/modelRegistry';
+import { getKeyModelStats, getModelReferenceLimits, normalizeModelId, formatTokenCount } from '../../utils/modelRegistry';
 import { CountdownBadge } from './CountdownBadge';
-import { CustomLimit, DEFAULT_CUSTOM_LIMIT, formatClientMaskedKey } from './CustomLimitsPanel';
+import { CustomLimit, formatClientMaskedKey } from './CustomLimitsPanel';
 
 export interface KeyCardItemProps {
   item: KeyQuotaFullSnapshot;
@@ -32,6 +33,18 @@ export interface KeyCardItemProps {
   onClearInspect: (idx: number) => void;
   onToggleExpand: (idx: number) => void;
   onSelectModel?: (model: string) => void;
+  onUnlockKey?: (idx: number) => void;
+}
+
+function formatRemainingDurationShort(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const totalSec = Math.ceil(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  if (hours > 0) return `${hours}g ${mins}p`;
+  if (mins > 0) return `${mins}p ${secs}s`;
+  return `${secs}s`;
 }
 
 /**
@@ -52,21 +65,33 @@ export const KeyCardItem = React.memo(function KeyCardItem({
   onClearInspect,
   onToggleExpand,
   onSelectModel,
+  onUnlockKey,
 }: KeyCardItemProps) {
-  const safeLimit = limit || DEFAULT_CUSTOM_LIMIT;
-  const tokensThisMinute = item.tokensThisMinute || 0;
-  const tokensToday = item.tokensToday || 0;
-  const tokensTotal = item.tokensTotal || 0;
-
-  const rpmPercent = Math.min(100, Math.round((item.requestsThisMinute / safeLimit.maxRpm) * 100));
-  const rpdPercent = Math.min(100, Math.round((item.requestsToday / safeLimit.maxRpd) * 100));
-  const tpmPercent = Math.min(100, Math.round((tokensThisMinute / safeLimit.maxTpm) * 100));
+  const referenceLimit = getModelReferenceLimits(selectedModel);
+  const safeLimit = limit || referenceLimit;
 
   const keyModelStats = getKeyModelStats(item, selectedModel);
   const normSelected = normalizeModelId(selectedModel);
 
-  const healthState = item.runtime?.healthState;
-  const reason = item.runtime?.transitionReason;
+  const displayRpm = keyModelStats.requestsThisMinute;
+  const displayTpm = keyModelStats.tokensThisMinute || 0;
+  const displayRpd = keyModelStats.requestsToday;
+  const displayTokensToday = keyModelStats.tokensToday || 0;
+  const displayTokensTotal = keyModelStats.tokensTotal || item.tokensTotal || 0;
+
+  const rpmPercent = Math.min(100, Math.round((displayRpm / safeLimit.maxRpm) * 100));
+  const rpdPercent = Math.min(100, Math.round((displayRpd / safeLimit.maxRpd) * 100));
+  const tpmPercent = Math.min(100, Math.round((displayTpm / safeLimit.maxTpm) * 100));
+
+  const healthState = item.runtime?.healthState ?? item.healthState;
+  const reason = item.runtime?.transitionReason ?? item.transitionReason;
+  const remainingMs = item.runtime?.blacklistRemainingMs || item.cooldownRemainingMs || 0;
+  const isCustomLimitReached = Boolean(item.runtime?.isCustomLimitReached ?? item.isCustomLimitReached);
+  const isUnlockable =
+    healthState === 'QuotaExhausted' ||
+    healthState === 'RateLimited' ||
+    healthState === 'Cooldown' ||
+    healthState === 'Degraded';
   const displayMask = formatClientMaskedKey(rawKey, item.maskedKey);
 
   return (
@@ -82,7 +107,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {(() => {
             if (healthState === 'AuthFailed') {
               return (
@@ -93,11 +118,10 @@ export const KeyCardItem = React.memo(function KeyCardItem({
               );
             }
             if (healthState === 'QuotaExhausted') {
-              const isCustom = item.isCustomLimitReached || item.runtime?.isCustomLimitReached || (item.requestsToday >= safeLimit.maxRpd);
               return (
-                <Badge tone="warning" title={reason || (isCustom ? 'Đã chạm ngưỡng giới hạn cá nhân trong ngày (Max RPD)' : 'Hết hạn mức ngày')}>
+                <Badge tone="warning" title={reason || (isCustomLimitReached ? 'Đã chạm ngưỡng giới hạn cá nhân trong ngày (Max RPD)' : 'Hết hạn mức ngày')}>
                   <AlertTriangle className="w-3 h-3 text-amber-400" />
-                  {isCustom ? 'Đạt giới hạn ngày (Tự đặt)' : 'Hết hạn mức ngày'}
+                  {isCustomLimitReached ? 'Đạt giới hạn ngày (Tự đặt)' : 'Hết hạn mức ngày'}
                 </Badge>
               );
             }
@@ -144,6 +168,19 @@ export const KeyCardItem = React.memo(function KeyCardItem({
             );
           })()}
 
+          {isUnlockable && onUnlockKey && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onUnlockKey(idx)}
+              className="py-0.5 text-[11px] h-6"
+              icon={<Unlock className="w-3 h-3 text-polish" />}
+              title={isCustomLimitReached ? 'Đặt lại cờ lỗi (giữ nguyên bộ đếm cá nhân Max RPD)' : 'Xóa trạng thái khóa phiên trước để thử lại ngay'}
+            >
+              Mở khóa
+            </Button>
+          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -157,6 +194,26 @@ export const KeyCardItem = React.memo(function KeyCardItem({
         </div>
       </div>
 
+      {/* Explicit Lock / Cooldown Reason Callout */}
+      {isUnlockable && (reason || remainingMs > 0) && (
+        <div className="bg-amber-950/30 border border-amber-800/60 rounded-[2px] px-2.5 py-1.5 text-[11px] text-amber-300 flex items-start justify-between gap-2">
+          <div className="flex items-start gap-1.5 leading-relaxed">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <span>
+              {reason || 'Khóa đang tạm nghỉ trên mô hình này.'}
+              {isCustomLimitReached && (
+                <> Mở mục <strong>Ngưỡng cá nhân</strong> để tăng <strong>Max RPD</strong> nếu bạn muốn cho phép gọi tiếp.</>
+              )}
+            </span>
+          </div>
+          {remainingMs > 0 && (
+            <span className="font-mono text-[10px] text-amber-200 bg-amber-900/40 px-1.5 py-0.5 rounded-[2px] shrink-0">
+              Còn {formatRemainingDurationShort(remainingMs)}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Model đang dùng trên riêng key này */}
       <div className="bg-parchment-2/15 border border-parchment-2/70 rounded-[2px] px-2.5 py-1.5 flex items-center justify-between text-xs flex-wrap gap-2">
         <div className="flex items-center gap-1.5">
@@ -164,9 +221,9 @@ export const KeyCardItem = React.memo(function KeyCardItem({
           <span className="text-text-main font-semibold">{selectedModelDisplayName.split('(')[0].trim()}</span>
         </div>
         <div className="flex items-center gap-2.5 font-mono text-[11px] text-text-muted">
-          <span>RPM: <strong className="text-text-main">{keyModelStats.requestsThisMinute}</strong></span>
-          <span>TPM: <strong className="text-text-main">{formatTokenCount(keyModelStats.tokensThisMinute)}</strong></span>
-          <span>Hôm nay: <strong className="text-text-main">{keyModelStats.requestsToday}</strong> reqs ({formatTokenCount(keyModelStats.tokensToday)} tok)</span>
+          <span>RPM: <strong className="text-text-main">{displayRpm}</strong></span>
+          <span>TPM: <strong className="text-text-main">{formatTokenCount(displayTpm)}</strong></span>
+          <span>Hôm nay: <strong className="text-text-main">{displayRpd}</strong> reqs ({formatTokenCount(displayTokensToday)} tok)</span>
           {keyModelStats.errorsTotal > 0 && (
             <span className="text-polish font-bold">Lỗi: {keyModelStats.errorsTotal}</span>
           )}
@@ -179,7 +236,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
         <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
           <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">RPM (60s)</div>
           <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-            {item.requestsThisMinute} <span className="text-[10px] text-text-muted font-normal">/ {safeLimit.maxRpm}</span>
+            {displayRpm} <span className="text-[10px] text-text-muted font-normal">/ {safeLimit.maxRpm}</span>
           </div>
           <div className="w-full bg-parchment-2 h-1 rounded-full mt-1.5 overflow-hidden">
             <div 
@@ -195,7 +252,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
             <Zap className="w-2.5 h-2.5 text-polish" /> TPM (60s)
           </div>
           <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-            {formatTokenCount(tokensThisMinute)} <span className="text-[10px] text-text-muted font-normal">/ {formatTokenCount(safeLimit.maxTpm)}</span>
+            {formatTokenCount(displayTpm)} <span className="text-[10px] text-text-muted font-normal">/ {formatTokenCount(safeLimit.maxTpm)}</span>
           </div>
           <div className="w-full bg-parchment-2 h-1 rounded-full mt-1.5 overflow-hidden">
             <div 
@@ -209,7 +266,7 @@ export const KeyCardItem = React.memo(function KeyCardItem({
         <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
           <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Lượt gọi API Hôm nay</div>
           <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-            {item.requestsToday} <span className="text-[10px] text-text-muted font-normal">/ {safeLimit.maxRpd}</span>
+            {displayRpd} <span className="text-[10px] text-text-muted font-normal">/ {safeLimit.maxRpd}</span>
           </div>
           <div className="w-full bg-parchment-2 h-1 rounded-full mt-1.5 overflow-hidden">
             <div 
@@ -223,11 +280,13 @@ export const KeyCardItem = React.memo(function KeyCardItem({
         <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-2">
           <div className="text-[10px] text-text-muted uppercase font-bold tracking-wider">Token Hôm nay / Tổng</div>
           <div className="text-sm font-mono font-bold text-text-main mt-0.5">
-            {formatTokenCount(tokensToday)} <span className="text-[10px] text-text-muted font-normal">/ {formatTokenCount(tokensTotal)}</span>
+            {formatTokenCount(displayTokensToday)} <span className="text-[10px] text-text-muted font-normal">/ {formatTokenCount(displayTokensTotal)}</span>
           </div>
           <div className="text-[9px] text-text-muted mt-1">
-            {item.errorsTotal > 0 ? (
-              <span className="text-polish font-bold">{item.errorsTotal} lỗi phát sinh</span>
+            {keyModelStats.errorsTotal > 0 ? (
+              <span className="text-polish font-bold">{keyModelStats.errorsTotal} lỗi trên model</span>
+            ) : item.errorsTotal > 0 ? (
+              <span>{item.errorsTotal} lỗi tổng khóa</span>
             ) : (
               '0 lỗi phát sinh'
             )}
@@ -328,25 +387,45 @@ export const KeyCardItem = React.memo(function KeyCardItem({
 
           {isExpanded && (
             <div className="mt-2 space-y-1.5">
-              {Object.entries(item.byModel).map(([modelId, mStats]) => (
-                <div 
-                  key={modelId}
-                  className="flex items-center justify-between bg-parchment-2/15 border border-parchment-2/60 rounded-[2px] px-2.5 py-1.5 text-xs font-mono"
-                >
-                  <span className="text-text-main text-[11px] font-semibold">
-                    {modelId.replace('models/', '')}
-                  </span>
-                  <div className="flex items-center gap-3 text-[10px] text-text-muted flex-wrap">
-                    <span>RPM: <strong className="text-text-main">{mStats.requestsThisMinute}</strong></span>
-                    <span>TPM: <strong className="text-text-main">{formatTokenCount(mStats.tokensThisMinute)}</strong></span>
-                    <span>RPD: <strong className="text-text-main">{mStats.requestsToday}</strong></span>
-                    <span>TPD: <strong className="text-text-main">{formatTokenCount(mStats.tokensToday)}</strong></span>
-                    {mStats.errorsTotal > 0 && (
-                      <span className="text-polish font-bold">Lỗi: {mStats.errorsTotal}</span>
-                    )}
+              {Object.entries(item.byModel).map(([modelId, mStats]) => {
+                const mHealth = mStats.healthState;
+                return (
+                  <div 
+                    key={modelId}
+                    className="flex items-center justify-between bg-parchment-2/15 border border-parchment-2/60 rounded-[2px] px-2.5 py-1.5 text-xs font-mono gap-2 flex-wrap"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-text-main text-[11px] font-semibold">
+                        {modelId.replace('models/', '')}
+                      </span>
+                      {mHealth === 'QuotaExhausted' && (
+                        <Badge tone="warning" className="text-[9px] py-0 px-1.5" title={mStats.transitionReason}>
+                          Hết ngày
+                        </Badge>
+                      )}
+                      {(mHealth === 'RateLimited' || mHealth === 'Cooldown') && (
+                        <Badge tone="neutral" className="text-[9px] py-0 px-1.5" title={mStats.transitionReason}>
+                          Tạm nghỉ
+                        </Badge>
+                      )}
+                      {mHealth === 'Degraded' && (
+                        <Badge tone="warning" className="text-[9px] py-0 px-1.5" title={mStats.transitionReason}>
+                          Giảm nhẹ
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] text-text-muted flex-wrap">
+                      <span>RPM: <strong className="text-text-main">{mStats.requestsThisMinute}</strong></span>
+                      <span>TPM: <strong className="text-text-main">{formatTokenCount(mStats.tokensThisMinute)}</strong></span>
+                      <span>RPD: <strong className="text-text-main">{mStats.requestsToday}</strong></span>
+                      <span>TPD: <strong className="text-text-main">{formatTokenCount(mStats.tokensToday)}</strong></span>
+                      {mStats.errorsTotal > 0 && (
+                        <span className="text-polish font-bold">Lỗi: {mStats.errorsTotal}</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

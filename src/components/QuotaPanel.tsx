@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { 
   RotateCw, 
   AlertTriangle, 
@@ -6,7 +6,8 @@ import {
   Cpu, 
   Settings2,
   Clock,
-  Zap
+  Zap,
+  Unlock
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -18,7 +19,9 @@ import {
   formatTokenCount, 
   formatPacingSummary,
   getModelDefinition,
+  getModelReferenceLimits,
 } from '../utils/modelRegistry';
+import { saveStoredCustomLimits } from '../utils/customLimitsStorage';
 
 import {
   CountdownBadge,
@@ -61,7 +64,10 @@ export function QuotaPanel({
   observability: externalObservability,
 }: QuotaPanelProps) {
   // Sử dụng observability state truyền từ ApiSettings (hoặc tạo hook nội bộ nếu chạy độc lập)
-  const internalObservability = useModelObservability(apiKeys, undefined, { enabled: !externalObservability });
+  const internalObservability = useModelObservability(apiKeys, undefined, {
+    enabled: !externalObservability,
+    selectedModel,
+  });
   const obs = externalObservability || internalObservability;
 
   const {
@@ -79,10 +85,13 @@ export function QuotaPanel({
     loadQuotaStatus,
     inspectKeyModels,
     clearInspectResult,
+    unlockKey,
+    unlockAllKeys,
   } = obs;
 
   // Accordion state cho breakdown từng model trong key
   const [expandedModels, setExpandedModels] = useState<Set<number>>(new Set());
+  const [unlockNotice, setUnlockNotice] = useState<string | null>(null);
 
   // Custom User Limits
   const [customLimits, setCustomLimits] = useState<Record<string, CustomLimit>>(() => {
@@ -96,6 +105,9 @@ export function QuotaPanel({
   const [showLimitSettings, setShowLimitSettings] = useState(false);
 
   const cleanKeys = apiKeys.filter(k => typeof k === 'string' && k.trim().length > 0);
+  const referenceLimit = useMemo(() => getModelReferenceLimits(selectedModel), [selectedModel]);
+  const customLimitsRef = useRef(customLimits);
+  customLimitsRef.current = customLimits;
 
   const toggleModelExpand = useCallback((index: number) => {
     setExpandedModels(prev => {
@@ -107,25 +119,48 @@ export function QuotaPanel({
   }, []);
 
   const handleUpdateLimit = useCallback((keyHash: string, field: 'maxRpm' | 'maxRpd' | 'maxTpm', value: number) => {
-    setCustomLimits(prev => {
-      const current = prev[keyHash] || DEFAULT_CUSTOM_LIMIT;
-      const next = {
-        ...prev,
-        [keyHash]: {
-          ...current,
-          [field]: Math.max(1, value || 1),
-        },
-      };
-      try {
-        localStorage.setItem(CUSTOM_LIMITS_STORAGE_KEY, JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  }, []);
+    setUnlockNotice(null);
+    const prevLimits = customLimitsRef.current;
+    const current = prevLimits[keyHash] || referenceLimit;
+    const next = {
+      ...prevLimits,
+      [keyHash]: {
+        ...current,
+        [field]: Math.max(1, value || 1),
+      },
+    };
+    customLimitsRef.current = next;
+    setCustomLimits(next);
+    saveStoredCustomLimits(next);
+    void loadQuotaStatus(true);
+  }, [referenceLimit, loadQuotaStatus]);
 
   const handleRefresh = useCallback(() => {
     loadQuotaStatus(true); // Force refresh bỏ qua cache 30s
   }, [loadQuotaStatus]);
+
+  const handleUnlockSingle = useCallback((idx: number) => {
+    const res = unlockKey(idx, selectedModel);
+    if (res.blockedByCustomLimit) {
+      setUnlockNotice(
+        res.remainingCustomCooldownReason ||
+          'Khóa đã xóa cờ lỗi nhưng vẫn chạm ngưỡng Max RPD cá nhân. Hãy tăng Max RPD trong Ngưỡng cá nhân nếu muốn dùng tiếp.'
+      );
+    } else {
+      setUnlockNotice(null);
+    }
+  }, [unlockKey, selectedModel]);
+
+  const handleUnlockAll = useCallback(() => {
+    const res = unlockAllKeys(selectedModel);
+    if (res.customBlockedCount > 0) {
+      setUnlockNotice(
+        `Đã xóa cờ lỗi cho các khóa; vẫn còn ${res.customBlockedCount} khóa chạm ngưỡng Max RPD tự đặt (điều chỉnh tại Ngưỡng cá nhân nếu cần).`
+      );
+    } else {
+      setUnlockNotice(null);
+    }
+  }, [unlockAllKeys, selectedModel]);
 
   const modelSummary = computeModelStatsSummary(
     selectedModel,
@@ -133,6 +168,16 @@ export function QuotaPanel({
     inspectResults,
     cleanKeys.length
   );
+
+  const unlockableCount = snapshotKeys.filter((item) => {
+    const h = item.runtime?.healthState ?? item.healthState;
+    return h === 'QuotaExhausted' || h === 'RateLimited' || h === 'Cooldown' || h === 'Degraded';
+  }).length;
+
+  const effectiveAvailableCount = modelSummary.hasChecked
+    ? Math.min(modelSummary.availableKeyCount, modelSummary.runtimeAvailableKeyCount)
+    : modelSummary.runtimeAvailableKeyCount;
+  const isAllRuntimeBlocked = snapshotKeys.length > 0 && modelSummary.runtimeAvailableKeyCount === 0;
 
   if (cleanKeys.length === 0) {
     return (
@@ -170,7 +215,18 @@ export function QuotaPanel({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {unlockableCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleUnlockAll}
+              icon={<Unlock className="w-3.5 h-3.5 text-polish" />}
+            >
+              Mở khóa tất cả ({unlockableCount})
+            </Button>
+          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -191,6 +247,22 @@ export function QuotaPanel({
           </Button>
         </div>
       </div>
+
+      {unlockNotice && (
+        <div className="bg-amber-950/30 border border-amber-800/60 rounded-[2px] p-2.5 text-xs text-amber-300 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>{unlockNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUnlockNotice(null)}
+            className="text-[11px] text-amber-400 hover:text-amber-100 underline cursor-pointer shrink-0"
+          >
+            Đóng
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-amber-950/30 border border-amber-800/60 rounded-[2px] p-3 text-xs text-amber-300 flex items-center gap-2">
@@ -217,18 +289,20 @@ export function QuotaPanel({
           </div>
 
           <div className="flex items-center gap-2">
-            {modelSummary.hasChecked ? (
-              modelSummary.isUnavailable ? (
-                <Badge tone="warning" className="animate-pulse">
+            {isAllRuntimeBlocked || modelSummary.isUnavailable ? (
+              <Badge tone="warning">
+                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                0 / {cleanKeys.length} key khả dụng
+              </Badge>
+            ) : modelSummary.hasChecked || snapshotKeys.length > 0 ? (
+              <Badge tone={effectiveAvailableCount < cleanKeys.length ? 'warning' : 'polish'}>
+                {effectiveAvailableCount < cleanKeys.length ? (
                   <AlertTriangle className="w-3 h-3 text-amber-400" />
-                  0 / {cleanKeys.length} key khả dụng
-                </Badge>
-              ) : (
-                <Badge tone="polish">
+                ) : (
                   <CheckCircle2 className="w-3 h-3 text-polish" />
-                  {modelSummary.availableKeyCount} / {cleanKeys.length} key khả dụng
-                </Badge>
-              )
+                )}
+                {effectiveAvailableCount} / {cleanKeys.length} key khả dụng
+              </Badge>
             ) : cleanKeys.length > 0 && getModelDefinition(selectedModel)?.source === 'preset' ? (
               <Badge tone="polish">
                 <CheckCircle2 className="w-3 h-3 text-polish" />
@@ -243,10 +317,14 @@ export function QuotaPanel({
           </div>
         </div>
 
-        {modelSummary.isUnavailable && (
+        {(modelSummary.isUnavailable || isAllRuntimeBlocked) && (
           <div className="bg-amber-950/40 border border-amber-800/70 rounded-[2px] p-2.5 text-xs text-amber-300 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>Model đang chọn hiện không có API key khả dụng trong số các key đã kiểm tra. Hãy kiểm tra lại các key bên dưới hoặc đổi model trong tab Cấu hình.</span>
+            <span>
+              {modelSummary.isUnavailable
+                ? 'Model đang chọn hiện không có API key khả dụng trong số các key đã kiểm tra. Hãy kiểm tra lại các key bên dưới hoặc đổi model trong tab Cấu hình.'
+                : `Toàn bộ API key hiện không khả dụng trên mô hình ${modelSummary.displayName}. Hãy chuyển sang mô hình khác ở tab Cấu hình hoặc bấm Mở khóa nếu khóa vừa được khôi phục hạn mức.`}
+            </span>
           </div>
         )}
 
@@ -318,6 +396,7 @@ export function QuotaPanel({
           snapshotKeys={snapshotKeys}
           customLimits={customLimits}
           apiKeys={cleanKeys}
+          selectedModel={selectedModel}
           onUpdateLimit={handleUpdateLimit}
         />
       )}
@@ -326,7 +405,7 @@ export function QuotaPanel({
       {/* List of Keys Quota Cards */}
       <div className="space-y-3">
         {snapshotKeys.map((item, idx) => {
-          const limit = customLimits[item.keyHash] || DEFAULT_CUSTOM_LIMIT;
+          const limit = customLimits[item.keyHash] || referenceLimit;
           return (
             <KeyCardItem
               key={item.keyHash || idx}
@@ -344,6 +423,7 @@ export function QuotaPanel({
               onClearInspect={clearInspectResult}
               onToggleExpand={toggleModelExpand}
               onSelectModel={onSelectModel}
+              onUnlockKey={handleUnlockSingle}
             />
           );
         })}

@@ -105,8 +105,8 @@ export function buildAllKeysUnavailableError(
 
   return new GeminiRequestError(
     detailMessage
-      ? `Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED). Chi tiết: ${detailMessage}`
-      : 'Toàn bộ API Key đã hết hạn mức (429 RESOURCE_EXHAUSTED hoặc đã chạm ngưỡng cá nhân). Vui lòng kiểm tra Bảng điều khiển Quota.',
+      ? `Toàn bộ API Key đã hết hạn mức${options?.model ? ` trên mô hình '${options.model}'` : ''} (429 RESOURCE_EXHAUSTED). Chi tiết: ${detailMessage}`
+      : `Toàn bộ API Key đã hết hạn mức${options?.model ? ` trên mô hình '${options.model}'` : ''} (429 RESOURCE_EXHAUSTED hoặc đã chạm ngưỡng cá nhân). Vui lòng kiểm tra Bảng điều khiển Quota.`,
     {
       code: 'ALL_KEYS_EXHAUSTED',
       category: 'QUOTA_EXHAUSTED_RPD',

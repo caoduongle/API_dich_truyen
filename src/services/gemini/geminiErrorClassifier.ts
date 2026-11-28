@@ -32,20 +32,49 @@ const DAILY_LIMIT_KEYWORDS_REGEX = /\b(?:day|daily|per[_\s-]?day|requestsperday|
 const MINUTE_LIMIT_KEYWORDS_REGEX =
   /\b(?:per[_\s-]?minute|requests[_\s-]?per[_\s-]?minute|tokens[_\s-]?per[_\s-]?minute|requestsperminute|tokensperminute|rpm|tpm)\b/i;
 
+const COMPOUND_DURATION_TOKEN_RE =
+  /^\s*(?:(\d+(?:\.\d+)?)\s*h\s*)?(?:(\d+(?:\.\d+)?)\s*m(?!s)\s*)?(?:(\d+(?:\.\d+)?)\s*s\s*)?$/i;
+
+const MESSAGE_RETRY_DELAY_PATTERNS = [
+  /please\s+retry\s+in\s+(\d+(?:\.\d+)?\s*(?:ms|h|m(?!s)|s)(?:\s*\d+(?:\.\d+)?\s*(?:m(?!s)|s))*)(?=[\s.,;!?)]|$)/i,
+  /retry\s+(?:in|after)\s+(\d+(?:\.\d+)?\s*(?:ms|h|m(?!s)|s)(?:\s*\d+(?:\.\d+)?\s*(?:m(?!s)|s))*)(?=[\s.,;!?)]|$)/i,
+];
+
 function parseDurationTokenToMs(rawToken: string): number | undefined {
-  const match = rawToken.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s|m)?$/i);
-  if (!match) return undefined;
-  const value = Number(match[1]);
-  if (!Number.isFinite(value) || value <= 0) return undefined;
-  const unit = (match[2] || 's').toLowerCase();
-  if (unit === 'ms') return Math.ceil(value);
-  if (unit === 'm') return Math.ceil(value * 60_000);
-  return Math.ceil(value * 1000);
+  const trimmed = rawToken.trim();
+  if (!trimmed) return undefined;
+
+  const msMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*ms$/i);
+  if (msMatch) {
+    const msVal = Number(msMatch[1]);
+    return Number.isFinite(msVal) && msVal > 0 ? Math.ceil(msVal) : undefined;
+  }
+
+  const singleUnitMatch = trimmed.match(/^(\d+(?:\.\d+)?)$/i);
+  if (singleUnitMatch) {
+    const secVal = Number(singleUnitMatch[1]);
+    return Number.isFinite(secVal) && secVal > 0 ? Math.ceil(secVal * 1000) : undefined;
+  }
+
+  const compoundMatch = trimmed.match(COMPOUND_DURATION_TOKEN_RE);
+  if (!compoundMatch || (!compoundMatch[1] && !compoundMatch[2] && !compoundMatch[3])) {
+    return undefined;
+  }
+
+  const hours = compoundMatch[1] ? Number(compoundMatch[1]) : 0;
+  const minutes = compoundMatch[2] ? Number(compoundMatch[2]) : 0;
+  const seconds = compoundMatch[3] ? Number(compoundMatch[3]) : 0;
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    return undefined;
+  }
+
+  const totalMs = hours * 3_600_000 + minutes * 60_000 + seconds * 1000;
+  return totalMs > 0 ? Math.ceil(totalMs) : undefined;
 }
 
 /**
  * Trích xuất thời gian chờ thử lại (ms, kèm đệm an toàn) từ RetryInfo,
- * chuỗi thông báo của Google (ví dụ "Please retry in 36.580235449s.") hoặc header Retry-After.
+ * chuỗi thông báo của Google (ví dụ "Please retry in 36.580235449s." hoặc "12h5m53.42s") hoặc header Retry-After.
  */
 export function extractRetryDelayMs(
   message: string,
@@ -67,11 +96,12 @@ export function extractRetryDelayMs(
   }
 
   if (baseMs === undefined && message) {
-    const msgMatch =
-      message.match(/please\s+retry\s+in\s+([\d.]+\s*(?:ms|s|m))\b/i) ||
-      message.match(/retry\s+(?:in|after)\s+([\d.]+\s*(?:ms|s|m))\b/i);
-    if (msgMatch?.[1]) {
-      baseMs = parseDurationTokenToMs(msgMatch[1]);
+    for (const pattern of MESSAGE_RETRY_DELAY_PATTERNS) {
+      const msgMatch = message.match(pattern);
+      if (msgMatch?.[1]) {
+        baseMs = parseDurationTokenToMs(msgMatch[1]);
+        if (baseMs !== undefined) break;
+      }
     }
   }
 
@@ -200,7 +230,7 @@ export function classifyGeminiError(
               rpcStatus,
               reason: 'QuotaFailure_DailyLimit',
               details,
-              recommendedCooldownMs: -1, // -1 đánh dấu cần tính PST midnight
+              recommendedCooldownMs: extractedRetryDelayMs ?? -1,
               isRetryable: true,
               message,
             };
@@ -222,7 +252,7 @@ export function classifyGeminiError(
             rpcStatus,
             reason: 'ErrorInfo_DailyLimit',
             details,
-            recommendedCooldownMs: -1,
+            recommendedCooldownMs: extractedRetryDelayMs ?? -1,
             isRetryable: true,
             message,
           };
@@ -263,7 +293,7 @@ export function classifyGeminiError(
         rpcStatus,
         reason: 'MessageFallback_DailyLimit',
         details,
-        recommendedCooldownMs: -1,
+        recommendedCooldownMs: extractedRetryDelayMs ?? -1,
         isRetryable: true,
         message,
       };

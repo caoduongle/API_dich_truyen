@@ -388,17 +388,17 @@ describe('Feature 172: RPM Proactive Gate, Split Guard & Accurate Fallback Evalu
       expect(health.isCustomLimitReached).toBe(false);
     });
 
-    it('keeps ambiguous 429 in RateLimited on 1st strike (18/500), resets on success, and escalates on 2nd consecutive strike', () => {
+    it('keeps repeated ambiguous 429s in bounded RateLimited backoff (never QuotaExhausted below daily ref) and flags low-usage explicit daily exhaustion (FR-009)', () => {
       const k = 'KEY_AMBIGUOUS_429_TEST';
       const now = Date.now();
 
-      // Đã chạy 18 lượt thành công hôm nay
-      for (let i = 0; i < 18; i++) {
+      // Đã chạy 16 lượt thành công hôm nay (< 500 RPD)
+      for (let i = 0; i < 16; i++) {
         localQuotaTracker.recordProviderAttempt(k, 'gemini-3.5-flash-lite', now - 120_000);
         localQuotaTracker.recordSuccess(k, 'gemini-3.5-flash-lite', { totalTokens: 500 }, 100, now - 120_000);
       }
 
-      // Lần 1 gặp 429 mơ hồ -> phải là RateLimited tạm nghỉ (~50s), KHÔNG khóa QuotaExhausted cả ngày
+      // Lần 1 gặp 429 mơ hồ -> RateLimited tạm nghỉ (~50s), KHÔNG khóa QuotaExhausted cả ngày
       localQuotaTracker.recordFailure(
         k,
         'gemini-3.5-flash-lite',
@@ -409,9 +409,12 @@ describe('Feature 172: RPM Proactive Gate, Split Guard & Accurate Fallback Evalu
         },
         now
       );
-      expect(localQuotaTracker.getKeyHealth(k, now).state).toBe('RateLimited');
+      const strike1 = localQuotaTracker.getKeyHealth(k, now, undefined, { model: 'gemini-3.5-flash-lite' });
+      expect(strike1.state).toBe('RateLimited');
+      expect(strike1.cooldownRemainingMs).toBeGreaterThanOrEqual(49_000);
+      expect(strike1.cooldownRemainingMs).toBeLessThanOrEqual(51_000);
 
-      // Nếu ngay sau khi hồi phục (now + 55_000) lại dính tiếp 429 mơ hồ lần 2 không có success xen giữa -> nâng lên QuotaExhausted
+      // Lần 2 & lần 3 liên tiếp không có success xen giữa -> vẫn chỉ giãn cách RateLimited tăng dần (<= 120s), TUYỆT ĐỐI không khóa cả ngày
       localQuotaTracker.recordFailure(
         k,
         'gemini-3.5-flash-lite',
@@ -422,10 +425,27 @@ describe('Feature 172: RPM Proactive Gate, Split Guard & Accurate Fallback Evalu
         },
         now + 55_000
       );
-      expect(localQuotaTracker.getKeyHealth(k, now + 55_000).state).toBe('QuotaExhausted');
+      const strike2 = localQuotaTracker.getKeyHealth(k, now + 55_000, undefined, { model: 'gemini-3.5-flash-lite' });
+      expect(strike2.state).toBe('RateLimited');
+      expect(strike2.cooldownRemainingMs).toBeGreaterThanOrEqual(59_000);
+      expect(strike2.cooldownRemainingMs).toBeLessThanOrEqual(61_000);
 
-      // Reset thử trường hợp có recordSuccess xen giữa -> consecutiveAmbiguous429 được xóa sạch
-      localQuotaTracker.resetMetrics();
+      localQuotaTracker.recordFailure(
+        k,
+        'gemini-3.5-flash-lite',
+        {
+          status: 429,
+          isRateLimit: true,
+          message: 'You exceeded your current quota, please check your plan and billing details.',
+        },
+        now + 120_000
+      );
+      const strike3 = localQuotaTracker.getKeyHealth(k, now + 120_000, undefined, { model: 'gemini-3.5-flash-lite' });
+      expect(strike3.state).toBe('RateLimited');
+      expect(strike3.cooldownRemainingMs).toBeLessThanOrEqual(120_000);
+
+      // Có recordSuccess xen giữa -> reset bộ đếm ambiguous về nhịp đầu (~50s)
+      localQuotaTracker.recordSuccess(k, 'gemini-3.5-flash-lite', { totalTokens: 200 }, 50, now + 245_000);
       localQuotaTracker.recordFailure(
         k,
         'gemini-3.5-flash-lite',
@@ -434,21 +454,27 @@ describe('Feature 172: RPM Proactive Gate, Split Guard & Accurate Fallback Evalu
           isRateLimit: true,
           message: 'Quota exhausted',
         },
-        now
+        now + 246_000
       );
-      expect(localQuotaTracker.getKeyHealth(k, now).state).toBe('RateLimited');
-      localQuotaTracker.recordSuccess(k, 'gemini-3.5-flash-lite', { totalTokens: 200 }, 50, now + 55_000);
+      const afterResetStrike = localQuotaTracker.getKeyHealth(k, now + 246_000, undefined, { model: 'gemini-3.5-flash-lite' });
+      expect(afterResetStrike.state).toBe('RateLimited');
+      expect(afterResetStrike.cooldownRemainingMs).toBeLessThanOrEqual(51_000);
+
+      // Nếu máy chủ trả lỗi cạn ngày tường minh ('per day') dù mới chạy 16/500 (< 25%) -> khóa ngày + gắn cờ isLowUsageDailyExhaustion
       localQuotaTracker.recordFailure(
         k,
         'gemini-3.5-flash-lite',
         {
           status: 429,
           isRateLimit: true,
-          message: 'Quota exhausted',
+          message: 'Generate content requests per day limit exceeded, limit: 500. Please retry in 12h5m53.42s.',
         },
-        now + 56_000
+        now + 250_000
       );
-      expect(localQuotaTracker.getKeyHealth(k, now + 56_000).state).toBe('RateLimited');
+      const explicitDaily = localQuotaTracker.getKeyHealth(k, now + 250_000, undefined, { model: 'gemini-3.5-flash-lite' });
+      expect(explicitDaily.state).toBe('QuotaExhausted');
+      expect(explicitDaily.isLowUsageDailyExhaustion).toBe(true);
+      expect(explicitDaily.transitionReason).toContain('16/500');
     });
   });
 

@@ -20,6 +20,7 @@ import {
   DiscoveredEntity,
   validateDiscoveredEntity,
   verifySourceCoverage,
+  isChapterTitleLine,
 } from '../../lib/text';
 import { validateAndSnapBackEntities } from '../../lib/sinoNormalize';
 import { substituteGlossaryTermsSafely } from '../../lib/glossaryMatch';
@@ -369,13 +370,27 @@ export async function callRawDirectCore(
     } catch (parityErr: any) {
       const msg = parityErr?.message || '';
       if (msg.includes('PARAGRAPH_STRUCTURE_DIVERGENCE')) {
+        const srcParas = splitParagraphsPreservingOrder(text);
+        const tgtParas = splitParagraphsPreservingOrder(finalRawTranslation);
         const srcCount = countParagraphs(text);
         const tgtCount = countParagraphs(finalRawTranslation);
         const delta = Math.abs(srcCount - tgtCount);
         const minHealthyLength = Math.max(200, Math.round(text.trim().length * 0.8));
+        const hasTitlePreserved =
+          !isChapterTitleLine(srcParas[0] || '') ||
+          (tgtParas.length > 0 && isChapterTitleLine(tgtParas[0]));
+        const maxAllowedDelta =
+          srcCount >= 15
+            ? Math.min(3, Math.floor(srcCount * 0.08))
+            : srcCount >= 12
+              ? 2
+              : srcCount >= 8
+                ? 1
+                : 0;
         const canTolerateMinorVariance =
-          srcCount >= 8 &&
-          delta <= 1 &&
+          maxAllowedDelta > 0 &&
+          delta <= maxAllowedDelta &&
+          hasTitlePreserved &&
           finalRawTranslation.trim().length >= minHealthyLength &&
           countChineseCharacters(finalRawTranslation) === 0;
         if (!canTolerateMinorVariance) {

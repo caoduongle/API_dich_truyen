@@ -295,7 +295,13 @@ export function useTranslationProcess({
       // ── Stagger API key cho từng chương trong lô ──
       const cleanKeys = (paramsRef.current.apiKeys || []).filter((k: any) => typeof k === 'string' && k.trim().length > 0);
       if (cleanKeys.length > 0) {
-        const healthyIdx = localQuotaTracker.findNextAvailableKeyIndex(cleanKeys, currentApiKeyIndexRef.current, getStoredCustomLimits());
+        const healthyIdx = localQuotaTracker.findNextAvailableKeyIndex(
+          cleanKeys,
+          currentApiKeyIndexRef.current,
+          getStoredCustomLimits(),
+          Date.now(),
+          { model: paramsRef.current.selectedModel }
+        );
         if (healthyIdx !== -1) {
           currentApiKeyIndexRef.current = healthyIdx;
         }
@@ -473,7 +479,13 @@ export function useTranslationProcess({
         const nextCandidate = batchSuccessCount > 0
           ? (lastSuccessKeyIndex + 1) % cleanKeys.length
           : (baseKeyIndex + batchSize) % cleanKeys.length;
-        const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(cleanKeys, nextCandidate, getStoredCustomLimits());
+        const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(
+          cleanKeys,
+          nextCandidate,
+          getStoredCustomLimits(),
+          Date.now(),
+          { model: paramsRef.current.selectedModel }
+        );
         currentApiKeyIndexRef.current = nextHealthy !== -1 ? nextHealthy : nextCandidate;
       }
 
@@ -585,7 +597,13 @@ export function useTranslationProcess({
       return;
     }
 
-    const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(cleanKeys, currentApiKeyIndexRef.current, getStoredCustomLimits());
+    const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(
+      cleanKeys,
+      currentApiKeyIndexRef.current,
+      getStoredCustomLimits(),
+      Date.now(),
+      { model: selectedModel }
+    );
     if (nextHealthy !== -1) {
       currentApiKeyIndexRef.current = nextHealthy;
     }
@@ -700,7 +718,13 @@ export function useTranslationProcess({
     const cleanKeys = (paramsRef.current.apiKeys || []).filter((k: any) => typeof k === 'string' && k.trim().length > 0);
     if (cleanKeys.length > 0) {
       const nextCandidate = (currentApiKeyIndexRef.current + 1) % cleanKeys.length;
-      const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(cleanKeys, nextCandidate, getStoredCustomLimits());
+      const nextHealthy = localQuotaTracker.findNextAvailableKeyIndex(
+        cleanKeys,
+        nextCandidate,
+        getStoredCustomLimits(),
+        Date.now(),
+        { model: selectedModel }
+      );
       currentApiKeyIndexRef.current = nextHealthy !== -1 ? nextHealthy : 0;
     }
 

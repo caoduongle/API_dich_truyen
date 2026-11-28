@@ -1,7 +1,7 @@
 import React from 'react';
 import { Settings2 } from 'lucide-react';
 import type { KeyQuotaFullSnapshot } from '../../types/quota';
-import { formatPacingSummary } from '../../utils/modelRegistry';
+import { formatPacingSummary, getModelReferenceLimits } from '../../utils/modelRegistry';
 
 import type { CustomLimit } from '../../utils/customLimitsStorage';
 import { DEFAULT_CUSTOM_LIMIT } from '../../utils/customLimitsStorage';
@@ -19,6 +19,7 @@ export interface CustomLimitsPanelProps {
   snapshotKeys: KeyQuotaFullSnapshot[];
   customLimits: Record<string, CustomLimit>;
   apiKeys?: string[];
+  selectedModel?: string;
   onUpdateLimit: (keyHash: string, field: 'maxRpm' | 'maxRpd' | 'maxTpm', value: number) => void;
 }
 
@@ -29,8 +30,10 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
   snapshotKeys,
   customLimits,
   apiKeys,
+  selectedModel,
   onUpdateLimit,
 }: CustomLimitsPanelProps) {
+  const referenceLimit = getModelReferenceLimits(selectedModel);
   return (
     <div className="bg-parchment-2/20 border border-parchment-2 rounded-[2px] p-3.5 space-y-3">
       <div className="flex items-center gap-1.5 text-xs font-bold text-text-main">
@@ -42,7 +45,7 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
         {snapshotKeys.map((item, idx) => {
-          const limit = customLimits[item.keyHash] || DEFAULT_CUSTOM_LIMIT;
+          const limit = customLimits[item.keyHash] || referenceLimit;
           const displayMask = formatClientMaskedKey(apiKeys?.[idx], item.maskedKey);
           return (
             <div key={item.keyHash || idx} className="bg-ink border border-parchment-2 rounded-[2px] p-2.5 space-y-2">
@@ -59,7 +62,7 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
                     type="number"
                     min="1"
                     max="1000"
-                    value={limit.maxRpm || 15}
+                    value={limit.maxRpm || referenceLimit.maxRpm}
                     onChange={e => onUpdateLimit(item.keyHash, 'maxRpm', parseInt(e.target.value, 10))}
                     className="w-full bg-parchment-2/40 border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main text-xs font-mono outline-none focus:border-polish"
                   />
@@ -71,7 +74,7 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
                     min="1000"
                     max="100000000"
                     step="10000"
-                    value={limit.maxTpm || 1000000}
+                    value={limit.maxTpm || referenceLimit.maxTpm}
                     onChange={e => onUpdateLimit(item.keyHash, 'maxTpm', parseInt(e.target.value, 10))}
                     className="w-full bg-parchment-2/40 border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main text-xs font-mono outline-none focus:border-polish"
                   />
@@ -82,7 +85,7 @@ export const CustomLimitsPanel = React.memo(function CustomLimitsPanel({
                     type="number"
                     min="1"
                     max="50000"
-                    value={limit.maxRpd || 1500}
+                    value={limit.maxRpd || referenceLimit.maxRpd}
                     onChange={e => onUpdateLimit(item.keyHash, 'maxRpd', parseInt(e.target.value, 10))}
                     className="w-full bg-parchment-2/40 border border-parchment-2 rounded-[2px] px-2 py-1 text-text-main text-xs font-mono outline-none focus:border-polish"
                   />

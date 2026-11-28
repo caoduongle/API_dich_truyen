@@ -29,11 +29,15 @@ describe('useModelObservability Hook', () => {
       loadQuotaStatus: async () => {},
       inspectKeyModels: async () => {},
       clearInspectResult: () => {},
+      unlockKey: () => ({ unlocked: true }),
+      unlockAllKeys: () => ({ unlockedCount: 0, customBlockedCount: 0 }),
     };
 
     expect(mockState.timezone).toBe('America/Los_Angeles');
     expect(typeof mockState.loadQuotaStatus).toBe('function');
     expect(typeof mockState.inspectKeyModels).toBe('function');
     expect(typeof mockState.clearInspectResult).toBe('function');
+    expect(typeof mockState.unlockKey).toBe('function');
+    expect(typeof mockState.unlockAllKeys).toBe('function');
   });
 });

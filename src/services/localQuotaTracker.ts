@@ -11,14 +11,21 @@ import type {
   KeyHealthState,
   KeyRuntimeStatus,
   CustomLimit,
+  UnlockKeyResult,
 } from '../types/quota';
 import { getStoredCustomLimits } from '../utils/customLimitsStorage';
+import {
+  getDefaultReferenceLimitFallback,
+  getFamilyReferenceLimits,
+  normalizeModelId,
+} from '../utils/modelReferenceLimits';
 import { classifyGeminiError } from './gemini/geminiErrorClassifier';
 import { RATE_LIMIT_RECOVERY_CONFIG } from '../config/constants';
 
 const DEFAULT_FALLBACK_MAX_RPM = 15;
 const DEFAULT_AMBIGUOUS_429_DAILY_REF = 500;
 const MAX_PROACTIVE_WAIT_MS = 65_000;
+const MAX_PROVIDER_DAILY_DELAY_MS = 48 * 3_600_000;
 
 function sanitizePositiveLimit(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -45,10 +52,12 @@ export interface KeyHealthResult {
   isAvailable: boolean;
   isCustomLimitReached?: boolean;
   isProactivePacing?: boolean;
+  isLowUsageDailyExhaustion?: boolean;
 }
 
 export interface KeyHealthOptions {
   enforceProactiveLimits?: boolean;
+  model?: string;
 }
 
 export interface CallAttemptEntry {
@@ -122,6 +131,15 @@ export interface InternalModelStats {
   recentAttempts: CallAttemptEntry[];
   recentTokens: CallTokenEntry[];
   lastResetDay: string;
+  healthState: KeyHealthState;
+  circuitBreakerStatus: CircuitBreakerStatus;
+  cooldownUntil: number;
+  transitionReason?: string;
+  lastTransitionAt: number;
+  consecutiveErrors: number;
+  consecutiveSuccesses: number;
+  consecutiveAmbiguous429: number;
+  isLowUsageDailyExhaustion: boolean;
 }
 
 export interface InternalKeyStats {
@@ -312,26 +330,108 @@ export class LocalQuotaTracker {
           const byModelMap = new Map<string, InternalModelStats>();
           if (item.byModel && typeof item.byModel === 'object') {
             for (const [mName, mStats] of Object.entries<any>(item.byModel)) {
+              const normModel = normalizeModelId(mName) || mName;
+              const isModelDayChanged =
+                isDayChanged || Boolean(mStats?.lastResetDay && mStats.lastResetDay !== currentDay);
               const mRecentAttempts: CallAttemptEntry[] = sanitizeRecentAttempts(
-                mStats.recentAttempts,
+                mStats?.recentAttempts,
                 minuteThreshold,
                 maxFutureTimestamp
               );
               const mRecentTokens: CallTokenEntry[] = sanitizeRecentTokens(
-                mStats.recentTokens,
+                mStats?.recentTokens,
                 minuteThreshold,
                 maxFutureTimestamp
               );
 
-              byModelMap.set(mName, {
-                ...mStats,
-                requestsToday: isDayChanged ? 0 : (mStats.requestsToday || 0),
-                errorsToday: isDayChanged ? 0 : (mStats.errorsToday || 0),
-                tokensToday: isDayChanged ? 0 : (mStats.tokensToday || 0),
-                lastResetDay: isDayChanged ? currentDay : (mStats.lastResetDay || currentDay),
+              let mHealthState: KeyHealthState = 'Healthy';
+              let mCircuitStatus: CircuitBreakerStatus = 'Closed';
+              let mCooldownUntil = 0;
+              let mTransitionReason: string | undefined = mStats?.transitionReason;
+              let mIsLowUsageDailyExhaustion = Boolean(mStats?.isLowUsageDailyExhaustion);
+
+              if (item.healthState === 'AuthFailed') {
+                mHealthState = 'Healthy';
+                mCircuitStatus = 'Closed';
+                mCooldownUntil = 0;
+              } else if (isModelDayChanged) {
+                mHealthState = 'Healthy';
+                mCircuitStatus = 'Closed';
+                mCooldownUntil = 0;
+                mTransitionReason = 'Hồi phục sau khi chuyển sang ngày mới (PST Reset)';
+                mIsLowUsageDailyExhaustion = false;
+              } else if (mStats?.healthState === 'QuotaExhausted') {
+                mHealthState = 'QuotaExhausted';
+                mCircuitStatus = mStats.circuitBreakerStatus || 'Open';
+                mCooldownUntil =
+                  mStats.cooldownUntil && mStats.cooldownUntil > now
+                    ? mStats.cooldownUntil
+                    : getNextPstMidnight(now);
+              } else if (mStats?.healthState === 'RateLimited' || mStats?.healthState === 'Cooldown') {
+                if (mStats.cooldownUntil && mStats.cooldownUntil > now) {
+                  mHealthState = mStats.healthState;
+                  mCircuitStatus = mStats.circuitBreakerStatus || 'Open';
+                  mCooldownUntil = mStats.cooldownUntil;
+                } else {
+                  mHealthState = 'Healthy';
+                  mCircuitStatus = 'Closed';
+                  mCooldownUntil = 0;
+                }
+              } else if (mStats?.healthState === 'Degraded') {
+                mHealthState = 'Degraded';
+                mCircuitStatus = mStats.circuitBreakerStatus || 'HalfOpen';
+                mCooldownUntil = mStats.cooldownUntil && mStats.cooldownUntil > now ? mStats.cooldownUntil : 0;
+              }
+
+              const existing = byModelMap.get(normModel);
+              const normalizedEntry: InternalModelStats = {
+                requestsTotal: mStats?.requestsTotal || 0,
+                requestsToday: isModelDayChanged ? 0 : (mStats?.requestsToday || 0),
+                errorsTotal: mStats?.errorsTotal || 0,
+                errorsToday: isModelDayChanged ? 0 : (mStats?.errorsToday || 0),
+                tokensTotal: mStats?.tokensTotal || 0,
+                tokensToday: isModelDayChanged ? 0 : (mStats?.tokensToday || 0),
+                totalLatencyMs: mStats?.totalLatencyMs || 0,
+                lastResetDay: isModelDayChanged ? currentDay : (mStats?.lastResetDay || currentDay),
                 recentAttempts: mRecentAttempts,
                 recentTokens: mRecentTokens,
-              });
+                healthState: mHealthState,
+                circuitBreakerStatus: mCircuitStatus,
+                cooldownUntil: mCooldownUntil,
+                transitionReason: mTransitionReason,
+                lastTransitionAt: mStats?.lastTransitionAt || now,
+                consecutiveErrors: isModelDayChanged ? 0 : (mStats?.consecutiveErrors || 0),
+                consecutiveSuccesses: mStats?.consecutiveSuccesses || 0,
+                consecutiveAmbiguous429: isModelDayChanged ? 0 : (mStats?.consecutiveAmbiguous429 || 0),
+                isLowUsageDailyExhaustion: mIsLowUsageDailyExhaustion,
+              };
+
+              if (!existing) {
+                byModelMap.set(normModel, normalizedEntry);
+              } else {
+                const useNewHealth = normalizedEntry.lastTransitionAt >= existing.lastTransitionAt;
+                byModelMap.set(normModel, {
+                  ...existing,
+                  requestsTotal: existing.requestsTotal + normalizedEntry.requestsTotal,
+                  requestsToday: existing.requestsToday + normalizedEntry.requestsToday,
+                  errorsTotal: existing.errorsTotal + normalizedEntry.errorsTotal,
+                  errorsToday: existing.errorsToday + normalizedEntry.errorsToday,
+                  tokensTotal: existing.tokensTotal + normalizedEntry.tokensTotal,
+                  tokensToday: existing.tokensToday + normalizedEntry.tokensToday,
+                  totalLatencyMs: existing.totalLatencyMs + normalizedEntry.totalLatencyMs,
+                  recentAttempts: [...existing.recentAttempts, ...normalizedEntry.recentAttempts].slice(-100),
+                  recentTokens: [...existing.recentTokens, ...normalizedEntry.recentTokens].slice(-100),
+                  healthState: useNewHealth ? normalizedEntry.healthState : existing.healthState,
+                  circuitBreakerStatus: useNewHealth ? normalizedEntry.circuitBreakerStatus : existing.circuitBreakerStatus,
+                  cooldownUntil: Math.max(existing.cooldownUntil, normalizedEntry.cooldownUntil),
+                  transitionReason: useNewHealth ? normalizedEntry.transitionReason : existing.transitionReason,
+                  lastTransitionAt: Math.max(existing.lastTransitionAt, normalizedEntry.lastTransitionAt),
+                  consecutiveErrors: Math.max(existing.consecutiveErrors, normalizedEntry.consecutiveErrors),
+                  consecutiveSuccesses: useNewHealth ? normalizedEntry.consecutiveSuccesses : existing.consecutiveSuccesses,
+                  consecutiveAmbiguous429: Math.max(existing.consecutiveAmbiguous429, normalizedEntry.consecutiveAmbiguous429),
+                  isLowUsageDailyExhaustion: existing.isLowUsageDailyExhaustion || normalizedEntry.isLowUsageDailyExhaustion,
+                });
+              }
             }
           }
 
@@ -437,6 +537,15 @@ export class LocalQuotaTracker {
             lastResetDay: mStats.lastResetDay,
             recentAttempts: mRecentAttempts,
             recentTokens: mRecentTokens,
+            healthState: mStats.healthState,
+            circuitBreakerStatus: mStats.circuitBreakerStatus,
+            cooldownUntil: mStats.cooldownUntil,
+            transitionReason: mStats.transitionReason,
+            lastTransitionAt: mStats.lastTransitionAt,
+            consecutiveErrors: mStats.consecutiveErrors,
+            consecutiveSuccesses: mStats.consecutiveSuccesses,
+            consecutiveAmbiguous429: mStats.consecutiveAmbiguous429,
+            isLowUsageDailyExhaustion: mStats.isLowUsageDailyExhaustion,
           };
         }
 
@@ -522,9 +631,10 @@ export class LocalQuotaTracker {
     if (stats.lastResetDay !== currentDay) {
       stats.requestsToday = 0;
       stats.tokensToday = 0;
+      stats.consecutiveErrors = 0;
       stats.consecutiveAmbiguous429 = 0;
       stats.lastResetDay = currentDay;
-      if (stats.healthState === 'QuotaExhausted') {
+      if (stats.healthState === 'QuotaExhausted' || stats.healthState === 'RateLimited' || stats.healthState === 'Cooldown') {
         stats.healthState = 'Healthy';
         stats.circuitBreakerStatus = 'Closed';
         stats.cooldownUntil = 0;
@@ -537,7 +647,8 @@ export class LocalQuotaTracker {
 
   private getOrCreateModelStats(keyStats: InternalKeyStats, model: string, now: number): InternalModelStats {
     const currentDay = getDayInLosAngeles(now);
-    let mStats = keyStats.byModel.get(model);
+    const normModel = normalizeModelId(model) || model;
+    let mStats = keyStats.byModel.get(normModel);
     if (!mStats) {
       mStats = {
         requestsTotal: 0,
@@ -550,15 +661,39 @@ export class LocalQuotaTracker {
         recentAttempts: [],
         recentTokens: [],
         lastResetDay: currentDay,
+        healthState: 'Healthy',
+        circuitBreakerStatus: 'Closed',
+        cooldownUntil: 0,
+        lastTransitionAt: now,
+        consecutiveErrors: 0,
+        consecutiveSuccesses: 0,
+        consecutiveAmbiguous429: 0,
+        isLowUsageDailyExhaustion: false,
       };
-      keyStats.byModel.set(model, mStats);
+      keyStats.byModel.set(normModel, mStats);
     }
 
     if (mStats.lastResetDay !== currentDay) {
       mStats.requestsToday = 0;
       mStats.errorsToday = 0;
       mStats.tokensToday = 0;
+      mStats.consecutiveErrors = 0;
+      mStats.consecutiveAmbiguous429 = 0;
+      mStats.isLowUsageDailyExhaustion = false;
       mStats.lastResetDay = currentDay;
+      if (
+        mStats.healthState === 'QuotaExhausted' ||
+        mStats.healthState === 'RateLimited' ||
+        mStats.healthState === 'Cooldown' ||
+        mStats.healthState === 'Degraded'
+      ) {
+        mStats.healthState = 'Healthy';
+        mStats.circuitBreakerStatus = 'Closed';
+        mStats.cooldownUntil = 0;
+        mStats.consecutiveSuccesses = 0;
+        mStats.transitionReason = 'Hồi phục sau khi chuyển sang ngày mới (PST Reset)';
+        mStats.lastTransitionAt = now;
+      }
     }
 
     return mStats;
@@ -664,7 +799,7 @@ export class LocalQuotaTracker {
     keyStats.consecutiveSuccesses++;
     keyStats.recentTokens.push({ timestamp: now, tokens: totalTokens });
 
-    // Cập nhật trạng thái Circuit Breaker
+    // Cập nhật trạng thái Circuit Breaker cấp khóa (tương thích ngược)
     if (keyStats.circuitBreakerStatus === 'HalfOpen' && keyStats.consecutiveSuccesses >= 2) {
       keyStats.circuitBreakerStatus = 'Closed';
       keyStats.healthState = 'Healthy';
@@ -679,13 +814,29 @@ export class LocalQuotaTracker {
     mStats.tokensTotal += totalTokens;
     mStats.tokensToday += totalTokens;
     mStats.totalLatencyMs += latencyMs;
+    mStats.consecutiveErrors = 0;
+    mStats.consecutiveAmbiguous429 = 0;
+    mStats.consecutiveSuccesses++;
+    mStats.isLowUsageDailyExhaustion = false;
     mStats.recentTokens.push({ timestamp: now, tokens: totalTokens });
+
+    if (mStats.circuitBreakerStatus === 'HalfOpen' && mStats.consecutiveSuccesses >= 2) {
+      mStats.circuitBreakerStatus = 'Closed';
+      mStats.healthState = 'Healthy';
+      mStats.transitionReason = 'Phục hồi thành công sau chu kỳ cooldown';
+      mStats.cooldownUntil = 0;
+      mStats.lastTransitionAt = now;
+    } else if (mStats.healthState === 'Degraded') {
+      mStats.healthState = 'Healthy';
+      mStats.transitionReason = 'Đã kết nối ổn định trở lại';
+      mStats.lastTransitionAt = now;
+    }
 
     this.scheduleSave(now);
   }
 
   /**
-   * Ghi nhận thất bại cho API call & cập nhật Key Health State Machine
+   * Ghi nhận thất bại cho API call & cập nhật máy trạng thái cô lập theo (Khóa, Mô hình)
    */
   public recordFailure(
     key: string,
@@ -711,10 +862,15 @@ export class LocalQuotaTracker {
     keyStats.errorsTotal++;
     keyStats.consecutiveErrors++;
     keyStats.consecutiveSuccesses = 0;
+    keyStats.lastTransitionAt = now;
 
-    const mStats = this.getOrCreateModelStats(keyStats, model, now);
+    const normModel = normalizeModelId(model) || model;
+    const mStats = this.getOrCreateModelStats(keyStats, normModel, now);
     mStats.errorsTotal++;
     mStats.errorsToday++;
+    mStats.consecutiveErrors++;
+    mStats.consecutiveSuccesses = 0;
+    mStats.lastTransitionAt = now;
 
     const msg = error.message || '';
     const classified = classifyGeminiError(
@@ -731,64 +887,166 @@ export class LocalQuotaTracker {
           ? classified.recommendedCooldownMs
           : undefined;
 
+    const applyModelState = (
+      state: KeyHealthState,
+      cb: CircuitBreakerStatus,
+      cooldownUntil: number,
+      reason: string,
+      isLowUsageDailyExhaustion: boolean = false
+    ) => {
+      mStats.healthState = state;
+      mStats.circuitBreakerStatus = cb;
+      mStats.cooldownUntil = cooldownUntil;
+      mStats.transitionReason = reason;
+      mStats.isLowUsageDailyExhaustion = isLowUsageDailyExhaustion;
+      keyStats.healthState = state;
+      keyStats.circuitBreakerStatus = cb;
+      keyStats.cooldownUntil = cooldownUntil;
+      keyStats.transitionReason = reason;
+    };
+
     if (error.isAuthError || classified.category === 'AUTH_FAILURE') {
+      const reason = `401/403: API key không hợp lệ hoặc bị từ chối (${msg.slice(0, 80)})`;
       keyStats.healthState = 'AuthFailed';
       keyStats.circuitBreakerStatus = 'Open';
       keyStats.cooldownUntil = Number.MAX_SAFE_INTEGER;
-      keyStats.transitionReason = `401/403: API key không hợp lệ hoặc bị từ chối (${msg.slice(0, 80)})`;
+      keyStats.transitionReason = reason;
+      mStats.transitionReason = reason;
     } else if (classified.category === 'QUOTA_EXHAUSTED_RPD') {
-      keyStats.healthState = 'QuotaExhausted';
-      keyStats.circuitBreakerStatus = 'Open';
-      keyStats.cooldownUntil = getNextPstMidnight(now);
-      keyStats.transitionReason = '429: Hạn mức ngày đã hết (RPD Quota Exhausted)';
-    } else if (classified.reason === 'MessageFallback_AmbiguousQuota') {
-      const nextAmbiguousCount = (keyStats.consecutiveAmbiguous429 || 0) + 1;
-      keyStats.consecutiveAmbiguous429 = nextAmbiguousCount;
       const customLimits = getStoredCustomLimits();
       const customMaxRpd = sanitizePositiveLimit(customLimits?.[keyStats.keyHash]?.maxRpd);
-      const dailyReference = customMaxRpd ?? DEFAULT_AMBIGUOUS_429_DAILY_REF;
+      const refLimit =
+        (getFamilyReferenceLimits(normModel) ?? getDefaultReferenceLimitFallback()).maxRpd ||
+        DEFAULT_AMBIGUOUS_429_DAILY_REF;
+      const dailyReference = customMaxRpd ?? refLimit;
+      const hasAccurateLongDelay =
+        typeof dynamicCooldownMs === 'number' &&
+        dynamicCooldownMs > 60_000 &&
+        dynamicCooldownMs <= MAX_PROVIDER_DAILY_DELAY_MS;
+      const nextCooldownUntil = hasAccurateLongDelay ? now + dynamicCooldownMs! : getNextPstMidnight(now);
+      const isLowUsage = mStats.requestsToday < dailyReference * 0.25;
+      const reason = isLowUsage
+        ? `429: Máy chủ báo cạn hạn mức ngày (per day/RPD) dù lượt gọi trên trình duyệt còn thấp (${mStats.requestsToday}/${dailyReference}) — có thể khóa đã tiêu hao từ ứng dụng/thiết bị khác hoặc chung dự án Google Cloud.`
+        : '429: Hạn mức ngày đã hết (RPD Quota Exhausted)';
 
-      if (nextAmbiguousCount === 1 && keyStats.requestsToday < dailyReference) {
-        const waitMs = dynamicCooldownMs ?? 50 * 1000;
-        keyStats.healthState = 'RateLimited';
-        keyStats.circuitBreakerStatus = 'Open';
-        keyStats.cooldownUntil = now + waitMs;
-        keyStats.transitionReason = `429: Tạm nghỉ nghi ngờ giới hạn tốc độ RPM (~${Math.ceil(waitMs / 1000)}s)`;
+      applyModelState('QuotaExhausted', 'Open', nextCooldownUntil, reason, isLowUsage);
+    } else if (classified.reason === 'MessageFallback_AmbiguousQuota') {
+      const nextAmbiguousCount = (mStats.consecutiveAmbiguous429 || 0) + 1;
+      mStats.consecutiveAmbiguous429 = nextAmbiguousCount;
+      keyStats.consecutiveAmbiguous429 = nextAmbiguousCount;
+
+      const customLimits = getStoredCustomLimits();
+      const customMaxRpd = sanitizePositiveLimit(customLimits?.[keyStats.keyHash]?.maxRpd);
+      const refLimit =
+        (getFamilyReferenceLimits(normModel) ?? getDefaultReferenceLimitFallback()).maxRpd ||
+        DEFAULT_AMBIGUOUS_429_DAILY_REF;
+      const dailyReference = customMaxRpd ?? refLimit;
+
+      // FR-009: Tuyệt đối không nâng cấp 429 mơ hồ thành QuotaExhausted khi chưa chạm ngưỡng ngày
+      if (mStats.requestsToday < dailyReference) {
+        const waitMs =
+          nextAmbiguousCount <= 1
+            ? (dynamicCooldownMs ?? 50_000)
+            : nextAmbiguousCount === 2
+              ? Math.max(dynamicCooldownMs ?? 0, 60_000)
+              : Math.min(
+                  RATE_LIMIT_RECOVERY_CONFIG.MAX_AUTO_WAIT_COOLDOWN_MS,
+                  Math.max(dynamicCooldownMs ?? 0, 120_000)
+                );
+        const reason = `429: Tạm nghỉ nghi ngờ giới hạn tốc độ RPM lần ${nextAmbiguousCount} (~${Math.ceil(waitMs / 1000)}s, chưa chạm hạn mức ${dailyReference} RPD)`;
+        applyModelState('RateLimited', 'Open', now + waitMs, reason, false);
       } else {
-        keyStats.healthState = 'QuotaExhausted';
-        keyStats.circuitBreakerStatus = 'Open';
-        keyStats.cooldownUntil = getNextPstMidnight(now);
-        keyStats.transitionReason = '429: Hạn mức ngày đã hết sau xác nhận lặp lại (RPD Quota Exhausted)';
+        const reason = `429: Hạn mức ngày đã hết sau khi đạt ngưỡng tham chiếu (${mStats.requestsToday}/${dailyReference} RPD)`;
+        applyModelState('QuotaExhausted', 'Open', getNextPstMidnight(now), reason, false);
       }
     } else if (error.isRateLimit || classified.category === 'RATE_LIMIT_RPM') {
       const waitMs = dynamicCooldownMs ?? 45 * 1000;
-      keyStats.healthState = 'RateLimited';
-      keyStats.circuitBreakerStatus = 'Open';
-      keyStats.cooldownUntil = now + waitMs;
-      keyStats.transitionReason = `429: Tạm nghỉ giới hạn tốc độ RPM (~${Math.ceil(waitMs / 1000)}s)`;
+      applyModelState(
+        'RateLimited',
+        'Open',
+        now + waitMs,
+        `429: Tạm nghỉ giới hạn tốc độ RPM (~${Math.ceil(waitMs / 1000)}s)`,
+        false
+      );
     } else if (error.isOverload || classified.category === 'SERVICE_OVERLOAD') {
       const waitMs = dynamicCooldownMs ?? 15 * 1000;
-      keyStats.healthState = 'Cooldown';
-      keyStats.circuitBreakerStatus = 'Open';
-      keyStats.cooldownUntil = now + waitMs;
-      keyStats.transitionReason = '503: Máy chủ Gemini đang quá tải tạm thời';
+      applyModelState('Cooldown', 'Open', now + waitMs, '503: Máy chủ Gemini đang quá tải tạm thời', false);
     } else {
-      if (keyStats.consecutiveErrors >= 3) {
-        keyStats.healthState = 'Degraded';
-        keyStats.circuitBreakerStatus = 'Open';
-        keyStats.cooldownUntil = now + 10 * 1000;
-        keyStats.transitionReason = `Gặp lỗi liên tiếp (${keyStats.consecutiveErrors} lần)`;
+      if (mStats.consecutiveErrors >= 3) {
+        applyModelState(
+          'Degraded',
+          'Open',
+          now + 10 * 1000,
+          `Gặp lỗi liên tiếp (${mStats.consecutiveErrors} lần)`,
+          false
+        );
       } else {
-        keyStats.healthState = 'Degraded';
-        keyStats.transitionReason = `Lỗi: ${msg.slice(0, 60)}`;
+        applyModelState('Degraded', 'Closed', 0, `Lỗi: ${msg.slice(0, 60)}`, false);
       }
     }
 
     this.scheduleSave(now);
   }
 
+  private evaluateProactiveLimits(
+    state: KeyHealthState,
+    circuitBreaker: CircuitBreakerStatus,
+    recentAttempts: CallAttemptEntry[],
+    recentTokens: CallTokenEntry[],
+    now: number,
+    customLimit?: CustomLimit,
+    options?: KeyHealthOptions
+  ): KeyHealthResult | null {
+    if (customLimit === undefined && !options?.enforceProactiveLimits) {
+      return null;
+    }
+
+    const minuteThreshold = now - 60_000;
+    const effectiveMaxRpm =
+      sanitizePositiveLimit(customLimit?.maxRpm) ??
+      (options?.enforceProactiveLimits ? DEFAULT_FALLBACK_MAX_RPM : undefined);
+    const effectiveMaxTpm = sanitizePositiveLimit(customLimit?.maxTpm);
+
+    if (effectiveMaxRpm !== undefined) {
+      const activeAttempts = recentAttempts.filter((a) => a.timestamp > minuteThreshold);
+      if (activeAttempts.length >= effectiveMaxRpm) {
+        const oldestTs = Math.min(...activeAttempts.map((a) => a.timestamp));
+        const waitMs = Math.min(MAX_PROACTIVE_WAIT_MS, Math.max(250, oldestTs + 60_000 - now + 200));
+        return {
+          state,
+          circuitBreaker,
+          cooldownRemainingMs: waitMs,
+          transitionReason: `Điều tiết chủ động: đạt ngưỡng ${activeAttempts.length}/${effectiveMaxRpm} RPM trong 60s`,
+          isAvailable: false,
+          isCustomLimitReached: false,
+          isProactivePacing: true,
+        };
+      }
+    }
+
+    if (effectiveMaxTpm !== undefined) {
+      const activeTokens = recentTokens.filter((t) => t.timestamp > minuteThreshold);
+      const tokensThisMinute = activeTokens.reduce((acc, t) => acc + t.tokens, 0);
+      if (tokensThisMinute >= effectiveMaxTpm && activeTokens.length > 0) {
+        const oldestTs = Math.min(...activeTokens.map((t) => t.timestamp));
+        const waitMs = Math.min(MAX_PROACTIVE_WAIT_MS, Math.max(250, oldestTs + 60_000 - now + 200));
+        return {
+          state,
+          circuitBreaker,
+          cooldownRemainingMs: waitMs,
+          transitionReason: `Điều tiết chủ động: đạt ngưỡng ${tokensThisMinute}/${effectiveMaxTpm} TPM trong 60s`,
+          isAvailable: false,
+          isCustomLimitReached: false,
+          isProactivePacing: true,
+        };
+      }
+    }
+
+    return null;
+  }
+
   /**
-   * Kiểm tra tình trạng sức khỏe hiện tại của một API key, kết hợp cả máy trạng thái và ngưỡng cá nhân (Max RPD)
+   * Kiểm tra tình trạng sức khỏe hiện tại của một API key (cô lập theo cặp (Key, Model) khi options.model được cung cấp).
    */
   public getKeyHealth(
     key: string,
@@ -799,22 +1057,7 @@ export class LocalQuotaTracker {
     const stats = this.getOrCreateKeyStats(key, now);
     const configuredMaxRpd = sanitizePositiveLimit(customLimit?.maxRpd);
 
-    // 1. Kiểm tra nếu vi phạm giới hạn cá nhân tự đặt (Max RPD)
-    if (configuredMaxRpd !== undefined) {
-      if (stats.requestsToday >= configuredMaxRpd) {
-        return {
-          state: 'QuotaExhausted',
-          circuitBreaker: stats.circuitBreakerStatus,
-          cooldownRemainingMs: 0,
-          transitionReason: `Đã chạm ngưỡng giới hạn cá nhân trong ngày (${stats.requestsToday}/${configuredMaxRpd} RPD)`,
-          isAvailable: false,
-          isCustomLimitReached: true,
-          isProactivePacing: false,
-        };
-      }
-    }
-
-    // 2. Kiểm tra AuthFailed (401/403)
+    // 1. AuthFailed (401/403) luôn khóa toàn cục trên mọi mô hình
     if (stats.healthState === 'AuthFailed') {
       return {
         state: 'AuthFailed',
@@ -827,98 +1070,116 @@ export class LocalQuotaTracker {
       };
     }
 
-    // 3. Kiểm tra QuotaExhausted do upstream 429
-    if (stats.healthState === 'QuotaExhausted') {
-      const remaining = stats.cooldownUntil > now ? Math.max(0, stats.cooldownUntil - now) : 0;
+    const normModel = options?.model ? (normalizeModelId(options.model) || options.model) : undefined;
+    const existingModelStats = normModel ? stats.byModel.get(normModel) : undefined;
+    if (normModel && !existingModelStats) {
       return {
-        state: 'QuotaExhausted',
-        circuitBreaker: stats.circuitBreakerStatus,
-        cooldownRemainingMs: remaining,
+        state: 'Healthy',
+        circuitBreaker: 'Closed',
+        cooldownRemainingMs: 0,
         transitionReason: stats.transitionReason,
-        isAvailable: false,
+        isAvailable: true,
         isCustomLimitReached: false,
         isProactivePacing: false,
       };
     }
 
+    const targetState: {
+      requestsToday: number;
+      healthState: KeyHealthState;
+      circuitBreakerStatus: CircuitBreakerStatus;
+      cooldownUntil: number;
+      transitionReason?: string;
+      recentAttempts: CallAttemptEntry[];
+      recentTokens: CallTokenEntry[];
+      isLowUsageDailyExhaustion?: boolean;
+    } = normModel ? this.getOrCreateModelStats(stats, normModel, now) : stats;
+
+    // 2. Kiểm tra nếu vi phạm giới hạn cá nhân tự đặt (Max RPD)
+    if (configuredMaxRpd !== undefined && targetState.requestsToday >= configuredMaxRpd) {
+      return {
+        state: 'QuotaExhausted',
+        circuitBreaker: targetState.circuitBreakerStatus,
+        cooldownRemainingMs: 0,
+        transitionReason: `Đã chạm ngưỡng giới hạn cá nhân trong ngày (${targetState.requestsToday}/${configuredMaxRpd} RPD)`,
+        isAvailable: false,
+        isCustomLimitReached: true,
+        isProactivePacing: false,
+      };
+    }
+
+    // 3. Kiểm tra QuotaExhausted do upstream 429
+    if (targetState.healthState === 'QuotaExhausted') {
+      if (targetState.cooldownUntil > 0 && targetState.cooldownUntil <= now) {
+        targetState.healthState = 'Healthy';
+        targetState.circuitBreakerStatus = 'Closed';
+        targetState.cooldownUntil = 0;
+        targetState.isLowUsageDailyExhaustion = false;
+        targetState.transitionReason = 'Hồi phục sau khi hết thời gian chờ hạn mức ngày';
+      } else {
+        const remaining = targetState.cooldownUntil > now ? Math.max(0, targetState.cooldownUntil - now) : 0;
+        return {
+          state: 'QuotaExhausted',
+          circuitBreaker: targetState.circuitBreakerStatus,
+          cooldownRemainingMs: remaining,
+          transitionReason: targetState.transitionReason,
+          isAvailable: false,
+          isCustomLimitReached: false,
+          isProactivePacing: false,
+          isLowUsageDailyExhaustion: Boolean(targetState.isLowUsageDailyExhaustion),
+        };
+      }
+    }
+
     // 4. Kiểm tra hết hạn Cooldown / RateLimited
-    if (stats.cooldownUntil > 0) {
-      if (stats.cooldownUntil > now) {
-        const remaining = stats.cooldownUntil === Number.MAX_SAFE_INTEGER
+    if (targetState.cooldownUntil > 0) {
+      if (targetState.cooldownUntil > now) {
+        const remaining = targetState.cooldownUntil === Number.MAX_SAFE_INTEGER
           ? 0
-          : Math.max(0, stats.cooldownUntil - now);
+          : Math.max(0, targetState.cooldownUntil - now);
 
         return {
-          state: stats.healthState,
-          circuitBreaker: stats.circuitBreakerStatus,
+          state: targetState.healthState,
+          circuitBreaker: targetState.circuitBreakerStatus,
           cooldownRemainingMs: remaining,
-          transitionReason: stats.transitionReason,
+          transitionReason: targetState.transitionReason,
           isAvailable: false,
           isCustomLimitReached: false,
           isProactivePacing: false,
         };
       } else {
-        // Cooldown đã kết thúc -> chuyển sang HalfOpen để thử nghiệm
-        stats.cooldownUntil = 0;
-        if (stats.circuitBreakerStatus === 'Open') {
-          stats.circuitBreakerStatus = 'HalfOpen';
-          stats.healthState = 'Degraded';
-          stats.transitionReason = 'Thử nghiệm phục hồi sau thời gian tạm dừng';
+        targetState.cooldownUntil = 0;
+        if (targetState.circuitBreakerStatus === 'Open') {
+          targetState.circuitBreakerStatus = 'HalfOpen';
+          targetState.healthState = 'Degraded';
+          targetState.transitionReason = 'Thử nghiệm phục hồi sau thời gian tạm dừng';
         }
       }
     }
 
-    const isAvail = stats.healthState === 'Healthy' || stats.healthState === 'Degraded';
+    const isAvail = targetState.healthState === 'Healthy' || targetState.healthState === 'Degraded';
 
-    // 5. Cổng điều tiết chủ động cửa sổ trượt 60s (Proactive RPM/TPM Gate) — giữ nguyên HealthState trên UI
-    if (isAvail && (customLimit !== undefined || options?.enforceProactiveLimits)) {
-      const minuteThreshold = now - 60_000;
-      const effectiveMaxRpm =
-        sanitizePositiveLimit(customLimit?.maxRpm) ??
-        (options?.enforceProactiveLimits ? DEFAULT_FALLBACK_MAX_RPM : undefined);
-      const effectiveMaxTpm = sanitizePositiveLimit(customLimit?.maxTpm);
-
-      if (effectiveMaxRpm !== undefined) {
-        const activeAttempts = stats.recentAttempts.filter((a) => a.timestamp > minuteThreshold);
-        if (activeAttempts.length >= effectiveMaxRpm) {
-          const oldestTs = Math.min(...activeAttempts.map((a) => a.timestamp));
-          const waitMs = Math.min(MAX_PROACTIVE_WAIT_MS, Math.max(250, oldestTs + 60_000 - now + 200));
-          return {
-            state: stats.healthState,
-            circuitBreaker: stats.circuitBreakerStatus,
-            cooldownRemainingMs: waitMs,
-            transitionReason: `Điều tiết chủ động: đạt ngưỡng ${activeAttempts.length}/${effectiveMaxRpm} RPM trong 60s`,
-            isAvailable: false,
-            isCustomLimitReached: false,
-            isProactivePacing: true,
-          };
-        }
-      }
-
-      if (effectiveMaxTpm !== undefined) {
-        const activeTokens = stats.recentTokens.filter((t) => t.timestamp > minuteThreshold);
-        const tokensThisMinute = activeTokens.reduce((acc, t) => acc + t.tokens, 0);
-        if (tokensThisMinute >= effectiveMaxTpm && activeTokens.length > 0) {
-          const oldestTs = Math.min(...activeTokens.map((t) => t.timestamp));
-          const waitMs = Math.min(MAX_PROACTIVE_WAIT_MS, Math.max(250, oldestTs + 60_000 - now + 200));
-          return {
-            state: stats.healthState,
-            circuitBreaker: stats.circuitBreakerStatus,
-            cooldownRemainingMs: waitMs,
-            transitionReason: `Điều tiết chủ động: đạt ngưỡng ${tokensThisMinute}/${effectiveMaxTpm} TPM trong 60s`,
-            isAvailable: false,
-            isCustomLimitReached: false,
-            isProactivePacing: true,
-          };
-        }
+    // 5. Cổng điều tiết chủ động cửa sổ trượt 60s (Proactive RPM/TPM Gate)
+    if (isAvail) {
+      const proactive = this.evaluateProactiveLimits(
+        targetState.healthState,
+        targetState.circuitBreakerStatus,
+        targetState.recentAttempts,
+        targetState.recentTokens,
+        now,
+        customLimit,
+        options
+      );
+      if (proactive) {
+        return proactive;
       }
     }
 
     return {
-      state: stats.healthState,
-      circuitBreaker: stats.circuitBreakerStatus,
+      state: targetState.healthState,
+      circuitBreaker: targetState.circuitBreakerStatus,
       cooldownRemainingMs: 0,
-      transitionReason: stats.transitionReason,
+      transitionReason: targetState.transitionReason,
       isAvailable: isAvail,
       isCustomLimitReached: false,
       isProactivePacing: false,
@@ -976,6 +1237,7 @@ export class LocalQuotaTracker {
     const effectiveLimits = customLimits || getStoredCustomLimits();
     const safeStart = startIndex >= 0 ? startIndex % cleanKeys.length : 0;
     const minuteThreshold = now - 60_000;
+    const normModel = options?.model ? (normalizeModelId(options.model) || options.model) : undefined;
 
     let bestIdx = -1;
     let bestRpmCount = Number.MAX_SAFE_INTEGER;
@@ -994,8 +1256,11 @@ export class LocalQuotaTracker {
       }
 
       const stats = this.keyStatsMap.get(keyHash);
-      const rpmCount = stats
-        ? stats.recentAttempts.filter((a) => a.timestamp > minuteThreshold).length
+      const recentSource = normModel
+        ? stats?.byModel.get(normModel)?.recentAttempts
+        : stats?.recentAttempts;
+      const rpmCount = recentSource
+        ? recentSource.filter((a) => a.timestamp > minuteThreshold).length
         : 0;
       const lastTs = stats?.lastRequestTimestamp ?? 0;
 
@@ -1112,12 +1377,124 @@ export class LocalQuotaTracker {
   }
 
   /**
-   * Xuất báo cáo Quota Snapshot đầy đủ cho danh sách các keys
+   * Mở khóa thủ công trạng thái lỗi của một khóa API (theo mô hình chọn hoặc toàn bộ mô hình).
+   * Luôn bảo toàn bộ đếm requestsToday để không tự ý phá vỡ giới hạn Max RPD người dùng cài đặt.
+   */
+  public unlockKey(
+    key: string,
+    model?: string,
+    options?: { customLimit?: CustomLimit; now?: number; skipFlush?: boolean }
+  ): UnlockKeyResult {
+    const now = options?.now ?? Date.now();
+    const stats = this.getOrCreateKeyStats(key, now);
+    if (stats.healthState === 'AuthFailed') {
+      return { unlocked: false };
+    }
+
+    const resetModelRecord = (mStats: InternalModelStats) => {
+      mStats.healthState = 'Healthy';
+      mStats.circuitBreakerStatus = 'Closed';
+      mStats.cooldownUntil = 0;
+      mStats.consecutiveErrors = 0;
+      mStats.consecutiveSuccesses = 0;
+      mStats.consecutiveAmbiguous429 = 0;
+      mStats.isLowUsageDailyExhaustion = false;
+      mStats.transitionReason = 'Đã mở khóa thủ công bởi người dùng';
+      mStats.lastTransitionAt = now;
+    };
+
+    const normModel = model ? (normalizeModelId(model) || model) : undefined;
+    let targetRequestsToday = stats.requestsToday;
+
+    if (normModel) {
+      const mStats = stats.byModel.get(normModel);
+      if (mStats) {
+        resetModelRecord(mStats);
+        targetRequestsToday = mStats.requestsToday;
+      } else {
+        targetRequestsToday = 0;
+      }
+    } else {
+      for (const mStats of stats.byModel.values()) {
+        resetModelRecord(mStats);
+      }
+    }
+
+    const anyOtherModelStillExhausted = Array.from(stats.byModel.values()).some(
+      (m) => m.healthState === 'QuotaExhausted' && m.cooldownUntil > now
+    );
+    if (!normModel || !anyOtherModelStillExhausted) {
+      stats.healthState = 'Healthy';
+      stats.circuitBreakerStatus = 'Closed';
+      stats.cooldownUntil = 0;
+      stats.consecutiveErrors = 0;
+      stats.consecutiveSuccesses = 0;
+      stats.consecutiveAmbiguous429 = 0;
+      stats.transitionReason = 'Đã mở khóa thủ công bởi người dùng';
+      stats.lastTransitionAt = now;
+    }
+
+    this.isDirty = true;
+    if (!options?.skipFlush) {
+      this.flushToStorage(now);
+    }
+
+    const effectiveLimit = options?.customLimit ?? getStoredCustomLimits()?.[stats.keyHash];
+    const configuredMaxRpd = sanitizePositiveLimit(effectiveLimit?.maxRpd);
+    if (configuredMaxRpd !== undefined && targetRequestsToday >= configuredMaxRpd) {
+      return {
+        unlocked: true,
+        blockedByCustomLimit: true,
+        remainingCustomCooldownReason: `Khóa đã xóa cờ lỗi nhưng vẫn chạm ngưỡng giới hạn cá nhân (${targetRequestsToday}/${configuredMaxRpd} RPD). Hãy tăng Max RPD trong Ngưỡng cá nhân nếu muốn tiếp tục.`,
+      };
+    }
+
+    return { unlocked: true };
+  }
+
+  /**
+   * Mở khóa hàng loạt toàn bộ danh sách khóa đang chọn (bảo toàn bộ đếm Max RPD cá nhân).
+   */
+  public unlockAllKeys(
+    keys: string[],
+    model?: string,
+    customLimits?: Record<string, CustomLimit>,
+    now: number = Date.now()
+  ): { unlockedCount: number; customBlockedCount: number } {
+    const cleanKeys = Array.isArray(keys)
+      ? keys.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
+      : [];
+    const effectiveLimits = customLimits || getStoredCustomLimits();
+    let unlockedCount = 0;
+    let customBlockedCount = 0;
+
+    for (const rawKey of cleanKeys) {
+      const keyHash = hashApiKey(rawKey);
+      const res = this.unlockKey(rawKey, model, {
+        customLimit: effectiveLimits?.[keyHash],
+        now,
+        skipFlush: true,
+      });
+      if (res.unlocked) unlockedCount++;
+      if (res.blockedByCustomLimit) customBlockedCount++;
+    }
+
+    if (unlockedCount > 0) {
+      this.isDirty = true;
+      this.flushToStorage(now);
+    }
+
+    return { unlockedCount, customBlockedCount };
+  }
+
+  /**
+   * Xuất báo cáo Quota Snapshot đầy đủ cho danh sách các keys (ưu tiên trạng thái của selectedModel khi được truyền).
    */
   public getQuotaStatus(
     keys: string[],
     now: number = Date.now(),
-    customLimits?: Record<string, CustomLimit>
+    customLimits?: Record<string, CustomLimit>,
+    selectedModel?: string
   ): QuotaStatusResponse {
     this.checkPstReset(now);
     const minuteThreshold = now - 60_000;
@@ -1137,7 +1514,12 @@ export class LocalQuotaTracker {
     const snapshotKeys: KeyQuotaFullSnapshot[] = cleanKeys.map((key, idx) => {
       const stats = this.getOrCreateKeyStats(key, now);
       const limit = effectiveLimits ? effectiveLimits[stats.keyHash] : undefined;
-      const health = this.getKeyHealth(key, now, limit);
+      const health = this.getKeyHealth(
+        key,
+        now,
+        limit,
+        selectedModel ? { model: selectedModel } : undefined
+      );
 
       // Lọc các cuộc gọi trong 60 giây gần nhất để tính RPM (attempts) & TPM (tokens)
       stats.recentAttempts = stats.recentAttempts.filter((c) => c.timestamp > minuteThreshold);
@@ -1151,6 +1533,7 @@ export class LocalQuotaTracker {
         mStats.recentTokens = mStats.recentTokens.filter((c) => c.timestamp > minuteThreshold);
         const mRpm = mStats.recentAttempts.length;
         const mTpm = mStats.recentTokens.reduce((acc, c) => acc + c.tokens, 0);
+        const mHealth = this.getKeyHealth(key, now, limit, { model: mName });
 
         byModelSnapshot[mName] = {
           requestsTotal: mStats.requestsTotal,
@@ -1161,6 +1544,11 @@ export class LocalQuotaTracker {
           tokensTotal: mStats.tokensTotal,
           tokensToday: mStats.lastResetDay === currentDay ? mStats.tokensToday : 0,
           tokensThisMinute: mTpm,
+          healthState: mHealth.state,
+          circuitBreakerState: mHealth.circuitBreaker,
+          cooldownRemainingMs: mHealth.cooldownRemainingMs,
+          transitionReason: mHealth.transitionReason,
+          isLowUsageDailyExhaustion: mHealth.isLowUsageDailyExhaustion,
         };
       }
 
@@ -1177,6 +1565,7 @@ export class LocalQuotaTracker {
         transitionReason: health.transitionReason,
         isCustomLimitReached: health.isCustomLimitReached,
         isProactivePacing: health.isProactivePacing,
+        isLowUsageDailyExhaustion: health.isLowUsageDailyExhaustion,
       };
 
       return {

@@ -666,6 +666,45 @@ describe('geminiClient', () => {
       const status = localQuotaTracker.getQuotaStatus(['RETRY_AFTER_HEADER_KEY']);
       expect(status.keys[0].healthState).toBe('RateLimited');
     });
+
+    it('allows switching to another model on a key whose previous model hit daily RPD exhaustion (SC-001)', async () => {
+      const key = 'CROSS_MODEL_SWITCH_KEY';
+      const now = Date.now();
+      localQuotaTracker.recordProviderAttempt(key, 'gemini-3.5-flash-lite', now);
+      localQuotaTracker.recordFailure(
+        key,
+        'gemini-3.5-flash-lite',
+        { status: 429, message: 'requests per day limit exceeded on Free Tier' },
+        now
+      );
+
+      // Flash Lite is exhausted
+      await expect(
+        callGemini({
+          apiKeys: [key],
+          model: 'gemini-3.5-flash-lite',
+          prompt: 'Hello',
+        })
+      ).rejects.toThrow();
+
+      // Switching to gemini-2.5-flash on the SAME key succeeds cleanly
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: 'Xin chào' }] } }],
+          usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokenCount: 15 },
+        }),
+      });
+
+      const res = await callGemini({
+        apiKeys: [key],
+        model: 'gemini-2.5-flash',
+        prompt: 'Hello',
+      });
+      expect(res.text).toBe('Xin chào');
+      expect(res.successKeyIndex).toBe(0);
+    });
   });
 });
 

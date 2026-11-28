@@ -30,6 +30,13 @@ export interface KeyRuntimeStatus {
   transitionReason?: string;
   isCustomLimitReached?: boolean;
   isProactivePacing?: boolean;
+  isLowUsageDailyExhaustion?: boolean;
+}
+
+export interface UnlockKeyResult {
+  unlocked: boolean;
+  blockedByCustomLimit?: boolean;
+  remainingCustomCooldownReason?: string;
 }
 
 export interface ModelUsageStats {
@@ -41,6 +48,11 @@ export interface ModelUsageStats {
   tokensTotal?: number;
   tokensToday?: number;
   tokensThisMinute?: number;
+  healthState?: KeyHealthState;
+  circuitBreakerState?: string;
+  cooldownRemainingMs?: number;
+  transitionReason?: string;
+  isLowUsageDailyExhaustion?: boolean;
 }
 
 export interface LogicalSummaryStats {

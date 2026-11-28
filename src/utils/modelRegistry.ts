@@ -1,10 +1,12 @@
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../config/models';
-import type { KeyQuotaFullSnapshot, ModelInfoItem, ModelUsageStats } from '../types/quota';
+import { DEFAULT_CUSTOM_LIMIT, type CustomLimit, type KeyQuotaFullSnapshot, type ModelInfoItem, type ModelUsageStats } from '../types/quota';
 import type { ModelCapabilities, ModelDefinition, ModelLimits, ModelSource, ModelStatus, ModelVerificationState } from '../config/models';
+import { getFamilyReferenceLimits, normalizeModelId } from './modelReferenceLimits';
 
 export const DISCOVERED_MODELS_STORAGE_KEY = 'gemini_discovered_models';
 export const CUSTOM_MODELS_STORAGE_KEY = 'gemini_custom_models';
 
+export { normalizeModelId };
 export type { ModelSource, ModelStatus, ModelVerificationState, ModelCapabilities, ModelLimits, ModelDefinition };
 
 export interface RegisteredModelDef extends ModelDefinition { }
@@ -46,14 +48,6 @@ export function isValidModelIdFormat(model: unknown): boolean {
   if (trimmed.includes('..')) return false; // Ngăn chặn path traversal
   if (/[\x00-\x1F\x7F]/.test(trimmed)) return false; // Từ chối ký tự điều khiển
   return MODEL_ID_REGEX.test(trimmed);
-}
-
-/**
- * Chuẩn hóa mã định danh model (bỏ tiền tố 'models/' nếu có và chuyển thành chữ thường).
- */
-export function normalizeModelId(id: string): string {
-  if (!id) return '';
-  return id.replace(/^models\//i, '').trim().toLowerCase();
 }
 
 /**
@@ -633,6 +627,9 @@ export interface ModelStatsSummary {
   supportingKeyIndices: number[];
   hasChecked: boolean;
   isUnavailable: boolean;
+  runtimeTotalKeys: number;
+  runtimeAvailableKeyCount: number;
+  runtimeBlockedKeyCount: number;
 }
 
 /**
@@ -667,21 +664,43 @@ export function computeModelStatsSummary(
   let totalTokens = 0;
   let tokensToday = 0;
   let tokensThisMinute = 0;
+  let runtimeAvailableKeyCount = 0;
+  let runtimeBlockedKeyCount = 0;
 
-  // 1. Tổng hợp số liệu request và token từ tất cả các key
+  // 1. Tổng hợp số liệu request, token và khả năng phục vụ runtime theo model đang chọn
   for (const item of snapshotKeys) {
-    if (!item || !item.byModel) continue;
+    if (!item) continue;
 
-    for (const [mId, mStats] of Object.entries(item.byModel)) {
-      if (normalizeModelId(mId) === normSelected && mStats) {
-        totalRequests += mStats.requestsTotal || 0;
-        requestsToday += mStats.requestsToday || 0;
-        requestsThisMinute += mStats.requestsThisMinute || 0;
-        errorsTotal += mStats.errorsTotal || 0;
-        totalTokens += mStats.tokensTotal || 0;
-        tokensToday += mStats.tokensToday || 0;
-        tokensThisMinute += mStats.tokensThisMinute || 0;
+    let modelEntryStats: ModelUsageStats | undefined;
+    if (item.byModel) {
+      for (const [mId, mStats] of Object.entries(item.byModel)) {
+        if (normalizeModelId(mId) === normSelected && mStats) {
+          modelEntryStats = mStats;
+          totalRequests += mStats.requestsTotal || 0;
+          requestsToday += mStats.requestsToday || 0;
+          requestsThisMinute += mStats.requestsThisMinute || 0;
+          errorsTotal += mStats.errorsTotal || 0;
+          totalTokens += mStats.tokensTotal || 0;
+          tokensToday += mStats.tokensToday || 0;
+          tokensThisMinute += mStats.tokensThisMinute || 0;
+        }
       }
+    }
+
+    const effectiveHealth = modelEntryStats?.healthState ?? item.runtime?.healthState ?? item.healthState;
+    const isAuthFailed =
+      item.runtime?.healthState === 'AuthFailed' || item.healthState === 'AuthFailed';
+    const isKeyBlockedForModel =
+      isAuthFailed ||
+      (effectiveHealth !== undefined &&
+        effectiveHealth !== 'Healthy' &&
+        effectiveHealth !== 'Degraded') ||
+      (modelEntryStats?.healthState === undefined && Boolean(item.runtime?.isBlacklisted));
+
+    if (isKeyBlockedForModel) {
+      runtimeBlockedKeyCount++;
+    } else {
+      runtimeAvailableKeyCount++;
     }
   }
 
@@ -723,6 +742,9 @@ export function computeModelStatsSummary(
     supportingKeyIndices,
     hasChecked,
     isUnavailable,
+    runtimeTotalKeys: snapshotKeys.length,
+    runtimeAvailableKeyCount,
+    runtimeBlockedKeyCount,
   };
 }
 
@@ -820,6 +842,28 @@ export function getDynamicPacingInterval(customRpm?: number, modelId?: string): 
 export function isTpmNearLimit(currentTpm: number, maxTpm: number = 1000000): boolean {
   if (currentTpm <= 0 || maxTpm <= 0) return false;
   return currentTpm >= maxTpm * 0.85;
+}
+
+/**
+ * Trả về hạn mức tham chiếu mặc định sát thực tế cho từng dòng mô hình AI.
+ * Dùng làm mốc hiển thị & bảo vệ RPD khi người dùng chưa cấu hình ngưỡng cá nhân riêng.
+ */
+export function getModelReferenceLimits(modelId?: string): CustomLimit {
+  const familyLimits = getFamilyReferenceLimits(modelId);
+  if (familyLimits) {
+    return familyLimits;
+  }
+
+  const def = modelId ? getModelDefinition(modelId) : undefined;
+  if (def?.limits) {
+    return {
+      maxRpm: def.limits.defaultRpm || DEFAULT_CUSTOM_LIMIT.maxRpm,
+      maxTpm: def.limits.defaultTpm || DEFAULT_CUSTOM_LIMIT.maxTpm,
+      maxRpd: def.limits.defaultRpd || DEFAULT_CUSTOM_LIMIT.maxRpd,
+    };
+  }
+
+  return { ...DEFAULT_CUSTOM_LIMIT };
 }
 
 /**

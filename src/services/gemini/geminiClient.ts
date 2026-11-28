@@ -39,11 +39,13 @@ export async function callGemini(
 async function executeLogicalGeminiCallWithRecovery(
   options: DirectGeminiRequestOptions & { schema?: Record<string, any> }
 ): Promise<DirectGeminiResponse> {
+  const modelName = normalizeModelName(options.model);
   const useProactivePacing = Boolean(options.enableProactivePacing);
   const autoWait = Boolean(options.autoWaitForCooldown);
-  const keyHealthOptions: KeyHealthOptions | undefined = useProactivePacing
-    ? { enforceProactiveLimits: true }
-    : undefined;
+  const keyHealthOptions: KeyHealthOptions = {
+    model: modelName,
+    ...(useProactivePacing ? { enforceProactiveLimits: true } : {}),
+  };
 
   const maxCooldownWaits = options.maxCooldownWaits ?? RATE_LIMIT_RECOVERY_CONFIG.MAX_COOLDOWN_WAITS_PER_CHAPTER;
   const maxOverloadRetries = options.maxOverloadRetries ?? AI_SERVICE_CONFIG.MAX_OVERLOAD_RETRIES;

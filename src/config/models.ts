@@ -61,11 +61,11 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
       vision: true,
       thinking: false,
     },
-    // Local scheduler defaults: Giả định điều phối cục bộ (không thay thế hạn mức cấp dự án của Google)
+    // Local scheduler defaults: Giả định điều phối cục bộ (khớp Free Tier 15 RPM / 250K TPM / 500 RPD)
     limits: {
       defaultRpm: 15,
-      defaultTpm: 1000000,
-      defaultRpd: 1500,
+      defaultTpm: 250000,
+      defaultRpd: 500,
     },
     inputTokenLimit: 1048576,
     outputTokenLimit: 8192,
@@ -83,11 +83,11 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
       vision: true,
       thinking: true,
     },
-    // Local scheduler defaults: Giả định điều phối cục bộ (không thay thế hạn mức cấp dự án của Google)
+    // Local scheduler defaults: Giả định điều phối cục bộ (khớp Free Tier 15 RPM / 250K TPM / 500 RPD)
     limits: {
       defaultRpm: 15,
-      defaultTpm: 1000000,
-      defaultRpd: 1500,
+      defaultTpm: 250000,
+      defaultRpd: 500,
     },
     inputTokenLimit: 1048576,
     outputTokenLimit: 8192,
@@ -105,11 +105,11 @@ export const AVAILABLE_MODELS: ModelDefinition[] = [
       vision: true,
       thinking: true,
     },
-    // Local scheduler defaults: Giả định điều phối cục bộ (không thay thế hạn mức cấp dự án của Google)
+    // Local scheduler defaults: Giả định điều phối cục bộ (khớp Free Tier 10 RPM / 250K TPM / 100 RPD)
     limits: {
       defaultRpm: 10,
-      defaultTpm: 1000000,
-      defaultRpd: 1000,
+      defaultTpm: 250000,
+      defaultRpd: 100,
     },
     inputTokenLimit: 2097152,
     outputTokenLimit: 8192,

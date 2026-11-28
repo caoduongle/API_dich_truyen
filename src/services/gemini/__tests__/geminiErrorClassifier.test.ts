@@ -157,5 +157,25 @@ describe('classifyGeminiError', () => {
     expect(classified.recommendedCooldownMs).toBeGreaterThanOrEqual(45_000);
     expect(classified.recommendedCooldownMs).toBeLessThanOrEqual(60_000);
   });
+
+  it('parses compound provider retry duration (12h5m53.421929668s) on daily 500 RPD quota exhaustion (FR-006)', () => {
+    const dailyMessage =
+      'You exceeded your current quota, please check your plan and billing details.\n' +
+      '* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 500, model: gemini-3.5-flash-lite, description: Generate content requests per day limit exceeded on Free Tier.\n' +
+      'Please retry in 12h5m53.421929668s.';
+
+    const classified = classifyGeminiError(429, {
+      error: {
+        code: 429,
+        status: 'RESOURCE_EXHAUSTED',
+        message: dailyMessage,
+      },
+    });
+
+    expect(classified.category).toBe('QUOTA_EXHAUSTED_RPD');
+    // 12h 5m 53.422s = 43,553,422ms + 1,500ms buffer = 43,554,922ms
+    expect(classified.recommendedCooldownMs).toBeGreaterThanOrEqual(43_554_000);
+    expect(classified.recommendedCooldownMs).toBeLessThanOrEqual(43_556_000);
+  });
 });
 

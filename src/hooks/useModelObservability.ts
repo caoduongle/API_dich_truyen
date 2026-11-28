@@ -5,9 +5,11 @@ import type {
   QuotaGroupDisplayItem,
   ModelInfoItem,
   QuotaStatusResponse,
-  LogicalSummaryStats
+  LogicalSummaryStats,
+  UnlockKeyResult
 } from '../types/quota';
 import { saveDiscoveredModels } from '../utils/modelRegistry';
+import { getStoredCustomLimits } from '../utils/customLimitsStorage';
 import { localQuotaTracker } from '../services/localQuotaTracker';
 
 export interface ModelObservabilityState {
@@ -25,6 +27,8 @@ export interface ModelObservabilityState {
   loadQuotaStatus: (forceRefresh?: boolean) => Promise<void>;
   inspectKeyModels: (keyIndex: number) => Promise<void>;
   clearInspectResult: (keyIndex: number) => void;
+  unlockKey: (keyIndex: number, modelId?: string) => UnlockKeyResult;
+  unlockAllKeys: (modelId?: string) => { unlockedCount: number; customBlockedCount: number };
 }
 
 interface QuotaCacheEntry {
@@ -47,9 +51,10 @@ export function getQuotaCache(): QuotaCacheEntry | null {
 export function useModelObservability(
   apiKeys: string[],
   onModelsDiscovered?: (models: ModelInfoItem[]) => void,
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean; selectedModel?: string }
 ): ModelObservabilityState {
   const isEnabled = options?.enabled !== false;
+  const selectedModel = options?.selectedModel;
   const [snapshotKeys, setSnapshotKeys] = useState<KeyQuotaFullSnapshot[]>([]);
   const [groups, setGroups] = useState<QuotaGroupDisplayItem[]>([]);
   const [summary, setSummary] = useState<LogicalSummaryStats | null>(null);
@@ -69,6 +74,9 @@ export function useModelObservability(
   const cleanKeysRef = useRef(cleanKeys);
   cleanKeysRef.current = cleanKeys;
 
+  const selectedModelRef = useRef(selectedModel);
+  selectedModelRef.current = selectedModel;
+
   const onDiscoveredRef = useRef(onModelsDiscovered);
   onDiscoveredRef.current = onModelsDiscovered;
 
@@ -85,7 +93,7 @@ export function useModelObservability(
     setLoadingQuota(true);
     setQuotaError(null);
     try {
-      const data = localQuotaTracker.getQuotaStatus(currentClean);
+      const data = localQuotaTracker.getQuotaStatus(currentClean, Date.now(), undefined, selectedModelRef.current);
       setSnapshotKeys(data.keys || []);
       setGroups(data.groups || []);
       setSummary(data.summary || null);
@@ -104,7 +112,7 @@ export function useModelObservability(
     if (isEnabled) {
       loadQuotaStatus();
     }
-  }, [cleanKeysKey, loadQuotaStatus, isEnabled]);
+  }, [cleanKeysKey, loadQuotaStatus, isEnabled, selectedModel]);
 
   const inspectKeyModels = useCallback(async (keyIndex: number) => {
     const currentClean = cleanKeysRef.current;
@@ -134,6 +142,35 @@ export function useModelObservability(
     setInspectResults(prev => ({ ...prev, [keyIndex]: [] }));
   }, []);
 
+  const unlockKey = useCallback((keyIndex: number, modelId?: string): UnlockKeyResult => {
+    const currentClean = cleanKeysRef.current;
+    const targetKey = currentClean[keyIndex];
+    if (!targetKey) {
+      return { unlocked: false };
+    }
+    const targetModel = modelId ?? selectedModelRef.current;
+    const customLimits = getStoredCustomLimits(currentClean);
+    const data = localQuotaTracker.getQuotaStatus(currentClean, Date.now(), customLimits, targetModel);
+    const keyHash = data.keys[keyIndex]?.keyHash;
+    const result = localQuotaTracker.unlockKey(targetKey, targetModel, {
+      customLimit: keyHash ? customLimits[keyHash] : undefined,
+    });
+    void loadQuotaStatus(true);
+    return result;
+  }, [loadQuotaStatus]);
+
+  const unlockAllKeys = useCallback((modelId?: string) => {
+    const currentClean = cleanKeysRef.current;
+    if (currentClean.length === 0) {
+      return { unlockedCount: 0, customBlockedCount: 0 };
+    }
+    const targetModel = modelId ?? selectedModelRef.current;
+    const customLimits = getStoredCustomLimits(currentClean);
+    const result = localQuotaTracker.unlockAllKeys(currentClean, targetModel, customLimits);
+    void loadQuotaStatus(true);
+    return result;
+  }, [loadQuotaStatus]);
+
   return {
     snapshotKeys,
     groups,
@@ -149,5 +186,7 @@ export function useModelObservability(
     loadQuotaStatus,
     inspectKeyModels,
     clearInspectResult,
+    unlockKey,
+    unlockAllKeys,
   };
 }

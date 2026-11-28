@@ -17,6 +17,7 @@ import {
   isTpmNearLimit,
   formatPacingSummary,
   getModelDefinition,
+  getModelReferenceLimits,
   migrateModelSelection,
   getVerifiedModels,
   updateCustomModelVerification,
@@ -555,6 +556,34 @@ describe('modelRegistry utils', () => {
       expect(res.wasMigrated).toBe(false);
       expect(res.effectiveModelId).toBe('my-custom-unregistered-model');
       expect(res.isShutdown).toBe(false);
+    });
+  });
+
+  describe('getModelReferenceLimits (Feature 173 FR-007)', () => {
+    it('returns accurate 15 RPM / 250K TPM / 500 RPD defaults for Flash Lite and Flash models', () => {
+      expect(getModelReferenceLimits('gemini-3.5-flash-lite')).toEqual({
+        maxRpm: 15,
+        maxTpm: 250_000,
+        maxRpd: 500,
+      });
+      expect(getModelReferenceLimits('models/gemini-3.1-flash-lite')).toEqual({
+        maxRpm: 15,
+        maxTpm: 250_000,
+        maxRpd: 500,
+      });
+      expect(getModelReferenceLimits('gemini-2.5-flash')).toEqual({
+        maxRpm: 15,
+        maxTpm: 250_000,
+        maxRpd: 500,
+      });
+    });
+
+    it('returns accurate 10 RPM / 250K TPM / 100 RPD defaults for Pro models', () => {
+      expect(getModelReferenceLimits('gemini-2.5-pro')).toEqual({
+        maxRpm: 10,
+        maxTpm: 250_000,
+        maxRpd: 100,
+      });
     });
   });
 });

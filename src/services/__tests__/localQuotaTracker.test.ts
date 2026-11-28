@@ -615,4 +615,195 @@ describe('localQuotaTracker & getNextPstMidnight', () => {
       expect(pool.allPermanentlyExhausted).toBe(true);
     });
   });
+
+  describe('Per-Model Isolation, Compound Reset & Manual Unlock (Feature 173)', () => {
+    it('isolates QuotaExhausted and RateLimited states strictly per (Key, Model) while keeping AuthFailed key-global', () => {
+      const now = 1_700_000_000_000;
+      const key = 'AIzaSyMultiModelIsolationKey';
+
+      localQuotaTracker.recordProviderAttempt(key, 'gemini-3.5-flash-lite', now);
+      localQuotaTracker.recordFailure(
+        key,
+        'gemini-3.5-flash-lite',
+        { status: 429, message: 'Generate content requests per day limit exceeded.' },
+        now
+      );
+
+      // Blocked on Flash Lite
+      const flashLiteHealth = localQuotaTracker.getKeyHealth(key, now, undefined, { model: 'gemini-3.5-flash-lite' });
+      expect(flashLiteHealth.state).toBe('QuotaExhausted');
+      expect(flashLiteHealth.isAvailable).toBe(false);
+
+      // Healthy on 2.5 Flash using the exact same key
+      const flash25Health = localQuotaTracker.getKeyHealth(key, now, undefined, { model: 'gemini-2.5-flash' });
+      expect(flash25Health.state).toBe('Healthy');
+      expect(flash25Health.isAvailable).toBe(true);
+      expect(localQuotaTracker.findNextAvailableKeyIndex([key], 0, undefined, now, { model: 'gemini-3.5-flash-lite' })).toBe(-1);
+      expect(localQuotaTracker.findNextAvailableKeyIndex([key], 0, undefined, now, { model: 'gemini-2.5-flash' })).toBe(0);
+
+      // 401/403 AuthFailed locks key globally across all models
+      localQuotaTracker.recordFailure(key, 'gemini-2.5-flash', { status: 401, isAuthError: true, message: 'API key not valid' }, now);
+      expect(localQuotaTracker.getKeyHealth(key, now, undefined, { model: 'gemini-2.5-flash' }).state).toBe('AuthFailed');
+      expect(localQuotaTracker.getKeyHealth(key, now, undefined, { model: 'gemini-2.5-pro' }).state).toBe('AuthFailed');
+    });
+
+    it('uses compound provider retryDelay (12h5m53s) for QuotaExhausted cooldown and resets per-model state across PST rollover', () => {
+      const now = Date.UTC(2026, 10, 27, 19, 0, 0, 0);
+      const key = 'AIzaSyCompoundDelayKey';
+      localQuotaTracker.recordProviderAttempt(key, 'gemini-3.5-flash-lite', now);
+      localQuotaTracker.recordFailure(
+        key,
+        'gemini-3.5-flash-lite',
+        {
+          status: 429,
+          message: 'Quota exceeded requests per day, limit: 500. Please retry in 12h5m53.421929668s.',
+        },
+        now
+      );
+
+      const status = localQuotaTracker.getQuotaStatus([key], now, undefined, 'gemini-3.5-flash-lite');
+      const remaining = status.keys[0].cooldownRemainingMs || 0;
+      const expectedMin = (12 * 3600 + 5 * 60 + 53) * 1000;
+      expect(remaining).toBeGreaterThanOrEqual(expectedMin);
+      expect(remaining).toBeLessThanOrEqual(expectedMin + 3000);
+
+      // After PST rollover (48h later) model recovers to Healthy with requestsToday = 0
+      const nextDay = now + 48 * 3_600_000;
+      const recovered = localQuotaTracker.getKeyHealth(key, nextDay, undefined, { model: 'gemini-3.5-flash-lite' });
+      expect(recovered.state).toBe('Healthy');
+      expect(recovered.isAvailable).toBe(true);
+    });
+
+    it('unlocks error-locked key immediately via unlockKey/unlockAllKeys while preserving custom maxRpd cap (FR-004, FR-005)', () => {
+      const now = Date.now();
+      const k1 = 'AIzaSyUnlockKeyOne';
+      const k2 = 'AIzaSyUnlockKeyTwo';
+      const key2Hash = hashApiKey(k2);
+
+      // Key 1 locked from server daily limit at 10 reqs
+      for (let i = 0; i < 10; i++) {
+        localQuotaTracker.recordProviderAttempt(k1, 'gemini-3.5-flash-lite', now);
+      }
+      localQuotaTracker.recordFailure(
+        k1,
+        'gemini-3.5-flash-lite',
+        { status: 429, message: 'requests per day limit exceeded' },
+        now
+      );
+
+      // Key 2 hit custom maxRpd = 3
+      for (let i = 0; i < 3; i++) {
+        localQuotaTracker.recordProviderAttempt(k2, 'gemini-3.5-flash-lite', now);
+      }
+      const customLimits = { [key2Hash]: { maxRpm: 15, maxTpm: 250_000, maxRpd: 3 } };
+
+      expect(localQuotaTracker.getKeyHealth(k1, now, undefined, { model: 'gemini-3.5-flash-lite' }).state).toBe('QuotaExhausted');
+
+      const singleRes = localQuotaTracker.unlockKey(k1, 'gemini-3.5-flash-lite', { now });
+      expect(singleRes.unlocked).toBe(true);
+      expect(singleRes.blockedByCustomLimit).toBeUndefined();
+      expect(localQuotaTracker.getKeyHealth(k1, now, undefined, { model: 'gemini-3.5-flash-lite' }).isAvailable).toBe(true);
+
+      // Unlock key 2 -> preserves requestsToday = 3 so custom limit cap stays intact
+      const k2Res = localQuotaTracker.unlockKey(k2, 'gemini-3.5-flash-lite', {
+        customLimit: customLimits[key2Hash],
+        now,
+      });
+      expect(k2Res.unlocked).toBe(true);
+      expect(k2Res.blockedByCustomLimit).toBe(true);
+      const k2Health = localQuotaTracker.getKeyHealth(k2, now, customLimits[key2Hash], { model: 'gemini-3.5-flash-lite' });
+      expect(k2Health.isAvailable).toBe(false);
+      expect(k2Health.isCustomLimitReached).toBe(true);
+    });
+
+    it('normalizes legacy byModel keys and migrates pre-patch sessionStorage without losing daily counters (FR-011)', () => {
+      const now = Date.now();
+      const key = 'AIzaSyLegacySessionMigrationKey';
+      const keyHash = hashApiKey(key);
+      const currentDay = getDayInLosAngeles(now);
+
+      mockStorage['gemini_local_quota_tracker_v1'] = JSON.stringify({
+        summaryStats: { lastResetDay: currentDay },
+        keyStats: [
+          {
+            keyHash,
+            maskedKey: 'AIzaSy...Key',
+            requestsTotal: 25,
+            requestsToday: 25,
+            errorsTotal: 2,
+            tokensTotal: 5000,
+            tokensToday: 5000,
+            lastResetDay: currentDay,
+            healthState: 'QuotaExhausted',
+            cooldownUntil: now + 3_600_000,
+            byModel: {
+              'models/gemini-3.5-flash-lite': {
+                requestsTotal: 10,
+                requestsToday: 10,
+                errorsTotal: 1,
+                errorsToday: 1,
+                tokensTotal: 2000,
+                tokensToday: 2000,
+                totalLatencyMs: 100,
+                lastResetDay: currentDay,
+              },
+              'gemini-3.5-flash-lite': {
+                requestsTotal: 15,
+                requestsToday: 15,
+                errorsTotal: 1,
+                errorsToday: 1,
+                tokensTotal: 3000,
+                tokensToday: 3000,
+                totalLatencyMs: 200,
+                lastResetDay: currentDay,
+              },
+            },
+          },
+        ],
+      });
+
+      localQuotaTracker.loadFromStorage(now);
+      const status = localQuotaTracker.getQuotaStatus([key], now, undefined, 'gemini-3.5-flash-lite');
+      const modelStats = status.keys[0].byModel['gemini-3.5-flash-lite'];
+      expect(modelStats.requestsToday).toBe(25);
+      // Legacy snapshot had no per-model healthState, so per-model check initializes Healthy without false lock
+      expect(status.keys[0].healthState).toBe('Healthy');
+    });
+
+    it('does not allocate phantom byModel entries when inspecting or unlocking an unused model, and unlockAllKeys flushes once cleanly', () => {
+      const now = Date.now();
+      const k1 = 'AIzaSyNoPhantomOne';
+      const k2 = 'AIzaSyNoPhantomTwo';
+
+      localQuotaTracker.recordProviderAttempt(k1, 'gemini-3.5-flash-lite', now);
+      localQuotaTracker.recordFailure(
+        k1,
+        'gemini-3.5-flash-lite',
+        { status: 429, message: 'requests per day limit exceeded' },
+        now
+      );
+      localQuotaTracker.recordProviderAttempt(k2, 'gemini-3.5-flash-lite', now);
+      localQuotaTracker.recordFailure(
+        k2,
+        'gemini-3.5-flash-lite',
+        { status: 429, message: 'requests per day limit exceeded' },
+        now
+      );
+
+      // Querying or status-checking an unused model must not pollute byModel
+      const unusedHealth = localQuotaTracker.getKeyHealth(k1, now, undefined, { model: 'gemini-2.5-flash' });
+      expect(unusedHealth.isAvailable).toBe(true);
+      const statusUnused = localQuotaTracker.getQuotaStatus([k1, k2], now, undefined, 'gemini-2.5-flash');
+      expect(statusUnused.keys[0].byModel['gemini-2.5-flash']).toBeUndefined();
+      expect(Object.keys(statusUnused.keys[0].byModel)).toEqual(['gemini-3.5-flash-lite']);
+
+      // unlockAllKeys unlocks both keys on Flash Lite and persists to sessionStorage
+      const res = localQuotaTracker.unlockAllKeys([k1, k2], 'gemini-3.5-flash-lite', undefined, now);
+      expect(res.unlockedCount).toBe(2);
+      expect(res.customBlockedCount).toBe(0);
+      expect(localQuotaTracker.getKeyHealth(k1, now, undefined, { model: 'gemini-3.5-flash-lite' }).isAvailable).toBe(true);
+      expect(localQuotaTracker.getKeyHealth(k2, now, undefined, { model: 'gemini-3.5-flash-lite' }).isAvailable).toBe(true);
+      expect(sessionStorage.getItem('gemini_local_quota_tracker_v1')).toBeTruthy();
+    });
+  });
 });
